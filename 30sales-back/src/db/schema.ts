@@ -199,6 +199,9 @@ export const messagingChannels = pgTable('messaging_channels', {
   phoneNumber: text('phone_number').notNull(),
   providerChannelId: text('provider_channel_id').notNull(),
   providerAccountId: text('provider_account_id'),
+  credentialsCiphertext: text('credentials_ciphertext'),
+  credentialsIv: text('credentials_iv'),
+  credentialsAuthTag: text('credentials_auth_tag'),
   chatwootInboxId: text('chatwoot_inbox_id'),
   isActive: boolean('is_active').default(true).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -250,12 +253,14 @@ export const messages = pgTable('messages', {
   actorType: messageActorType('actor_type').notNull(),
   bodyText: text('body_text'),
   deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),
+  idempotencyKey: text('idempotency_key'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'messages_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
   unique('messages_id_organization_unique').on(table.id, table.organizationId),
   unique('messages_conversation_external_unique').on(table.organizationId, table.conversationId, table.externalMessageId),
+  unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
 ]);
 

@@ -20,8 +20,25 @@ export function ChannelsWorkspace() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [updatingId, setUpdatingId] = useState('')
+  const [credentialsChannelId, setCredentialsChannelId] = useState('')
+  const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
+  const [evolutionApiKey, setEvolutionApiKey] = useState('')
+  const [cloudAccessToken, setCloudAccessToken] = useState('')
+  const [savingCredentials, setSavingCredentials] = useState(false)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
+
+  const clearCredentialForm = () => {
+    setCredentialsChannelId('')
+    setEvolutionBaseUrl('')
+    setEvolutionApiKey('')
+    setCloudAccessToken('')
+  }
+  const openCredentialForm = (channelId: string) => {
+    clearCredentialForm()
+    setCredentialsChannelId(channelId)
+    setError('')
+  }
 
   useEffect(() => {
     let active = true
@@ -56,13 +73,26 @@ export function ChannelsWorkspace() {
     catch { setError(t('channels.updateFailed')) }
     finally { setUpdatingId('') }
   }
+  const configureCredentials = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const channel = channels.find((item) => item.id === credentialsChannelId)
+    if (!channel) return
+    setSavingCredentials(true); setError('')
+    try {
+      await api.channels.setCredentials(channel.id, channel.provider === 'evolution'
+        ? { provider: 'evolution', baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey }
+        : { provider: 'whatsapp_cloud_api', accessToken: cloudAccessToken })
+      clearCredentialForm(); setRefresh((version) => version + 1)
+    } catch { setError(t('channels.credentialsFailed')) }
+    finally { setSavingCredentials(false) }
+  }
 
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><Radio size={16} /><strong>{channel.displayName}</strong></div> },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => t(`channels.providers.${channel.provider}`) },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
     { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}</div> },
-    { id: 'status', label: t('channels.columns.routing'), render: (channel) => <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</button></div> },
+    { id: 'status', label: t('channels.columns.routing'), render: (channel) => <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><button type="button" onClick={() => openCredentialForm(channel.id)}>{t('channels.configureCredentials')}</button><button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</button></div> },
   ]
   return <section className="channels-page">
     <header className="channels-heading"><div><p className="eyebrow">{t('channels.eyebrow')}</p><h2>{t('channels.title')}</h2><p className="muted">{t('channels.description')}</p></div><button className="refresh" type="button" onClick={() => setRefresh((version) => version + 1)} aria-label={t('channels.refresh')}><RefreshCw size={16} /></button></header>
@@ -77,6 +107,13 @@ export function ChannelsWorkspace() {
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.add')}</>}</button></div>
     </form>
+    {credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
+      <div className="channel-form-heading"><Radio size={17} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
+      <div className="channel-form-grid">
+        {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<input value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<input value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" required /></label></> : <label>{t('channels.cloudAccessToken')}<input value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" required /></label>}
+      </div>
+      <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</button><button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t('channels.saveCredentials')}</button></div>
+    </form> : null })()}
     {error && <p className="error" role="alert">{error}</p>}
     <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} filters={<label className="channel-search"><Search size={15} /><input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />
   </section>

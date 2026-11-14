@@ -10,7 +10,7 @@
 .inbox-conversation-copy { display: grid; gap: 4px; min-width: 0; }
 .inbox-conversation-copy strong, .inbox-conversation-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inbox-conversation-copy small, .inbox-thread-heading span, .inbox-message-meta, .inbox-message small { color: var(--muted, #6f7785); font-size: 12px; }
-.inbox-thread { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
+.inbox-thread { display: grid; grid-template-rows: auto minmax(0, 1fr) auto auto; min-width: 0; }
 .inbox-thread-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line, #e7e9ed); }
 .inbox-control-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
 .inbox-control-actions button { min-height:32px; border:1px solid var(--line,#dbe2ea); border-radius:7px; padding:6px 10px; background:#fff; color:#334155; font-size:12px; font-weight:600; cursor:pointer; }
@@ -25,6 +25,14 @@
 .inbox-message.internal { align-self: center; background: #fff7e8; }
 .inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-composer { display:grid; gap:7px; padding:12px 18px; border-top:1px solid var(--line,#e7e9ed); background:#fff; }
+.inbox-composer>p { margin:0; color:var(--muted,#64748b); font-size:11px; }
+.inbox-composer textarea { width:100%; min-height:78px; resize:vertical; border:1px solid #dbe2ea; border-radius:8px; padding:10px; color:#1e293b; font:inherit; }
+.inbox-composer>div { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.inbox-composer small { color:var(--muted,#64748b); font-size:10px; }
+.inbox-composer button { min-height:34px; border:0; border-radius:7px; padding:7px 14px; background:#254b7a; color:#fff; font-size:12px; font-weight:650; cursor:pointer; }
+.inbox-composer button:disabled { opacity:.45; cursor:not-allowed; }
+.inbox-send-error { color:#a83a35 !important; }
 .inbox-readonly-note { padding: 12px 18px; border-top: 1px solid var(--line, #e7e9ed); color: var(--muted, #6f7785); font-size: 13px; }
 .inbox-empty { display: grid; align-content: center; justify-items: center; gap: 10px; min-height: 140px; padding: 24px; color: var(--muted, #6f7785); text-align: center; }
 .inbox-empty strong { color: inherit; }

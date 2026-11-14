@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { createChannelSchema, updateChannelSchema } from './channels.dto';
-import type { CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import { channelCredentialsSchema, createChannelSchema, updateChannelSchema } from './channels.dto';
+import type { ChannelCredentialsDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
 import { ChannelsService } from './channels.service';
 
 const channelIdSchema = z.string().uuid();
@@ -17,4 +17,6 @@ export class ChannelsController {
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createChannelSchema)) input: CreateChannelDto) { return this.channelsService.create(request, input); }
   @Patch(':id')
   update(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(updateChannelSchema)) input: UpdateChannelDto) { return this.channelsService.update(request, channelId, input); }
+  @Put(':id/credentials')
+  configureCredentials(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(channelCredentialsSchema)) credentials: ChannelCredentialsDto) { return this.channelsService.configureCredentials(request, channelId, credentials); }
 }

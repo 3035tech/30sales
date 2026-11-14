@@ -3,5 +3,7 @@ import { TenantAccessService } from '../leads/tenant-access.service';
 import { InboxController } from './inbox.controller';
 import { InboxRepository } from './inbox.repository';
 import { InboxService } from './inbox.service';
-@Module({ controllers: [InboxController], providers: [InboxService, InboxRepository, TenantAccessService] })
+import { ChannelsModule } from '../channels/channels.module';
+import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
+@Module({ imports: [ChannelsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, TenantAccessService, WhatsappTextProviderService] })
 export class InboxModule {}

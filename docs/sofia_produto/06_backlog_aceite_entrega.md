@@ -33,12 +33,12 @@
 - Dry-run/shadow de políticas e sincronizações.
 - Follow-up, alertas e cadências com kill switch/quotas.
 
-### P3 — Envios automatizados e substituição
+### P3 — Automação e ingestão em escala
 
-- Adapters de envio/recebimento para Evolution e WhatsApp Cloud API oficial, callbacks e saúde do canal no produto; credenciais em secret manager.
+- Ingestão de webhooks inbound e callbacks de status para Evolution e Cloud API, deduplicação, saúde do canal e reconciliação de mensagens.
 - Migração da Sofia A/G, B/F/D/H e C em ondas, um fluxo por função.
 - Agenda integrada e confirmação de reunião.
-- Ativação gradual de envios humanos e automações da Sofia pelos adapters Evolution e WhatsApp Cloud API, após ownership, pausa, idempotência e reconciliação comprovados.
+- Runtime da Sofia consultando o modo da conversa; workers/outbox com retry limitado e dead-letter, após reconciliação dos envios síncronos atuais.
 - Inbox e CRM nativos. Chatwoot não é dependência nem executor do produto; pode ser apenas uma fonte legada de importação durante a migração.
 
 ## 6.2 User stories e aceites essenciais
@@ -97,7 +97,7 @@
 
 **Cadastro de canais WhatsApp entregue no código:** API e tela registram um canal por número, com provedor Evolution ou Cloud API e identificadores externos. O Inbox permite filtrar por canal e apresenta nome/número na conversa. A habilitação do registro define sua disponibilidade para futuras regras de roteamento. Migration 0014 aditiva preserva conversas existentes com canal nulo. Nenhum token é salvo e não há conexão, health check, webhook ou envio real nesta entrega; os adapters dos provedores seguem no P3. Não existe vínculo operacional com Chatwoot.
 
-**Posse e modo da conversa — primeira fatia entregue no código:** `POST /conversations/:id/claim` faz lock transacional, permite um único closer vencedor e muda owner + modo para atendimento humano no mesmo commit; tentativa concorrente recebe conflito. `PATCH /conversations/:id/owner` permite atribuir para membro comercial do tenant ou transferir pelo owner atual. Responsável e modo aparecem na fila. O owner pode pausar, liberar (owner nulo e Sofia pausada) ou devolver explicitamente para Sofia; todas as mudanças são auditadas e exigem `inbox.assign`. Migration 0015 ainda não foi aplicada. A Sofia atual não está integrada a esse estado, portanto os controles registram o estado do 30Sales e não pausam workflows legados. Ainda pendem worker que imponha o modo antes de envio, conexão da Sofia e adapters/outbox para mensagens.
+**Posse, modo e resposta humana — primeira fatia entregue no código:** `POST /conversations/:id/claim` faz lock transacional e permite um único closer vencedor; `PATCH /conversations/:id/owner` atribui a membro comercial do tenant ou transfere pelo owner atual. Assumir/atribuir muda para modo humano; liberar pausa Sofia; devolver para Sofia é explícito. As mudanças são auditadas. Admin configura credenciais cifradas por canal; `POST /conversations/:id/messages` envia texto direto ao provider quando usuário é owner, modo é humano e canal/telefone estão prontos. Chave idempotente evita reenvio da mesma solicitação; resultado distingue aceito, falha e ambíguo. Migrations 0015–0016 ainda não foram aplicadas. A automação Sofia atual não está integrada ao modo, e callbacks de entrega, templates, anexos e fila/outbox ainda pendem.
 
 **Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 

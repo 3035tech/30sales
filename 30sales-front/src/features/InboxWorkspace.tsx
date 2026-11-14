@@ -10,6 +10,10 @@ export function InboxWorkspace() {
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
+  const [messageDraft, setMessageDraft] = useState('')
+  const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const [messageSendError, setMessageSendError] = useState('')
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [assignees, setAssignees] = useState<Array<{ id: string; name: string; role: string }>>([])
   const [assigneeTarget, setAssigneeTarget] = useState('')
@@ -38,9 +42,11 @@ export function InboxWorkspace() {
   useEffect(() => { api.inbox.assignees().then(setAssignees).catch(() => setAssignees([])) }, [])
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { setMessageDraft(''); setMessageKey(crypto.randomUUID()); setMessageSendError('') }, [selectedId])
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
     let active = true
+    setMessages([])
     setMessagesLoading(true)
     api.inbox.messages(selectedId, { limit: 100 }).then((result) => { if (active) setMessages(result) })
       .catch(() => { if (active) setError(t('inbox.messagesFailed')) })
@@ -49,6 +55,7 @@ export function InboxWorkspace() {
   }, [selectedId, t])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
+  const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
   const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign') => {
     if (!selected) return
@@ -66,19 +73,33 @@ export function InboxWorkspace() {
       setControlling(false)
     }
   }
+  const sendMessage = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || !canSend || !messageDraft.trim()) return
+    setSendingMessage(true); setMessageSendError('')
+    try {
+      const message = await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
+      setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
+      setMessageDraft(''); setMessageKey(crypto.randomUUID())
+      if (message.deliveryState === 'unknown') setMessageSendError(t('inbox.deliveryUnknown'))
+      if (message.deliveryState === 'failed') setMessageSendError(t('inbox.deliveryFailed'))
+    } catch {
+      setMessageSendError(t('inbox.sendFailed'))
+    } finally { setSendingMessage(false) }
+  }
   const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : t('inbox.noMessagesYet')
 
   return <section className="inbox-page">
     <header className="inbox-heading"><div><p className="eyebrow">{t('inbox.eyebrow')}</p><h2>{t('inbox.title')}</h2><p className="muted">{t('inbox.description')}</p></div>
-      <button className="refresh" onClick={() => void refresh(channelFilter)} aria-label={t('inbox.refresh')}><RefreshCw size={16} /></button>
+      <button className="refresh" disabled={sendingMessage} onClick={() => void refresh(channelFilter)} aria-label={t('inbox.refresh')}><RefreshCw size={16} /></button>
     </header>
     {error && <p className="error" role="alert">{error}</p>}
     <div className="inbox-layout">
       <aside className="inbox-conversations" aria-label={t('inbox.conversationList')}>
-        <label className="inbox-channel-filter">{t('channels.inboxFilter')}<select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</select></label>
+        <label className="inbox-channel-filter">{t('channels.inboxFilter')}<select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</select></label>
         {loading ? <p className="inbox-empty">{t('common.loading')}</p> : conversations.length === 0 ? <div className="inbox-empty"><MessageSquareText size={22} /><strong>{t('inbox.empty')}</strong><span>{t('inbox.emptyHint')}</span></div> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
-          return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId}>
+          return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
             <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small><small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
           </button>
         })}
@@ -98,6 +119,12 @@ export function InboxWorkspace() {
               <p>{message.bodyText || t('inbox.nonTextMessage')}</p><small>{t(`inbox.delivery.${message.deliveryState}`)}</small>
             </article>)}
           </div>
+          <form className="inbox-composer" onSubmit={sendMessage}>
+            {!canSend && <p>{t('inbox.replyUnavailable')}</p>}
+            <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} maxLength={4096} placeholder={t('inbox.replyPlaceholder')} disabled={!canSend || sendingMessage} aria-label={t('inbox.replyPlaceholder')} />
+            {messageSendError && <p className="inbox-send-error" role="status">{messageSendError}</p>}
+            <div><small>{messageDraft.length}/4096</small><button type="submit" disabled={!canSend || sendingMessage || !messageDraft.trim()}>{sendingMessage ? t('inbox.sending') : t('inbox.send')}</button></div>
+          </form>
           <footer className="inbox-readonly-note">{t('inbox.readOnly')}</footer>
         </>}
       </section>

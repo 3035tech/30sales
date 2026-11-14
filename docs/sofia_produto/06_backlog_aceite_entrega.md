@@ -103,6 +103,8 @@
 
 **Etiquetas de conversa — primeira fatia entregue no código:** etiquetas são compartilhadas dentro de cada tenant, normalizadas para não duplicar variações de maiúsculas/minúsculas, vinculadas às conversas e auditadas. SDR/closer responsável pode adicionar/remover etiquetas e filtrar a fila por etiqueta; Migration 0018 cria tabelas e FKs compostas para impedir vínculo cruzado entre tenants. A migration ainda não foi aplicada; busca livre, cores e gestão administrativa de etiquetas continuam pendentes.
 
+**Busca e filas do Inbox — primeira fatia entregue no código:** pesquisa por empresa, contato ou telefone; filtros server-side por status, responsável (incluindo sem responsável), canal e etiqueta; paginação com total e seletor 10/25/50/100. Quando qualquer critério muda, a fila volta à primeira página. A resposta usa envelope paginado `{data, pagination}`; cliente web atualizado pelo API client centralizado.
+
 **Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 
 - **Como closer**, quero receber uma fila única do que exige minha intervenção, para agir sem acompanhar todas as conversas de qualificação.

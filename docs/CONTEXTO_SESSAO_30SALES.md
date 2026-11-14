@@ -53,9 +53,9 @@ Implementação integrada na `feature/inbox-delivery-status`: reconhecer ambos o
 
 Limitação tratada: callback sem mensagem local é ignorado, então a corrida rara em que o callback antecede a gravação do ID externo exige futura reconciliação com worker/outbox. Sem migrations aplicadas, deploy ou teste/build nesta sessão.
 
-## Próximo passo recomendado
+## Próxima fatia em andamento: filas de trabalho do Inbox
 
-Próxima fatia recomendada: anexos inbound WhatsApp, salvando metadados e mídia de forma tenant-scoped e sem registrar URLs/segredos sensíveis em logs. Antes de implementar, avaliar os payloads oficiais atuais dos dois providers e escolher armazenamento de arquivos compatível com Dublin/local; definir limites de tamanho, tipos aceitos e experiência para mídia indisponível. Alternativa igualmente prioritária é iniciar o worker/outbox e reconciliação para callbacks que cheguem antes da gravação do ID externo; manter pequeno o primeiro fluxo vertical.
+Por decisão operacional nesta retomada, anexos foram adiados porque precisam de contrato de armazenamento persistente para Dublin e estratégia comum para mídia Evolution/Cloud API. A feature atual `feature/inbox-search-queues` implementa busca por empresa/contato/telefone, filtros por status, responsável (inclui `unassigned`), canal e etiqueta, contagem e paginação do servidor; atualiza o contrato da listagem para `{data, pagination}`. Depois de concluir/integrar, retomar anexos com armazenamento persistente escolhido e limites definidos. Worker/outbox e reconciliação de callbacks sem correspondência também permanecem como prioridade.
 
 Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 

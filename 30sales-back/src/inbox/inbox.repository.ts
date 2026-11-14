@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, auditEvents, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing';
@@ -17,11 +17,21 @@ export class InboxRepository {
     return rows.map((row) => new ConversationAssigneeDto(row.id, row.name, row.role));
   }
 
-  async list(input: ConversationRepositoryListDto): Promise<ConversationListItemDto[]> {
+  async list(input: ConversationRepositoryListDto): Promise<ConversationPageDto> {
     const conditions = [eq(conversations.organizationId, input.organizationId)];
     if (input.query.status) conditions.push(eq(conversations.status, input.query.status));
     if (input.query.channelId) conditions.push(eq(conversations.channelId, input.query.channelId));
+    if (input.query.ownerUserId === 'unassigned') conditions.push(sql`${conversations.ownerUserId} is null`);
+    else if (input.query.ownerUserId) conditions.push(eq(conversations.ownerUserId, input.query.ownerUserId));
+    if (input.query.search) {
+      const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.phone, pattern))!);
+    }
     if (input.query.tagId) conditions.push(sql`exists (select 1 from conversation_tag_links ctl where ctl.organization_id = ${input.organizationId} and ctl.conversation_id = ${conversations.id} and ctl.tag_id = ${input.query.tagId})`);
+    const [{ total }] = await database.select({ total: count() }).from(conversations)
+      .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
+      .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .where(and(...conditions));
     const rows = await database.select({ id: conversations.id, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode })
       .from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
@@ -37,7 +47,8 @@ export class InboxRepository {
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
     for (const tag of tagRows) tagsByConversation.set(tag.conversationId, [...(tagsByConversation.get(tag.conversationId) ?? []), new ConversationTagDto(tag.id, tag.name)]);
-    return rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), tagsByConversation.get(row.id) ?? []));
+    const data = rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), tagsByConversation.get(row.id) ?? []));
+    return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
   async listTags(organizationId: string): Promise<ConversationTagDto[]> {

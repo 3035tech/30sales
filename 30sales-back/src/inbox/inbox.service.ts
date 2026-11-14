@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
@@ -9,7 +9,7 @@ import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 @Injectable()
 export class InboxService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService) {}
-  async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationListItemDto[]> {
+  async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.repository.list(new ConversationRepositoryListDto(context.organizationId, query));
   }

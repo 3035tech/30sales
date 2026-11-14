@@ -26,6 +26,7 @@ const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['sofia','human','paused']), replyAvailable: z.boolean(), tags: z.array(conversationTagSchema) });
+const conversationPageSchema = z.object({ data: z.array(conversationSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional() });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
 const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
@@ -53,6 +54,7 @@ export type OpportunityHistoryDto = z.infer<typeof opportunityHistorySchema>;
 export type ActivityType = z.infer<typeof activityType>;
 export type ActivityDto = z.infer<typeof activitySchema>;
 export type ConversationDto = z.infer<typeof conversationSchema>;
+export type ConversationPageDto = z.infer<typeof conversationPageSchema>;
 export type ChannelDto = z.infer<typeof channelSchema>;
 export type CreateChannelInput = { provider: ChannelDto['provider']; displayName: string; phoneNumber: string; providerChannelId: string; providerAccountId?: string };
 export type MessageDto = z.infer<typeof messageSchema>;
@@ -102,14 +104,16 @@ function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['s
 export const api = {
   session: { get: () => request('/api/v1/session', sessionSchema) },
   inbox: {
-    conversations: (params: { status?: ConversationDto['status']; channelId?: string; tagId?: string; limit?: number; offset?: number } = {}) => {
+    conversations: (params: { status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.status) search.set('status', params.status);
       if (params.channelId) search.set('channelId', params.channelId);
       if (params.tagId) search.set('tagId', params.tagId);
+      if (params.ownerUserId) search.set('ownerUserId', params.ownerUserId);
+      if (params.search) search.set('search', params.search);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
-      return request(`/api/v1/conversations?${search.toString()}`, z.array(conversationSchema));
+      return request(`/api/v1/conversations?${search.toString()}`, conversationPageSchema);
     },
     channels: () => request('/api/v1/conversations/channels', z.array(channelSchema)),
     tags: () => request('/api/v1/conversations/tags', z.array(conversationTagSchema)),

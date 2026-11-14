@@ -12,6 +12,9 @@
 .inbox-conversation-copy small, .inbox-thread-heading span, .inbox-message-meta, .inbox-message small { color: var(--muted, #6f7785); font-size: 12px; }
 .inbox-thread { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; }
 .inbox-thread-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--line, #e7e9ed); }
+.inbox-control-actions { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; }
+.inbox-control-actions button { min-height:32px; border:1px solid var(--line,#dbe2ea); border-radius:7px; padding:6px 10px; background:#fff; color:#334155; font-size:12px; font-weight:600; cursor:pointer; }
+.inbox-control-actions button:disabled { opacity:.55; cursor:wait; }
 .inbox-thread-heading div { display: grid; gap: 4px; }
 .inbox-messages { display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 20px; background: #f8f9fb; }
 .inbox-message { max-width: min(78%, 620px); padding: 12px 14px; border: 1px solid var(--line, #e7e9ed); border-radius: 14px; background: #fff; }

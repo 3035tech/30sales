@@ -1,0 +1,2 @@
+ALTER TABLE "conversations" ADD COLUMN "automation_mode" text DEFAULT 'sofia' NOT NULL;--> statement-breakpoint
+ALTER TABLE "conversations" ADD CONSTRAINT "conversations_automation_mode_check" CHECK ("conversations"."automation_mode" in ('sofia', 'human', 'paused'));

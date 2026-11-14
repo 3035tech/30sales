@@ -15,10 +15,10 @@ export class TenantAccessService {
     if (!session) throw new UnauthorizedException({ code: 'AUTH_REQUIRED', message: 'Sign in to access leads.' });
     const organizationId = session.session.activeOrganizationId;
     if (!organizationId) throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Select an organization to continue.' });
-    if (domain !== 'leads' && permission === 'assign') throw new ForbiddenException({ code: 'INVALID_PERMISSION_DOMAIN', message: 'Assignment permission is only supported for leads.' });
+    if (domain !== 'leads' && domain !== 'inbox' && permission === 'assign') throw new ForbiddenException({ code: 'INVALID_PERMISSION_DOMAIN', message: 'Assignment permission is only supported for leads and inbox conversations.' });
     const regularPermission: 'read' | 'create' | 'update' = permission === 'manage' ? 'read' : permission === 'assign' ? 'read' : permission;
     const permissionDefinition = domain === 'reports' ? { reports: permission === 'read' ? ['read'] as Array<'read'> : ['export'] as Array<'export'> }
-      : domain === 'inbox' ? { inbox: ['read'] as Array<'read'> }
+      : domain === 'inbox' ? { inbox: permission === 'assign' ? ['assign'] as Array<'assign'> : ['read'] as Array<'read'> }
       : domain === 'audit' ? { audit: ['read'] as Array<'read'> }
         : domain === 'integrations' ? { integrations: permission === 'manage' ? ['manage'] as Array<'manage'> : ['read'] as Array<'read'> }
           : domain === 'leads' ? { leads: permission === 'assign' ? ['assign'] as Array<'assign'> : [regularPermission] }

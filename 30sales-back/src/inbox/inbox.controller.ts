@@ -1,9 +1,9 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { listConversationsSchema } from './inbox.dto';
+import { conversationAutomationModeSchema, listConversationsSchema } from './inbox.dto';
 import type { ListConversationsQueryDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 
@@ -19,4 +19,10 @@ export class InboxController {
   channels(@ApiRequest() request: ApiRequestDto) { return this.inboxService.channels(request); }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
+  @Post(':id/claim')
+  claim(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string) { return this.inboxService.claim(request, conversationId); }
+  @Post(':id/release')
+  release(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string) { return this.inboxService.release(request, conversationId); }
+  @Post(':id/automation')
+  setAutomation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationAutomationModeSchema)) mode: 'sofia' | 'human' | 'paused') { return this.inboxService.setAutomationMode(request, conversationId, mode); }
 }

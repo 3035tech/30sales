@@ -11,6 +11,8 @@ export function InboxWorkspace() {
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [currentUserId, setCurrentUserId] = useState('')
+  const [controlling, setControlling] = useState(false)
   const [channelFilter, setChannelFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(false)
@@ -31,6 +33,7 @@ export function InboxWorkspace() {
   }, [channelFilter, t])
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
+  useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
@@ -43,6 +46,21 @@ export function InboxWorkspace() {
   }, [selectedId, t])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
+  const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause') => {
+    if (!selected) return
+    setControlling(true)
+    setError('')
+    try {
+      if (action === 'claim') await api.inbox.claim(selected.id)
+      else if (action === 'release') await api.inbox.release(selected.id)
+      else await api.inbox.setAutomationMode(selected.id, action === 'sofia' ? 'sofia' : 'paused')
+      await refresh(channelFilter)
+    } catch {
+      setError(t('inbox.controlFailed'))
+    } finally {
+      setControlling(false)
+    }
+  }
   const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : t('inbox.noMessagesYet')
 
   return <section className="inbox-page">
@@ -56,13 +74,18 @@ export function InboxWorkspace() {
         {loading ? <p className="inbox-empty">{t('common.loading')}</p> : conversations.length === 0 ? <div className="inbox-empty"><MessageSquareText size={22} /><strong>{t('inbox.empty')}</strong><span>{t('inbox.emptyHint')}</span></div> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
           return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
+            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small><small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
           </button>
         })}
       </aside>
       <section className="inbox-thread" aria-label={t('inbox.thread')}>
         {!selected ? <div className="inbox-empty thread-empty"><MessageSquareText size={25} /><strong>{loading ? t('common.loading') : t('inbox.selectConversation')}</strong><span>{t('inbox.readOnly')}</span></div> : <>
-          <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}</div><span className="tag">{t(`inbox.status.${selected.status}`)}</span></header>
+          <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
+            {!selected.ownerUserId && <button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</button>}
+            {selected.ownerUserId === currentUserId && selected.automationMode === 'human' && <button type="button" disabled={controlling} onClick={() => void controlConversation('pause')}>{t('inbox.pauseSofia')}</button>}
+            {selected.automationMode === 'paused' && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <button type="button" disabled={controlling} onClick={() => void controlConversation('sofia')}>{t('inbox.resumeSofia')}</button>}
+            {selected.ownerUserId === currentUserId && <button type="button" disabled={controlling} onClick={() => void controlConversation('release')}>{t('inbox.release')}</button>}
+            <span className="tag">{t(`inbox.status.${selected.status}`)}</span></div></header>
           <div className="inbox-messages" aria-live="polite">
             {messagesLoading ? <p className="inbox-empty">{t('common.loading')}</p> : messages.length === 0 ? <div className="inbox-empty"><span>{t('inbox.noMessagesYet')}</span><span>{t('inbox.emptyMessagesHint')}</span></div> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>

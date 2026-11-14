@@ -50,6 +50,8 @@
 
 **Mudança de status com evidência entregue no código:** a tela pede justificativa antes de salvar; a API exige texto de 3 a 1000 caracteres. Status anterior/novo, ator, motivo e correlation ID ficam em auditoria na mesma transação do histórico. Transição para o status atual é recusada como mudança sem efeito.
 
+**Redistribuição de oportunidades entregue no código:** gestores podem atribuir uma oportunidade aberta a um closer ativo do mesmo tenant ou deixá-la sem responsável. A API verifica papel do ator, membership e papel do destino; ganhas/perdidas ficam bloqueadas. Auditoria registra responsável anterior/novo, ator e correlation ID. A carteira reflete a atribuição após atualização.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

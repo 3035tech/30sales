@@ -12,7 +12,8 @@ const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
-const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const funnelReportSchema = z.object({ from: z.string(), to: z.string(), currentOpenCount: z.number(), openWithoutNextActionCount: z.number(), overdueNextActionCount: z.number(), currentStages: z.array(z.object({ stage: opportunityStage, count: z.number() })), createdInPeriodCount: z.number(), wonInPeriodCount: z.number(), lostInPeriodCount: z.number(), wonAmountByCurrency: z.array(z.object({ currency: z.string(), amount: z.string() })), generatedAt: z.string() });
 const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), toStage: opportunityStage, actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
 const activityType = z.enum(['call','meeting','email','message','task','note','research']);
@@ -38,6 +39,7 @@ export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
+export type OpportunityAssigneeDto = z.infer<typeof opportunityAssigneeSchema>;
 export type FunnelReportDto = z.infer<typeof funnelReportSchema>;
 export type OpportunityHistoryDto = z.infer<typeof opportunityHistorySchema>;
 export type ActivityType = z.infer<typeof activityType>;
@@ -154,6 +156,8 @@ export const api = {
     returnToSdr: (id: string, input: { reason: string; nextStep: string; dueAt: string }) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/return`, handoffSchema, { method: 'PATCH', body: JSON.stringify(input) }),
   },
   opportunities: {
+    assignees: () => request('/api/v1/opportunities/assignees', z.array(opportunityAssigneeSchema)),
+    assignOwner: (id: string, ownerUserId: string | null) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/owner`, opportunitySchema, { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
     list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.view) search.set('view', params.view);

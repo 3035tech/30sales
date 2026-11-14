@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type ActivityDto, type ActivityType, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
+import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
 import './Pipeline.css'
 import './ActivityTimeline.css'
 
@@ -24,6 +24,7 @@ export function PipelineWorkspace() {
   const { t, i18n } = useTranslation()
   const [view, setView] = useState<PipelineView>('mine')
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
+  const [assignableClosers, setAssignableClosers] = useState<OpportunityAssigneeDto[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -35,6 +36,7 @@ export function PipelineWorkspace() {
     finally { setLoading(false) }
   }, [view, t])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { api.opportunities.assignees().then(setAssignableClosers).catch(() => setAssignableClosers(null)) }, [])
   const loadMore = async () => {
     setLoadingMore(true); setError('')
     try { const page = await api.opportunities.list({ view, limit: 100, offset: opportunities.length }); setOpportunities((current) => [...current, ...page]); setHasMore(page.length === 100) }
@@ -57,7 +59,7 @@ export function PipelineWorkspace() {
     {loading ? <div className="lead-empty">{t('common.loading')}</div> : opportunities.length === 0 ? <div className="lead-list-panel lead-empty"><span className="card-icon"><TrendingUp size={19} /></span><h3>{t('pipeline.empty')}</h3><p>{t('pipeline.emptyHint')}</p></div> : <div className="pipeline-board">
       {stages.filter((stage) => stageCounts[stage] > 0 || !terminal(stage)).map((stage) => <section className="pipeline-column" key={stage}>
         <header><h3>{t(`opportunityStages.${stage}`)}</h3><span>{stageCounts[stage]}</span></header>
-        {opportunities.filter((item) => item.stage === stage).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} onUpdated={() => void refresh()} />)}
+        {opportunities.filter((item) => item.stage === stage).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} assignableClosers={assignableClosers} onUpdated={() => void refresh()} />)}
         {stageCounts[stage] === 0 && <p className="pipeline-column-empty">{t('pipeline.noDeals')}</p>}
       </section>)}
     </div>}
@@ -66,7 +68,7 @@ export function PipelineWorkspace() {
   </section>
 }
 
-function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityDto; onUpdated: () => void }) {
+function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opportunity: OpportunityDto; assignableClosers: OpportunityAssigneeDto[] | null; onUpdated: () => void }) {
   const { t, i18n } = useTranslation()
   const [editing, setEditing] = useState(false)
   const [targetStage, setTargetStage] = useState<OpportunityStage>(transitions[opportunity.stage][0] ?? opportunity.stage)
@@ -87,6 +89,7 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
   const [activityResult, setActivityResult] = useState('')
   const [activityOccurredAt, setActivityOccurredAt] = useState(localDateTime())
   const [activitySaving, setActivitySaving] = useState(false)
+  const [ownerSaving, setOwnerSaving] = useState(false)
   const canMove = transitions[opportunity.stage].length > 0 && opportunity.canUpdate
   const dueAt = opportunity.nextActionAt ? new Date(opportunity.nextActionAt) : null
   const overdue = Boolean(dueAt && dueAt.getTime() < Date.now() && !terminal(opportunity.stage))
@@ -122,6 +125,12 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
     } catch { setError(t('errors.createActivity')) }
     finally { setActivitySaving(false) }
   }
+  const assignOwner = async (ownerUserId: string) => {
+    setOwnerSaving(true); setError('')
+    try { await api.opportunities.assignOwner(opportunity.id, ownerUserId || null); onUpdated() }
+    catch { setError(t('opportunityAssignment.failed')) }
+    finally { setOwnerSaving(false) }
+  }
   const timeline = [
     ...(activities ?? []).map((item) => ({ ...item, kind: 'activity' as const, timestamp: item.occurredAt })),
     ...(history ?? []).map((item) => ({ ...item, kind: 'stage' as const, timestamp: item.occurredAt })),
@@ -130,6 +139,7 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
   return <article className={`opportunity-card${overdue || !opportunity.nextActionAt ? ' at-risk' : ''}`}>
     <div className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</div>
     <p className="opportunity-person">{opportunity.contactName} · {opportunity.ownerName ?? t('pipeline.unassignedOwner')}</p>
+    {!terminal(opportunity.stage) && assignableClosers && <label className="opportunity-owner-picker">{t('opportunityAssignment.assignCloser')}<select aria-label={t('opportunityAssignment.assignCloserFor', { opportunity: opportunity.name })} value={opportunity.ownerUserId ?? ''} disabled={ownerSaving} onChange={(event) => void assignOwner(event.target.value)}><option value="">{t('pipeline.unassignedOwner')}</option>{assignableClosers.map((closer) => <option key={closer.id} value={closer.id}>{closer.name}</option>)}</select></label>}
     {(opportunity.contactEmail || opportunity.contactPhone) && <p className="opportunity-channel">{opportunity.contactEmail ?? opportunity.contactPhone}</p>}
     <div className={`opportunity-next${overdue || !opportunity.nextActionAt ? ' overdue' : ''}`}>
       {opportunity.nextActionAt ? <><CalendarClock size={14} /><span><strong>{opportunity.nextAction ?? t('pipeline.actionMissing')}</strong><small>{formatDate(opportunity.nextActionAt)}</small></span></> : <><AlertTriangle size={14} /><span><strong>{t('pipeline.actionMissing')}</strong><small>{t('pipeline.addNextAction')}</small></span></>}

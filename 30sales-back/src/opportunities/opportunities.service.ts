@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
-import { ListOpportunitiesQueryDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, TransitionOpportunityDto } from './opportunities.dto';
+import { AssignOpportunityOwnerDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, TransitionOpportunityDto } from './opportunities.dto';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto, CreateActivityDto } from './activities.dto';
 import { OpportunityActivitiesRepository } from './activities.repository';
@@ -12,6 +12,20 @@ const MANAGER_ROLES = ['owner', 'admin', 'manager'];
 @Injectable()
 export class OpportunitiesService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository, private readonly activitiesRepository: OpportunityActivitiesRepository) {}
+  async listAssignees(request: ApiRequestDto): Promise<OpportunityAssigneeDto[]> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    if (!MANAGER_ROLES.includes(context.role)) throw new ForbiddenException({ code: 'OPPORTUNITY_ASSIGNMENT_FORBIDDEN', message: 'Only sales managers can reassign opportunities.' });
+    return this.repository.listAssignees(context.organizationId);
+  }
+  async assignOwner(request: ApiRequestDto, opportunityId: string, dto: AssignOpportunityOwnerDto): Promise<OpportunityRecordDto> {
+    const context = await this.tenantAccess.require(request, 'update', 'pipeline');
+    if (!MANAGER_ROLES.includes(context.role)) throw new ForbiddenException({ code: 'OPPORTUNITY_ASSIGNMENT_FORBIDDEN', message: 'Only sales managers can reassign opportunities.' });
+    const result = await this.repository.assignOwner(new OpportunityRepositoryAssignOwnerDto(context.organizationId, opportunityId, dto.ownerUserId, context.userId, request.correlationId));
+    if (result === 'invalid_assignee') throw new ConflictException({ code: 'INVALID_OPPORTUNITY_ASSIGNEE', message: 'The selected user must be an active closer in this organization.' });
+    if (result === 'terminal_opportunity') throw new ConflictException({ code: 'CLOSED_OPPORTUNITY_OWNER_LOCKED', message: 'Closed opportunities cannot be reassigned.' });
+    if (!result) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active organization.' });
+    return result;
+  }
   async list(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.list(new OpportunityRepositoryListDto(context.organizationId, context.userId, MANAGER_ROLES.includes(context.role), context.role === 'closer', query));

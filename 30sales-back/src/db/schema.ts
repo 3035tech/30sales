@@ -42,6 +42,7 @@ export const leads = pgTable('leads', {
   accountId: uuid('account_id').notNull(),
   personId: uuid('person_id').notNull(),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  assignedToUserId: uuid('assigned_to_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   source: leadSource('source').default('manual').notNull(),
   status: leadStatus('status').default('new').notNull(),
   nextActionAt: timestamp('next_action_at', { withTimezone: true }),
@@ -53,6 +54,7 @@ export const leads = pgTable('leads', {
   unique('leads_id_organization_unique').on(table.id, table.organizationId),
   index('leads_org_status_next_action_idx').on(table.organizationId, table.status, table.nextActionAt),
   index('leads_org_created_idx').on(table.organizationId, table.createdAt),
+  index('leads_org_assignee_status_idx').on(table.organizationId, table.assignedToUserId, table.status),
 ]);
 
 export const leadStatusHistory = pgTable('lead_status_history', {

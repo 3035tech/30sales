@@ -2,17 +2,24 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, gte, ilike, lt, min, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, auditEvents, leadStatusHistory, leads, people, tasks } from '../db/schema';
-import { LeadPageDto, LeadRecordDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
+import { member as authMember, user as authUser } from '../db/auth-schema';
+import { LeadAssigneeDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
 
-function mapLead(row: { leadId: string; accountName: string; contactName: string; email: string | null; phone: string | null; source: string; status: LeadRecordDto['status']; nextActionAt: Date | null; createdAt: Date; updatedAt: Date }): LeadRecordDto {
-  return new LeadRecordDto(row.leadId, row.accountName, row.contactName, row.email, row.phone, row.source, row.status, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString());
+function mapLead(row: { leadId: string; accountName: string; contactName: string; email: string | null; phone: string | null; source: string; status: LeadRecordDto['status']; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; assignedToUserId: string | null; assignedToName: string | null }): LeadRecordDto {
+  return new LeadRecordDto(row.leadId, row.accountName, row.contactName, row.email, row.phone, row.source, row.status, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), row.assignedToUserId, row.assignedToName);
 }
 @Injectable()
 export class LeadsRepository {
+  async listAssignees(organizationId: string): Promise<LeadAssigneeDto[]> {
+    const rows = await database.select({ id: authUser.id, name: authUser.name, role: authMember.role }).from(authMember)
+      .innerJoin(authUser, eq(authUser.id, authMember.userId)).where(eq(authMember.organizationId, organizationId)).orderBy(asc(authUser.name));
+    return rows.map((row) => new LeadAssigneeDto(row.id, row.name, row.role));
+  }
   async listTasks(input: TaskRepositoryListDto): Promise<TaskRecordDto[]> {
     const conditions = [eq(tasks.organizationId, input.organizationId), eq(tasks.status, input.query.status)];
     if (input.query.from) conditions.push(gte(tasks.dueAt, new Date(input.query.from)));
     if (input.query.to) conditions.push(lt(tasks.dueAt, new Date(input.query.to)));
+    if (input.query.assignedToUserId) conditions.push(eq(tasks.assignedToUserId, input.query.assignedToUserId));
     const rows = await database.select({ id: tasks.id, leadId: tasks.leadId, title: tasks.title, dueAt: tasks.dueAt, status: tasks.status, completedAt: tasks.completedAt, accountName: accounts.name, contactName: people.name }).from(tasks)
       .innerJoin(leads, and(eq(leads.id, tasks.leadId), eq(leads.organizationId, tasks.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
@@ -46,6 +53,8 @@ export class LeadsRepository {
     const conditions = [eq(leads.organizationId, input.organizationId)];
     if (input.query.status) conditions.push(eq(leads.status, input.query.status));
     if (input.query.source) conditions.push(eq(leads.source, input.query.source));
+    if (input.query.assignedToUserId === 'unassigned') conditions.push(sql`${leads.assignedToUserId} is null`);
+    else if (input.query.assignedToUserId) conditions.push(eq(leads.assignedToUserId, input.query.assignedToUserId));
     const search = input.query.search?.trim();
     if (search) {
       const pattern = `%${search}%`;
@@ -59,13 +68,15 @@ export class LeadsRepository {
       channel: sql`coalesce(${people.email}, ${people.phone}, '')`,
       source: leads.source,
       status: leads.status,
+      assignedTo: authUser.name,
       nextActionAt: leads.nextActionAt,
       createdAt: leads.createdAt,
     }[input.query.sortBy];
     const direction = input.query.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
-    const base = database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt }).from(leads)
+    const base = database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt, assignedToUserId: leads.assignedToUserId, assignedToName: authUser.name }).from(leads)
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
-      .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(where);
+      .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+      .leftJoin(authUser, eq(authUser.id, leads.assignedToUserId)).where(where);
     const [rows, totals] = await Promise.all([
       base.orderBy(direction, asc(leads.id)).limit(input.query.limit).offset(input.query.offset),
       database.select({ total: count() }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId))).innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(where),
@@ -77,16 +88,18 @@ export class LeadsRepository {
     return database.transaction(async (transaction) => {
       const [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: input.accountName }).returning();
       const [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.contactName, email: input.email, phone: input.phone }).returning();
-      const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, accountId: account.id, personId: person.id, createdByUserId: input.createdByUserId, source: input.source, status: 'new' }).returning();
+      const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, accountId: account.id, personId: person.id, createdByUserId: input.createdByUserId, assignedToUserId: input.createdByUserId, source: input.source, status: 'new' }).returning();
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: null, toStatus: 'new', changedByUserId: input.createdByUserId });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.createdByUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: lead.id, correlationId: input.correlationId, afterState: { status: 'new', source: input.source } });
-      return mapLead({ leadId: lead.id, accountName: account.name, contactName: person.name, email: person.email, phone: person.phone, source: lead.source, status: lead.status, nextActionAt: lead.nextActionAt, createdAt: lead.createdAt, updatedAt: lead.updatedAt });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.createdByUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: lead.id, correlationId: input.correlationId, afterState: { status: 'new', source: input.source, assignedToUserId: input.createdByUserId } });
+      const [assignedTo] = await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, lead.assignedToUserId!)).limit(1);
+      return mapLead({ leadId: lead.id, accountName: account.name, contactName: person.name, email: person.email, phone: person.phone, source: lead.source, status: lead.status, nextActionAt: lead.nextActionAt, createdAt: lead.createdAt, updatedAt: lead.updatedAt, assignedToUserId: lead.assignedToUserId, assignedToName: assignedTo.name });
     });
   }
   async findById(input: LeadRepositoryFindDto): Promise<LeadRecordDto | null> {
-    const [row] = await database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt }).from(leads)
+    const [row] = await database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt, assignedToUserId: leads.assignedToUserId, assignedToName: authUser.name }).from(leads)
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
       .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+      .leftJoin(authUser, eq(authUser.id, leads.assignedToUserId))
       .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).limit(1);
     return row ? mapLead(row) : null;
   }
@@ -97,10 +110,29 @@ export class LeadsRepository {
       if (!updated) return null;
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: input.leadId, fromStatus: input.expectedStatus, toStatus: input.status, changedByUserId: input.changedByUserId });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.changedByUserId, actorType: 'user', action: 'lead.status_changed', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, beforeState: { status: input.expectedStatus }, afterState: { status: input.status } });
-      const [row] = await transaction.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt }).from(leads)
+      const [row] = await transaction.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt, assignedToUserId: leads.assignedToUserId, assignedToName: authUser.name }).from(leads)
         .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+        .leftJoin(authUser, eq(authUser.id, leads.assignedToUserId))
         .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).limit(1);
+      return row ? mapLead(row) : null;
+    });
+  }
+  async assign(input: LeadRepositoryAssignDto): Promise<LeadRecordDto | 'invalid_assignee' | null> {
+    return database.transaction(async (transaction) => {
+      const [current] = await transaction.select({ assignedToUserId: leads.assignedToUserId }).from(leads).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).limit(1);
+      if (!current) return null;
+      if (input.assignedToUserId) {
+        const [membership] = await transaction.select({ id: authMember.id }).from(authMember).where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.assignedToUserId))).limit(1);
+        if (!membership) return 'invalid_assignee';
+      }
+      const [updated] = await transaction.update(leads).set({ assignedToUserId: input.assignedToUserId, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).returning();
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.assigned', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, beforeState: { assignedToUserId: current.assignedToUserId }, afterState: { assignedToUserId: input.assignedToUserId } });
+      const [row] = await transaction.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt, assignedToUserId: leads.assignedToUserId, assignedToName: authUser.name }).from(leads)
+        .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+        .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+        .leftJoin(authUser, eq(authUser.id, leads.assignedToUserId))
+        .where(and(eq(leads.id, updated.id), eq(leads.organizationId, input.organizationId))).limit(1);
       return row ? mapLead(row) : null;
     });
   }

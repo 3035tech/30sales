@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Search, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
-import { api, parseLeadStatus, type CreateLeadInput, type LeadDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
+import { api, parseLeadStatus, type CreateLeadInput, type LeadAssigneeDto, type LeadDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
 import i18n from '../lib/i18n'
+import './LeadsWorkspace.css'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 const sourceOrder: NonNullable<CreateLeadInput['source']>[] = ['manual', 'import', 'whatsapp', 'referral']
@@ -21,6 +22,8 @@ export function LeadsWorkspace() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<LeadStatus | ''>('')
   const [sourceFilter, setSourceFilter] = useState<NonNullable<CreateLeadInput['source']> | ''>('')
+  const [assigneeFilter, setAssigneeFilter] = useState('')
+  const [assignees, setAssignees] = useState<LeadAssigneeDto[] | null>(null)
   const [sortBy, setSortBy] = useState<LeadSortBy>('nextActionAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [pageSize, setPageSize] = useState(25)
@@ -38,12 +41,14 @@ export function LeadsWorkspace() {
     let active = true
     setLoading(true)
     setError('')
-    api.leads.listPage({ status: statusFilter || undefined, source: sourceFilter || undefined, search: search || undefined, sortBy, sortDirection, limit: pageSize, offset })
+    api.leads.listPage({ status: statusFilter || undefined, source: sourceFilter || undefined, assignedToUserId: assigneeFilter || undefined, search: search || undefined, sortBy, sortDirection, limit: pageSize, offset })
       .then((result) => { if (active) { setLeads(result.data); setTotal(result.pagination.total); setHasNextPage(result.pagination.hasNextPage) } })
       .catch(() => { if (active) setError(t('errors.loadLeads')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [statusFilter, sourceFilter, search, sortBy, sortDirection, pageSize, offset, refreshVersion, t])
+  }, [statusFilter, sourceFilter, assigneeFilter, search, sortBy, sortDirection, pageSize, offset, refreshVersion, t])
+
+  useEffect(() => { api.leads.assignees().then(setAssignees).catch(() => setAssignees(null)) }, [])
 
   const createLead = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -66,12 +71,18 @@ export function LeadsWorkspace() {
       setRefreshVersion((version) => version + 1)
     } catch { setError(t('errors.updateLead')) }
   }
+  const assignLead = async (lead: LeadDto, userId: string) => {
+    setError('')
+    try { await api.leads.assign(lead.id, userId || null); setRefreshVersion((version) => version + 1) }
+    catch { setError(t('leadAssignment.saveFailed')) }
+  }
 
   const columns: DataTableColumn<LeadDto, LeadSortBy>[] = [
     { id: 'accountName', label: t('leads.companyContact'), render: (lead) => <><strong>{lead.accountName}</strong><small className="lead-contact-name">{lead.contactName}</small></> },
     { id: 'channel', label: t('leads.channel'), render: (lead) => lead.email ?? lead.phone ?? '—' },
     { id: 'source', label: t('leads.source'), render: (lead) => t(`leads.sources.${lead.source}`) },
     { id: 'status', label: t('common.status'), render: (lead) => <select aria-label={t('leads.statusFor', { company: lead.accountName })} className={`status-select status-${lead.status}`} value={lead.status} onChange={(event) => { const status = parseLeadStatus(event.target.value); if (status) void updateStatus(lead.id, status) }}>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select> },
+    { id: 'assignedTo', label: t('leadAssignment.assignee'), render: (lead) => assignees ? <select aria-label={t('leadAssignment.assigneeFor', { company: lead.accountName })} className="lead-assignee-select" value={lead.assignedToUserId ?? ''} onChange={(event) => void assignLead(lead, event.target.value)}><option value="">{t('leadAssignment.unassigned')}</option>{lead.assignedToUserId && !assignees.some((member) => member.id === lead.assignedToUserId) && <option value={lead.assignedToUserId}>{lead.assignedToName ?? t('leadAssignment.unknownAssignee')}</option>}{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select> : lead.assignedToName ?? t('leadAssignment.unassigned') },
     { id: 'nextActionAt', label: t('leads.nextAction'), render: (lead) => lead.nextActionAt ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.nextActionAt)) : t('leads.noNextAction') },
     { id: 'createdAt', label: t('leads.created'), render: (lead) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.createdAt)) },
   ]
@@ -80,9 +91,10 @@ export function LeadsWorkspace() {
     <label className="lead-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('leads.search')} aria-label={t('leads.searchFields')} /></label>
     <label className="lead-filter-label">{t('common.status')}<select value={statusFilter} onChange={(event) => { const value = parseLeadStatus(event.target.value); setStatusFilter(value ?? ''); setOffset(0) }}><option value="">{t('leads.allStatuses')}</option>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select></label>
     <label className="lead-filter-label">{t('leads.source')}<select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value as typeof sourceFilter); setOffset(0) }}><option value="">{t('leads.allSources')}</option>{sourceOrder.map((source) => <option key={source} value={source}>{t(`leads.sources.${source}`)}</option>)}</select></label>
+    {assignees && <label className="lead-filter-label">{t('leadAssignment.assignee')}<select value={assigneeFilter} onChange={(event) => { setAssigneeFilter(event.target.value); setOffset(0) }}><option value="">{t('leadAssignment.allAssignees')}</option><option value="unassigned">{t('leadAssignment.unassigned')}</option>{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
   </>
 
-  const emptyState = search || statusFilter || sourceFilter ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setOffset(0) }}>{t('leads.clearFilters')}</button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button></div>
+  const emptyState = search || statusFilter || sourceFilter || assigneeFilter ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setAssigneeFilter(''); setOffset(0) }}>{t('leads.clearFilters')}</button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button></div>
 
   return <section className="leads-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>

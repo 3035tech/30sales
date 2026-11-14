@@ -1,0 +1,3 @@
+ALTER TABLE "leads" ADD COLUMN "assigned_to_user_id" uuid;--> statement-breakpoint
+ALTER TABLE "leads" ADD CONSTRAINT "leads_assigned_to_user_id_user_id_fk" FOREIGN KEY ("assigned_to_user_id") REFERENCES "auth"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "leads_org_assignee_status_idx" ON "leads" USING btree ("organization_id","assigned_to_user_id","status");

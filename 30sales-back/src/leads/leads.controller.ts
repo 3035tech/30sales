@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { createLeadSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema } from './leads.dto';
-import type { CreateLeadDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto } from './leads.dto';
+import { assignLeadSchema, createLeadSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -19,6 +19,10 @@ export class LeadsController {
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listLeadsSchema)) query: ListLeadsQueryDto) {
     return this.leadsService.list(request, query);
   }
+  @Get('assignees')
+  assignees(@ApiRequest() request: ApiRequestDto) {
+    return this.leadsService.listAssignees(request);
+  }
   @Post()
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createLeadSchema)) dto: CreateLeadDto) {
     return this.leadsService.create(request, dto);
@@ -26,6 +30,10 @@ export class LeadsController {
   @Patch(':id/status')
   updateStatus(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(updateLeadStatusSchema)) dto: UpdateLeadStatusDto) {
     return this.leadsService.updateStatus(request, leadId, dto);
+  }
+  @Patch(':id/assignee')
+  assign(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(assignLeadSchema)) dto: AssignLeadDto) {
+    return this.leadsService.assign(request, leadId, dto);
   }
   @Get('tasks')
   listTasks(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listTasksSchema)) query: ListTasksQueryDto) {

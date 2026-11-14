@@ -5,7 +5,8 @@ import { access, roles, type OrganizationRole } from '../permissions';
 
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
 const leadStatus = z.enum(['new','researching','ready','queued','contacting','responded','converted_to_sdr','invalid_contact','no_channel','out_of_profile','duplicate_review','no_response','paused','do_not_contact']);
-const leadSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const leadSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string(), assignedToUserId: z.string().uuid().nullable(), assignedToName: z.string().nullable() });
+const leadAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string(), role: z.string() });
 const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string() });
@@ -29,7 +30,8 @@ export type LeadStatus = z.infer<typeof leadStatus>;
 export function parseLeadStatus(value: string): LeadStatus | null { const parsed = leadStatus.safeParse(value); return parsed.success ? parsed.data : null; }
 export type LeadDto = z.infer<typeof leadSchema>;
 export type LeadPageDto = z.infer<typeof leadPageSchema>;
-export type LeadSortBy = 'accountName' | 'contactName' | 'channel' | 'source' | 'status' | 'nextActionAt' | 'createdAt';
+export type LeadSortBy = 'accountName' | 'contactName' | 'channel' | 'source' | 'status' | 'assignedTo' | 'nextActionAt' | 'createdAt';
+export type LeadAssigneeDto = z.infer<typeof leadAssigneeSchema>;
 export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
@@ -68,10 +70,11 @@ function authError(result: { error?: { message?: string } | null }): { message: 
   return result.error ? { message: result.error.message ?? 'The request could not be completed.' } : null;
 }
 
-function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['source']; search?: string; sortBy?: LeadSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) {
+function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['source']; assignedToUserId?: string; search?: string; sortBy?: LeadSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) {
   const search = new URLSearchParams();
   if (params.status) search.set('status', params.status);
   if (params.source) search.set('source', params.source);
+  if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
   if (params.search) search.set('search', params.search);
   if (params.sortBy) search.set('sortBy', params.sortBy);
   if (params.sortDirection) search.set('sortDirection', params.sortDirection);
@@ -115,9 +118,12 @@ export const api = {
 
   leads: {
     listPage: listLeadPage,
-    list: (params: { status?: LeadStatus; limit?: number; offset?: number } = {}) => {
+    assignees: () => request('/api/v1/leads/assignees', z.array(leadAssigneeSchema)),
+    assign: (id: string, assignedToUserId: string | null) => request(`/api/v1/leads/${encodeURIComponent(id)}/assignee`, leadSchema, { method: 'PATCH', body: JSON.stringify({ assignedToUserId }) }),
+    list: (params: { status?: LeadStatus; assignedToUserId?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.status) search.set('status', params.status);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/leads?${search.toString()}`, z.array(leadSchema));
@@ -126,10 +132,11 @@ export const api = {
     updateStatus: (id: string, status: LeadStatus) => request(`/api/v1/leads/${encodeURIComponent(id)}/status`, leadSchema, { method: 'PATCH', body: JSON.stringify({ status }) }),
   },
   tasks: {
-    list: (params: { from?: string; to?: string; status?: TaskDto['status']; limit?: number } = {}) => {
+    list: (params: { from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.from) search.set('from', params.from);
       if (params.to) search.set('to', params.to);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
       if (params.status) search.set('status', params.status);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       return request(`/api/v1/leads/tasks?${search.toString()}`, z.array(taskSchema));

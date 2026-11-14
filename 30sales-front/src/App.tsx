@@ -81,7 +81,7 @@ export default function App() {
               : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
                 : page === 'audit' && current?.activeOrganizationId ? <AuditWorkspace />
                   : page === 'imports' && current?.activeOrganizationId ? <ImportsWorkspace />
-            : <TodayWorkspace navigate={setPage} />}
+            : <TodayWorkspace userId={current?.user.id ?? ''} navigate={setPage} />}
       </div>
     </section>
   </main>

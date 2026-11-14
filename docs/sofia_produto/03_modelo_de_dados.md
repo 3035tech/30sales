@@ -129,7 +129,9 @@ A primeira entrega concreta usa as tabelas `public.accounts`, `public.people`, `
 
 - `accounts`: id, organization_id, name e timestamps.
 - `people`: id, organization_id, name, email, phone e timestamps.
-- `leads`: id, organization_id, account_id, person_id, created_by_user_id, source, status, next_action_at e timestamps.
+- `leads`: id, organization_id, account_id, person_id, created_by_user_id, `assigned_to_user_id` nullable, source, status, next_action_at e timestamps. Novos leads ficam com o criador; leads anteriores não recebem atribuição automática.
 - `lead_status_history`: organization_id, lead_id, status anterior/novo, autor e data da mudança.
 
 As FKs compostas `(account_id, organization_id)` e `(person_id, organization_id)` bloqueiam relações entre tenants. A criação de conta, pessoa, lead e status inicial ocorre numa transação. Status inicial: `new`; transições válidas seguem a máquina de estado BDR em `04_estados_regras_automacoes.md` e são validadas no service e registradas atomicamente no histórico. Enum atual contém `new`, `researching`, `ready`, `queued`, `contacting`, `responded`, `converted_to_sdr` e as saídas controladas `invalid_contact`, `no_channel`, `out_of_profile`, `duplicate_review`, `no_response`, `paused`, `do_not_contact`.
+
+A migration aditiva `0012_assign_leads.sql` adiciona responsável nullable e índice por tenant/responsável/status. A atribuição valida membership no tenant ativo, exige `leads.assign` e registra `lead.assigned` com antes/depois e correlation ID na mesma transação. Rollback seguro é voltar a aplicação e manter a coluna aditiva; remover a coluna requer migration separada e revisão explícita dos dados.

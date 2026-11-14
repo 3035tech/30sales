@@ -166,6 +166,10 @@ Sempre mostrar período, coorte, denominador, fonte e atualização. Não compar
 
 ## 6.7 Decisões pendentes que não bloqueiam o blueprint
 
+### Contas BDR entregue no código
+
+O workspace **Contas** resume a cobertura por empresa: contatos distintos, leads totais, leads com resposta/convertidos para SDR, oportunidades e atividade mais recente. Permite buscar por empresa ou contato, filtrar contas com lead em determinado status, ordenar pelas métricas e paginar. O filtro de status é um critério de inclusão de contas; ele não reduz os totais exibidos. A ação na empresa abre a fila Leads já pesquisada por aquele nome. A visão é somente leitura e usa a organização ativa no servidor. Não substitui ainda o cadastro completo da conta, pesquisa externa, timeline da empresa ou reconciliação de duplicatas.
+
 Configurar antes de liberar automação real: SLA numérico por tipo de handoff; pipeline final e campos obrigatórios; papéis e equipes reais; quotas atuais e responsáveis por aprová-las; calendário/feriados oficiais; política de retenção/consentimento; fontes que podem ser abordadas; integração de agenda; valor/preço autorizado no playbook.
 
 Essas decisões ficam em configuração/versionamento e não exigem mudar o modelo de dados.

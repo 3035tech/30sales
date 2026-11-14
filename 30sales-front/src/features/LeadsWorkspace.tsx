@@ -11,7 +11,7 @@ const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'con
 const sourceOrder: NonNullable<CreateLeadInput['source']>[] = ['manual', 'import', 'whatsapp', 'referral']
 type SortDirection = 'asc' | 'desc'
 
-export function LeadsWorkspace() {
+export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string }) {
   const { t } = useTranslation()
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [total, setTotal] = useState(0)
@@ -38,6 +38,8 @@ export function LeadsWorkspace() {
   const [duplicateCandidates, setDuplicateCandidates] = useState<LeadDuplicateCandidateDto[] | null>(null)
   const [duplicateOverrideReason, setDuplicateOverrideReason] = useState('')
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
+
+  useEffect(() => { if (initialSearch) { setQuery(initialSearch); setSearch(initialSearch); setOffset(0) } }, [initialSearch])
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { setSearch(query); setOffset(0) }, 250)

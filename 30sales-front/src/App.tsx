@@ -13,9 +13,10 @@ import { AuditWorkspace } from './features/AuditWorkspace'
 import { ImportsWorkspace } from './features/ImportsWorkspace'
 import { TodayWorkspace } from './features/TodayWorkspace'
 import { FunnelReportWorkspace } from './features/FunnelReportWorkspace'
+import { AccountsWorkspace } from './features/AccountsWorkspace'
 import './App.css'
 
-type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
+type Page = 'home' | 'inbox' | 'leads' | 'accounts' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -23,6 +24,7 @@ export default function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('home')
+  const [leadSearchSeed, setLeadSearchSeed] = useState('')
 
   useEffect(() => {
     api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
@@ -46,7 +48,8 @@ export default function App() {
       <div className="rail-caption">{t('common.workspace')}</div>
       <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
       <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => setPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
-      <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => setPage('leads')}><Users size={18} />{t('common.leadsNav')}</button>
+      <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
+      <button className={`nav ${page === 'accounts' ? 'active' : ''}`} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
       <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
@@ -77,7 +80,8 @@ export default function App() {
           <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
         </section> : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
           : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace />
-          : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace />
+          : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace initialSearch={leadSearchSeed} />
+          : page === 'accounts' && current?.activeOrganizationId ? <AccountsWorkspace onOpenLeads={(name) => { setLeadSearchSeed(name); setPage('leads') }} />
             : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />
             : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />
               : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />

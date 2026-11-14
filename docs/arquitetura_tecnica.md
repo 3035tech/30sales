@@ -56,6 +56,8 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 
 ## Tabelas operacionais
 
+`GET /api/v1/accounts/table?search=&leadStatus=&sortBy=&sortDirection=&limit=&offset=` entrega a visão de contas do BDR. A busca considera nome da conta e contatos ligados a leads; o filtro de status seleciona contas que tenham ao menos um lead nesse status, enquanto os indicadores continuam sendo agregados sobre todos os leads e oportunidades da conta. A resposta paginada inclui quantidade distinta de contatos/leads, leads que responderam ou foram convertidos para SDR, oportunidades e data mais recente de atualização. Ordenação allowlisted; o tenant vem da sessão ativa.
+
 O frontend usa o componente genérico `DataTable` controlado por props/callbacks; ele não importa nem conhece métodos HTTP ou domínios. A feature monta colunas e filtros tipados e usa o client centralizado. A listagem de leads aplica busca, status, origem, ordenação e paginação no backend, com whitelist de colunas, desempate estável por ID e total de resultados. Tamanho inicial 25; opções 10/25/50/100.
 
 ## Fila de tarefas

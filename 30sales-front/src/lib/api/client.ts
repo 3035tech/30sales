@@ -10,6 +10,7 @@ const leadDuplicateCandidateSchema = z.object({ id: z.string().uuid(), accountNa
 const leadDuplicateCheckSchema = z.object({ candidates: z.array(leadDuplicateCandidateSchema) });
 const leadAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string(), role: z.string() });
 const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uuid(), name: z.string(), contactCount: z.number(), leadCount: z.number(), respondedCount: z.number(), opportunityCount: z.number(), latestActivityAt: z.string().nullable() })), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string(), acceptedAt: z.string().nullable(), firstActivityAt: z.string().nullable() });
@@ -35,6 +36,8 @@ export type LeadStatus = z.infer<typeof leadStatus>;
 export function parseLeadStatus(value: string): LeadStatus | null { const parsed = leadStatus.safeParse(value); return parsed.success ? parsed.data : null; }
 export type LeadDto = z.infer<typeof leadSchema>;
 export type LeadPageDto = z.infer<typeof leadPageSchema>;
+export type AccountPageDto = z.infer<typeof accountPageSchema>;
+export type AccountSortBy = 'accountName' | 'contactCount' | 'leadCount' | 'respondedCount' | 'opportunityCount' | 'latestActivityAt';
 export type LeadSortBy = 'accountName' | 'contactName' | 'channel' | 'source' | 'status' | 'assignedTo' | 'nextActionAt' | 'createdAt';
 export type LeadAssigneeDto = z.infer<typeof leadAssigneeSchema>;
 export type TaskDto = z.infer<typeof taskSchema>;
@@ -139,6 +142,18 @@ export const api = {
     },
     create: (input: CreateLeadInput) => request('/api/v1/leads', leadSchema, { method: 'POST', body: JSON.stringify(input) }),
     updateStatus: (id: string, status: LeadStatus, reason: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/status`, leadSchema, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
+  },
+  accounts: {
+    listPage: (params: { search?: string; leadStatus?: LeadStatus; sortBy?: AccountSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.search) search.set('search', params.search);
+      if (params.leadStatus) search.set('leadStatus', params.leadStatus);
+      if (params.sortBy) search.set('sortBy', params.sortBy);
+      if (params.sortDirection) search.set('sortDirection', params.sortDirection);
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/accounts/table?${search.toString()}`, accountPageSchema);
+    },
   },
   tasks: {
     list: (params: { from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {

@@ -23,10 +23,14 @@
 .inbox-message.inbound { align-self: flex-start; }
 .inbox-message.outbound { align-self: flex-end; background: #eef5ff; }
 .inbox-message.internal { align-self: center; background: #fff7e8; }
+.inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
 .inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-composer { display:grid; gap:7px; padding:12px 18px; border-top:1px solid var(--line,#e7e9ed); background:#fff; }
 .inbox-composer>p { margin:0; color:var(--muted,#64748b); font-size:11px; }
+.inbox-composer-modes { display:flex; gap:6px; }
+.inbox-composer .inbox-composer-modes button { min-height:30px; border:1px solid var(--line,#dbe2ea); padding:5px 10px; background:#fff; color:#475569; }
+.inbox-composer .inbox-composer-modes button.active { border-color:#b97913; background:#fff7e8; color:#8b5600; }
 .inbox-composer textarea { width:100%; min-height:78px; resize:vertical; border:1px solid #dbe2ea; border-radius:8px; padding:10px; color:#1e293b; font:inherit; }
 .inbox-composer>div { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .inbox-composer small { color:var(--muted,#64748b); font-size:10px; }

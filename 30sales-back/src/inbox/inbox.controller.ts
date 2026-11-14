@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, conversationAutomationModeSchema, listConversationsSchema, sendConversationMessageSchema } from './inbox.dto';
-import type { AssignConversationDto, ListConversationsQueryDto, SendConversationMessageDto } from './inbox.dto';
+import { assignConversationSchema, conversationAutomationModeSchema, createConversationNoteSchema, listConversationsSchema, sendConversationMessageSchema } from './inbox.dto';
+import type { AssignConversationDto, CreateConversationNoteDto, ListConversationsQueryDto, SendConversationMessageDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 
 const conversationIdSchema = z.string().uuid();
@@ -31,4 +31,6 @@ export class InboxController {
   setAutomation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationAutomationModeSchema)) mode: 'sofia' | 'human' | 'paused') { return this.inboxService.setAutomationMode(request, conversationId, mode); }
   @Post(':id/messages')
   sendMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMessageSchema)) input: SendConversationMessageDto) { return this.inboxService.sendMessage(request, conversationId, input); }
+  @Post(':id/notes')
+  addNote(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(createConversationNoteSchema)) input: CreateConversationNoteDto) { return this.inboxService.addNote(request, conversationId, input); }
 }

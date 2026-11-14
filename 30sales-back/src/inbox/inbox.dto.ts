@@ -18,9 +18,12 @@ export class ConversationAssignDto { constructor(readonly organizationId: string
 export class ConversationAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }
 export const sendConversationMessageSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type SendConversationMessageDto = z.infer<typeof sendConversationMessageSchema>;
+export const createConversationNoteSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
+export type CreateConversationNoteDto = z.infer<typeof createConversationNoteSchema>;
+export class ConversationNoteCreateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
 export class ConversationMessageSendDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
 export class ConversationMessageDeliveryDto { constructor(readonly organizationId: string, readonly messageId: string, readonly actorUserId: string, readonly deliveryState: 'accepted' | 'failed' | 'unknown', readonly externalMessageId: string | null, readonly correlationId: string | null = null) {} }
 export class MessageRecordDto {
-  constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string) {}
+  constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string, readonly actorUserId: string | null = null, readonly actorName: string | null = null) {}
 }
 export class ConversationMessagesQueryDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly limit: number, readonly offset: number) {} }

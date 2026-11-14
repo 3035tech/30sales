@@ -4,7 +4,7 @@ import { database } from '../db';
 import { accounts, auditEvents, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationRepositoryListDto, MessageRecordDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationRepositoryListDto, MessageRecordDto } from './inbox.dto';
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing';
@@ -103,10 +103,28 @@ export class InboxRepository {
     const [conversation] = await database.select({ id: conversations.id }).from(conversations)
       .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
     if (!conversation) return null;
-    const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
-      .from(messages).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
+    const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
+      .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
-    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString()));
+    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName));
+  }
+
+  async addNote(input: ConversationNoteCreateDto): Promise<MessageRecordDto | 'not_found' | 'not_owner'> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!conversation) return 'not_found';
+      const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
+        .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);
+      if (duplicate) return new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName);
+      if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
+      const [actor] = await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, input.actorUserId)).limit(1);
+      const occurredAt = new Date();
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'internal', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, deliveryState: 'unknown', idempotencyKey: input.idempotencyKey, occurredAt }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.internal_note_added', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { messageId: message.id } });
+      return new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId, actor?.name ?? null);
+    });
   }
 
   async prepareMessageSend(input: ConversationMessageSendDto): Promise<MessageSendResult> {
@@ -114,9 +132,10 @@ export class InboxRepository {
       const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, channelId: conversations.channelId, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
-      const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
+      const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
+        .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);
-      if (duplicate) return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString()) };
+      if (duplicate) return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName) };
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       if (conversation.automationMode !== 'human') return 'automation_not_human';
       if (!conversation.personId || !conversation.channelId) return 'channel_unavailable';
@@ -127,10 +146,10 @@ export class InboxRepository {
         .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
       if (!channel?.isActive) return 'channel_unavailable';
       if (!channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'credentials_missing';
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', bodyText: input.bodyText, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.message_requested', entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, afterState: { messageId: message.id, channelProvider: channel.provider, deliveryState: 'requested' } });
       return {
-        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString()), channelId: conversation.channelId, recipientPhone,
+        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId), channelId: conversation.channelId, recipientPhone,
         provider: channel.provider as PreparedMessageSend['provider'], providerChannelId: channel.providerChannelId,
         credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag },
       };
@@ -140,10 +159,11 @@ export class InboxRepository {
   async updateMessageDelivery(input: ConversationMessageDeliveryDto): Promise<MessageRecordDto | null> {
     return database.transaction(async (transaction) => {
       const [row] = await transaction.update(messages).set({ deliveryState: input.deliveryState, externalMessageId: input.externalMessageId })
-        .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
+        .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       if (!row) return null;
+      const [actor] = row.actorUserId ? await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, row.actorUserId)).limit(1) : [];
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: `conversation.message_${input.deliveryState}`, entityType: 'conversation', entityId: row.conversationId, correlationId: input.correlationId, afterState: { messageId: row.id, deliveryState: input.deliveryState, externalMessageId: input.externalMessageId } });
-      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString());
+      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null);
     });
   }
 }

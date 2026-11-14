@@ -251,6 +251,7 @@ export const messages = pgTable('messages', {
   externalMessageId: text('external_message_id'),
   direction: messageDirection('direction').notNull(),
   actorType: messageActorType('actor_type').notNull(),
+  actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   bodyText: text('body_text'),
   deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),
   idempotencyKey: text('idempotency_key'),

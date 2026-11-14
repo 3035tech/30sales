@@ -11,6 +11,7 @@ export function InboxWorkspace() {
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [messageDraft, setMessageDraft] = useState('')
+  const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
   const [sendingMessage, setSendingMessage] = useState(false)
   const [messageSendError, setMessageSendError] = useState('')
@@ -42,7 +43,7 @@ export function InboxWorkspace() {
   useEffect(() => { api.inbox.assignees().then(setAssignees).catch(() => setAssignees([])) }, [])
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { setMessageDraft(''); setMessageKey(crypto.randomUUID()); setMessageSendError('') }, [selectedId])
+  useEffect(() => { setMessageDraft(''); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode('reply') }, [selectedId])
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
     let active = true
@@ -56,6 +57,7 @@ export function InboxWorkspace() {
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
+  const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
   const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign') => {
     if (!selected) return
@@ -75,14 +77,16 @@ export function InboxWorkspace() {
   }
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!selected || !canSend || !messageDraft.trim()) return
+    if (!selected || (composerMode === 'reply' ? !canSend : !canAddNote) || !messageDraft.trim()) return
     setSendingMessage(true); setMessageSendError('')
     try {
-      const message = await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
+      const message = composerMode === 'reply'
+        ? await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
+        : await api.inbox.addNote(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
       setMessageDraft(''); setMessageKey(crypto.randomUUID())
-      if (message.deliveryState === 'unknown') setMessageSendError(t('inbox.deliveryUnknown'))
-      if (message.deliveryState === 'failed') setMessageSendError(t('inbox.deliveryFailed'))
+      if (composerMode === 'reply' && message.deliveryState === 'unknown') setMessageSendError(t('inbox.deliveryUnknown'))
+      if (composerMode === 'reply' && message.deliveryState === 'failed') setMessageSendError(t('inbox.deliveryFailed'))
     } catch {
       setMessageSendError(t('inbox.sendFailed'))
     } finally { setSendingMessage(false) }
@@ -115,15 +119,17 @@ export function InboxWorkspace() {
             <span className="tag">{t(`inbox.status.${selected.status}`)}</span></div></header>
           <div className="inbox-messages" aria-live="polite">
             {messagesLoading ? <p className="inbox-empty">{t('common.loading')}</p> : messages.length === 0 ? <div className="inbox-empty"><span>{t('inbox.noMessagesYet')}</span><span>{t('inbox.emptyMessagesHint')}</span></div> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
-              <div className="inbox-message-meta"><span>{t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
-              <p>{message.bodyText || t('inbox.nonTextMessage')}</p><small>{t(`inbox.delivery.${message.deliveryState}`)}</small>
+              <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
+              <p>{message.bodyText || t('inbox.nonTextMessage')}</p>{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
             </article>)}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>
-            {!canSend && <p>{t('inbox.replyUnavailable')}</p>}
-            <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} maxLength={4096} placeholder={t('inbox.replyPlaceholder')} disabled={!canSend || sendingMessage} aria-label={t('inbox.replyPlaceholder')} />
+            <div className="inbox-composer-modes"><button type="button" className={composerMode === 'reply' ? 'active' : ''} onClick={() => { setComposerMode('reply'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</button><button type="button" className={composerMode === 'note' ? 'active' : ''} onClick={() => { setComposerMode('note'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.noteMode')}</button></div>
+            {composerMode === 'reply' && !canSend && <p>{t('inbox.replyUnavailable')}</p>}
+            {composerMode === 'note' && !canAddNote && <p>{t('inboxComposer.noteUnavailable')}</p>}
+            <textarea value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} maxLength={4096} placeholder={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage} aria-label={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
             {messageSendError && <p className="inbox-send-error" role="status">{messageSendError}</p>}
-            <div><small>{messageDraft.length}/4096</small><button type="submit" disabled={!canSend || sendingMessage || !messageDraft.trim()}>{sendingMessage ? t('inbox.sending') : t('inbox.send')}</button></div>
+            <div><small>{messageDraft.length}/4096</small><button type="submit" disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage || !messageDraft.trim()}>{sendingMessage ? t('inbox.sending') : t(composerMode === 'note' ? 'inboxComposer.addNote' : 'inbox.send')}</button></div>
           </form>
           <footer className="inbox-readonly-note">{t('inbox.readOnly')}</footer>
         </>}

@@ -1,0 +1,23 @@
+# Dependencies
+**/node_modules/
+
+# Build and test artifacts
+**/dist/
+**/coverage/
+**/.turbo/
+**/.next/
+**/*.tsbuildinfo
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Logs and local tooling
+*.log
+.DS_Store
+.vscode/
+.idea/

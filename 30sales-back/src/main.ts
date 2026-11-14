@@ -1,0 +1,9 @@
+import 'dotenv/config';
+import express from 'express';
+import { toNodeHandler } from 'better-auth/node';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { auth } from './auth/auth';
+import { env } from './config/env';
+async function bootstrap() { const app = await NestFactory.create(AppModule, { bodyParser: false }); app.enableCors({ origin: env.FRONTEND_URL, credentials: true }); app.use('/api/auth', toNodeHandler(auth)); app.use(express.json()); await app.listen(env.PORT, '0.0.0.0'); }
+void bootstrap();

@@ -1,0 +1,8 @@
+:root {
+  --brand-primary: #2563EB;
+  --brand-accent: #10B981;
+  --brand-dark: #0F172A;
+  --brand-secondary: #64748B;
+  --brand-display-font: 'Manrope', Inter, sans-serif;
+  --brand-ui-font: Inter, sans-serif;
+}

@@ -1,0 +1,3 @@
+@import "tailwindcss";
+@import "tailwindcss";
+:root{font-family:var(--brand-ui-font);color:var(--brand-dark);background:#f8fafc;font-synthesis:none;text-rendering:optimizeLegibility;font-optical-sizing:auto;font-weight:400;--app-surface:#fff;--app-border:#e2e8f0;--app-muted:#64748b;--app-primary:var(--brand-primary);--app-accent:var(--brand-accent)}*{box-sizing:border-box}body{margin:0;min-width:320px;min-height:100vh}button,input,select{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed}

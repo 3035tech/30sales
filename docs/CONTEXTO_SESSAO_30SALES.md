@@ -23,13 +23,14 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; working tree limpa antes da atualização desta memória.
-- Último commit: `273c154 feat(inbox): ingest WhatsApp inbound webhooks`.
+- Branch atual: `develop`; feature de status de entrega já integrada.
+- Último commit: `f05f84f feat(inbox): process WhatsApp delivery statuses`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);
   - etiquetas tenant-scoped e filtro por etiqueta (`caf2e2d`);
   - ingestão inbound autenticada/deduplicada para Evolution e Cloud API (`273c154`).
+- status outbound de Evolution e Cloud API, com atualização monotônica e deduplicação (`f05f84f`).
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0018_abandoned_hydra.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão. A ingestão inbound não precisou de migration nova.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
@@ -44,17 +45,17 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - Conversa nova inicia com automação `paused`, owner vazio; runtime da Sofia ainda não foi ligado ao 30Sales.
 - Configuração e instruções de callback foram acrescentadas a `.env.example`, tela de canais e documentação. `META_APP_SECRET` e `META_WEBHOOK_VERIFY_TOKEN` são configurações do servidor.
 
-## Última fatia em andamento: status outbound do WhatsApp
+## Última fatia concluída: status outbound do WhatsApp
 
 Meta Cloud API oficial documenta callbacks de estado no campo `value.statuses[]`, separado de `messages`; status pode chegar em eventos distintos (`sent`, `delivered`, `read`) e usa `statuses[].id` para correlação. Evolution documenta `MESSAGES_UPDATE`; os tipos atuais do projeto indicam estados `PENDING`, `SERVER_ACK`, `DELIVERY_ACK`, `READ`, `ERROR` etc. Fontes primárias consultadas: [Meta messages webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages) e [Evolution webhook configuration](https://github.com/evolution-foundation/evolution-docs/blob/main/docs/02-Configuration/Webhooks.md).
 
-Implementação feita nesta branch `feature/inbox-delivery-status` (ainda não integrada quando este contexto foi escrito): reconhecer ambos os eventos de status, mapear status para o enum existente (`sent`/`SERVER_ACK` → `accepted`; entrega → `delivered`; leitura → `read`; erro → `failed`), correlacionar por organização/provedor/canal/ID externo, deduplicar com ID determinístico e não regredir estado terminal/mais avançado. Nenhuma migration necessária. A UI já exibe `deliveryState` e já possui catálogos pt-BR/en para os estados.
+Implementação integrada na `feature/inbox-delivery-status`: reconhecer ambos os eventos de status, mapear status para o enum existente (`sent`/`SERVER_ACK` → `accepted`; entrega → `delivered`; leitura → `read`; erro → `failed`), correlacionar por organização/provedor/canal/ID externo, deduplicar com ID determinístico e não regredir estado terminal/mais avançado. Nenhuma migration necessária. A UI já exibe `deliveryState` e já possui catálogos pt-BR/en para os estados.
 
 Limitação tratada: callback sem mensagem local é ignorado, então a corrida rara em que o callback antecede a gravação do ID externo exige futura reconciliação com worker/outbox. Sem migrations aplicadas, deploy ou teste/build nesta sessão.
 
 ## Próximo passo recomendado
 
-Concluir a feature branch atual revendo status/concorrência/deduplicação em leitura de código, atualizar estado da feature neste documento, integrar via `git flow feature finish inbox-delivery-status` e registrar commit resultante.
+Próxima fatia recomendada: anexos inbound WhatsApp, salvando metadados e mídia de forma tenant-scoped e sem registrar URLs/segredos sensíveis em logs. Antes de implementar, avaliar os payloads oficiais atuais dos dois providers e escolher armazenamento de arquivos compatível com Dublin/local; definir limites de tamanho, tipos aceitos e experiência para mídia indisponível. Alternativa igualmente prioritária é iniciar o worker/outbox e reconciliação para callbacks que cheguem antes da gravação do ID externo; manter pequeno o primeiro fluxo vertical.
 
 Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 

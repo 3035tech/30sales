@@ -43,7 +43,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `GET /api/v1/session`: identidade, organizações acessíveis e tenant ativo.
 - `GET /api/v1/conversations?status=&limit=&offset=`: lista tenant-scoped de conversas, ordenada pela atividade mais recente.
 - `GET /api/v1/conversations/:id/messages?limit=&offset=`: histórico somente leitura; verifica conversa e mensagens no tenant ativo. Ambos exigem `inbox.read`.
-- `GET /api/v1/audit-events?action=&entityType=&entityId=&from=&to=&limit=&offset=`: consulta paginada por tenant; exige `audit.read` (owner/admin/manager/operations). Eventos principais são gravados atomicamente com lead/status, tarefa, handoff, etapa da oportunidade e criação de atividade, junto com o `x-request-id` recebido (quando válido; até 128 caracteres seguros). A cobertura é parcial: eventos de autenticação/admin/conectores ainda não são registrados.
+- `GET /api/v1/audit-events?action=&entityType=&entityId=&from=&to=&limit=&offset=`: consulta paginada por tenant; exige `audit.read` (owner/admin/manager/operations). A resposta inclui o correlation ID para rastrear a requisição. Eventos principais são gravados atomicamente com lead/status, tarefa, handoff, etapa da oportunidade e criação de atividade, junto com o `x-request-id` recebido (quando válido; até 128 caracteres seguros). A cobertura é parcial: eventos de autenticação/admin/conectores ainda não são registrados.
 
 ## Tabelas operacionais
 

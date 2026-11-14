@@ -13,6 +13,6 @@ export const listAuditEventsSchema = z.object({
 export type ListAuditEventsQueryDto = z.infer<typeof listAuditEventsSchema>;
 export class AuditRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListAuditEventsQueryDto) {} }
 export class AuditEventRecordDto {
-  constructor(readonly id: string, readonly actorType: string, readonly actorName: string | null, readonly action: string, readonly entityType: string, readonly entityId: string | null, readonly reason: string | null, readonly beforeState: JsonValue | null, readonly afterState: JsonValue | null, readonly occurredAt: string) {}
+  constructor(readonly id: string, readonly actorType: string, readonly actorName: string | null, readonly action: string, readonly entityType: string, readonly entityId: string | null, readonly reason: string | null, readonly beforeState: JsonValue | null, readonly afterState: JsonValue | null, readonly correlationId: string | null, readonly occurredAt: string) {}
 }
 export class AuditEventsPageDto { constructor(readonly data: AuditEventRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }

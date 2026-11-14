@@ -18,13 +18,13 @@ export class AuditRepository {
     if (input.query.to) conditions.push(lte(auditEvents.occurredAt, new Date(input.query.to)));
     const where = and(...conditions);
     const [rows, totals] = await Promise.all([
-      database.select({ id: auditEvents.id, actorType: auditEvents.actorType, actorName: auditActor.name, action: auditEvents.action, entityType: auditEvents.entityType, entityId: auditEvents.entityId, reason: auditEvents.reason, beforeState: auditEvents.beforeState, afterState: auditEvents.afterState, occurredAt: auditEvents.occurredAt })
+      database.select({ id: auditEvents.id, actorType: auditEvents.actorType, actorName: auditActor.name, action: auditEvents.action, entityType: auditEvents.entityType, entityId: auditEvents.entityId, reason: auditEvents.reason, beforeState: auditEvents.beforeState, afterState: auditEvents.afterState, correlationId: auditEvents.correlationId, occurredAt: auditEvents.occurredAt })
         .from(auditEvents).leftJoin(auditActor, eq(auditActor.id, auditEvents.actorUserId)).where(where)
         .orderBy(desc(auditEvents.occurredAt), desc(auditEvents.id)).limit(input.query.limit).offset(input.query.offset),
       database.select({ total: count() }).from(auditEvents).where(where),
     ]);
     const total = totals[0]?.total ?? 0;
-    const data = rows.map((row) => new AuditEventRecordDto(row.id, row.actorType, row.actorName, row.action, row.entityType, row.entityId, row.reason, row.beforeState, row.afterState, row.occurredAt.toISOString()));
+    const data = rows.map((row) => new AuditEventRecordDto(row.id, row.actorType, row.actorName, row.action, row.entityType, row.entityId, row.reason, row.beforeState, row.afterState, row.correlationId, row.occurredAt.toISOString()));
     return new AuditEventsPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 }

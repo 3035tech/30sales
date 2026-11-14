@@ -11,6 +11,10 @@ const leadIdSchema = z.string().uuid();
 @Controller('api/v1/leads')
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}
+  @Get('table')
+  listPage(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listLeadsSchema)) query: ListLeadsQueryDto) {
+    return this.leadsService.listPage(request, query);
+  }
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listLeadsSchema)) query: ListLeadsQueryDto) {
     return this.leadsService.list(request, query);

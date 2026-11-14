@@ -15,6 +15,8 @@ Do not create empty modules for every future domain. Add a module when its verti
 
 ## Request path
 
+- Preserve layer boundaries and avoid coupling: controllers know HTTP signatures/DTOs and delegate; services own use cases and domain authorization; repositories own persistence DTOs/queries; provider adapters translate external API contracts to internal domain types. Domain rules must not depend on UI shapes or provider payloads. Share API schemas only at explicit contract boundaries, not by making the domain depend on transport DTOs.
+
 `HTTP DTO → Zod validation pipe → thin controller endpoint signature/delegation → service (authorization, orchestration, domain rules) → repository DTO → tenant-scoped repository / provider adapter → response DTO`.
 
 - Use `/api/v1`; configure global prefix, request size limits, CORS allowlist, validation, exception filter and request/correlation IDs centrally.

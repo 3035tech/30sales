@@ -1,40 +1,60 @@
 import { useEffect, useState } from 'react'
+import { Plus, RefreshCw, Search, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { ArrowDownUp, Plus, RefreshCw, Search, Users } from 'lucide-react'
-import { api, parseLeadStatus, type CreateLeadInput, type LeadDto, type LeadStatus } from '../lib/api/client'
+import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
+import { api, parseLeadStatus, type CreateLeadInput, type LeadDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
 import i18n from '../lib/i18n'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
-const statusSummary: LeadStatus[] = ['new', 'researching', 'queued', 'contacting', 'responded', 'converted_to_sdr']
+const sourceOrder: NonNullable<CreateLeadInput['source']>[] = ['manual', 'import', 'whatsapp', 'referral']
+type SortDirection = 'asc' | 'desc'
 
 export function LeadsWorkspace() {
   const { t } = useTranslation()
   const [leads, setLeads] = useState<LeadDto[]>([])
+  const [total, setTotal] = useState(0)
+  const [hasNextPage, setHasNextPage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<LeadStatus | ''>('')
+  const [sourceFilter, setSourceFilter] = useState<NonNullable<CreateLeadInput['source']> | ''>('')
+  const [sortBy, setSortBy] = useState<LeadSortBy>('nextActionAt')
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+  const [pageSize, setPageSize] = useState(25)
+  const [offset, setOffset] = useState(0)
+  const [refreshVersion, setRefreshVersion] = useState(0)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState<CreateLeadInput>({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
 
-  const refresh = async () => {
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { setSearch(query); setOffset(0) }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [query])
+
+  useEffect(() => {
+    let active = true
     setLoading(true)
     setError('')
-    try { setLeads(await api.leads.list({ limit: 100 })) }
-    catch { setError(t('errors.loadLeads')) }
-    finally { setLoading(false) }
-  }
-  useEffect(() => { void refresh() }, [])
+    api.leads.listPage({ status: statusFilter || undefined, source: sourceFilter || undefined, search: search || undefined, sortBy, sortDirection, limit: pageSize, offset })
+      .then((result) => { if (active) { setLeads(result.data); setTotal(result.pagination.total); setHasNextPage(result.pagination.hasNextPage) } })
+      .catch(() => { if (active) setError(t('errors.loadLeads')) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [statusFilter, sourceFilter, search, sortBy, sortDirection, pageSize, offset, refreshVersion, t])
 
   const createLead = async (event: React.FormEvent) => {
     event.preventDefault()
     setSaving(true)
     setError('')
     try {
-      const created = await api.leads.create(form)
-      setLeads((current) => [created, ...current])
+      await api.leads.create(form)
       setForm({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
       setShowForm(false)
+      setOffset(0)
+      setRefreshVersion((version) => version + 1)
     } catch { setError(t('errors.saveLead')) }
     finally { setSaving(false) }
   }
@@ -42,20 +62,32 @@ export function LeadsWorkspace() {
   const updateStatus = async (leadId: string, status: LeadStatus) => {
     setError('')
     try {
-      const changed = await api.leads.updateStatus(leadId, status)
-      setLeads((current) => current.map((lead) => lead.id === changed.id ? changed : lead))
+      await api.leads.updateStatus(leadId, status)
+      setRefreshVersion((version) => version + 1)
     } catch { setError(t('errors.updateLead')) }
   }
 
-  const normalizedQuery = query.toLocaleLowerCase(i18n.language)
-  const filteredLeads = leads.filter((lead) => `${lead.accountName} ${lead.contactName} ${lead.email ?? ''} ${lead.phone ?? ''}`.toLocaleLowerCase(i18n.language).includes(normalizedQuery))
-  const countFor = (status: LeadStatus) => leads.filter((lead) => lead.status === status).length
+  const columns: DataTableColumn<LeadDto, LeadSortBy>[] = [
+    { id: 'accountName', label: t('leads.companyContact'), render: (lead) => <><strong>{lead.accountName}</strong><small className="lead-contact-name">{lead.contactName}</small></> },
+    { id: 'channel', label: t('leads.channel'), render: (lead) => lead.email ?? lead.phone ?? '—' },
+    { id: 'source', label: t('leads.source'), render: (lead) => t(`leads.sources.${lead.source}`) },
+    { id: 'status', label: t('common.status'), render: (lead) => <select aria-label={t('leads.statusFor', { company: lead.accountName })} className={`status-select status-${lead.status}`} value={lead.status} onChange={(event) => { const status = parseLeadStatus(event.target.value); if (status) void updateStatus(lead.id, status) }}>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select> },
+    { id: 'nextActionAt', label: t('leads.nextAction'), render: (lead) => lead.nextActionAt ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.nextActionAt)) : t('leads.noNextAction') },
+    { id: 'createdAt', label: t('leads.created'), render: (lead) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.createdAt)) },
+  ]
+
+  const filters = <>
+    <label className="lead-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('leads.search')} aria-label={t('leads.searchFields')} /></label>
+    <label className="lead-filter-label">{t('common.status')}<select value={statusFilter} onChange={(event) => { const value = parseLeadStatus(event.target.value); setStatusFilter(value ?? ''); setOffset(0) }}><option value="">{t('leads.allStatuses')}</option>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select></label>
+    <label className="lead-filter-label">{t('leads.source')}<select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value as typeof sourceFilter); setOffset(0) }}><option value="">{t('leads.allSources')}</option>{sourceOrder.map((source) => <option key={source} value={source}>{t(`leads.sources.${source}`)}</option>)}</select></label>
+  </>
+
+  const emptyState = search || statusFilter || sourceFilter ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setOffset(0) }}>{t('leads.clearFilters')}</button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button></div>
 
   return <section className="leads-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
-      <div className="lead-actions"><button className="refresh" onClick={() => void refresh()} aria-label={t('leads.refresh')}><RefreshCw size={16} /></button><button className="primary add-lead" onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</button></div>
+      <div className="lead-actions"><button className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></button><button className="primary add-lead" onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</button></div>
     </header>
-    <div className="lead-stats">{statusSummary.map((status) => <div className="lead-stat" key={status}><span>{t(`leadStatuses.${status}`)}</span><strong>{countFor(status)}</strong></div>)}</div>
     {showForm && <form className="lead-form" onSubmit={createLead}>
       <div className="lead-form-title"><Users size={18} /><div><strong>{t('leads.newLead')}</strong><small>{t('leads.newLeadHint')}</small></div></div>
       <div className="lead-fields">
@@ -66,17 +98,10 @@ export function LeadsWorkspace() {
       </div>
       <p className="form-hint">{t('leads.contactChannelHint')}</p><button className="primary" disabled={saving}>{saving ? t('common.saving') : t('leads.saveLead')}</button>
     </form>}
-    {error && <p className="error lead-error">{error}</p>}
+    {error && <p className="error lead-error" role="alert">{error}</p>}
     <div className="lead-list-panel">
-      <div className="lead-list-toolbar"><div><h3>{t('leads.queue')}</h3><p>{t('leads.count', { count: filteredLeads.length })}</p></div>
-        <label className="lead-search"><Search size={15} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('leads.search')} /></label><span className="queue-sort"><ArrowDownUp size={14} />{t('leads.nextAction')}</span>
-      </div>
-      {loading ? <div className="lead-empty">{t('common.loading')}</div> : filteredLeads.length === 0 ? <div className="lead-empty"><span className="card-icon"><Users size={19} /></span><h3>{query ? t('leads.noSearchResults') : t('leads.emptyTitle')}</h3><p>{query ? t('leads.noSearchHint') : t('leads.emptyHint')}</p>{!query && <button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button>}</div>
-        : <div className="lead-table-wrap"><table className="lead-table"><thead><tr><th>{t('leads.companyContact')}</th><th>{t('leads.channel')}</th><th>{t('leads.source')}</th><th>{t('common.status')}</th><th>{t('leads.created')}</th></tr></thead>
-          <tbody>{filteredLeads.map((lead) => <tr key={lead.id}><td><strong>{lead.accountName}</strong><small>{lead.contactName}</small></td><td>{lead.email ?? lead.phone ?? '—'}</td><td>{t(`leads.sources.${lead.source}`)}</td>
-            <td><select aria-label={t('leads.statusFor', { company: lead.accountName })} className={`status-select status-${lead.status}`} value={lead.status} onChange={(event) => { const status = parseLeadStatus(event.target.value); if (status) void updateStatus(lead.id, status) }}>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select></td>
-            <td>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.createdAt))}</td></tr>)}</tbody>
-        </table></div>}
+      <div className="lead-list-toolbar"><div><h3>{t('leads.queue')}</h3><p>{t('leads.count', { count: total })}</p></div></div>
+      <DataTable rows={leads} columns={columns} getRowId={(lead) => lead.id} sort={{ key: sortBy, direction: sortDirection }} onSortChange={(key, direction) => { setSortBy(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit: pageSize, offset, total, hasNextPage }} onPageChange={setOffset} onPageSizeChange={(value) => { setPageSize(value); setOffset(0) }} filters={filters} loading={loading} emptyState={emptyState} />
     </div>
   </section>
 }

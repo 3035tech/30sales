@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, gte, lt, min, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, lt, min, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, leadStatusHistory, leads, people, tasks } from '../db/schema';
-import { LeadRecordDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
+import { LeadPageDto, LeadRecordDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
 
 function mapLead(row: { leadId: string; accountName: string; contactName: string; email: string | null; phone: string | null; source: string; status: LeadRecordDto['status']; nextActionAt: Date | null; createdAt: Date; updatedAt: Date }): LeadRecordDto {
   return new LeadRecordDto(row.leadId, row.accountName, row.contactName, row.email, row.phone, row.source, row.status, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString());
@@ -40,13 +40,36 @@ export class LeadsRepository {
       return new TaskRecordDto(task.id, task.leadId, task.title, task.dueAt.toISOString(), 'completed', input.completedAt.toISOString(), row.accountName, row.contactName);
     });
   }
-  async list(input: LeadRepositoryListDto): Promise<LeadRecordDto[]> {
-    const rows = await database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt }).from(leads)
+  async list(input: LeadRepositoryListDto): Promise<LeadPageDto> {
+    const conditions = [eq(leads.organizationId, input.organizationId)];
+    if (input.query.status) conditions.push(eq(leads.status, input.query.status));
+    if (input.query.source) conditions.push(eq(leads.source, input.query.source));
+    const search = input.query.search?.trim();
+    if (search) {
+      const pattern = `%${search}%`;
+      const searchCondition = or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.email, pattern), ilike(people.phone, pattern));
+      if (searchCondition) conditions.push(searchCondition);
+    }
+    const where = and(...conditions);
+    const sortColumn = {
+      accountName: accounts.name,
+      contactName: people.name,
+      channel: sql`coalesce(${people.email}, ${people.phone}, '')`,
+      source: leads.source,
+      status: leads.status,
+      nextActionAt: leads.nextActionAt,
+      createdAt: leads.createdAt,
+    }[input.query.sortBy];
+    const direction = input.query.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
+    const base = database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt }).from(leads)
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
-      .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-      .where(input.query.status ? and(eq(leads.organizationId, input.organizationId), eq(leads.status, input.query.status)) : eq(leads.organizationId, input.organizationId))
-      .orderBy(asc(leads.nextActionAt), desc(leads.createdAt)).limit(input.query.limit).offset(input.query.offset);
-    return rows.map(mapLead);
+      .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(where);
+    const [rows, totals] = await Promise.all([
+      base.orderBy(direction, asc(leads.id)).limit(input.query.limit).offset(input.query.offset),
+      database.select({ total: count() }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId))).innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(where),
+    ]);
+    const total = totals[0]?.total ?? 0;
+    return new LeadPageDto(rows.map(mapLead), { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
   }
   async create(input: LeadRepositoryCreateDto): Promise<LeadRecordDto> {
     return database.transaction(async (transaction) => {

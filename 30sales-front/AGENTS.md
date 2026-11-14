@@ -14,6 +14,8 @@ Apply root [`../AGENTS.md`](../AGENTS.md) first. This app is a Vite + React + Ty
 
 ## Frontend contracts
 
+- Avoid coupling presentation components to API details. Components receive typed props and must not know request URLs, auth/session mechanics, provider payloads, database shapes, or transport errors. Feature-level hooks/workspaces orchestrate state through the central typed API client. Keep domain API contracts explicit; share only genuinely common transport/UI primitives.
+
 - Use React Router for routes and TanStack Query for server state/cache; local component state only for ephemeral UI. Search/filter/page state belongs in URL where shareable.
 - Use shared Zod/OpenAPI contracts for request/response parsing. Never trust a tenant ID from URL/local storage as authority; active organization is UI context, backend derives and authorizes it.
 - API base URL comes from `VITE_API_BASE_URL`; no provider secrets or privileged API tokens in `VITE_*` variables because they are public bundle values.
@@ -26,6 +28,7 @@ Apply root [`../AGENTS.md`](../AGENTS.md) first. This app is a Vite + React + Ty
 - Build from product design tokens. Use Radix primitives via wrappers and Lucide icons; prefer direct imports and avoid UI library defaults.
 - Feature components do not duplicate permission logic; use permissions to conditionally render affordances, while backend remains authoritative. Explain disabled actions when helpful.
 - Inbox and data tables must support keyboard focus, predictable loading, pagination/virtualization when measured volume warrants, and filters in URL.
+- Every data table must provide useful filters, clickable sorting on every visible column with a clear direction indicator, and a page-size selector plus pagination. Preserve filters/sort when paging; changing either resets to the first page. Controls need accessible labels and pt-BR/en translations. Large lists must filter, sort and page on the server, not only over loaded browser rows.
 - Avoid full-page client state stores until multiple features demonstrate the need.
 
 ## Estilização

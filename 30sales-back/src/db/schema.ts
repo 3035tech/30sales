@@ -8,6 +8,15 @@ export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled
 export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost']);
 export const handoffStatus = pgEnum('handoff_status', ['requested', 'accepted', 'returned', 'cancelled']);
 export const handoffEventType = pgEnum('handoff_event_type', ['requested', 'accepted', 'returned']);
+export const activityType = pgEnum('activity_type', ['call', 'meeting', 'email', 'message', 'task', 'note', 'research']);
+export const conversationStatus = pgEnum('conversation_status', ['open', 'pending', 'resolved', 'snoozed']);
+export const messageDirection = pgEnum('message_direction', ['inbound', 'outbound', 'internal']);
+export const messageActorType = pgEnum('message_actor_type', ['contact', 'user', 'assistant', 'system']);
+export const messageDeliveryState = pgEnum('message_delivery_state', ['received', 'requested', 'accepted', 'delivered', 'read', 'failed', 'unknown']);
+export const eventProcessingState = pgEnum('event_processing_state', ['pending', 'processing', 'processed', 'failed']);
+export const outboxState = pgEnum('outbox_state', ['pending', 'published', 'failed']);
+export const jobState = pgEnum('job_state', ['queued', 'running', 'completed', 'failed']);
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export const accounts = pgTable('accounts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -122,6 +131,22 @@ export const opportunityStageHistory = pgTable('opportunity_stage_history', {
   index('opportunity_stage_history_org_opportunity_idx').on(table.organizationId, table.opportunityId, table.occurredAt),
 ]);
 
+export const activities = pgTable('activities', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  opportunityId: uuid('opportunity_id').notNull(),
+  type: activityType('type').notNull(),
+  subject: text('subject').notNull(),
+  details: text('details'),
+  result: text('result'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'activities_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  index('activities_org_opportunity_occurred_idx').on(table.organizationId, table.opportunityId, table.occurredAt),
+]);
+
 export const handoffs = pgTable('handoffs', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -158,4 +183,125 @@ export const handoffHistory = pgTable('handoff_history', {
 }, (table) => [
   foreignKey({ name: 'handoff_history_handoff_tenant_fk', columns: [table.handoffId, table.organizationId], foreignColumns: [handoffs.id, handoffs.organizationId] }).onDelete('cascade'),
   index('handoff_history_org_handoff_idx').on(table.organizationId, table.handoffId, table.occurredAt),
+]);
+
+
+export const conversations = pgTable('conversations', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  externalConversationId: text('external_conversation_id').notNull(),
+  accountId: uuid('account_id'),
+  personId: uuid('person_id'),
+  opportunityId: uuid('opportunity_id'),
+  status: conversationStatus('status').default('open').notNull(),
+  ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'conversations_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('restrict'),
+  foreignKey({ name: 'conversations_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('restrict'),
+  foreignKey({ name: 'conversations_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('restrict'),
+  unique('conversations_id_organization_unique').on(table.id, table.organizationId),
+  unique('conversations_provider_external_unique').on(table.organizationId, table.provider, table.externalConversationId),
+  index('conversations_org_status_last_message_idx').on(table.organizationId, table.status, table.lastMessageAt),
+  index('conversations_org_owner_last_message_idx').on(table.organizationId, table.ownerUserId, table.lastMessageAt),
+]);
+
+export const messages = pgTable('messages', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  externalMessageId: text('external_message_id'),
+  direction: messageDirection('direction').notNull(),
+  actorType: messageActorType('actor_type').notNull(),
+  bodyText: text('body_text'),
+  deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'messages_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  unique('messages_id_organization_unique').on(table.id, table.organizationId),
+  unique('messages_conversation_external_unique').on(table.organizationId, table.conversationId, table.externalMessageId),
+  index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
+]);
+
+
+export const inboxEvents = pgTable('inbox_events', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  externalEventId: text('external_event_id').notNull(),
+  eventType: text('event_type').notNull(),
+  payloadHash: text('payload_hash').notNull(),
+  payloadRedacted: jsonb('payload_redacted').$type<JsonValue>().notNull(),
+  status: eventProcessingState('status').default('pending').notNull(),
+  attempts: numeric('attempts').default('0').notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).defaultNow().notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }),
+  lastErrorCode: text('last_error_code'),
+}, (table) => [
+  unique('inbox_events_provider_external_unique').on(table.organizationId, table.provider, table.externalEventId),
+  index('inbox_events_org_status_received_idx').on(table.organizationId, table.status, table.receivedAt),
+]);
+
+export const outboxEvents = pgTable('outbox_events', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  aggregateType: text('aggregate_type').notNull(),
+  aggregateId: uuid('aggregate_id').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  payload: jsonb('payload').$type<JsonValue>().notNull(),
+  status: outboxState('status').default('pending').notNull(),
+  attempts: numeric('attempts').default('0').notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  lastErrorCode: text('last_error_code'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('outbox_events_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
+  index('outbox_events_org_status_available_idx').on(table.organizationId, table.status, table.availableAt),
+  index('outbox_events_org_aggregate_idx').on(table.organizationId, table.aggregateType, table.aggregateId),
+]);
+
+export const jobs = pgTable('jobs', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  jobType: text('job_type').notNull(),
+  aggregateType: text('aggregate_type').notNull(),
+  aggregateId: uuid('aggregate_id').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  status: jobState('status').default('queued').notNull(),
+  attempts: numeric('attempts').default('0').notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  lockedBy: text('locked_by'),
+  lastErrorCode: text('last_error_code'),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('jobs_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
+  index('jobs_org_status_available_idx').on(table.organizationId, table.status, table.availableAt),
+  index('jobs_org_aggregate_idx').on(table.organizationId, table.aggregateType, table.aggregateId),
+]);
+
+export const auditEvents = pgTable('audit_events', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  actorType: text('actor_type').notNull(),
+  action: text('action').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: uuid('entity_id'),
+  reason: text('reason'),
+  beforeState: jsonb('before_state').$type<JsonValue>(),
+  afterState: jsonb('after_state').$type<JsonValue>(),
+  correlationId: text('correlation_id'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('audit_events_org_entity_time_idx').on(table.organizationId, table.entityType, table.entityId, table.occurredAt),
+  index('audit_events_org_actor_time_idx').on(table.organizationId, table.actorUserId, table.occurredAt),
 ]);

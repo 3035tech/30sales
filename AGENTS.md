@@ -16,6 +16,9 @@ Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS
 
 ## Padrões de código
 
+- Evitar acoplamento entre componentes de UI e APIs: componentes de apresentação recebem props tipadas e não conhecem URLs, transporte, autenticação, DTOs de provider ou detalhes de persistência. A coordenação de tela fica na feature; chamadas passam pelo client centralizado.
+- Manter contratos de API versionados e tipados sem acoplar o domínio a telas/formatos de componente. Controllers, services, repositories e adapters preservam suas fronteiras; compartilhar abstrações só quando reduz dependência real, sem criar generalizações artificiais entre domínios.
+
 - Código-fonte técnico em inglês: nomes de variáveis, funções, classes, DTOs, enums, arquivos, comentários e mensagens técnicas. Texto visível ao usuário fica em catálogos i18n separados (`pt-BR`, `en`), nunca hardcoded em componentes/serviços.
 - TypeScript strict; tipos de domínio explícitos; sem `any`, casts não verificados ou JSON solto para estados de negócio. Constantes/enums centralizados para estados, permissões, canais, limites e erros.
 - Módulos coesos por domínio. Separar controller/transport, application/domain service, repository e adapter externo quando houver responsabilidade real; evitar abstração sem necessidade concreta.
@@ -32,6 +35,7 @@ Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS
 ## Banco, processamento e escala
 
 - PostgreSQL é fonte da verdade. Índices tenant-first para os caminhos de consulta. Paginar listagens e limitar tamanho de request/resposta.
+- Toda tabela/listagem precisa de filtros úteis, ordenação clicável em cada coluna visível com direção indicada e seletor de itens por página. Preservar consulta ao paginar; alterar filtro/ordem reinicia na primeira página. Em listas grandes, filtros, ordenação e paginação são aplicados no servidor. Controles acessíveis e localizados pt-BR/en.
 - Começar com monólito modular + API Nest + worker no mesmo repositório/backend quando necessário. Jobs duráveis usam outbox/inbox e idempotência; Redis/BullMQ só após selecionar e justificar transporte de fila. Não criar microserviços cedo.
 - Jobs longos (campanhas, IA, sincronização, alertas, transcrição) não bloqueiam requests de usuário. Backoff limitado, dead-letter/revisão, correlation ID e owner operacional.
 - Não usar n8n, Chatwoot ou Twenty como fonte da verdade final; durante migração, são conectores com mapeamento, direção de sync e política de conflito explícitos. Evolution é provider WhatsApp.

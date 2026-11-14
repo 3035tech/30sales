@@ -4,11 +4,14 @@ import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
 import { ListOpportunitiesQueryDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, TransitionOpportunityDto } from './opportunities.dto';
 import { OpportunitiesRepository } from './opportunities.repository';
+import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto, CreateActivityDto } from './activities.dto';
+import { OpportunityActivitiesRepository } from './activities.repository';
+import { NotFoundException } from '@nestjs/common';
 
 const MANAGER_ROLES = ['owner', 'admin', 'manager'];
 @Injectable()
 export class OpportunitiesService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository, private readonly activitiesRepository: OpportunityActivitiesRepository) {}
   async list(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.list(new OpportunityRepositoryListDto(context.organizationId, context.userId, MANAGER_ROLES.includes(context.role), context.role === 'closer', query));
@@ -25,5 +28,17 @@ export class OpportunitiesService {
   async history(request: ApiRequestDto, opportunityId: string): Promise<OpportunityHistoryRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.history(new OpportunityRepositoryHistoryDto(context.organizationId, opportunityId));
+  }
+  async activities(request: ApiRequestDto, opportunityId: string): Promise<ActivityRecordDto[]> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    return this.activitiesRepository.list(new ActivityRepositoryListDto(context.organizationId, opportunityId));
+  }
+  async createActivity(request: ApiRequestDto, opportunityId: string, dto: CreateActivityDto): Promise<ActivityRecordDto> {
+    const context = await this.tenantAccess.require(request, 'create', 'activities');
+    const canManageAll = MANAGER_ROLES.includes(context.role);
+    if (!canManageAll && context.role !== 'closer') throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only the opportunity owner and sales managers can add opportunity activities.' });
+    const activity = await this.activitiesRepository.create(new ActivityRepositoryCreateDto(context.organizationId, opportunityId, context.userId, canManageAll, dto));
+    if (!activity) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found or is not assigned to you in the active organization.' });
+    return activity;
   }
 }

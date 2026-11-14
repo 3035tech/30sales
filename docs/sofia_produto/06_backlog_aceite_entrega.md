@@ -34,7 +34,9 @@
 
 ## 6.2 User stories e aceites essenciais
 
-**Entregue no código (ainda sem migration aplicada):** CRUD inicial de leads e status, fila de tarefas com próxima ação, handoff com brief de fatos/lacunas/evidência, aceite pelo closer e devolução com motivo e tarefa SDR, pipeline CRM com carteira, risco, valor/moeda, etapas validadas e fechamento ganho/perdido auditado. Limites conhecidos: sem inbox/conversas e evidência linkada à mensagem, checklist completo da qualificação, várias oportunidades por lead, pipeline configurável, forecast, agenda ou confirmação de reunião.
+**Entregue no código:** a tabela de leads usa `DataTable` reutilizável, com filtros server-side de texto/status/origem, sort allowlisted em todas as colunas, paginação 10/25/50/100 (default 25), total de resultados e estado vazio que permite limpar filtros. O componente de UI não conhece APIs; a feature usa o client centralizado. Migrations ainda não aplicadas.
+
+**Entregue no código (migrations ainda não aplicadas):** autenticação e seleção de tenant, membership/permissões, isolamento tenant-first nas entidades comerciais, CRUD inicial de leads/status, tarefas, handoff com brief/aceite/devolução, pipeline e histórico de etapa, timeline manual de atividades e Inbox somente leitura com listagem de conversas/mensagens tenant-scoped. O schema de conversas/mensagens tem migrations geradas 0007–0009. A migration 0010 acrescenta estruturas base tenant-scoped para inbox/outbox de eventos, jobs idempotentes e audit events; ainda não existem produtores, workers, retries ou serviço de auditoria que as use. Limites: não há importação de histórico, ingestão de webhook, conectores, anexos ou resposta pelo Inbox; discovery live e reconciliação seguem pendentes.
 
 ### Contas e identidade
 

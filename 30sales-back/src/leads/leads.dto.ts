@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { LEAD_SOURCES, LEAD_STATUSES } from './constants';
 export const createLeadSchema = z.object({ accountName: z.string().trim().min(2).max(160), contactName: z.string().trim().min(2).max(160), email: z.union([z.string().trim().email().max(254), z.literal('')]).optional(), phone: z.string().trim().max(40).optional(), source: z.enum(LEAD_SOURCES).default('manual') }).strict().refine((input) => Boolean(input.email || input.phone), { message: 'Informe um e-mail ou telefone para contato', path: ['email'] });
 export type CreateLeadDto = z.infer<typeof createLeadSchema>;
-export const listLeadsSchema = z.object({ status: z.enum(LEAD_STATUSES).optional(), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listLeadsSchema = z.object({ status: z.enum(LEAD_STATUSES).optional(), source: z.enum(LEAD_SOURCES).optional(), search: z.string().trim().max(200).optional(), sortBy: z.enum(['accountName','contactName','channel','source','status','nextActionAt','createdAt']).default('nextActionAt'), sortDirection: z.enum(['asc','desc']).default('asc'), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListLeadsQueryDto = z.infer<typeof listLeadsSchema>;
 export const updateLeadStatusSchema = z.object({ status: z.enum(LEAD_STATUSES) }).strict();
 export type UpdateLeadStatusDto = z.infer<typeof updateLeadStatusSchema>;
@@ -14,6 +14,7 @@ export class TenantContextDto { constructor(readonly userId: string, readonly or
 export class LeadRepositoryListDto {
   constructor(readonly organizationId: string, readonly query: ListLeadsQueryDto) {}
 }
+export class LeadPageDto { constructor(readonly data: LeadRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class LeadRepositoryFindDto {
   constructor(readonly organizationId: string, readonly leadId: string) {}
 }

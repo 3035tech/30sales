@@ -4,5 +4,6 @@ import { LeadsModule } from './leads/leads.module';
 import { SessionModule } from './session/session.module';
 import { HandoffsModule } from './handoffs/handoffs.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
-@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule], controllers: [HealthController] })
+import { InboxModule } from './inbox/inbox.module';
+@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule], controllers: [HealthController] })
 export class AppModule {}

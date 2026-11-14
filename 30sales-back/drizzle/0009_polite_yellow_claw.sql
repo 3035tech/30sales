@@ -1,0 +1,2 @@
+ALTER TABLE "messages" DROP CONSTRAINT "messages_provider_external_unique";--> statement-breakpoint
+ALTER TABLE "messages" ADD CONSTRAINT "messages_conversation_external_unique" UNIQUE("organization_id","conversation_id","external_message_id");

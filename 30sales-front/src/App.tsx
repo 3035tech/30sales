@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, TrendingUp, UserRoundCheck, Users } from 'lucide-react'
+import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -8,9 +8,10 @@ import { LeadsWorkspace } from './features/LeadsWorkspace'
 import { TasksWorkspace } from './features/TasksWorkspace'
 import { HandoffsWorkspace } from './features/HandoffsWorkspace'
 import { PipelineWorkspace } from './features/PipelineWorkspace'
+import { InboxWorkspace } from './features/InboxWorkspace'
 import './App.css'
 
-type Page = 'home' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'team'
+type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -40,6 +41,7 @@ export default function App() {
       <div className="brand"><img className="brand-wordmark" src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
       <div className="rail-caption">{t('common.workspace')}</div>
       <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><Layers3 size={18} />{t('common.home')}</button>
+      <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => setPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => setPage('leads')}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
@@ -67,6 +69,7 @@ export default function App() {
           <span className="welcome-icon"><Building2 size={24} /></span><p className="eyebrow">{t('home.chooseEyebrow')}</p><h2>{t('home.chooseTitle')}</h2><p className="muted">{t('home.chooseHint')}</p>
           <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
         </section> : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
+          : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace />
           : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace />
             : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />
             : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />

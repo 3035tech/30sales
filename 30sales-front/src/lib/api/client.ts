@@ -6,22 +6,34 @@ import { access, roles, type OrganizationRole } from '../permissions';
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
 const leadStatus = z.enum(['new','researching','ready','queued','contacting','responded','converted_to_sdr','invalid_contact','no_channel','out_of_profile','duplicate_review','no_response','paused','do_not_contact']);
 const leadSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), toStage: opportunityStage, actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
+const activityType = z.enum(['call','meeting','email','message','task','note','research']);
+const activitySchema = z.object({ id: z.string().uuid(), type: activityType, subject: z.string(), details: z.string().nullable(), result: z.string().nullable(), occurredAt: z.string(), actorName: z.string(), createdAt: z.string() });
+const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
+const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string() });
+const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string() });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string() }), activeOrganizationId: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
 export type LeadStatus = z.infer<typeof leadStatus>;
 export function parseLeadStatus(value: string): LeadStatus | null { const parsed = leadStatus.safeParse(value); return parsed.success ? parsed.data : null; }
 export type LeadDto = z.infer<typeof leadSchema>;
+export type LeadPageDto = z.infer<typeof leadPageSchema>;
+export type LeadSortBy = 'accountName' | 'contactName' | 'channel' | 'source' | 'status' | 'nextActionAt' | 'createdAt';
 export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
 export type OpportunityHistoryDto = z.infer<typeof opportunityHistorySchema>;
+export type ActivityType = z.infer<typeof activityType>;
+export type ActivityDto = z.infer<typeof activitySchema>;
+export type ConversationDto = z.infer<typeof conversationSchema>;
+export type MessageDto = z.infer<typeof messageSchema>;
 export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral' };
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type TeamMemberDto = z.infer<typeof memberSchema>;
@@ -49,9 +61,38 @@ function authError(result: { error?: { message?: string } | null }): { message: 
   return result.error ? { message: result.error.message ?? 'The request could not be completed.' } : null;
 }
 
+function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['source']; search?: string; sortBy?: LeadSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) {
+  const search = new URLSearchParams();
+  if (params.status) search.set('status', params.status);
+  if (params.source) search.set('source', params.source);
+  if (params.search) search.set('search', params.search);
+  if (params.sortBy) search.set('sortBy', params.sortBy);
+  if (params.sortDirection) search.set('sortDirection', params.sortDirection);
+  if (params.limit !== undefined) search.set('limit', String(params.limit));
+  if (params.offset !== undefined) search.set('offset', String(params.offset));
+  return request(`/api/v1/leads/table?${search.toString()}`, leadPageSchema);
+}
+
 export const api = {
   session: { get: () => request('/api/v1/session', sessionSchema) },
+  inbox: {
+    conversations: (params: { status?: ConversationDto['status']; limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.status) search.set('status', params.status);
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/conversations?${search.toString()}`, z.array(conversationSchema));
+    },
+    messages: (conversationId: string, params: { limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
+    },
+  },
+
   leads: {
+    listPage: listLeadPage,
     list: (params: { status?: LeadStatus; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.status) search.set('status', params.status);
@@ -91,6 +132,10 @@ export const api = {
     },
     transition: (id: string, input: { expectedStage: OpportunityStage; stage: OpportunityStage; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
     history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),
+    activities: {
+      list: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, z.array(activitySchema)),
+      create: (id: string, input: { type: ActivityType; subject: string; details?: string; result?: string; occurredAt: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, activitySchema, { method: 'POST', body: JSON.stringify(input) }),
+    },
   },
   team: {
     async listMembers(organizationId: string): Promise<{ data: TeamMemberDto[] | null; error: { message: string } | null }> {

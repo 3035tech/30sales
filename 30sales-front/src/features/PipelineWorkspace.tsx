@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
+import { api, type ActivityDto, type ActivityType, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
 import './Pipeline.css'
+import './ActivityTimeline.css'
 
 type PipelineView = 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'
 const stages: OpportunityStage[] = ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost']
@@ -12,6 +13,7 @@ const transitions: Record<OpportunityStage, OpportunityStage[]> = {
   proposal_sent: ['negotiation', 'won', 'lost'], negotiation: ['proposal_preparing', 'won', 'lost'], won: [], lost: [],
 }
 const terminal = (stage: OpportunityStage) => stage === 'won' || stage === 'lost'
+const activityTypes: ActivityType[] = ['call', 'meeting', 'email', 'message', 'task', 'note', 'research']
 function localDateTime(value?: string) {
   const date = value ? new Date(value) : new Date()
   const offset = date.getTimezoneOffset() * 60000
@@ -78,6 +80,13 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [history, setHistory] = useState<OpportunityHistoryDto[] | null>(null)
+  const [activities, setActivities] = useState<ActivityDto[] | null>(null)
+  const [activityType, setActivityType] = useState<ActivityType>('call')
+  const [activitySubject, setActivitySubject] = useState('')
+  const [activityDetails, setActivityDetails] = useState('')
+  const [activityResult, setActivityResult] = useState('')
+  const [activityOccurredAt, setActivityOccurredAt] = useState(localDateTime())
+  const [activitySaving, setActivitySaving] = useState(false)
   const canMove = transitions[opportunity.stage].length > 0 && opportunity.canUpdate
   const dueAt = opportunity.nextActionAt ? new Date(opportunity.nextActionAt) : null
   const overdue = Boolean(dueAt && dueAt.getTime() < Date.now() && !terminal(opportunity.stage))
@@ -98,11 +107,25 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
     } catch { setError(t('errors.updateOpportunity')) }
     finally { setSaving(false) }
   }
-  const toggleHistory = async () => {
-    if (history !== null) { setHistory(null); return }
-    try { setHistory(await api.opportunities.history(opportunity.id)) }
-    catch { setError(t('errors.loadOpportunityHistory')) }
+  const toggleTimeline = async () => {
+    if (history !== null || activities !== null) { setHistory(null); setActivities(null); return }
+    try {
+      const [stageHistory, activityList] = await Promise.all([api.opportunities.history(opportunity.id), api.opportunities.activities.list(opportunity.id)])
+      setHistory(stageHistory); setActivities(activityList); setError('')
+    } catch { setError(t('errors.loadOpportunityHistory')) }
   }
+  const submitActivity = async (event: React.FormEvent) => {
+    event.preventDefault(); setActivitySaving(true); setError('')
+    try {
+      const activity = await api.opportunities.activities.create(opportunity.id, { type: activityType, subject: activitySubject.trim(), details: activityDetails.trim() || undefined, result: activityResult.trim() || undefined, occurredAt: new Date(activityOccurredAt).toISOString() })
+      setActivities((current) => [activity, ...(current ?? [])]); setActivitySubject(''); setActivityDetails(''); setActivityResult(''); setActivityOccurredAt(localDateTime())
+    } catch { setError(t('errors.createActivity')) }
+    finally { setActivitySaving(false) }
+  }
+  const timeline = [
+    ...(activities ?? []).map((item) => ({ ...item, kind: 'activity' as const, timestamp: item.occurredAt })),
+    ...(history ?? []).map((item) => ({ ...item, kind: 'stage' as const, timestamp: item.occurredAt })),
+  ].sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
 
   return <article className={`opportunity-card${overdue || !opportunity.nextActionAt ? ' at-risk' : ''}`}>
     <div className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</div>
@@ -120,7 +143,18 @@ function OpportunityCard({ opportunity, onUpdated }: { opportunity: OpportunityD
       <label>{targetStage === opportunity.stage ? t('pipeline.updateReason') : t('pipeline.transitionNote')}<textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={targetStage === opportunity.stage ? 3 : undefined} maxLength={1000} required={targetStage === opportunity.stage} /></label>
       {error && <p className="error">{error}</p>}<button className="primary" disabled={saving}>{saving ? t('common.saving') : t('pipeline.saveTransition')}<Save size={14} /></button>
     </form>}
-    <button className="opportunity-history-toggle" onClick={() => void toggleHistory()}><History size={13} />{history === null ? t('pipeline.history') : t('pipeline.hideHistory')}</button>
-    {history && <ol className="opportunity-history">{history.map((item) => <li key={item.id}><span>{t(`opportunityStages.${item.toStage}`)}</span><small>{item.actorName} · {formatDate(item.occurredAt)}</small>{item.reason && <p>{item.reason}</p>}</li>)}</ol>}
+    <button className="opportunity-history-toggle" onClick={() => void toggleTimeline()}><History size={13} />{activities === null ? t('pipeline.timeline') : t('pipeline.hideHistory')}</button>
+    {activities !== null && <div className="opportunity-timeline">
+      {opportunity.canUpdate && <form className="activity-form" onSubmit={submitActivity}>
+        <strong>{t('pipeline.logActivity')}</strong>
+        <div className="activity-form-fields"><label>{t('pipeline.activityType')}<select value={activityType} onChange={(event) => setActivityType(event.target.value as ActivityType)}>{activityTypes.map((type) => <option key={type} value={type}>{t(`activityTypes.${type}`)}</option>)}</select></label><label>{t('pipeline.activitySubject')}<input value={activitySubject} onChange={(event) => setActivitySubject(event.target.value)} minLength={2} maxLength={240} required /></label><label>{t('pipeline.occurredAt')}<input type="datetime-local" value={activityOccurredAt} onChange={(event) => setActivityOccurredAt(event.target.value)} required /></label><label>{t('pipeline.activityResult')}<input value={activityResult} onChange={(event) => setActivityResult(event.target.value)} maxLength={1000} /></label><label className="activity-details-field">{t('pipeline.activityDetails')}<textarea value={activityDetails} onChange={(event) => setActivityDetails(event.target.value)} maxLength={5000} /></label></div>
+        {error && <p className="error">{error}</p>}<button className="primary" disabled={activitySaving}>{activitySaving ? t('common.saving') : t('pipeline.saveActivity')}</button>
+      </form>}
+      {timeline.length === 0 ? <p className="activity-empty">{t('pipeline.noTimeline')}</p> : <ol className="opportunity-history">{timeline.map((item) => {
+        const title = item.kind === 'stage' ? item.fromStage ? `${t(`opportunityStages.${item.fromStage}`)} → ${t(`opportunityStages.${item.toStage}`)}` : t('pipeline.opportunityCreated') : `${t(`activityTypes.${item.type}`)} · ${item.subject}`
+        const details = item.kind === 'stage' ? item.reason : item.details
+        return <li key={`${item.kind}-${item.id}`}><span>{title}</span><small>{item.actorName} · {formatDate(item.timestamp)}</small>{details && <p>{details}</p>}{item.kind === 'activity' && item.result && <p><strong>{t('pipeline.activityResult')}:</strong> {item.result}</p>}</li>
+      })}</ol>}
+    </div>}
   </article>
 }

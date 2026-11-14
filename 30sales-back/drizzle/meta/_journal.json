@@ -43,6 +43,41 @@
       "when": 1794663535905,
       "tag": "0005_fuzzy_warbird",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1794664503310,
+      "tag": "0006_secret_nico_minoru",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1794665831485,
+      "tag": "0007_flimsy_sunset_bain",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794665861265,
+      "tag": "0008_military_major_mapleleaf",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794666318290,
+      "tag": "0009_polite_yellow_claw",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794667106182,
+      "tag": "0010_wide_sersi",
+      "breakpoints": true
     }
   ]
 }

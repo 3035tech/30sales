@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { LEAD_TRANSITIONS } from './constants';
-import { CreateLeadDto, LeadRecordDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
+import { CreateLeadDto, LeadPageDto, LeadRecordDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
 import { LeadsRepository } from './leads.repository';
 import { TenantAccessService } from './tenant-access.service';
 
@@ -25,6 +25,10 @@ export class LeadsService {
     return task;
   }
   async list(request: ApiRequestDto, query: ListLeadsQueryDto): Promise<LeadRecordDto[]> {
+    const context = await this.tenantAccess.require(request, 'read');
+    return (await this.repository.list(new LeadRepositoryListDto(context.organizationId, query))).data;
+  }
+  async listPage(request: ApiRequestDto, query: ListLeadsQueryDto): Promise<LeadPageDto> {
     const context = await this.tenantAccess.require(request, 'read');
     return this.repository.list(new LeadRepositoryListDto(context.organizationId, query));
   }

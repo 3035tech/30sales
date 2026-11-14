@@ -15,12 +15,17 @@
 
 - Filas Hoje, Inbox, Contas, Qualificação e Pipeline.
 - Atribuição, handoff, tarefas, checklist de prontidão e brief do closer.
+- Central de trabalho do closer com eventos que exigem ação humana, prioridade, prazo, contexto e ações diretas.
+- Ciclo de responsabilidade explícito: agente qualifica, closer aceita/devolve, agente retoma apenas com instrução.
 - Alteração manual de fatos/status com evidência e auditoria.
 - Relatórios do funil e SLA com definições claras.
 
 ### P2 — Assistência e automação controlada
 
 - IA de resumo/classificação/sugestão, playbooks versionados e simulator.
+- Detecção de eventos comerciais e notificações idempotentes, configuráveis por tenant e com reconhecimento/adiamento.
+- Pausa/retomada segura da Sofia por conversa, com ownership humano e proteção contra respostas concorrentes.
+- SLA por tipo de evento, lembretes e escalonamento para responsável/gestor.
 - Dry-run/shadow de políticas e sincronizações.
 - Follow-up, alertas e cadências com kill switch/quotas.
 - Respostas humanas pelo inbox com Chatwoot executor único durante migração.
@@ -30,6 +35,7 @@
 - Evolution send/receive, callbacks e saúde no produto.
 - Migração da Sofia A/G, B/F/D/H e C em ondas, um fluxo por função.
 - Agenda integrada e confirmação de reunião.
+- Resposta humana pelo produto e execução de ações externas depois de ownership, pausa e idempotência comprovados.
 - Inbox e CRM nativos; Chatwoot/Twenty opcionais após reconciliação.
 
 ## 6.2 User stories e aceites essenciais
@@ -77,6 +83,40 @@
   - Falha do provider aparece como falha, não como mensagem entregue.
 - **Como closer**, quero responder sem automação por cima.
   - Mensagem humana/atribuição coloca conversa em modo humano; retries do webhook não mudam owner.
+
+### Eventos comerciais e central do closer — backlog
+
+**Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
+
+- **Como closer**, quero receber uma fila única do que exige minha intervenção, para agir sem acompanhar todas as conversas de qualificação.
+  - Cada item mostra conta, contato, oportunidade/lead, evento, horário, prioridade, prazo, resumo, evidência da conversa, fatos confirmados, lacunas e próxima ação sugerida.
+  - Ações disponíveis respeitam etapa e permissão: abrir conversa/oportunidade, aceitar handoff, ligar e registrar resultado, agendar, devolver ao agente com instrução ou encerrar com motivo.
+  - A mesma ocorrência atualiza a fila e a notificação; não cria itens duplicados em canais diferentes.
+- **Como closer**, quero ser acionado quando houver pedido explícito de humano/reunião, intenção concreta de avançar, resposta nova após handoff, questão fora da autoridade do agente ou falha de interpretação com risco de resposta incorreta.
+  - Pedido de humano/reunião e resposta nova na negociação têm prioridade imediata; ausência de próxima ação vencida aparece como ação necessária; atividade rotineira de qualificação fica como atualização resumida.
+  - O agente preserva a mensagem que originou o evento e não transforma hipótese ou classificação incerta em fato.
+  - Uma resposta comum, reação, eco do agente ou retry de webhook não dispara alerta comercial por si só.
+- **Como closer**, quero reconhecer, adiar ou atribuir uma notificação e ver seu estado, para deixar claro quem está cuidando do lead.
+  - Eventos têm chave idempotente, tenant, origem, entidade, timestamps, prioridade, responsável, prazo e estado (`new`, `acknowledged`, `snoozed`, `resolved` ou `failed`).
+  - Reprocessamento do mesmo evento não envia nova notificação nem cria nova tarefa; eventos falhos ficam visíveis e podem ser reconciliados.
+  - Preferências de canal e escalonamento são configuráveis por tenant; alertas críticos não podem ser silenciados sem política/auditoria.
+- **Como closer**, quero aceitar ou devolver o handoff sem perder a conversa nem duplicar o trabalho.
+  - Aceite atribui owner, inicia o SLA definido e bloqueia respostas outbound automáticas conflitantes naquela conversa.
+  - Devolução exige motivo/instrução e próxima ação; só então o agente pode retomar o escopo devolvido.
+  - Se o lead responder enquanto o closer atua, a oportunidade e sua timeline são atualizadas e o closer recebe um único aviso relacionado ao evento.
+- **Como gestor**, quero definir SLA e escalonamento por tipo de evento e equipe.
+  - Prazo inicia no evento/aceite conforme a regra selecionada e usa timezone do tenant.
+  - Vencimento avisa o owner; escalonamento segue a política configurada, sem inventar prazo padrão ou trocar o owner silenciosamente.
+  - Painel mostra tempo até aceite, primeira atividade, itens vencidos e eventos sem responsável, com denominadores e período explícitos.
+- **Como closer**, quero que o agente prepare meu próximo passo sem negociar em meu nome.
+  - Resumo distingue fatos, declarações do lead, inferências e lacunas e aponta mensagens-fonte com horário.
+  - Sugestões incluem ação e justificativa; preço, desconto, contrato, promessa ou reunião só são enviados/executados após autorização prevista na política.
+  - O closer pode corrigir o resumo e registrar resultado; correções não apagam a evidência original.
+- **Como operador**, quero acompanhar falhas de webhook, fila e canal relacionadas ao evento comercial.
+  - Evento mostra correlation ID, origem e estado do processamento; timeout ambíguo não resulta em duplicação.
+  - Saúde ruim ou pausa manual bloqueia novos envios, mas não apaga eventos, alertas ou mensagens já recebidas.
+
+**Gatilhos iniciais para entrega incremental:** pedido de humano/reunião; intenção clara de avançar; pergunta comercial fora do playbook; resposta após handoff; handoff sem aceite/atividade dentro do SLA; tarefa vencida ou oportunidade sem próxima ação; falha/baixa confiança do agente. Começar com fila e notificação in-app; adicionar canais externos e automatização de reunião após integração e idempotência comprovadas.
 
 ### BDR/campanha
 
@@ -131,10 +171,12 @@
 3. **Console read-only**: Hoje, Contas, Inbox e Pipeline; validar com BDR/SDR/closer usando casos reais anonimizados.
 4. **Escrita CRM/tarefas**: outbox, conflito por campo e dry-run; liberar para equipe pequena.
 5. **Handoff e inbox**: ownership, brief, SLA, aceitar/devolver; Chatwoot continua executor único de mensagens.
-6. **IA assistiva**: resumo, fatos e sugestões sem envio; avaliar contra casos; versionar playbooks.
-7. **Automação de baixo risco**: alertas e tarefas; depois retornos explicitamente combinados; medir/rollback.
-8. **Canal e campanhas**: Evolution e campanha canary com volume limitado, quotas e pausa; uma função n8n por vez.
-9. **CRM/inbox nativos**: migrar escrita, depois leitura, depois desligar integrações legadas após período de reconciliação.
+6. **Central do closer**: primeira versão entregue com handoffs e oportunidades que precisam de ação; evoluir com notificações, eventos, reconhecimento/atribuição e contexto de conversa.
+7. **Eventos e notificações**: conectar webhooks, deduplicação/idempotência, pausa de Sofia por ownership, SLA e escalonamento; liberar um gatilho por vez.
+8. **IA assistiva**: resumo com evidências, fatos/lacunas e sugestão sem envio; avaliar contra casos; versionar playbooks.
+9. **Automação de baixo risco**: alertas e tarefas; depois retornos explicitamente combinados; medir/rollback.
+10. **Canal e campanhas**: Evolution e campanha canary com volume limitado, quotas e pausa; uma função n8n por vez.
+11. **CRM/inbox nativos**: resposta humana, agenda e escrita; migrar leitura/escrita e retirar integrações legadas após reconciliação.
 
 ## 6.5 Gates de migração
 

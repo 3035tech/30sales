@@ -42,7 +42,7 @@ export class HandoffsRepository {
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
       .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, input.query.status)))
-      .orderBy(desc(handoffs.requestedAt)).limit(input.query.limit);
+      .orderBy(desc(handoffs.requestedAt), desc(handoffs.id)).limit(input.query.limit).offset(input.query.offset);
     return rows.map((row) => mapHandoff(row as HandoffRow));
   }
 

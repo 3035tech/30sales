@@ -169,7 +169,11 @@ export const api = {
     complete: (id: string, input: { result: z.infer<typeof taskResult>; resultNote?: string; followUp?: { title: string; dueAt: string } }) => request(`/api/v1/leads/tasks/${encodeURIComponent(id)}/complete`, taskSchema, { method: 'PATCH', body: JSON.stringify(input) }),
   },
   handoffs: {
-    list: (status: HandoffDto['status'] = 'requested') => request(`/api/v1/handoffs?${new URLSearchParams({ status, limit: '100' })}`, z.array(handoffSchema)),
+    list: (status: HandoffDto['status'] = 'requested', params: { limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams({ status, limit: String(params.limit ?? 100) });
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/handoffs?${search.toString()}`, z.array(handoffSchema));
+    },
     create: (input: { leadId: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: string }) => request('/api/v1/handoffs', handoffSchema, { method: 'POST', body: JSON.stringify(input) }),
     accept: (id: string) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/accept`, handoffSchema, { method: 'PATCH' }),
     returnToSdr: (id: string, input: { reason: string; nextStep: string; dueAt: string }) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/return`, handoffSchema, { method: 'PATCH', body: JSON.stringify(input) }),

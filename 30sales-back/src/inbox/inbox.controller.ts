@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, conversationAutomationModeSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, sendConversationMessageSchema } from './inbox.dto';
-import type { AssignConversationDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, SendConversationMessageDto } from './inbox.dto';
+import { assignConversationSchema, conversationAutomationModeSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, sendConversationMessageSchema } from './inbox.dto';
+import type { AssignConversationDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, SendConversationMessageDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 
 const conversationIdSchema = z.string().uuid();
@@ -23,6 +23,8 @@ export class InboxController {
   tags(@ApiRequest() request: ApiRequestDto) { return this.inboxService.tags(request); }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
+  @Post(':id/read')
+  markRead(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(markConversationReadSchema)) input: MarkConversationReadInputDto) { return this.inboxService.markRead(request, conversationId, input); }
   @Post(':id/claim')
   claim(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string) { return this.inboxService.claim(request, conversationId); }
   @Post(':id/release')

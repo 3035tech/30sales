@@ -25,7 +25,7 @@ const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
-const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['sofia','human','paused']), replyAvailable: z.boolean(), tags: z.array(conversationTagSchema) });
+const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['sofia','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema) });
 const conversationPageSchema = z.object({ data: z.array(conversationSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional() });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
@@ -104,13 +104,14 @@ function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['s
 export const api = {
   session: { get: () => request('/api/v1/session', sessionSchema) },
   inbox: {
-    conversations: (params: { status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; limit?: number; offset?: number } = {}) => {
+    conversations: (params: { status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.status) search.set('status', params.status);
       if (params.channelId) search.set('channelId', params.channelId);
       if (params.tagId) search.set('tagId', params.tagId);
       if (params.ownerUserId) search.set('ownerUserId', params.ownerUserId);
       if (params.search) search.set('search', params.search);
+      if (params.unreadOnly) search.set('unreadOnly', 'true');
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/conversations?${search.toString()}`, conversationPageSchema);
@@ -124,6 +125,7 @@ export const api = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
+    markRead: (conversationId: string, lastInboundMessageId: string | null) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, z.object({ conversationId: z.string().uuid(), lastReadAt: z.string().nullable() }), { method: 'POST', body: JSON.stringify({ lastInboundMessageId }) }),
     claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),
     assign: (conversationId: string, ownerUserId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/owner`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
     release: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/release`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),

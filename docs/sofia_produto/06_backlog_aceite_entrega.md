@@ -105,6 +105,8 @@
 
 **Busca e filas do Inbox — primeira fatia entregue no código:** pesquisa por empresa, contato ou telefone; filtros server-side por status, responsável (incluindo sem responsável), canal e etiqueta; paginação com total e seletor 10/25/50/100. Quando qualquer critério muda, a fila volta à primeira página. A resposta usa envelope paginado `{data, pagination}`; cliente web atualizado pelo API client centralizado.
 
+**Não lidas individuais no Inbox — primeira fatia entregue no código:** cada usuário tem cursor de leitura por conversa; mensagens inbound posteriores aparecem como não lidas para ele, sem limpar a fila dos outros closers. Abrir a conversa marca como lidas somente até a última mensagem inbound carregada na timeline; o cursor não aceita outbound, mensagem de outra conversa ou tenant. Filtro “somente não lidas” combina com busca, canal, etiqueta, status e responsável. Migration 0019 aditiva ainda não foi aplicada.
+
 **Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 
 - **Como closer**, quero receber uma fila única do que exige minha intervenção, para agir sem acompanhar todas as conversas de qualificação.
@@ -115,6 +117,7 @@
   - Pedido de humano/reunião e resposta nova na negociação têm prioridade imediata; ausência de próxima ação vencida aparece como ação necessária; atividade rotineira de qualificação fica como atualização resumida.
   - O agente preserva a mensagem que originou o evento e não transforma hipótese ou classificação incerta em fato.
   - Uma resposta comum, reação, eco do agente ou retry de webhook não dispara alerta comercial por si só.
+  - A fila “não lidas” é individual por closer; abrir/ler em uma conta não remove itens das filas dos colegas.
 - **Como closer**, quero reconhecer, adiar ou atribuir uma notificação e ver seu estado, para deixar claro quem está cuidando do lead.
   - Eventos têm chave idempotente, tenant, origem, entidade, timestamps, prioridade, responsável, prazo e estado (`new`, `acknowledged`, `snoozed`, `resolved` ou `failed`).
   - Reprocessamento do mesmo evento não envia nova notificação nem cria nova tarefa; eventos falhos ficam visíveis e podem ser reconciliados.

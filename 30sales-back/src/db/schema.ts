@@ -244,6 +244,20 @@ export const conversations = pgTable('conversations', {
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
 ]);
 
+export const conversationReads = pgTable('conversation_reads', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  userId: uuid('user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
+  lastReadAt: timestamp('last_read_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'conversation_reads_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  unique('conversation_reads_org_conversation_user_unique').on(table.organizationId, table.conversationId, table.userId),
+  index('conversation_reads_org_user_read_idx').on(table.organizationId, table.userId, table.lastReadAt),
+]);
+
 export const conversationTags = pgTable('conversation_tags', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -290,6 +304,7 @@ export const messages = pgTable('messages', {
   unique('messages_conversation_external_unique').on(table.organizationId, table.conversationId, table.externalMessageId),
   unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
+  index('messages_org_conversation_direction_created_idx').on(table.organizationId, table.conversationId, table.direction, table.createdAt),
 ]);
 
 export const externalRecords = pgTable('external_records', {

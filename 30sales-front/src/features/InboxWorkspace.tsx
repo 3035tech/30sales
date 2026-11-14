@@ -10,6 +10,7 @@ export function InboxWorkspace() {
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
+  const [messagesConversationId, setMessagesConversationId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [tagFilter, setTagFilter] = useState('')
@@ -29,6 +30,7 @@ export function InboxWorkspace() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ConversationDto['status'] | ''>('')
   const [ownerFilter, setOwnerFilter] = useState('')
+  const [unreadOnly, setUnreadOnly] = useState(false)
   const [pageSize, setPageSize] = useState(25)
   const [offset, setOffset] = useState(0)
   const [conversationTotal, setConversationTotal] = useState(0)
@@ -36,24 +38,36 @@ export function InboxWorkspace() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [error, setError] = useState('')
   const refreshSequence = useRef(0)
+  const readCursorKey = useRef('')
+  const skipUnreadAutoSelect = useRef(false)
 
   const refresh = useCallback(async () => {
     const sequence = ++refreshSequence.current
     setLoading(true)
     setError('')
     try {
-      const result = await api.inbox.conversations({ channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, limit: pageSize, offset })
+      const result = await api.inbox.conversations({ channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
       if (sequence !== refreshSequence.current) return
       setConversations(result.data)
       setConversationTotal(result.pagination.total)
-      setSelectedId((current) => result.data.some((conversation) => conversation.id === current) ? current : result.data[0]?.id ?? '')
+      setSelectedId((current) => {
+        if (result.data.some((conversation) => conversation.id === current)) {
+          skipUnreadAutoSelect.current = false
+          return current
+        }
+        if (skipUnreadAutoSelect.current) {
+          skipUnreadAutoSelect.current = false
+          return ''
+        }
+        return result.data[0]?.id ?? ''
+      })
     } catch {
       if (sequence !== refreshSequence.current) return
       setError(t('inbox.loadFailed'))
     } finally {
       if (sequence === refreshSequence.current) setLoading(false)
     }
-  }, [channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, pageSize, offset, t])
+  }, [channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
   useEffect(() => { api.inbox.tags().then(setTags).catch(() => setTags([])) }, [])
@@ -63,19 +77,31 @@ export function InboxWorkspace() {
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { setMessageDraft(''); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode('reply') }, [selectedId])
   useEffect(() => {
-    if (!selectedId) { setMessages([]); return }
+    if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
     setMessages([])
+    setMessagesConversationId('')
     setMessagesLoading(true)
-    api.inbox.messages(selectedId, { limit: 100 }).then((result) => { if (active) setMessages(result) })
+    api.inbox.messages(selectedId, { limit: 100 }).then((result) => { if (active) { setMessages(result); setMessagesConversationId(selectedId) } })
       .catch(() => { if (active) setError(t('inbox.messagesFailed')) })
       .finally(() => { if (active) setMessagesLoading(false) })
     return () => { active = false }
   }, [selectedId, t])
+  useEffect(() => {
+    const lastInbound = [...messages].reverse().find((message) => message.direction === 'inbound')
+    if (!selectedId || messagesConversationId !== selectedId || !lastInbound) return
+    const cursor = `${selectedId}:${lastInbound.id}`
+    if (readCursorKey.current === cursor) return
+    readCursorKey.current = cursor
+    api.inbox.markRead(selectedId, lastInbound.id).then(() => {
+      if (unreadOnly) skipUnreadAutoSelect.current = true
+      void refresh()
+    }).catch(() => { readCursorKey.current = '' })
+  }, [messages, messagesConversationId, selectedId, unreadOnly, refresh])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
-  const hasConversationFilters = Boolean(channelFilter || tagFilter || statusFilter || ownerFilter || conversationSearch.trim())
-  const clearConversationFilters = () => { setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setChannelFilter(''); setTagFilter(''); setOffset(0) }
+  const hasConversationFilters = Boolean(channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
+  const clearConversationFilters = () => { setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setChannelFilter(''); setTagFilter(''); setOffset(0) }
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
@@ -145,12 +171,13 @@ export function InboxWorkspace() {
         <label className="inbox-channel-filter">{t('inbox.searchConversations')}<input value={conversationSearch} onChange={(event) => { setConversationSearch(event.target.value); setOffset(0) }} maxLength={120} placeholder={t('inbox.searchPlaceholder')} /></label>
         <label className="inbox-channel-filter">{t('inbox.filterStatus')}<select value={statusFilter} onChange={(event) => { setStatusFilter((['open','pending','resolved','snoozed'] as const).find((status) => status === event.target.value) ?? ''); setOffset(0) }}><option value="">{t('inbox.allStatuses')}</option>{(['open','pending','resolved','snoozed'] as const).map((status) => <option key={status} value={status}>{t(`inbox.status.${status}`)}</option>)}</select></label>
         <label className="inbox-channel-filter">{t('inbox.filterOwner')}<select value={ownerFilter} onChange={(event) => { setOwnerFilter(event.target.value); setOffset(0) }}><option value="">{t('inbox.allOwners')}</option><option value="unassigned">{t('inbox.unassigned')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select></label>
+        <label className="inbox-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={(event) => { setUnreadOnly(event.target.checked); setOffset(0) }} />{t('inbox.unreadOnly')}</label>
         <label className="inbox-channel-filter">{t('channels.inboxFilter')}<select value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</select></label>
         <label className="inbox-channel-filter">{t('inboxComposer.tagFilter')}<select value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('inboxComposer.allTags')}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
         {loading ? <p className="inbox-empty">{t('common.loading')}</p> : conversations.length === 0 ? <div className="inbox-empty"><MessageSquareText size={22} /><strong>{hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')}</strong><span>{hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}</span>{hasConversationFilters && <button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</button>}</div> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
           return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
+            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong>{conversation.unread && <span className="inbox-unread-badge">{t('inbox.unread')}</span>}<small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
           </button>
         })}
         <div className="inbox-list-pagination"><label>{t('table.rowsPerPage')}<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label><span>{conversationTotal === 0 ? 0 : offset + 1}–{Math.min(offset + pageSize, conversationTotal)} / {conversationTotal}</span><div><button type="button" disabled={loading || offset === 0} onClick={() => setOffset(Math.max(0, offset - pageSize))}>{t('table.previous')}</button><button type="button" disabled={loading || offset + pageSize >= conversationTotal} onClick={() => setOffset(offset + pageSize)}>{t('table.next')}</button></div></div>

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
@@ -11,7 +11,7 @@ export class InboxService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService) {}
   async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    return this.repository.list(new ConversationRepositoryListDto(context.organizationId, query));
+    return this.repository.list(new ConversationRepositoryListDto(context.organizationId, context.userId, query));
   }
   async channels(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -30,6 +30,13 @@ export class InboxService {
     const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, query.limit, query.offset));
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
+  }
+  async markRead(request: ApiRequestDto, conversationId: string, input: MarkConversationReadInputDto) {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, input.lastInboundMessageId, request.correlationId));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'invalid_message') throw new BadRequestException({ code: 'INVALID_READ_CURSOR', message: 'The read cursor must reference an inbound message in this conversation.' });
+    return result;
   }
   async claim(request: ApiRequestDto, conversationId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');

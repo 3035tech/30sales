@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, auditEvents, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
+import { accounts, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing';
@@ -19,6 +19,7 @@ export class InboxRepository {
 
   async list(input: ConversationRepositoryListDto): Promise<ConversationPageDto> {
     const conditions = [eq(conversations.organizationId, input.organizationId)];
+    const unreadExists = sql<boolean>`exists (select 1 from messages unread_message where unread_message.organization_id = ${input.organizationId} and unread_message.conversation_id = ${conversations.id} and unread_message.direction = 'inbound' and unread_message.created_at > coalesce((select conversation_read.last_read_at from conversation_reads conversation_read where conversation_read.organization_id = ${input.organizationId} and conversation_read.conversation_id = ${conversations.id} and conversation_read.user_id = ${input.userId}), 'epoch'::timestamptz))`;
     if (input.query.status) conditions.push(eq(conversations.status, input.query.status));
     if (input.query.channelId) conditions.push(eq(conversations.channelId, input.query.channelId));
     if (input.query.ownerUserId === 'unassigned') conditions.push(sql`${conversations.ownerUserId} is null`);
@@ -27,12 +28,13 @@ export class InboxRepository {
       const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
       conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.phone, pattern))!);
     }
+    if (input.query.unreadOnly) conditions.push(unreadExists);
     if (input.query.tagId) conditions.push(sql`exists (select 1 from conversation_tag_links ctl where ctl.organization_id = ${input.organizationId} and ctl.conversation_id = ${conversations.id} and ctl.tag_id = ${input.query.tagId})`);
     const [{ total }] = await database.select({ total: count() }).from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .where(and(...conditions));
-    const rows = await database.select({ id: conversations.id, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode })
+    const rows = await database.select({ id: conversations.id, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, unread: unreadExists })
       .from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
@@ -47,7 +49,7 @@ export class InboxRepository {
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
     for (const tag of tagRows) tagsByConversation.set(tag.conversationId, [...(tagsByConversation.get(tag.conversationId) ?? []), new ConversationTagDto(tag.id, tag.name)]);
-    const data = rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), tagsByConversation.get(row.id) ?? []));
+    const data = rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? []));
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
@@ -160,6 +162,33 @@ export class InboxRepository {
       .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
     return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName));
+  }
+
+  async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!conversation) return 'not_found';
+      if (!input.lastInboundMessageId) {
+        const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
+          .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
+        return new ConversationReadResultDto(input.conversationId, current?.lastReadAt?.toISOString() ?? null);
+      }
+      const [message] = await transaction.select({ createdAt: messages.createdAt }).from(messages)
+        .where(and(eq(messages.id, input.lastInboundMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound'))).limit(1);
+      if (!message) return 'invalid_message';
+      const [current] = await transaction.select({ id: conversationReads.id, lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
+        .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).for('update').limit(1);
+      if (current?.lastReadAt && current.lastReadAt >= message.createdAt) return new ConversationReadResultDto(input.conversationId, current.lastReadAt.toISOString());
+      const lastReadAt = message.createdAt;
+      if (current) {
+        await transaction.update(conversationReads).set({ lastReadAt, updatedAt: new Date() }).where(and(eq(conversationReads.id, current.id), eq(conversationReads.organizationId, input.organizationId)));
+      } else {
+        await transaction.insert(conversationReads).values({ organizationId: input.organizationId, conversationId: input.conversationId, userId: input.userId, lastReadAt });
+      }
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'conversation.marked_read', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { lastReadAt: lastReadAt.toISOString(), lastInboundMessageId: input.lastInboundMessageId } });
+      return new ConversationReadResultDto(input.conversationId, lastReadAt.toISOString());
+    });
   }
 
   async addNote(input: ConversationNoteCreateDto): Promise<MessageRecordDto | 'not_found' | 'not_owner'> {

@@ -5,6 +5,7 @@ import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { api, type CloserEventDto, type HandoffDto, type OpportunityDto } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './CloserQueueWorkspace.css'
+import './CloserEventActions.css'
 
 type WorkKind = 'handoff' | 'lead_reply' | 'overdue' | 'no_action'
 type SortKey = 'priority' | 'account' | 'event' | 'deadline'
@@ -46,6 +47,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
   const [closerEvents, setCloserEvents] = useState<CloserEventDto[]>([])
+  const [eventAssignees, setEventAssignees] = useState<Array<{ id: string; name: string }>>([])
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<WorkKind | ''>('')
   const [sortKey, setSortKey] = useState<SortKey>('priority')
@@ -56,18 +58,21 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const [error, setError] = useState('')
   const [partial, setPartial] = useState(false)
   const [acceptingId, setAcceptingId] = useState('')
+  const [eventAssignTarget, setEventAssignTarget] = useState('')
+  const [eventAssignId, setEventAssignId] = useState('')
   const [refresh, setRefresh] = useState(0)
 
   useEffect(() => {
     let active = true
     setLoading(true); setError(''); setPartial(false); setHandoffs([]); setOpportunities([]); setCloserEvents([])
-    Promise.allSettled([listAllRequestedHandoffs(), listAllOwnedOpportunities(), listAllCloserEvents()]).then(([handoffResult, opportunityResult, eventResult]) => {
+    Promise.allSettled([listAllRequestedHandoffs(), listAllOwnedOpportunities(), listAllCloserEvents(), api.closerEvents.assignees()]).then(([handoffResult, opportunityResult, eventResult, assigneeResult]) => {
       if (!active) return
       if (handoffResult.status === 'fulfilled') setHandoffs(handoffResult.value)
       if (opportunityResult.status === 'fulfilled') setOpportunities(opportunityResult.value)
       if (eventResult.status === 'fulfilled') setCloserEvents(eventResult.value)
-      const failed = Number(handoffResult.status === 'rejected') + Number(opportunityResult.status === 'rejected') + Number(eventResult.status === 'rejected')
-      setPartial(failed > 0 && failed < 3); setError(failed === 3 ? t('closerQueue.loadFailed') : '')
+      if (assigneeResult.status === 'fulfilled') setEventAssignees(assigneeResult.value)
+      const failed = Number(handoffResult.status === 'rejected') + Number(opportunityResult.status === 'rejected') + Number(eventResult.status === 'rejected') + Number(assigneeResult.status === 'rejected')
+      setPartial(failed > 0 && failed < 4); setError(failed === 4 ? t('closerQueue.loadFailed') : '')
     }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [refresh, t])
@@ -81,8 +86,16 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const openEvent = async (event: CloserEventDto) => {
     setAcceptingId(event.id); setError('')
     try {
-      if (event.status === 'new') await api.closerEvents.acknowledge(event.id)
+      if (event.status !== 'acknowledged') await api.closerEvents.act(event.id, { action: 'acknowledge' })
       onOpenInbox(event.conversationId)
+    } catch { setError(t('closerQueue.eventActionFailed')) }
+    finally { setAcceptingId('') }
+  }
+  const actOnEvent = async (event: CloserEventDto, input: { action: 'snooze' | 'resolve' | 'reassign'; snoozedUntil?: string; assignedToUserId?: string }) => {
+    setAcceptingId(event.id); setError('')
+    try {
+      await api.closerEvents.act(event.id, input)
+      setEventAssignTarget(''); setEventAssignId(''); setRefresh((version) => version + 1)
     } catch { setError(t('closerQueue.eventActionFailed')) }
     finally { setAcceptingId('') }
   }
@@ -115,7 +128,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const columns: DataTableColumn<WorkItem, SortKey>[] = [
     { id: 'priority', label: t('closerQueue.columns.priority'), render: (item) => <span className={`closer-priority closer-priority-${item.kind}`}>{item.kind === 'handoff' || item.kind === 'lead_reply' ? <UserRoundCheck size={14} /> : <Clock3 size={14} />}{t(`closerQueue.kinds.${item.kind}`)}</span> },
     { id: 'account', label: t('closerQueue.columns.accountContact'), render: (item) => <div className="closer-account-cell"><strong>{item.accountName}</strong><small>{item.contactName}</small></div> },
-    { id: 'event', label: t('closerQueue.columns.context'), render: (item) => <div className="closer-event-cell"><strong>{item.title}</strong><p>{item.context}</p>{item.event?.status === 'acknowledged' && <small>{t('closerQueue.acknowledged')}</small>}{item.handoff && item.handoff.confirmedFacts.length > 0 && <small>{t('closerQueue.confirmedFacts', { facts: item.handoff.confirmedFacts.join(' · ') })}</small>}{item.handoff && item.handoff.unknowns.length > 0 && <small className="closer-unknowns">{t('closerQueue.openQuestions', { questions: item.handoff.unknowns.join(' · ') })}</small>}<button className="closer-item-action" type="button" disabled={Boolean(acceptingId)} onClick={() => item.handoff ? void acceptHandoff(item.handoff) : item.event ? void openEvent(item.event) : onOpenPipeline()}>{item.handoff ? (acceptingId === item.handoff.id ? t('closerQueue.accepting') : t('closerQueue.acceptAction')) : item.event ? (acceptingId === item.event.id ? t('common.loading') : t('closerQueue.openConversation')) : t('closerQueue.openPipeline')}<ArrowRight size={13} /></button></div> },
+    { id: 'event', label: t('closerQueue.columns.context'), render: (item) => <div className="closer-event-cell"><strong>{item.title}</strong><p>{item.context}</p>{item.event?.status === 'acknowledged' && <small>{t('closerQueue.acknowledged')}</small>}{item.handoff && item.handoff.confirmedFacts.length > 0 && <small>{t('closerQueue.confirmedFacts', { facts: item.handoff.confirmedFacts.join(' · ') })}</small>}{item.handoff && item.handoff.unknowns.length > 0 && <small className="closer-unknowns">{t('closerQueue.openQuestions', { questions: item.handoff.unknowns.join(' · ') })}</small>}{item.event && <div className="closer-event-actions"><button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'snooze', snoozedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString() })}>{t('closerEventActions.snoozeOneHour')}</button><button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'resolve' })}>{t('closerEventActions.resolveEvent')}</button><select aria-label={t('closerEventActions.reassignEvent')} value={eventAssignId === item.event.id ? eventAssignTarget : ''} disabled={acceptingId === item.event.id} onChange={(change) => { setEventAssignId(item.event!.id); setEventAssignTarget(change.target.value) }}><option value="">{t('closerEventActions.reassignEvent')}</option>{eventAssignees.filter((assignee) => assignee.id !== item.event!.assignedToUserId).map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select>{eventAssignId === item.event.id && eventAssignTarget && <button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'reassign', assignedToUserId: eventAssignTarget })}>{t('closerEventActions.confirmReassign')}</button>}</div>}<button className="closer-item-action" type="button" disabled={Boolean(acceptingId)} onClick={() => item.handoff ? void acceptHandoff(item.handoff) : item.event ? void openEvent(item.event) : onOpenPipeline()}>{item.handoff ? (acceptingId === item.handoff.id ? t('closerQueue.accepting') : t('closerQueue.acceptAction')) : item.event ? (acceptingId === item.event.id ? t('common.loading') : t('closerQueue.openConversation')) : t('closerQueue.openPipeline')}<ArrowRight size={13} /></button></div> },
     { id: 'deadline', label: t('closerQueue.columns.deadline'), render: (item) => <span className="closer-deadline">{item.deadline ? dateLabel(item.deadline) : '—'}</span> },
   ]
   const handoffCount = items.filter((item) => item.kind === 'handoff').length

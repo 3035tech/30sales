@@ -346,6 +346,7 @@ export const closerEvents = pgTable('closer_events', {
   evidence: text('evidence'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
   acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+  snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

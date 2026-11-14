@@ -1,0 +1,1 @@
+ALTER TABLE "closer_events" ADD COLUMN "snoozed_until" timestamp with time zone;

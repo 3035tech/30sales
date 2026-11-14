@@ -6,7 +6,7 @@ import { api, type ChannelDto, type CreateChannelInput } from '../lib/api/client
 import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status'
-const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '', chatwootInboxId: '' }
+const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 export function ChannelsWorkspace() {
   const { t } = useTranslation()
@@ -32,7 +32,7 @@ export function ChannelsWorkspace() {
 
   const rows = useMemo(() => {
     const search = query.trim().toLocaleLowerCase()
-    const filtered = channels.filter((channel) => `${channel.displayName} ${channel.phoneNumber} ${channel.provider} ${channel.providerChannelId} ${channel.providerAccountId ?? ''} ${channel.chatwootInboxId ?? ''}`.toLocaleLowerCase().includes(search))
+    const filtered = channels.filter((channel) => `${channel.displayName} ${channel.phoneNumber} ${channel.provider} ${channel.providerChannelId} ${channel.providerAccountId ?? ''}`.toLocaleLowerCase().includes(search))
     const direction = sortDirection === 'asc' ? 1 : -1
     return filtered.sort((left, right) => {
       const values: Record<SortKey, [string, string]> = {
@@ -45,7 +45,7 @@ export function ChannelsWorkspace() {
   const createChannel = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined, chatwootInboxId: form.chatwootInboxId || undefined })
+      await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
       setForm(emptyForm); setQuery(''); setOffset(0); setRefresh((version) => version + 1)
     } catch { setError(t('channels.saveFailed')) }
     finally { setSaving(false) }
@@ -61,7 +61,7 @@ export function ChannelsWorkspace() {
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><Radio size={16} /><strong>{channel.displayName}</strong></div> },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => t(`channels.providers.${channel.provider}`) },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
-    { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}{channel.chatwootInboxId && <small>Chatwoot: {channel.chatwootInboxId}</small>}</div> },
+    { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}</div> },
     { id: 'status', label: t('channels.columns.routing'), render: (channel) => <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</button></div> },
   ]
   return <section className="channels-page">
@@ -74,7 +74,6 @@ export function ChannelsWorkspace() {
         <label>{t('channels.phone')}<input value={form.phoneNumber} onChange={(event) => setForm((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="+5511999999999" pattern="\+[1-9][0-9]{7,14}" required /></label>
         <label>{t(form.provider === 'evolution' ? 'channels.evolutionInstance' : 'channels.phoneNumberId')}<input value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} maxLength={200} required /></label>
         {form.provider === 'whatsapp_cloud_api' && <label>{t('channels.businessAccount')}<input value={form.providerAccountId ?? ''} onChange={(event) => setForm((current) => ({ ...current, providerAccountId: event.target.value }))} maxLength={200} required /></label>}
-        <label>{t('channels.chatwootInboxOptional')}<input value={form.chatwootInboxId ?? ''} onChange={(event) => setForm((current) => ({ ...current, chatwootInboxId: event.target.value }))} maxLength={200} /></label>
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.add')}</>}</button></div>
     </form>

@@ -38,7 +38,7 @@ Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS
 - Toda tabela/listagem precisa de filtros úteis, ordenação clicável em cada coluna visível com direção indicada e seletor de itens por página. Preservar consulta ao paginar; alterar filtro/ordem reinicia na primeira página. Em listas grandes, filtros, ordenação e paginação são aplicados no servidor. Controles acessíveis e localizados pt-BR/en.
 - Começar com monólito modular + API Nest + worker no mesmo repositório/backend quando necessário. Jobs duráveis usam outbox/inbox e idempotência; Redis/BullMQ só após selecionar e justificar transporte de fila. Não criar microserviços cedo.
 - Jobs longos (campanhas, IA, sincronização, alertas, transcrição) não bloqueiam requests de usuário. Backoff limitado, dead-letter/revisão, correlation ID e owner operacional.
-- Não usar n8n, Chatwoot ou Twenty como fonte da verdade final; durante migração, são conectores com mapeamento, direção de sync e política de conflito explícitos. Evolution é provider WhatsApp.
+- Não usar n8n ou Twenty como fonte da verdade final; durante migração, conectores têm mapeamento, direção de sync e política de conflito explícitos. 30Sales é dono do Inbox/atendimento e conecta diretamente à Evolution API ou WhatsApp Business Cloud API. Chatwoot é apenas legado/importação histórica, nunca runtime ou executor.
 
 ## Segurança e confiabilidade
 

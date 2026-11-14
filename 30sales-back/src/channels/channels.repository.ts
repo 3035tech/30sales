@@ -14,8 +14,8 @@ export class ChannelsRepository {
   async create(input: ChannelRepositoryCreateDto): Promise<ChannelRecordDto | 'duplicate'> {
     try {
       return await database.transaction(async (transaction) => {
-        const [row] = await transaction.insert(messagingChannels).values({ organizationId: input.organizationId, provider: input.input.provider, displayName: input.input.displayName, phoneNumber: input.input.phoneNumber, providerChannelId: input.input.providerChannelId, providerAccountId: input.input.providerAccountId || null, chatwootInboxId: input.input.chatwootInboxId || null }).returning();
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.created', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, afterState: { provider: row.provider, displayName: row.displayName, phoneNumber: row.phoneNumber, providerChannelId: row.providerChannelId, providerAccountId: row.providerAccountId, chatwootInboxId: row.chatwootInboxId, isActive: row.isActive } });
+        const [row] = await transaction.insert(messagingChannels).values({ organizationId: input.organizationId, provider: input.input.provider, displayName: input.input.displayName, phoneNumber: input.input.phoneNumber, providerChannelId: input.input.providerChannelId, providerAccountId: input.input.providerAccountId || null }).returning();
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.created', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, afterState: { provider: row.provider, displayName: row.displayName, phoneNumber: row.phoneNumber, providerChannelId: row.providerChannelId, providerAccountId: row.providerAccountId, isActive: row.isActive } });
         return this.toDto(row);
       });
     } catch (error) {
@@ -35,7 +35,7 @@ export class ChannelsRepository {
   }
 
   private toDto(row: typeof messagingChannels.$inferSelect): ChannelRecordDto {
-    return new ChannelRecordDto(row.id, row.provider as ChannelRecordDto['provider'], row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.chatwootInboxId, row.isActive, row.createdAt.toISOString(), row.updatedAt.toISOString());
+    return new ChannelRecordDto(row.id, row.provider as ChannelRecordDto['provider'], row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.createdAt.toISOString(), row.updatedAt.toISOString());
   }
 
   private isUniqueViolation(error: unknown): boolean {

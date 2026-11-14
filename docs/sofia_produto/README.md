@@ -24,7 +24,7 @@ Esta documentação define o blueprint de produto para o **30Sales**, aplicaçã
 ## Premissas adotadas
 
 - O 30Sales nasce como SaaS multi-tenant: cada empresa cliente tem uma organização isolada e seus próprios usuários, dados, integrações e políticas. A 3035Tech/30Pay pode ser o primeiro tenant, sem tratamento especial no modelo. Billing/white-label podem vir depois; isolamento e membership entram no primeiro schema.
-- Evolution continua como transporte WhatsApp inicial. Chatwoot e Twenty ficam conectados durante a migração e podem ser substituídos em etapas.
+- 30Sales será o Inbox e CRM operacional; conecta diretamente à Evolution API ou à WhatsApp Business Cloud API oficial. Chatwoot não será dependência nem executor do produto. Dados legados podem ser importados durante a migração, se necessário.
 - BDR prepara contas e prospecção; Sofia/SDR conversa e qualifica; closer conduz diagnóstico, proposta, negociação e fechamento. Em equipe pequena, um usuário pode acumular papéis.
 - Agenda integrada é necessária para afirmar “reunião confirmada”. Até integração, compromissos manuais devem ter tipo e status próprios.
 - Regras de canal, consentimento/opt-out, horário, quota e ownership são determinísticas. Modelo de IA não pode sobrepô-las.

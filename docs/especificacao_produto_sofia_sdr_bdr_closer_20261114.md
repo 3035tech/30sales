@@ -214,7 +214,7 @@ Se faltar item, o produto aponta a lacuna; não completa com inferência apresen
 | Sistema atual | Papel atual | Estratégia no produto |
 | --- | --- | --- |
 | Evolution API | Sessões e transporte WhatsApp | Manter como adaptador de canal; trazer conexão, saúde, envio e confirmação para o console. Isolar regras comerciais do protocolo Evolution. |
-| Chatwoot | Inbox, histórico, agentes e notas | Manter como backend/conector na transição. Depois internalizar inbox e histórico; permitir Chatwoot como canal conectado para quem já usa. |
+| Chatwoot (legado) | Inbox, histórico, agentes e notas atuais | Pode ser fonte de importação histórica. Não será backend, executor de mensagens nem conector operacional do 30Sales. O Inbox e ownership serão nativos; transporte direto via Evolution ou WhatsApp Business Cloud API. |
 | Twenty | CRM, Companies/People/Opportunities/tasks e origem da prospecção | Importar e sincronizar durante transição. Produto assume CRM operacional necessário à jornada; conector Twenty fica opcional para coexistência/export. |
 | n8n | Orquestra workflows A–H e monitor | Migrar responsabilidade para jobs versionados no produto. Manter temporariamente para tarefas auxiliares; eliminar fluxos duplicados após reconciliação. |
 | PostgreSQL Sofia | Histórico, estado, filas e configuração | Migrar para schema de domínio do produto com IDs estáveis, auditoria, migrações e plano de retenção. Não copiar scripts históricos como arquitetura final. |
@@ -234,7 +234,7 @@ Se faltar item, o produto aponta a lacuna; não completa com inferência apresen
 7. **Agenda** — disponibilidade, compromissos, reuniões e tarefas.
 8. **Relatórios** — BDR, SDR/Sofia, handoff, closer, canal e qualidade.
 9. **Conhecimento da Sofia** — playbooks, fatos, políticas, testes e versões.
-10. **Integrações e operação** — Evolution, Chatwoot, Twenty, IA, fila, erros, credenciais e auditoria.
+10. **Integrações e operação** — Evolution, WhatsApp Business Cloud API, Twenty, IA, fila, erros, credenciais e auditoria.
 11. **Administração** — usuários, equipes, papéis, metas, roteamento, calendário e configuração.
 
 ## 8. MVP recomendado
@@ -242,7 +242,7 @@ Se faltar item, o produto aponta a lacuna; não completa com inferência apresen
 ### MVP 1 — Visibilidade e registro confiável
 
 - Login, papéis, empresas, contatos, oportunidades, tarefas e timeline.
-- Integrações read-only com Chatwoot/Twenty e estado/saúde Evolution.
+- Importação histórica opcional de Chatwoot e integrações read-only com Twenty; estado/saúde dos canais WhatsApp no 30Sales.
 - Inbox unificada em modo leitura, filas e filtros.
 - Mapa de status por conta, conversa, qualificação, oportunidade e job técnico.
 - Handoff brief e relatórios de cobertura/pendências.
@@ -254,7 +254,7 @@ Se faltar item, o produto aponta a lacuna; não completa com inferência apresen
 
 - Atribuição, notas, tarefas, registro manual e sugestões da Sofia.
 - Dry-run/shadow para regras de qualificação, handoff e cadências.
-- Inbox com resposta humana via Chatwoot; confirmar ownership e sincronizar status.
+- Inbox nativo com fila compartilhada, ownership/assunção atômica, pausa da Sofia, respostas humanas pelo provedor original e retomada explícita da Sofia.
 - Pipeline e prontidão do closer; nada envia automaticamente sem fluxo legado como executor único.
 
 **Critério de saída:** os dados e decisões do novo produto reconciliam com o legado; equipe faz handoff rastreado de ponta a ponta.
@@ -268,11 +268,11 @@ Se faltar item, o produto aponta a lacuna; não completa com inferência apresen
 
 **Critério de saída:** nenhuma perda/duplicidade na janela piloto e rollback demonstrado sem reimportar workflow concorrente.
 
-### MVP 4 — Substituição de Chatwoot/Twenty
+### MVP 4 — Independência operacional de Chatwoot e Twenty
 
 - Inbox e CRM interno com histórico, mensagens, contatos, empresas, tarefas e oportunidades.
 - Migração de registros com mapeamento de IDs e reconciliação por contagem/hash/amostra.
-- Chatwoot e Twenty tornam-se conectores opcionais; desligamento só após período de operação paralela segura.
+- Chatwoot não faz parte do runtime. Twenty pode permanecer como conector CRM opcional; desligamento da fonte legada só após reconciliação e operação segura.
 
 ## 9. Regras de produto não negociáveis
 

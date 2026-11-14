@@ -11,7 +11,7 @@ Este mapeamento foi feito a partir dos exports versionados de n8n em `workspace/
 | Twenty | Company `id` | `name`, telefone principal (`phonesPrimaryPhoneNumber`, `phones.primaryPhoneNumber` ou variações), `createdAt` | Origem de prospecção cold; o Workflow C evita duplicar pelo telefone ou `twenty_id` e atualiza status de abordagem |
 | Postgres Sofia | `sofia_leads.id`; `twenty_id`; telefone | nome, empresa, inbox/chip, status operacional, origem, handoff, follow-ups, indicação | Estado operacional SDR/BDR e relacionamento com Twenty/Chatwoot |
 | Postgres Sofia — mensagens | `sofia_mensagens.id`; `external_ref` quando disponível | lead, papel, texto, horário | Histórico da conversa; pode conter dados pessoais e precisa de política de retenção/redação |
-| Chatwoot | account + conversation ID; message ID | inbox, contato, status, assignee, mensagens, direção/horário, anexos | Inbox e histórico; executor atual para mensagens durante a migração |
+| Chatwoot (legado) | account + conversation ID; message ID | inbox, contato, status, assignee, mensagens, direção/horário, anexos | Fonte opcional de importação histórica; não executa mensagens no 30Sales |
 | Evolution | instância/chip | saúde e transporte do WhatsApp | Provider de canal; não é identidade primária de conta ou pessoa |
 
 O Workflow C local consulta Twenty Companies e extrai `id`, `name`, telefone e `createdAt`. A Sofia deduplica sua fila pelo telefone ou `twenty_id`; isso é uma regra legada de ingestão, não uma autorização para fundir registros automaticamente no 30Sales.

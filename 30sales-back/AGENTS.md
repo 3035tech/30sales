@@ -37,7 +37,7 @@ Do not create empty modules for every future domain. Add a module when its verti
 
 ## Integrations and jobs
 
-- Provider ports/adapters for Evolution, Chatwoot, Twenty, Anthropic, speech-to-text and calendar. Keep provider DTOs at adapter boundary; map to internal domain types.
+- Provider ports/adapters for Evolution, WhatsApp Business Cloud API, Twenty, Anthropic, speech-to-text and calendar. Keep provider DTOs at adapter boundary; map to internal domain types. Chatwoot is not a runtime integration; legacy exports may be supported only by import adapters.
 - Apply explicit connect/read timeouts, bounded payload, response validation, rate limits, bounded retries/backoff and circuit breaker. A timeout after send is ambiguous; reconcile provider before retry.
 - Queue/outbox payload is a reference, not authoritative identity. On execution, load current DB state and recheck tenant/membership/action policy.
 - `organizationId` is included in job idempotency keys, logs and metrics; redact personal data from payloads/telemetry.

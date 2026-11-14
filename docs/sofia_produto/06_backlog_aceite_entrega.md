@@ -17,6 +17,10 @@
 - Atribuição, handoff, tarefas, checklist de prontidão e brief do closer.
 - Central de trabalho do closer com eventos que exigem ação humana, prioridade, prazo, contexto e ações diretas.
 - Cadastro de números por tenant, separados do closer responsável, com provedor Evolution ou WhatsApp Cloud API e filtro unificado do Inbox.
+- Inbox nativo multiusuário: fila compartilhada, assumir/atribuir/devolver conversa, resposta humana, notas internas, tags, busca e filtros; canal/número de origem independente do closer.
+- Controle de automação por conversa: modos Sofia automática, atendimento humano e pausada; retomada explícita da Sofia com contexto, auditoria e cancelamento seguro de envios pendentes.
+- Assistência no modo humano: perguntar à Sofia sobre o lead, resumir o histórico e sugerir/rascunhar respostas sem enviar em nome do closer.
+- Caixa de saída idempotente com estados de envio/entrega/falha e adaptadores diretos Evolution e WhatsApp Cloud API.
 - Ciclo de responsabilidade explícito: agente qualifica, closer aceita/devolve, agente retoma apenas com instrução.
 - Alteração manual de fatos/status com evidência e auditoria.
 - Relatórios do funil e SLA com definições claras.
@@ -25,19 +29,17 @@
 
 - IA de resumo/classificação/sugestão, playbooks versionados e simulator.
 - Detecção de eventos comerciais e notificações idempotentes, configuráveis por tenant e com reconhecimento/adiamento.
-- Pausa/retomada segura da Sofia por conversa, com ownership humano e proteção contra respostas concorrentes.
 - SLA por tipo de evento, lembretes e escalonamento para responsável/gestor.
 - Dry-run/shadow de políticas e sincronizações.
 - Follow-up, alertas e cadências com kill switch/quotas.
-- Respostas humanas pelo inbox com Chatwoot executor único durante migração.
 
 ### P3 — Envios automatizados e substituição
 
 - Adapters de envio/recebimento para Evolution e WhatsApp Cloud API oficial, callbacks e saúde do canal no produto; credenciais em secret manager.
 - Migração da Sofia A/G, B/F/D/H e C em ondas, um fluxo por função.
 - Agenda integrada e confirmação de reunião.
-- Resposta humana pelo produto e execução de ações externas depois de ownership, pausa e idempotência comprovados.
-- Inbox e CRM nativos; Chatwoot/Twenty opcionais após reconciliação.
+- Ativação gradual de envios humanos e automações da Sofia pelos adapters Evolution e WhatsApp Cloud API, após ownership, pausa, idempotência e reconciliação comprovados.
+- Inbox e CRM nativos. Chatwoot não é dependência nem executor do produto; pode ser apenas uma fonte legada de importação durante a migração.
 
 ## 6.2 User stories e aceites essenciais
 
@@ -85,10 +87,15 @@
 - **Como closer**, quero responder sem automação por cima.
   - Mensagem humana/atribuição coloca conversa em modo humano; retries do webhook não mudam owner.
   - O Inbox reúne vários números autorizados no tenant; canal é filtro/origem da conversa, enquanto owner é o closer/usuário. Conversa nova mantém o número de origem nas respostas.
+  - Assumir é uma operação atômica: somente um usuário vence a disputa, vira responsável e recebe confirmação; atribuir e devolver exigem permissão e geram auditoria.
+  - Modo humano bloqueia respostas automáticas e trabalhos pendentes antes que qualquer envio seja aceito; falhas e timeouts ambíguos são reconciliados sem duplicar mensagem.
+  - O closer pode pedir “Sofia sugerir” para obter resumo/rascunho sem envio, ou “Sofia retomar” para devolver explicitamente o controle automático; ambas as ações preservam contexto, registram ator/hora/motivo e mostram o modo atual.
+  - Notas internas, tags, busca, não lidas, filtros por responsável/equipe/canal/status, adiar/arquivar/resolver e histórico de atribuições fazem parte da operação nativa.
+  - Uma conversa pode ser compartilhada/visível ao time, mas tem no máximo um responsável primário; o número WhatsApp é independente dessa responsabilidade.
 
 ### Eventos comerciais e central do closer — backlog
 
-**Cadastro de canais WhatsApp entregue no código:** API e tela registram um canal por número, com provedor Evolution ou Cloud API, identificadores externos e vínculo opcional à inbox Chatwoot. O Inbox permite filtrar por canal e apresenta nome/número na conversa. A habilitação do registro define sua disponibilidade para futuras regras de roteamento. Migration 0014 aditiva preserva conversas existentes com canal nulo. Nenhum token é salvo e não há conexão, health check, webhook ou envio real nesta entrega; os adapters dos provedores seguem no P3.
+**Cadastro de canais WhatsApp entregue no código:** API e tela registram um canal por número, com provedor Evolution ou Cloud API e identificadores externos. O Inbox permite filtrar por canal e apresenta nome/número na conversa. A habilitação do registro define sua disponibilidade para futuras regras de roteamento. Migration 0014 aditiva preserva conversas existentes com canal nulo. Nenhum token é salvo e não há conexão, health check, webhook ou envio real nesta entrega; os adapters dos provedores seguem no P3. Não existe vínculo operacional com Chatwoot.
 
 **Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 
@@ -174,7 +181,7 @@
 2. **Modelo e import**: schema canônico, external IDs, import idempotente e reconciliação em staging; leitura apenas.
 3. **Console read-only**: Hoje, Contas, Inbox e Pipeline; validar com BDR/SDR/closer usando casos reais anonimizados.
 4. **Escrita CRM/tarefas**: outbox, conflito por campo e dry-run; liberar para equipe pequena.
-5. **Handoff e inbox**: ownership, brief, SLA, aceitar/devolver; Chatwoot continua executor único de mensagens.
+5. **Handoff e inbox**: ownership, brief, SLA, assumir/devolver conversa, modos de automação e resposta pelo produto via adapters diretos dos provedores.
 6. **Central do closer**: primeira versão entregue com handoffs e oportunidades que precisam de ação; evoluir com notificações, eventos, reconhecimento/atribuição e contexto de conversa.
 7. **Eventos e notificações**: conectar webhooks, deduplicação/idempotência, pausa de Sofia por ownership, SLA e escalonamento; liberar um gatilho por vez.
 8. **IA assistiva**: resumo com evidências, fatos/lacunas e sugestão sem envio; avaliar contra casos; versionar playbooks.

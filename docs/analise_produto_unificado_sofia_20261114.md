@@ -1,5 +1,7 @@
 # Análise: Sofia como produto unificado
 
+> Decisão atualizada em 14/11/2026: Chatwoot não será usado como backend nem executor do produto. Os trechos abaixo que propõem manter Chatwoot conectado descrevem alternativas consideradas antes desta decisão e estão supersedidos. O Inbox será nativo e o transporte será direto por Evolution API ou WhatsApp Business Cloud API.
+
 > Especificação detalhada com telas, campos, dados, estados, integrações e critérios de aceite: [docs/sofia_produto](sofia_produto/README.md).
 
 Data: 14/11/2026  
@@ -9,7 +11,7 @@ Escopo: inventário do repositório e proposta de produto/arquitetura. Não houv
 
 A direção faz sentido. A Sofia já executa funções de SDR, automação de vendas, caixa de entrada, campanhas, CRM e monitoramento operacional, mas elas estão distribuídas entre n8n, Chatwoot, Twenty, PostgreSQL e Evolution. Essa separação aumenta o custo de mudança, cria fontes de verdade concorrentes e torna difícil entender de ponta a ponta por que uma mensagem, tarefa ou estado mudou.
 
-Minha recomendação é construir **um produto operacional único para Sofia**, com módulos internos bem separados e integrações externas substituíveis. O Evolution pode continuar como adaptador de transporte WhatsApp. Chatwoot e Twenty podem permanecer conectados durante a migração e depois virar conectores opcionais, enquanto o produto assume gradualmente inbox, CRM e automações.
+Minha recomendação é construir **um produto operacional único para Sofia**, com módulos internos bem separados e integrações externas substituíveis. O produto conecta diretamente à Evolution API ou WhatsApp Business Cloud API. Chatwoot pode ser fonte histórica de importação, mas não fica conectado ao runtime. Twenty pode permanecer como conector CRM durante a migração.
 
 “Um produto” não precisa significar um único processo ou uma aplicação monolítica sem filas. Recomendo um **monólito modular**, uma base transacional principal, workers assíncronos e uma API/web app. Isso mantém a operação simples sem acoplar os módulos de forma irreversível.
 
@@ -82,7 +84,7 @@ O núcleo deve ser dono de IDs e estados. Integrações recebem adaptadores com 
 
 Faria a migração em duas camadas:
 
-- **Primeiro unificar a operação**: console, modelo interno, auditoria, scheduler e inbox. No início, manter Chatwoot e Twenty como conectores para reduzir risco e permitir comparação.
+- **Primeiro unificar a operação**: console, modelo interno, auditoria, scheduler e inbox nativo. No início, usar importações/reconciliação legadas de Chatwoot e manter Twenty como conector CRM para reduzir risco e permitir comparação sem colocar Chatwoot no caminho das mensagens.
 - **Depois internalizar as superfícies**: inbox e CRM leve passam a funcionar no produto e os sistemas externos viram opcionais. Não bloquear a operação se a API de um CRM externo estiver indisponível; enfileirar sync e mostrar estado.
 
 Assim, o usuário usa um único produto mesmo enquanto os dados e canais são migrados por trás. Evolution é a exceção razoável a manter: é o gateway de WhatsApp e pode ficar como dependência de transporte, embora a interface de conexão/saúde continue no produto.
@@ -106,7 +108,7 @@ Assim, o usuário usa um único produto mesmo enquanto os dados e canais são mi
 
 - Mostrar contatos, conversas, campanhas, filas, tarefas e saúde no novo console.
 - Comparar estados calculados com produção; medir drift e resolver mapeamentos.
-- Implementar políticas do A e handoff com simulação, mantendo Chatwoot como executor oficial.
+- Implementar políticas do A e handoff com simulação, mantendo envios desativados até os adapters diretos dos provedores estarem prontos.
 
 ### Fase 3 — Escrita controlada
 

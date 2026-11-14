@@ -127,6 +127,13 @@
       "when": 1794685210980,
       "tag": "0017_sloppy_taskmaster",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794685577140,
+      "tag": "0018_abandoned_hydra",
+      "breakpoints": true
     }
   ]
 }

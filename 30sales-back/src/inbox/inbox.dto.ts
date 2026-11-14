@@ -1,15 +1,20 @@
 import { z } from 'zod';
 import { conversationStatus, messageActorType, messageDeliveryState, messageDirection } from '../db/schema';
 
-export const listConversationsSchema = z.object({ status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listConversationsSchema = z.object({ status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), tagId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListConversationsQueryDto = z.infer<typeof listConversationsSchema>;
 export const conversationAutomationModeSchema = z.enum(['sofia', 'human', 'paused']);
 export type ConversationAutomationMode = z.infer<typeof conversationAutomationModeSchema>;
 export const assignConversationSchema = z.object({ ownerUserId: z.string().uuid() }).strict();
 export type AssignConversationDto = z.infer<typeof assignConversationSchema>;
 export class ConversationRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListConversationsQueryDto) {} }
+export const createConversationTagSchema = z.object({ name: z.string().trim().min(2).max(32) }).strict();
+export type CreateConversationTagDto = z.infer<typeof createConversationTagSchema>;
+export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null = null) {} }
+export class ConversationTagRemoveDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly tagId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
+export class ConversationTagDto { constructor(readonly id: string, readonly name: string) {} }
 export class ConversationListItemDto {
-  constructor(readonly id: string, readonly provider: string, readonly status: (typeof conversationStatus.enumValues)[number], readonly accountName: string | null, readonly personName: string | null, readonly lastMessageAt: string | null, readonly createdAt: string, readonly channelId: string | null, readonly channelName: string | null, readonly channelPhoneNumber: string | null, readonly channelProvider: string | null, readonly ownerUserId: string | null, readonly ownerName: string | null, readonly automationMode: ConversationAutomationMode, readonly replyAvailable: boolean) {}
+  constructor(readonly id: string, readonly provider: string, readonly status: (typeof conversationStatus.enumValues)[number], readonly accountName: string | null, readonly personName: string | null, readonly lastMessageAt: string | null, readonly createdAt: string, readonly channelId: string | null, readonly channelName: string | null, readonly channelPhoneNumber: string | null, readonly channelProvider: string | null, readonly ownerUserId: string | null, readonly ownerName: string | null, readonly automationMode: ConversationAutomationMode, readonly replyAvailable: boolean, readonly tags: ConversationTagDto[] = []) {}
 }
 export class ConversationControlDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
 export class ConversationAutomationUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly mode: ConversationAutomationMode, readonly correlationId: string | null = null) {} }

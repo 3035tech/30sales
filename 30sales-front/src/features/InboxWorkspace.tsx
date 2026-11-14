@@ -12,6 +12,10 @@ export function InboxWorkspace() {
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [messageDraft, setMessageDraft] = useState('')
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
+  const [tagFilter, setTagFilter] = useState('')
+  const [tagDraft, setTagDraft] = useState('')
+  const [tags, setTags] = useState<Array<{ id: string; name: string }>>([])
+  const [tagBusy, setTagBusy] = useState(false)
   const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
   const [sendingMessage, setSendingMessage] = useState(false)
   const [messageSendError, setMessageSendError] = useState('')
@@ -25,11 +29,11 @@ export function InboxWorkspace() {
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const refresh = useCallback(async (selectedChannelId = channelFilter) => {
+  const refresh = useCallback(async (selectedChannelId = channelFilter, selectedTagId = tagFilter) => {
     setLoading(true)
     setError('')
     try {
-      const result = await api.inbox.conversations({ channelId: selectedChannelId || undefined, limit: 50 })
+      const result = await api.inbox.conversations({ channelId: selectedChannelId || undefined, tagId: selectedTagId || undefined, limit: 50 })
       setConversations(result)
       setSelectedId((current) => result.some((conversation) => conversation.id === current) ? current : result[0]?.id ?? '')
     } catch {
@@ -37,9 +41,10 @@ export function InboxWorkspace() {
     } finally {
       setLoading(false)
     }
-  }, [channelFilter, t])
+  }, [channelFilter, tagFilter, t])
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
+  useEffect(() => { api.inbox.tags().then(setTags).catch(() => setTags([])) }, [])
   useEffect(() => { api.inbox.assignees().then(setAssignees).catch(() => setAssignees([])) }, [])
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { void refresh() }, [refresh])
@@ -58,6 +63,7 @@ export function InboxWorkspace() {
   const selected = conversations.find((conversation) => conversation.id === selectedId)
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
+  const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
   useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
   const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign') => {
     if (!selected) return
@@ -91,6 +97,27 @@ export function InboxWorkspace() {
       setMessageSendError(t('inbox.sendFailed'))
     } finally { setSendingMessage(false) }
   }
+  const addTag = async () => {
+    if (!selected || !canEditTags || !tagDraft.trim()) return
+    setTagBusy(true); setError('')
+    try {
+      await api.inbox.addTag(selected.id, tagDraft.trim())
+      setTagDraft('')
+      const nextTags = await api.inbox.tags()
+      setTags(nextTags)
+      await refresh(channelFilter, tagFilter)
+    } catch { setError(t('inboxComposer.tagFailed')) }
+    finally { setTagBusy(false) }
+  }
+  const removeTag = async (tagId: string) => {
+    if (!selected || !canEditTags) return
+    setTagBusy(true); setError('')
+    try {
+      await api.inbox.removeTag(selected.id, tagId)
+      await refresh(channelFilter, tagFilter)
+    } catch { setError(t('inboxComposer.tagFailed')) }
+    finally { setTagBusy(false) }
+  }
   const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : t('inbox.noMessagesYet')
 
   return <section className="inbox-page">
@@ -101,10 +128,11 @@ export function InboxWorkspace() {
     <div className="inbox-layout">
       <aside className="inbox-conversations" aria-label={t('inbox.conversationList')}>
         <label className="inbox-channel-filter">{t('channels.inboxFilter')}<select value={channelFilter} onChange={(event) => setChannelFilter(event.target.value)} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</select></label>
+        <label className="inbox-channel-filter">{t('inboxComposer.tagFilter')}<select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} disabled={sendingMessage}><option value="">{t('inboxComposer.allTags')}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
         {loading ? <p className="inbox-empty">{t('common.loading')}</p> : conversations.length === 0 ? <div className="inbox-empty"><MessageSquareText size={22} /><strong>{t('inbox.empty')}</strong><span>{t('inbox.emptyHint')}</span></div> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
           return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small><small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
+            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong><small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')} · {t(`inbox.modes.${conversation.automationMode}`)}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small>{t(`inbox.status.${conversation.status}`)} · {formatDate(conversation.lastMessageAt)}</small></span>
           </button>
         })}
       </aside>
@@ -117,6 +145,7 @@ export function InboxWorkspace() {
             {selected.automationMode === 'paused' && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <button type="button" disabled={controlling} onClick={() => void controlConversation('sofia')}>{t('inbox.resumeSofia')}</button>}
             {selected.ownerUserId === currentUserId && <button type="button" disabled={controlling} onClick={() => void controlConversation('release')}>{t('inbox.release')}</button>}
             <span className="tag">{t(`inbox.status.${selected.status}`)}</span></div></header>
+          <div className="inbox-tag-manager"><strong>{t('inboxComposer.tagsLabel')}</strong><div className="inbox-tag-list">{selected.tags.map((tag) => <span key={tag.id}>{tag.name}{canEditTags && <button type="button" aria-label={t('inboxComposer.removeTag', { name: tag.name })} disabled={tagBusy} onClick={() => void removeTag(tag.id)}>×</button>}</span>)}</div>{canEditTags && <div><input value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} maxLength={32} placeholder={t('inboxComposer.tagPlaceholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addTag() } }} /><button type="button" disabled={tagBusy || tagDraft.trim().length < 2} onClick={() => void addTag()}>{tagBusy ? t('common.saving') : t('inboxComposer.addTag')}</button></div>}</div>
           <div className="inbox-messages" aria-live="polite">
             {messagesLoading ? <p className="inbox-empty">{t('common.loading')}</p> : messages.length === 0 ? <div className="inbox-empty"><span>{t('inbox.noMessagesYet')}</span><span>{t('inbox.emptyMessagesHint')}</span></div> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>

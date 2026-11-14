@@ -244,6 +244,33 @@ export const conversations = pgTable('conversations', {
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
 ]);
 
+export const conversationTags = pgTable('conversation_tags', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  normalizedName: text('normalized_name').notNull(),
+  createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('conversation_tags_id_organization_unique').on(table.id, table.organizationId),
+  unique('conversation_tags_org_normalized_name_unique').on(table.organizationId, table.normalizedName),
+  index('conversation_tags_org_name_idx').on(table.organizationId, table.name),
+]);
+
+export const conversationTagLinks = pgTable('conversation_tag_links', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  tagId: uuid('tag_id').notNull(),
+  createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'conversation_tag_links_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'conversation_tag_links_tag_tenant_fk', columns: [table.tagId, table.organizationId], foreignColumns: [conversationTags.id, conversationTags.organizationId] }).onDelete('cascade'),
+  unique('conversation_tag_links_org_conversation_tag_unique').on(table.organizationId, table.conversationId, table.tagId),
+  index('conversation_tag_links_org_tag_conversation_idx').on(table.organizationId, table.tagId, table.conversationId),
+]);
+
 export const messages = pgTable('messages', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

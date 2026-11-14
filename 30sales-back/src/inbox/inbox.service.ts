@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationRepositoryListDto, CreateConversationNoteDto, ListConversationsQueryDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
@@ -16,6 +16,10 @@ export class InboxService {
   async channels(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.repository.listChannels(context.organizationId);
+  }
+  async tags(request: ApiRequestDto) {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    return this.repository.listTags(context.organizationId);
   }
   async assignees(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -84,5 +88,19 @@ export class InboxService {
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add an internal note.' });
     return result;
+  }
+  async addTag(request: ApiRequestDto, conversationId: string, input: CreateConversationTagDto) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, request.correlationId));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add tags.' });
+    return result;
+  }
+  async removeTag(request: ApiRequestDto, conversationId: string, tagId: string) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.removeTag(new ConversationTagRemoveDto(context.organizationId, conversationId, tagId, context.userId, request.correlationId));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can remove tags.' });
+    return { success: true };
   }
 }

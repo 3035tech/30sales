@@ -20,7 +20,7 @@ export class LeadsService {
   }
   async completeTask(request: ApiRequestDto, taskId: string): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');
-    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, new Date()));
+    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, new Date()));
     if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Open task was not found in the active organization.' });
     return task;
   }

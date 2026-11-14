@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 import { database } from '../db';
-import { activities, opportunities } from '../db/schema';
+import { activities, auditEvents, opportunities } from '../db/schema';
 import { user } from '../db/auth-schema';
 import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto } from './activities.dto';
 
@@ -31,6 +31,7 @@ export class OpportunityActivitiesRepository {
         occurredAt: new Date(input.input.occurredAt),
         createdByUserId: input.actorUserId,
       }).returning();
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'activity.created', entityType: 'activity', entityId: activity.id, afterState: { type: activity.type } });
       const [row] = await transaction.select({ actorName: user.name }).from(user).where(eq(user.id, input.actorUserId)).limit(1);
       return new ActivityRecordDto(activity.id, activity.type, activity.subject, activity.details, activity.result, activity.occurredAt.toISOString(), row.actorName, activity.createdAt.toISOString());
     });

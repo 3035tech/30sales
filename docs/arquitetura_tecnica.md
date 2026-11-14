@@ -43,6 +43,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `GET /api/v1/session`: identidade, organizações acessíveis e tenant ativo.
 - `GET /api/v1/conversations?status=&limit=&offset=`: lista tenant-scoped de conversas, ordenada pela atividade mais recente.
 - `GET /api/v1/conversations/:id/messages?limit=&offset=`: histórico somente leitura; verifica conversa e mensagens no tenant ativo. Ambos exigem `inbox.read`.
+- `GET /api/v1/audit-events?action=&entityType=&entityId=&from=&to=&limit=&offset=`: consulta paginada por tenant; exige `audit.read` (owner/admin/manager/operations). Eventos principais são gravados atomicamente com lead/status, tarefa, handoff, etapa da oportunidade e criação de atividade. A cobertura é parcial: sem UI, propagação de correlation ID ou eventos de autenticação/admin/conectores.
 
 ## Tabelas operacionais
 
@@ -66,7 +67,7 @@ A tela apresenta a carteira do closer em colunas por etapa, valor potencial por 
 
 ## Persistência e operação
 
-Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 mantém a evolução compatível do enum de status; 0003 acrescenta tarefas; 0004 oportunidades/handoffs; 0005 campos financeiros e histórico de etapa; 0006 atividades; 0007 conversas/mensagens; 0008 corrige exclusão referencial; 0009 ajusta a deduplicação por organização/conversa; 0010 adiciona tabelas base de inbox/outbox de eventos, jobs e auditoria. Todas permanecem sem aplicação em banco. As migrations são aditivas/corretivas; rollback da aplicação mantém schema/dados, e qualquer remoção exige migration separada após retenção/export. As tabelas de eventos/jobs/auditoria ainda não têm produtores, consumidores nem serviço de escrita. Antes de ambiente partilhado, provisionar owner/tenant e aplicar migrations somente em ambiente aprovado.
+Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 mantém a evolução compatível do enum de status; 0003 acrescenta tarefas; 0004 oportunidades/handoffs; 0005 campos financeiros e histórico de etapa; 0006 atividades; 0007 conversas/mensagens; 0008 corrige exclusão referencial; 0009 ajusta a deduplicação por organização/conversa; 0010 adiciona tabelas base de inbox/outbox de eventos, jobs e auditoria. Todas permanecem sem aplicação em banco. As migrations são aditivas/corretivas; rollback da aplicação mantém schema/dados, e qualquer remoção exige migration separada após retenção/export. A tabela de auditoria já recebe os eventos de CRM descritos acima e tem endpoint de leitura; as tabelas de inbox/outbox de integração e jobs ainda não têm produtores, consumidores nem worker. Antes de ambiente partilhado, provisionar owner/tenant e aplicar migrations somente em ambiente aprovado.
 
 ## Referências de produto
 

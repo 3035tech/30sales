@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, isNull, lt, notInArray, SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, leads, opportunities, opportunityStageHistory, people } from '../db/schema';
+import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people } from '../db/schema';
 import { user } from '../db/auth-schema';
 import { OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 
@@ -55,6 +55,7 @@ export class OpportunitiesRepository {
       const [updated] = await transaction.update(opportunities).set(values).where(and(...conditions)).returning({ id: opportunities.id });
       if (!updated) return null;
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: updated.id, fromStage: current.stage, toStage: input.input.stage, actorUserId: input.actorUserId, reason: input.input.reason ?? input.input.lossReason ?? null });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.stage_changed', entityType: 'opportunity', entityId: updated.id, beforeState: { stage: current.stage }, afterState: { stage: input.input.stage } });
       const [row] = await transaction.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, stage: opportunities.stage, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
         .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
       return row ? mapOpportunity(row as OpportunityRow, true) : null;

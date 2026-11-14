@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database } from 'lucide-react'
+import { ArrowRight, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -11,6 +11,7 @@ import { PipelineWorkspace } from './features/PipelineWorkspace'
 import { InboxWorkspace } from './features/InboxWorkspace'
 import { AuditWorkspace } from './features/AuditWorkspace'
 import { ImportsWorkspace } from './features/ImportsWorkspace'
+import { TodayWorkspace } from './features/TodayWorkspace'
 import './App.css'
 
 type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'audit' | 'imports' | 'team'
@@ -42,7 +43,7 @@ export default function App() {
     <aside className="rail">
       <div className="brand"><img className="brand-wordmark" src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
       <div className="rail-caption">{t('common.workspace')}</div>
-      <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><Layers3 size={18} />{t('common.home')}</button>
+      <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
       <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => setPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => setPage('leads')}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
@@ -80,29 +81,10 @@ export default function App() {
               : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
                 : page === 'audit' && current?.activeOrganizationId ? <AuditWorkspace />
                   : page === 'imports' && current?.activeOrganizationId ? <ImportsWorkspace />
-            : <HomeContent />}
+            : <TodayWorkspace navigate={setPage} />}
       </div>
     </section>
   </main>
-}
-
-function HomeContent() {
-  const { t } = useTranslation()
-  return <>
-    <div className="welcome compact"><span className="welcome-icon success"><Check size={23} /></span><div><p className="eyebrow">{t('home.welcomeEyebrow')}</p><h2>{t('home.welcomeTitle')}</h2><p className="muted">{t('home.welcomeHint')}</p></div></div>
-    <div className="section-head"><div><p className="eyebrow">{t('home.gettingStarted')}</p><h2>{t('home.prepare')}</h2></div><span className="tag">{t('home.phase')}</span></div>
-    <div className="cards">
-      <Card icon={<Users size={19} />} number="01" title={t('home.inviteTitle')} text={t('home.inviteText')} />
-      <Card icon={<Layers3 size={19} />} number="02" title={t('home.leadsTitle')} text={t('home.leadsText')} />
-      <Card icon={<Building2 size={19} />} number="03" title={t('home.integrationsTitle')} text={t('home.integrationsText')} />
-    </div>
-    <div className="footer-note"><span className="dot" />{t('home.tenantNote')}</div>
-  </>
-}
-
-function Card({ icon, number, title, text }: { icon: React.ReactNode; number: string; title: string; text: string }) {
-  const { t } = useTranslation()
-  return <article><span className="card-icon">{icon}</span><span className="card-count">{number}</span><h3>{title}</h3><p>{text}</p><button disabled>{t('home.comingSoon')}<ArrowRight size={15} /></button></article>
 }
 
 function Login({ onError }: { onError: (message: string) => void }) {

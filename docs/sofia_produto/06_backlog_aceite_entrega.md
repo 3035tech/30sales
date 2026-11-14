@@ -40,6 +40,8 @@
 
 **Prévia de identidade e reconciliação entregues no código:** `POST /api/v1/imports/identity-check` verifica até 500 IDs externos e `POST /api/v1/imports/reconciliation-preview` analisa até 100 registros normalizados. Ambos são tenant-scoped, exigem `integrations.manage` e não persistem dados. A reconciliação detecta vínculo existente/conflito de tipo e sugere candidatos por igualdade exata de nome de conta, e-mail ou telefone normalizados; retorna status de origem sem conversão. A tela **Importações** permite analisar CSV normalizado e revisar os resultados. Não usa fuzzy match, não importa, cria, atualiza, funde ou vincula registros. Permanecem pendentes adapters e payloads reais de Twenty/Chatwoot/Sofia, aprovação/resolução dos conflitos e importação persistente.
 
+**Visão Hoje entregue no frontend:** a página inicial reúne tarefas abertas vencidas/do dia, handoffs aguardando aceite, leads respondidos e oportunidades em risco, com links às filas existentes e atualização manual. As consultas usam o tenant ativo; tarefas, leads respondidos e handoffs representam filas do workspace, enquanto riscos vêm da carteira do usuário (até 100 oportunidades). A página não executa mudanças e mantém resultados parciais se uma consulta falhar. Atribuição de leads, recorte por equipe e paginação de riscos ainda não existem.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

@@ -46,6 +46,8 @@
 
 **Resultado de tarefas entregue no código (migration ainda não aplicada):** a tela exige registrar se a ação foi concluída, houve contato, não houve resposta ou é necessário retornar. Retorno exige próxima ação e data futura; a nova tarefa é criada atomicamente ao concluir a anterior, mantendo responsável. Resultado/nota e os dois eventos recebem auditoria/correlation ID; `leads.next_action_at` é recalculado ou removido quando não há tarefa aberta. Tarefas concluídas no legado preservam campos de resultado vazios. Clientes antigos sem body continuam funcionando com resultado `completed`.
 
+**Relatório inicial do funil entregue no código:** rota tenant-scoped exige `reports.read`. Mostra snapshot atual das oportunidades abertas por etapa, quantidade sem próxima ação/vencida e, no período selecionado, oportunidades criadas e fechamentos ganhos/perdidos por `closed_at`, além de valor ganho agregado por moeda. A taxa de ganho usa apenas decisões (ganhos + perdas) nesse período. O snapshot atual não é filtrado pela janela, e este primeiro corte não estima conversões entre etapas nem segmenta por usuário/equipe. Datas de filtro são dias UTC; migration não necessária.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

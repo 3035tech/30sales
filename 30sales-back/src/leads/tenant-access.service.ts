@@ -4,7 +4,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantContextDto } from './leads.dto';
 import { toWebHeaders } from '../common/http-headers';
 export type TenantPermission = 'read' | 'create' | 'update' | 'assign' | 'manage';
-export type AccessDomain = 'leads' | 'pipeline' | 'activities' | 'inbox' | 'audit' | 'integrations';
+export type AccessDomain = 'leads' | 'pipeline' | 'activities' | 'inbox' | 'audit' | 'integrations' | 'reports';
 @Injectable()
 export class TenantAccessService {
   async require(request: ApiRequestDto, permission: TenantPermission, domain: AccessDomain = 'leads'): Promise<TenantContextDto> {
@@ -17,7 +17,8 @@ export class TenantAccessService {
     if (!organizationId) throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Select an organization to continue.' });
     if (domain !== 'leads' && permission === 'assign') throw new ForbiddenException({ code: 'INVALID_PERMISSION_DOMAIN', message: 'Assignment permission is only supported for leads.' });
     const regularPermission: 'read' | 'create' | 'update' = permission === 'manage' ? 'read' : permission === 'assign' ? 'read' : permission;
-    const permissionDefinition = domain === 'inbox' ? { inbox: ['read'] as Array<'read'> }
+    const permissionDefinition = domain === 'reports' ? { reports: permission === 'read' ? ['read'] as Array<'read'> : ['export'] as Array<'export'> }
+      : domain === 'inbox' ? { inbox: ['read'] as Array<'read'> }
       : domain === 'audit' ? { audit: ['read'] as Array<'read'> }
         : domain === 'integrations' ? { integrations: permission === 'manage' ? ['manage'] as Array<'manage'> : ['read'] as Array<'read'> }
           : domain === 'leads' ? { leads: permission === 'assign' ? ['assign'] as Array<'assign'> : [regularPermission] }

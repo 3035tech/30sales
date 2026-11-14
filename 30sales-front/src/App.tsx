@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock } from 'lucide-react'
+import { ArrowRight, BarChart3, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -12,9 +12,10 @@ import { InboxWorkspace } from './features/InboxWorkspace'
 import { AuditWorkspace } from './features/AuditWorkspace'
 import { ImportsWorkspace } from './features/ImportsWorkspace'
 import { TodayWorkspace } from './features/TodayWorkspace'
+import { FunnelReportWorkspace } from './features/FunnelReportWorkspace'
 import './App.css'
 
-type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'audit' | 'imports' | 'team'
+type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -49,6 +50,7 @@ export default function App() {
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
       <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
+      <button className={`nav ${page === 'reports' ? 'active' : ''}`} onClick={() => setPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</button>
       <button className={`nav ${page === 'audit' ? 'active' : ''}`} onClick={() => setPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</button>
       <button className={`nav ${page === 'imports' ? 'active' : ''}`} onClick={() => setPage('imports')}><Database size={18} />{t('common.importsNav')}</button>
       <button className={`nav ${page === 'team' ? 'active' : ''}`} onClick={() => setPage('team')}><Users size={18} />{t('common.teamNav')}</button>
@@ -79,6 +81,7 @@ export default function App() {
             : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />
             : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />
               : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
+              : page === 'reports' && current?.activeOrganizationId ? <FunnelReportWorkspace />
                 : page === 'audit' && current?.activeOrganizationId ? <AuditWorkspace />
                   : page === 'imports' && current?.activeOrganizationId ? <ImportsWorkspace />
             : <TodayWorkspace userId={current?.user.id ?? ''} navigate={setPage} />}

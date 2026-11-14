@@ -41,6 +41,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `PATCH /api/v1/handoffs/:id/return`: closer/gestor devolve com motivo; lead volta à fila SDR e tarefa com prazo é atribuída a quem pediu a passagem.
 - `GET /api/v1/opportunities?view=mine|all|unassigned|no_next_action|overdue|stale&stage=`: pipeline tenant-scoped com foco na carteira do usuário e filas de risco.
 - `PATCH /api/v1/opportunities/:id/stage`: valida etapa, owner, campos de próxima ação, ganho/perda e histórico.
+- `GET /api/v1/reports/funnel?from=YYYY-MM-DD&to=YYYY-MM-DD`: resumo tenant-scoped com snapshot atual de oportunidades abertas, ações faltantes/vencidas e decisões fechadas no período; exige `reports.read`. Valores ganhos são agregados por moeda e taxa de ganho usa somente ganhos + perdas fechados no intervalo (datas UTC).
 - `GET /api/v1/opportunities/:id/history`: histórico de mudanças com ator, etapa, data e nota.
 - `GET /api/v1/session`: identidade, organizações acessíveis e tenant ativo.
 - `GET /api/v1/conversations?status=&limit=&offset=`: lista tenant-scoped de conversas, ordenada pela atividade mais recente.

@@ -37,7 +37,7 @@ Durante o preview, mostrar status de origem e destino sugerido lado a lado. Valo
 1. Capturar exports/read-only snapshots aprovados de Twenty, Chatwoot e Postgres Sofia e guardar contagens, instante e hash do arquivo sem reter payload sensível por padrão.
 2. Normalizar cada objeto para contrato interno versionado; preservar IDs, tipo de objeto e valores de origem.
 3. Fazer identity check tenant-scoped; identificar IDs já vinculados, sem vínculo, ID duplicado no lote e conflito de vínculo.
-4. Gerar preview de campos, status, relacionamentos ausentes e possíveis duplicatas por chaves fortes; não escrever nem enviar mensagens.
+4. O endpoint `POST /api/v1/imports/reconciliation-preview` recebe até 100 registros já normalizados e devolve vínculos externos existentes, conflitos de tipo, candidatos exatos e `sourceStatus`; não escreve nem envia mensagens. A busca atual considera nome exato normalizado de conta e e-mail/telefone normalizados para pessoa/lead; oportunidades são candidatas pela conta. Não faz fuzzy match nem confirma uma reconciliação.
 5. Reconciliar contagens e amostra de IDs/relacionamentos; exigir revisão dos conflitos e aprovação de um operador autorizado.
 6. Importar em lotes idempotentes com `external_records`, histórico/auditoria e progresso de job; replay não cria segundo registro nem apaga fato confirmado.
 
@@ -50,3 +50,10 @@ Durante o preview, mostrar status de origem e destino sugerido lado a lado. Valo
 - Mapeamento de indicações, follow-ups pendentes, eventos CRM, handoffs e links entre as fontes.
 - Regras de colisão de telefone, merge, retenção de mensagens e provenance por campo.
 - Staging/database aprovado e plano de rollback; migrations 0001–0011 continuam sem aplicação.
+
+## Escopo implementado do preview
+
+- O contrato aceita `provider` (`twenty`, `chatwoot`, `sofia_postgres`), tipo e ID externo, tipo canônico pretendido e campos normalizados de nome da conta/contato, e-mail, telefone e status de origem. Payloads brutos dos conectores ainda precisam de adapters.
+- Limite do lote: 100 registros; IDs externos repetidos no lote são rejeitados. A busca não usa fuzzy matching, domínio, empresa alternativa nem regra histórica de deduplicação por telefone isoladamente.
+- `already_linked` informa vínculo existente do mesmo tipo; vínculo existente de outro tipo retorna `type_conflict`. Sem vínculo, candidatos podem resultar em `possible_match`, `ambiguous` ou `no_match`.
+- A saída é apenas apoio à revisão. Não há ação para aprovar candidato, gravar `external_records`, resolver conflito, importar histórico ou registrar progresso de job.

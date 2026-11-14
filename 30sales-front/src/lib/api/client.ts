@@ -132,7 +132,7 @@ export const api = {
       return request(`/api/v1/leads?${search.toString()}`, z.array(leadSchema));
     },
     create: (input: CreateLeadInput) => request('/api/v1/leads', leadSchema, { method: 'POST', body: JSON.stringify(input) }),
-    updateStatus: (id: string, status: LeadStatus) => request(`/api/v1/leads/${encodeURIComponent(id)}/status`, leadSchema, { method: 'PATCH', body: JSON.stringify({ status }) }),
+    updateStatus: (id: string, status: LeadStatus, reason: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/status`, leadSchema, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
   },
   tasks: {
     list: (params: { from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {

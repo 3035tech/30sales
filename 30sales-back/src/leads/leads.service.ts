@@ -48,7 +48,8 @@ export class LeadsService {
     if (!current) throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Lead was not found in the active organization.' });
     const currentStatus = current.status;
     if (!LEAD_TRANSITIONS[currentStatus].includes(dto.status)) throw new ConflictException({ code: 'INVALID_LEAD_TRANSITION', message: 'This lead cannot transition to the selected status.' });
-    const updated = await this.repository.updateStatus(new LeadRepositoryStatusChangeDto(context.organizationId, leadId, dto.status, currentStatus, context.userId, request.correlationId));
+    if (dto.status === currentStatus) throw new ConflictException({ code: 'LEAD_STATUS_UNCHANGED', message: 'Choose a different status to record a status change.' });
+    const updated = await this.repository.updateStatus(new LeadRepositoryStatusChangeDto(context.organizationId, leadId, dto.status, currentStatus, dto.reason, context.userId, request.correlationId));
     if (!updated) throw new ConflictException({ code: 'LEAD_CHANGED', message: 'The lead changed in another operation. Refresh the queue and retry.' });
     return updated;
   }

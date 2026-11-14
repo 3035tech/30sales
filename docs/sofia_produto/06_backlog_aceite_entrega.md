@@ -48,6 +48,8 @@
 
 **Relatório inicial do funil entregue no código:** rota tenant-scoped exige `reports.read`. Mostra snapshot atual das oportunidades abertas por etapa, quantidade sem próxima ação/vencida e, no período selecionado, oportunidades criadas e fechamentos ganhos/perdidos por `closed_at`, além de valor ganho agregado por moeda. A taxa de ganho usa apenas decisões (ganhos + perdas) nesse período. O snapshot atual não é filtrado pela janela, e este primeiro corte não estima conversões entre etapas nem segmenta por usuário/equipe. Datas de filtro são dias UTC; migration não necessária.
 
+**Mudança de status com evidência entregue no código:** a tela pede justificativa antes de salvar; a API exige texto de 3 a 1000 caracteres. Status anterior/novo, ator, motivo e correlation ID ficam em auditoria na mesma transação do histórico. Transição para o status atual é recusada como mudança sem efeito.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

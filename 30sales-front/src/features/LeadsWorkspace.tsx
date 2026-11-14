@@ -30,6 +30,9 @@ export function LeadsWorkspace() {
   const [offset, setOffset] = useState(0)
   const [refreshVersion, setRefreshVersion] = useState(0)
   const [showForm, setShowForm] = useState(false)
+  const [statusUpdate, setStatusUpdate] = useState<{ lead: LeadDto; status: LeadStatus } | null>(null)
+  const [statusReason, setStatusReason] = useState('')
+  const [statusSaving, setStatusSaving] = useState(false)
   const [form, setForm] = useState<CreateLeadInput>({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
 
   useEffect(() => {
@@ -64,12 +67,16 @@ export function LeadsWorkspace() {
     finally { setSaving(false) }
   }
 
-  const updateStatus = async (leadId: string, status: LeadStatus) => {
+  const updateStatus = async (leadId: string, status: LeadStatus, reason: string) => {
     setError('')
+    setStatusSaving(true)
     try {
-      await api.leads.updateStatus(leadId, status)
+      await api.leads.updateStatus(leadId, status, reason)
+      setStatusUpdate(null)
+      setStatusReason('')
       setRefreshVersion((version) => version + 1)
     } catch { setError(t('errors.updateLead')) }
+    finally { setStatusSaving(false) }
   }
   const assignLead = async (lead: LeadDto, userId: string) => {
     setError('')
@@ -81,7 +88,7 @@ export function LeadsWorkspace() {
     { id: 'accountName', label: t('leads.companyContact'), render: (lead) => <><strong>{lead.accountName}</strong><small className="lead-contact-name">{lead.contactName}</small></> },
     { id: 'channel', label: t('leads.channel'), render: (lead) => lead.email ?? lead.phone ?? '—' },
     { id: 'source', label: t('leads.source'), render: (lead) => t(`leads.sources.${lead.source}`) },
-    { id: 'status', label: t('common.status'), render: (lead) => <select aria-label={t('leads.statusFor', { company: lead.accountName })} className={`status-select status-${lead.status}`} value={lead.status} onChange={(event) => { const status = parseLeadStatus(event.target.value); if (status) void updateStatus(lead.id, status) }}>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select> },
+    { id: 'status', label: t('common.status'), render: (lead) => <select aria-label={t('leads.statusFor', { company: lead.accountName })} className={`status-select status-${lead.status}`} value={lead.status} onChange={(event) => { const status = parseLeadStatus(event.target.value); if (status && status !== lead.status) { setStatusUpdate({ lead, status }); setStatusReason('') } }}>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</select> },
     { id: 'assignedTo', label: t('leadAssignment.assignee'), render: (lead) => assignees ? <select aria-label={t('leadAssignment.assigneeFor', { company: lead.accountName })} className="lead-assignee-select" value={lead.assignedToUserId ?? ''} onChange={(event) => void assignLead(lead, event.target.value)}><option value="">{t('leadAssignment.unassigned')}</option>{lead.assignedToUserId && !assignees.some((member) => member.id === lead.assignedToUserId) && <option value={lead.assignedToUserId}>{lead.assignedToName ?? t('leadAssignment.unknownAssignee')}</option>}{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select> : lead.assignedToName ?? t('leadAssignment.unassigned') },
     { id: 'nextActionAt', label: t('leads.nextAction'), render: (lead) => lead.nextActionAt ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.nextActionAt)) : t('leads.noNextAction') },
     { id: 'createdAt', label: t('leads.created'), render: (lead) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(lead.createdAt)) },
@@ -111,6 +118,11 @@ export function LeadsWorkspace() {
       <p className="form-hint">{t('leads.contactChannelHint')}</p><button className="primary" disabled={saving}>{saving ? t('common.saving') : t('leads.saveLead')}</button>
     </form>}
     {error && <p className="error lead-error" role="alert">{error}</p>}
+    {statusUpdate && <div className="status-change-backdrop"><form className="status-change-dialog" role="dialog" aria-modal="true" aria-labelledby="status-change-title" onSubmit={(event) => { event.preventDefault(); void updateStatus(statusUpdate.lead.id, statusUpdate.status, statusReason.trim()) }}>
+      <p className="eyebrow">{t('statusEvidence.eyebrow')}</p><h3 id="status-change-title">{t('statusEvidence.title')}</h3><p>{t('statusEvidence.description', { company: statusUpdate.lead.accountName, status: t(`leadStatuses.${statusUpdate.status}`) })}</p>
+      <label>{t('statusEvidence.reason')}<textarea value={statusReason} onChange={(event) => setStatusReason(event.target.value)} minLength={3} maxLength={1000} required autoFocus /></label>
+      <div className="status-change-actions"><button type="button" className="status-change-cancel" disabled={statusSaving} onClick={() => setStatusUpdate(null)}>{t('common.cancel')}</button><button className="primary" disabled={statusSaving || statusReason.trim().length < 3}>{statusSaving ? t('common.saving') : t('statusEvidence.confirm')}</button></div>
+    </form></div>}
     <div className="lead-list-panel">
       <div className="lead-list-toolbar"><div><h3>{t('leads.queue')}</h3><p>{t('leads.count', { count: total })}</p></div></div>
       <DataTable rows={leads} columns={columns} getRowId={(lead) => lead.id} sort={{ key: sortBy, direction: sortDirection }} onSortChange={(key, direction) => { setSortBy(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit: pageSize, offset, total, hasNextPage }} onPageChange={setOffset} onPageSizeChange={(value) => { setPageSize(value); setOffset(0) }} filters={filters} loading={loading} emptyState={emptyState} />

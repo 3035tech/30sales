@@ -115,7 +115,7 @@ export class LeadsRepository {
         .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, input.expectedStatus))).returning();
       if (!updated) return null;
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: input.leadId, fromStatus: input.expectedStatus, toStatus: input.status, changedByUserId: input.changedByUserId });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.changedByUserId, actorType: 'user', action: 'lead.status_changed', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, beforeState: { status: input.expectedStatus }, afterState: { status: input.status } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.changedByUserId, actorType: 'user', action: 'lead.status_changed', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, reason: input.reason, beforeState: { status: input.expectedStatus }, afterState: { status: input.status } });
       const [row] = await transaction.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, source: leads.source, status: leads.status, nextActionAt: leads.nextActionAt, createdAt: leads.createdAt, updatedAt: leads.updatedAt, assignedToUserId: leads.assignedToUserId, assignedToName: authUser.name }).from(leads)
         .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))

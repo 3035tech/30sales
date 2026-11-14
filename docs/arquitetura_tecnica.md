@@ -29,7 +29,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 
 - `GET /api/v1/leads?status=&assignedToUserId=&limit=&offset=`: mantém a resposta array usada pelos leitores existentes. `GET /api/v1/leads/table?status=&source=&assignedToUserId=&search=&sortBy=&sortDirection=&limit=&offset=`: resposta paginada, server-side filtrável/ordenável e com total; inclui responsável, aceita `assignedToUserId=unassigned` e somente campos de ordenação allowlisted.
 - `POST /api/v1/leads`: cria conta, pessoa, lead e estado inicial em uma transação. Exige empresa, contato e e-mail ou telefone; atribui o lead ao criador.
-- `PATCH /api/v1/leads/:id/status`: valida transição no service e registra alteração atomicamente.
+- `PATCH /api/v1/leads/:id/status`: valida transição no service e exige justificativa (3–1000 caracteres); grava histórico e auditoria atomicamente com status anterior/novo, motivo e correlation ID.
 - `GET /api/v1/leads/assignees`: lista membros do tenant para a seleção de responsável; exige `leads.assign`.
 - `PATCH /api/v1/leads/:id/assignee`: atribui ou remove o responsável, exige `leads.assign`, confirma membership no tenant e grava auditoria antes/depois com correlation ID.
 - `GET /api/v1/leads/tasks?from=&to=&status=&limit=`: lista tarefas por intervalo e estado na organização ativa.

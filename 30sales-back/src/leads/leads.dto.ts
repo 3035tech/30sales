@@ -4,7 +4,7 @@ export const createLeadSchema = z.object({ accountName: z.string().trim().min(2)
 export type CreateLeadDto = z.infer<typeof createLeadSchema>;
 export const listLeadsSchema = z.object({ status: z.enum(LEAD_STATUSES).optional(), source: z.enum(LEAD_SOURCES).optional(), assignedToUserId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(), search: z.string().trim().max(200).optional(), sortBy: z.enum(['accountName','contactName','channel','source','status','assignedTo','nextActionAt','createdAt']).default('nextActionAt'), sortDirection: z.enum(['asc','desc']).default('asc'), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListLeadsQueryDto = z.infer<typeof listLeadsSchema>;
-export const updateLeadStatusSchema = z.object({ status: z.enum(LEAD_STATUSES) }).strict();
+export const updateLeadStatusSchema = z.object({ status: z.enum(LEAD_STATUSES), reason: z.string().trim().min(3).max(1000) }).strict();
 export type UpdateLeadStatusDto = z.infer<typeof updateLeadStatusSchema>;
 export class LeadRepositoryCreateDto { constructor(readonly organizationId: string, readonly createdByUserId: string, readonly accountName: string, readonly contactName: string, readonly email: string | null, readonly phone: string | null, readonly source: CreateLeadDto['source'], readonly correlationId: string | null = null) {} }
 export class LeadRecordDto { constructor(readonly id: string, readonly accountName: string, readonly contactName: string, readonly email: string | null, readonly phone: string | null, readonly source: string, readonly status: (typeof LEAD_STATUSES)[number], readonly nextActionAt: string | null, readonly createdAt: string, readonly updatedAt: string, readonly assignedToUserId: string | null, readonly assignedToName: string | null) {} }
@@ -19,7 +19,7 @@ export class LeadRepositoryFindDto {
   constructor(readonly organizationId: string, readonly leadId: string) {}
 }
 export class LeadRepositoryStatusChangeDto {
-  constructor(readonly organizationId: string, readonly leadId: string, readonly status: UpdateLeadStatusDto['status'], readonly expectedStatus: (typeof LEAD_STATUSES)[number], readonly changedByUserId: string, readonly correlationId: string | null = null) {}
+  constructor(readonly organizationId: string, readonly leadId: string, readonly status: UpdateLeadStatusDto['status'], readonly expectedStatus: (typeof LEAD_STATUSES)[number], readonly reason: string, readonly changedByUserId: string, readonly correlationId: string | null = null) {}
 }
 export const assignLeadSchema = z.object({ assignedToUserId: z.string().uuid().nullable() }).strict();
 export type AssignLeadDto = z.infer<typeof assignLeadSchema>;

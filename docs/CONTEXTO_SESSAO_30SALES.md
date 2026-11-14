@@ -23,14 +23,15 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; feature de status de entrega já integrada.
-- Último commit: `f05f84f feat(inbox): process WhatsApp delivery statuses`.
+- Branch atual: `develop`; features de status de entrega e filas do Inbox já integradas.
+- Último commit: `3fcae72 feat(inbox): search and paginate conversation queues`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);
   - etiquetas tenant-scoped e filtro por etiqueta (`caf2e2d`);
   - ingestão inbound autenticada/deduplicada para Evolution e Cloud API (`273c154`).
 - status outbound de Evolution e Cloud API, com atualização monotônica e deduplicação (`f05f84f`).
+- busca e filas do Inbox com filtros server-side, contagem e paginação (`3fcae72`).
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0018_abandoned_hydra.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão. A ingestão inbound não precisou de migration nova.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
@@ -53,9 +54,13 @@ Implementação integrada na `feature/inbox-delivery-status`: reconhecer ambos o
 
 Limitação tratada: callback sem mensagem local é ignorado, então a corrida rara em que o callback antecede a gravação do ID externo exige futura reconciliação com worker/outbox. Sem migrations aplicadas, deploy ou teste/build nesta sessão.
 
-## Próxima fatia em andamento: filas de trabalho do Inbox
+## Última fatia concluída: filas de trabalho do Inbox
 
-Por decisão operacional nesta retomada, anexos foram adiados porque precisam de contrato de armazenamento persistente para Dublin e estratégia comum para mídia Evolution/Cloud API. A feature atual `feature/inbox-search-queues` implementa busca por empresa/contato/telefone, filtros por status, responsável (inclui `unassigned`), canal e etiqueta, contagem e paginação do servidor; atualiza o contrato da listagem para `{data, pagination}`. Depois de concluir/integrar, retomar anexos com armazenamento persistente escolhido e limites definidos. Worker/outbox e reconciliação de callbacks sem correspondência também permanecem como prioridade.
+`GET /api/v1/conversations` agora aceita busca por empresa/contato/telefone e filtros por status, responsável (inclui `unassigned`), canal e etiqueta. Retorna `{data, pagination}`; a tela usa seletor de 10/25/50/100 itens, total e navegação paginada, com strings pt-BR/en. Mude filtros e busca para voltar à primeira página; sequência local impede resposta antiga de sobrescrever busca mais nova. Sem migration.
+
+## Próximo passo recomendado
+
+Retomar anexos inbound depois de escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Definir limites de tamanho/tipos, comportamento de mídia expirada e endpoint autenticado tenant-scoped. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
 
 Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 

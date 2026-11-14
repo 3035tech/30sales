@@ -1,7 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationListItemDto, ConversationMessagesQueryDto, ConversationRepositoryListDto, ListConversationsQueryDto, MessageRecordDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationListItemDto, ConversationMessagesQueryDto, ConversationRepositoryListDto, ListConversationsQueryDto, MessageRecordDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 
 @Injectable()
@@ -14,6 +14,10 @@ export class InboxService {
   async channels(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.repository.listChannels(context.organizationId);
+  }
+  async assignees(request: ApiRequestDto) {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    return this.repository.listAssignees(context.organizationId);
   }
   async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -33,6 +37,14 @@ export class InboxService {
     const result = await this.repository.release(new ConversationControlDto(context.organizationId, conversationId, context.userId, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can release this conversation.' });
+    return result;
+  }
+  async assign(request: ApiRequestDto, conversationId: string, input: AssignConversationDto) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.assign(new ConversationAssignDto(context.organizationId, conversationId, context.userId, input.ownerUserId, request.correlationId));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can transfer this conversation.' });
+    if (result === 'invalid_assignee') throw new BadRequestException({ code: 'INVALID_CONVERSATION_ASSIGNEE', message: 'The assignee must be an active member of the current organization.' });
     return result;
   }
   async setAutomationMode(request: ApiRequestDto, conversationId: string, mode: ConversationAutomationMode) {

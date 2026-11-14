@@ -1,13 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, auditEvents, conversations, messages, messagingChannels, people } from '../db/schema';
-import { user as authUser } from '../db/auth-schema';
+import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessagesQueryDto, ConversationRepositoryListDto, MessageRecordDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessagesQueryDto, ConversationRepositoryListDto, MessageRecordDto } from './inbox.dto';
 
 @Injectable()
 export class InboxRepository {
+  async listAssignees(organizationId: string): Promise<ConversationAssigneeDto[]> {
+    const rows = await database.select({ id: authUser.id, name: authUser.name, role: authMember.role }).from(authMember)
+      .innerJoin(authUser, eq(authUser.id, authMember.userId)).where(and(eq(authMember.organizationId, organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY['owner','admin','manager','bdr','sdr','closer']::text[]`)).orderBy(asc(authUser.name));
+    return rows.map((row) => new ConversationAssigneeDto(row.id, row.name, row.role));
+  }
+
   async list(input: ConversationRepositoryListDto): Promise<ConversationListItemDto[]> {
     const conditions = [eq(conversations.organizationId, input.organizationId)];
     if (input.query.status) conditions.push(eq(conversations.status, input.query.status));
@@ -17,7 +23,8 @@ export class InboxRepository {
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .leftJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
-      .leftJoin(authUser, eq(authUser.id, conversations.ownerUserId))
+      .leftJoin(authMember, and(eq(authMember.organizationId, conversations.organizationId), eq(authMember.userId, conversations.ownerUserId)))
+      .leftJoin(authUser, eq(authUser.id, authMember.userId))
       .where(and(...conditions))
       .orderBy(desc(sql`coalesce(${conversations.lastMessageAt}, ${conversations.createdAt})`), desc(conversations.id))
       .limit(input.query.limit).offset(input.query.offset);
@@ -48,6 +55,23 @@ export class InboxRepository {
       const [updated] = await transaction.update(conversations).set({ ownerUserId: null, automationMode: 'paused', updatedAt: new Date() })
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.released', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
+      return new ConversationControlResultDto(updated.id, updated.ownerUserId, updated.automationMode as ConversationControlResultDto['automationMode']);
+    });
+  }
+
+  async assign(input: ConversationAssignDto): Promise<ConversationControlResultDto | 'owned' | 'not_found' | 'invalid_assignee'> {
+    return database.transaction(async (transaction) => {
+      const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!current) return 'not_found';
+      if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
+      const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
+        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.ownerUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY['owner','admin','manager','bdr','sdr','closer']::text[]`)).for('share').limit(1);
+      if (!membership) return 'invalid_assignee';
+      if (current.ownerUserId === input.ownerUserId && current.automationMode === 'human') return new ConversationControlResultDto(current.id, input.ownerUserId, 'human');
+      const [updated] = await transaction.update(conversations).set({ ownerUserId: input.ownerUserId, automationMode: 'human', updatedAt: new Date() })
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.assigned', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
       return new ConversationControlResultDto(updated.id, updated.ownerUserId, updated.automationMode as ConversationControlResultDto['automationMode']);
     });
   }

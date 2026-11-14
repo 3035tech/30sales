@@ -110,6 +110,7 @@ export const api = {
       return request(`/api/v1/conversations?${search.toString()}`, z.array(conversationSchema));
     },
     channels: () => request('/api/v1/conversations/channels', z.array(channelSchema)),
+    assignees: () => request('/api/v1/conversations/assignees', z.array(z.object({ id: z.string().uuid(), name: z.string(), role: z.string() }))),
     messages: (conversationId: string, params: { limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.limit !== undefined) search.set('limit', String(params.limit));
@@ -117,6 +118,7 @@ export const api = {
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
     claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),
+    assign: (conversationId: string, ownerUserId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/owner`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
     release: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/release`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),
     setAutomationMode: (conversationId: string, mode: 'sofia' | 'paused') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/automation`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST', body: JSON.stringify(mode) }),
   },

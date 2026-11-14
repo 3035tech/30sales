@@ -11,6 +11,8 @@ export function InboxWorkspace() {
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [assignees, setAssignees] = useState<Array<{ id: string; name: string; role: string }>>([])
+  const [assigneeTarget, setAssigneeTarget] = useState('')
   const [currentUserId, setCurrentUserId] = useState('')
   const [controlling, setControlling] = useState(false)
   const [channelFilter, setChannelFilter] = useState('')
@@ -33,6 +35,7 @@ export function InboxWorkspace() {
   }, [channelFilter, t])
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
+  useEffect(() => { api.inbox.assignees().then(setAssignees).catch(() => setAssignees([])) }, [])
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
@@ -46,13 +49,15 @@ export function InboxWorkspace() {
   }, [selectedId, t])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
-  const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause') => {
+  useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
+  const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign') => {
     if (!selected) return
     setControlling(true)
     setError('')
     try {
       if (action === 'claim') await api.inbox.claim(selected.id)
       else if (action === 'release') await api.inbox.release(selected.id)
+      else if (action === 'assign') await api.inbox.assign(selected.id, assigneeTarget)
       else await api.inbox.setAutomationMode(selected.id, action === 'sofia' ? 'sofia' : 'paused')
       await refresh(channelFilter)
     } catch {
@@ -81,6 +86,7 @@ export function InboxWorkspace() {
       <section className="inbox-thread" aria-label={t('inbox.thread')}>
         {!selected ? <div className="inbox-empty thread-empty"><MessageSquareText size={25} /><strong>{loading ? t('common.loading') : t('inbox.selectConversation')}</strong><span>{t('inbox.readOnly')}</span></div> : <>
           <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
+            {(!selected.ownerUserId || selected.ownerUserId === currentUserId) && assignees.length > 0 && <><label className="inbox-assignee-select"><span>{t('inbox.assignTo')}</span><select value={assigneeTarget} onChange={(event) => setAssigneeTarget(event.target.value)} disabled={controlling}><option value="" disabled>{t('inbox.selectAssignee')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select></label><button type="button" disabled={controlling || !assigneeTarget} onClick={() => void controlConversation('assign')}>{t('inbox.assign')}</button></>}
             {!selected.ownerUserId && <button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</button>}
             {selected.ownerUserId === currentUserId && selected.automationMode === 'human' && <button type="button" disabled={controlling} onClick={() => void controlConversation('pause')}>{t('inbox.pauseSofia')}</button>}
             {selected.automationMode === 'paused' && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <button type="button" disabled={controlling} onClick={() => void controlConversation('sofia')}>{t('inbox.resumeSofia')}</button>}

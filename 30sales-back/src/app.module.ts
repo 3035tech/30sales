@@ -6,5 +6,6 @@ import { HandoffsModule } from './handoffs/handoffs.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
 import { InboxModule } from './inbox/inbox.module';
 import { AuditModule } from './audit/audit.module';
-@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule], controllers: [HealthController] })
+import { ImportsModule } from './imports/imports.module';
+@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule], controllers: [HealthController] })
 export class AppModule {}

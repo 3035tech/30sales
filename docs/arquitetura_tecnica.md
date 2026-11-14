@@ -44,6 +44,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `GET /api/v1/conversations?status=&limit=&offset=`: lista tenant-scoped de conversas, ordenada pela atividade mais recente.
 - `GET /api/v1/conversations/:id/messages?limit=&offset=`: histórico somente leitura; verifica conversa e mensagens no tenant ativo. Ambos exigem `inbox.read`.
 - `GET /api/v1/audit-events?action=&entityType=&entityId=&from=&to=&limit=&offset=`: consulta paginada por tenant; exige `audit.read` (owner/admin/manager/operations). A resposta inclui o correlation ID para rastrear a requisição. Eventos principais de CRM são gravados atomicamente com lead/status, tarefa, handoff, etapa da oportunidade e criação de atividade, junto com o `x-request-id` recebido (quando válido; até 128 caracteres seguros). Hooks Better Auth registram criação, aceite e cancelamento de convites depois das mutações de auth; não são atômicos com as tabelas `auth`. Sign-in/sign-out, remoção/alteração de papel de membro e conectores ainda não geram eventos.
+- `POST /api/v1/imports/identity-check`: prévia somente leitura, tenant-scoped, de até 500 pares de IDs (`provider`, `recordType`, `externalId`); exige `integrations.manage` (owner/admin/operations). Retorna `linked` com entidade canônica/ID ou `unmapped`. Não importa payload, cria vínculo ou altera dados. É um preflight para o futuro adapter de importação, não substitui o preview de campos/conflitos.
 
 ## Tabelas operacionais
 

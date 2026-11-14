@@ -1,10 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, count, eq, gte, inArray, isNull, lt, min, notInArray, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { opportunities } from '../db/schema';
+import { activities, handoffs, opportunities } from '../db/schema';
 import { FunnelReportDto, FunnelReportRepositoryQueryDto, FunnelReportStageDto } from './reports.dto';
 
 const terminalStages = ['won', 'lost'] as const;
+const responseActivity = alias(activities, 'handoff_first_response_activity');
 
 @Injectable()
 export class ReportsRepository {
@@ -14,7 +16,9 @@ export class ReportsRepository {
     toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
     const tenant = eq(opportunities.organizationId, input.organizationId);
     const open = and(tenant, notInArray(opportunities.stage, [...terminalStages]));
-    const [stageRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows] = await Promise.all([
+    const firstActivityQuery = database.select({ occurredAt: min(responseActivity.occurredAt) }).from(responseActivity)
+      .where(and(eq(responseActivity.organizationId, handoffs.organizationId), eq(responseActivity.opportunityId, handoffs.opportunityId), inArray(responseActivity.type, ['call', 'meeting', 'email', 'message']), gte(responseActivity.occurredAt, handoffs.acceptedAt))).as('first_handoff_activity');
+    const [stageRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows] = await Promise.all([
       database.select({ stage: opportunities.stage, count: count() }).from(opportunities).where(open).groupBy(opportunities.stage),
       database.select({ count: count() }).from(opportunities).where(open),
       database.select({ count: count() }).from(opportunities).where(and(open, isNull(opportunities.nextActionAt))),
@@ -22,6 +26,9 @@ export class ReportsRepository {
       database.select({ count: count() }).from(opportunities).where(and(tenant, gte(opportunities.createdAt, from), lt(opportunities.createdAt, toExclusive))),
       database.select({ stage: opportunities.stage, count: count() }).from(opportunities).where(and(tenant, gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), inArray(opportunities.stage, [...terminalStages]))).groupBy(opportunities.stage),
       database.select({ currency: opportunities.currency, amount: sql<string>`coalesce(sum(${opportunities.amount}), 0)::text` }).from(opportunities).where(and(tenant, eq(opportunities.stage, 'won'), gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), sql`${opportunities.currency} is not null`)).groupBy(opportunities.currency),
+      database.select({ acceptedCount: count(), firstActivityCount: count(firstActivityQuery.occurredAt), averageMinutes: sql<number | null>`avg(extract(epoch from (${firstActivityQuery.occurredAt} - ${handoffs.acceptedAt})) / 60)::float8` })
+        .from(handoffs).leftJoinLateral(firstActivityQuery, sql`true`)
+        .where(and(eq(handoffs.organizationId, input.organizationId), gte(handoffs.acceptedAt, from), lt(handoffs.acceptedAt, toExclusive))),
     ]);
     const closedCount = (stage: 'won' | 'lost') => Number(closedRows.find((row) => row.stage === stage)?.count ?? 0);
     return new FunnelReportDto(
@@ -35,6 +42,10 @@ export class ReportsRepository {
       closedCount('won'),
       closedCount('lost'),
       wonAmountRows.filter((row): row is { currency: string; amount: string } => row.currency !== null),
+      Number(handoffResponseRows[0]?.acceptedCount ?? 0),
+      Number(handoffResponseRows[0]?.firstActivityCount ?? 0),
+      Number(handoffResponseRows[0]?.acceptedCount ?? 0) - Number(handoffResponseRows[0]?.firstActivityCount ?? 0),
+      handoffResponseRows[0]?.averageMinutes ?? null,
       new Date().toISOString(),
     );
   }

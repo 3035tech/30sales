@@ -54,6 +54,8 @@
 
 **Tempo até primeira atividade do closer entregue no código:** passagens aceitas mostram o instante do aceite e o tempo até a primeira atividade de contato registrada (ligação, reunião, e-mail ou mensagem). Se ainda não existe atividade, a fila mostra o tempo corrido aguardando. A medida considera registro manual de atividade, não confirmação de entrega; meta numérica e escalonamento continuam pendentes de configuração.
 
+**Relatório de primeira atividade entregue no código:** acrescenta média em minutos entre aceite e primeira atividade manual para handoffs aceitos no período, quantidade com atividade e quantidade ainda sem registro. O denominador é explicitado; não há limite de SLA presumido. Cálculo usa `occurred_at` da primeira call/meeting/email/message a partir de `accepted_at`.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

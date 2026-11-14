@@ -3,9 +3,17 @@ import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react
 import { useTranslation } from 'react-i18next'
 import { api, type FunnelReportDto, type OpportunityStage } from '../lib/api/client'
 import './FunnelReportWorkspace.css'
+import './HandoffReport.css'
 
 const stages: OpportunityStage[] = ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation']
 function dateInput(date: Date) { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10) }
+function durationLabel(minutes: number, locale: string) {
+  const totalMinutes = Math.max(0, Math.round(minutes))
+  const hours = Math.floor(totalMinutes / 60)
+  const remainder = totalMinutes % 60
+  const format = (value: number, unit: 'hour' | 'minute') => new Intl.NumberFormat(locale, { style: 'unit', unit, unitDisplay: 'short' }).format(value)
+  return hours ? `${format(hours, 'hour')}${remainder ? ` ${format(remainder, 'minute')}` : ''}` : format(remainder, 'minute')
+}
 
 export function FunnelReportWorkspace() {
   const { t, i18n } = useTranslation()
@@ -40,6 +48,7 @@ export function FunnelReportWorkspace() {
         <article><span><TrendingDown size={15} />{t('funnelReport.lost')}</span><strong>{report.lostInPeriodCount}</strong><small>{winRate === null ? t('funnelReport.noDecisions') : t('funnelReport.winRate', { rate: winRate })}</small></article>
         <article className={report.openWithoutNextActionCount || report.overdueNextActionCount ? 'risk' : ''}><span><AlertTriangle size={15} />{t('funnelReport.needsAttention')}</span><strong>{report.openWithoutNextActionCount + report.overdueNextActionCount}</strong><small>{t('funnelReport.attentionBreakdown', { missing: report.openWithoutNextActionCount, overdue: report.overdueNextActionCount })}</small></article>
       </div>
+      <section className="funnel-report-panel handoff-report-panel"><div><h3>{t('handoffFirstActivity.title')}</h3><p>{t('handoffFirstActivity.description')}</p></div><strong>{report.averageMinutesToFirstActivity === null ? '—' : durationLabel(report.averageMinutesToFirstActivity, i18n.language)}</strong><small>{t('handoffFirstActivity.breakdown', { tracked: report.firstActivityCount, accepted: report.acceptedHandoffsInPeriodCount, pending: report.pendingFirstActivityCount })}</small></section>
       <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageSnapshot')}</h3><p>{t('funnelReport.stageSnapshotHint')}</p></div><span>{report.currentOpenCount}</span></div><div className="funnel-stage-list">{stages.map((stage) => { const count = report.currentStages.find((item) => item.stage === stage)?.count ?? 0; const width = report.currentOpenCount ? Math.max((count / report.currentOpenCount) * 100, count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={stage}><span>{t(`opportunityStages.${stage}`)}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{count}</strong></div> })}</div></section>
       <p className="funnel-report-definition">{t('funnelReport.definitions', { from: dateLabel(report.from), to: dateLabel(report.to), created: report.createdInPeriodCount })}</p>
       <p className="funnel-report-updated">{t('funnelReport.updatedAt', { value: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(report.generatedAt)) })}</p>

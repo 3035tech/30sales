@@ -19,6 +19,10 @@ export class FunnelReportDto {
     readonly wonInPeriodCount: number,
     readonly lostInPeriodCount: number,
     readonly wonAmountByCurrency: Array<{ currency: string; amount: string }>,
+    readonly acceptedHandoffsInPeriodCount: number,
+    readonly firstActivityCount: number,
+    readonly pendingFirstActivityCount: number,
+    readonly averageMinutesToFirstActivity: number | null,
     readonly generatedAt: string,
   ) {}
 }

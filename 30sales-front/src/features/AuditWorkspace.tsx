@@ -38,7 +38,7 @@ export function AuditWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p className="muted">{t('audit.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('audit.refresh')}><RefreshCw size={16} /></button></header>
     <div className="audit-filters">
       <label>{t('audit.action')}<input value={action} onChange={(event) => { setAction(event.target.value); setOffset(0) }} placeholder={t('audit.actionPlaceholder')} /></label>
-      <label>{t('audit.entityType')}<select value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity'].map((value) => <option key={value} value={value}>{t(`audit.entities.${value}`)}</option>)}</select></label>
+      <label>{t('audit.entityType')}<select value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation'].map((value) => <option key={value} value={value}>{t(`audit.entities.${value}`)}</option>)}</select></label>
       <label>{t('audit.from')}<input type="datetime-local" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0) }} /></label>
       <label>{t('audit.to')}<input type="datetime-local" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0) }} /></label>
     </div>

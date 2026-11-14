@@ -5,10 +5,15 @@ import { database } from '../db';
 import { auditEvents } from '../db/schema';
 import { user } from '../db/auth-schema';
 import { AuditEventRecordDto, AuditEventsPageDto, AuditRepositoryListDto } from './audit.dto';
+import type { JsonValue } from '../db/schema';
 
 const auditActor = alias(user, 'audit_actor');
 @Injectable()
 export class AuditRepository {
+  async record(input: { organizationId: string; actorUserId: string; action: string; entityType: string; entityId: string; correlationId: string | null; beforeState?: JsonValue; afterState?: JsonValue }): Promise<void> {
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: input.action, entityType: input.entityType, entityId: input.entityId, correlationId: input.correlationId, beforeState: input.beforeState, afterState: input.afterState });
+  }
+
   async list(input: AuditRepositoryListDto): Promise<AuditEventsPageDto> {
     const conditions: SQL[] = [eq(auditEvents.organizationId, input.organizationId)];
     if (input.query.action) conditions.push(eq(auditEvents.action, input.query.action));

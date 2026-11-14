@@ -27,6 +27,8 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState<Page>('home')
   const [leadSearchSeed, setLeadSearchSeed] = useState('')
+  const [inboxSearchSeed, setInboxSearchSeed] = useState('')
+  const [inboxConversationSeed, setInboxConversationSeed] = useState('')
 
   useEffect(() => {
     api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
@@ -50,7 +52,7 @@ export default function App() {
       <div className="rail-caption">{t('common.workspace')}</div>
       <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
       <button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} onClick={() => setPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</button>
-      <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => setPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
+      <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => { setInboxSearchSeed(''); setInboxConversationSeed(''); setPage('inbox') }}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'accounts' ? 'active' : ''}`} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
       <button className={`nav ${page === 'channels' ? 'active' : ''}`} onClick={() => setPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
@@ -83,9 +85,9 @@ export default function App() {
           <span className="welcome-icon"><Building2 size={24} /></span><p className="eyebrow">{t('home.chooseEyebrow')}</p><h2>{t('home.chooseTitle')}</h2><p className="muted">{t('home.chooseHint')}</p>
           <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
         </section> : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
-          : page === 'closerQueue' && current?.activeOrganizationId ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => setPage('pipeline')} />
+          : page === 'closerQueue' && current?.activeOrganizationId ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => setPage('pipeline')} onOpenInbox={(conversationId) => { setInboxConversationSeed(conversationId); setInboxSearchSeed(''); setPage('inbox') }} />
           : page === 'channels' && current?.activeOrganizationId ? <ChannelsWorkspace />
-          : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace />
+          : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
           : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace initialSearch={leadSearchSeed} />
           : page === 'accounts' && current?.activeOrganizationId ? <AccountsWorkspace onOpenLeads={(name) => { setLeadSearchSeed(name); setPage('leads') }} />
             : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />

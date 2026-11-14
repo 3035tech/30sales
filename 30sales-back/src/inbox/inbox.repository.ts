@@ -21,6 +21,7 @@ export class InboxRepository {
     const conditions = [eq(conversations.organizationId, input.organizationId)];
     const unreadExists = sql<boolean>`exists (select 1 from messages unread_message where unread_message.organization_id = ${input.organizationId} and unread_message.conversation_id = ${conversations.id} and unread_message.direction = 'inbound' and unread_message.created_at > coalesce((select conversation_read.last_read_at from conversation_reads conversation_read where conversation_read.organization_id = ${input.organizationId} and conversation_read.conversation_id = ${conversations.id} and conversation_read.user_id = ${input.userId}), 'epoch'::timestamptz))`;
     if (input.query.status) conditions.push(eq(conversations.status, input.query.status));
+    if (input.query.conversationId) conditions.push(eq(conversations.id, input.query.conversationId));
     if (input.query.channelId) conditions.push(eq(conversations.channelId, input.query.channelId));
     if (input.query.ownerUserId === 'unassigned') conditions.push(sql`${conversations.ownerUserId} is null`);
     else if (input.query.ownerUserId) conditions.push(eq(conversations.ownerUserId, input.query.ownerUserId));

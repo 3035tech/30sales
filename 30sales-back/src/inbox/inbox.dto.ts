@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { conversationStatus, messageActorType, messageDeliveryState, messageDirection } from '../db/schema';
 
-export const listConversationsSchema = z.object({ status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), tagId: z.string().uuid().optional(), ownerUserId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(), search: z.string().trim().max(120).optional(), unreadOnly: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listConversationsSchema = z.object({ conversationId: z.string().uuid().optional(), status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), tagId: z.string().uuid().optional(), ownerUserId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(), search: z.string().trim().max(120).optional(), unreadOnly: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListConversationsQueryDto = z.infer<typeof listConversationsSchema>;
 export const conversationAutomationModeSchema = z.enum(['sofia', 'human', 'paused']);
 export type ConversationAutomationMode = z.infer<typeof conversationAutomationModeSchema>;

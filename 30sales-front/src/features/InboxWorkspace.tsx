@@ -5,7 +5,7 @@ import { api, type ChannelDto, type ConversationDto, type MessageDto } from '../
 import i18n from '../lib/i18n'
 import './InboxWorkspace.css'
 
-export function InboxWorkspace() {
+export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
@@ -26,11 +26,12 @@ export function InboxWorkspace() {
   const [currentUserId, setCurrentUserId] = useState('')
   const [controlling, setControlling] = useState(false)
   const [channelFilter, setChannelFilter] = useState('')
-  const [conversationSearch, setConversationSearch] = useState('')
+  const [conversationSearch, setConversationSearch] = useState(initialSearch)
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ConversationDto['status'] | ''>('')
   const [ownerFilter, setOwnerFilter] = useState('')
   const [unreadOnly, setUnreadOnly] = useState(false)
+  const [conversationIdFilter, setConversationIdFilter] = useState(initialConversationId)
   const [pageSize, setPageSize] = useState(25)
   const [offset, setOffset] = useState(0)
   const [conversationTotal, setConversationTotal] = useState(0)
@@ -46,7 +47,7 @@ export function InboxWorkspace() {
     setLoading(true)
     setError('')
     try {
-      const result = await api.inbox.conversations({ channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
+      const result = await api.inbox.conversations({ conversationId: conversationIdFilter || undefined, channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
       if (sequence !== refreshSequence.current) return
       setConversations(result.data)
       setConversationTotal(result.pagination.total)
@@ -67,7 +68,7 @@ export function InboxWorkspace() {
     } finally {
       if (sequence === refreshSequence.current) setLoading(false)
     }
-  }, [channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
+  }, [conversationIdFilter, channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
   useEffect(() => { api.inbox.tags().then(setTags).catch(() => setTags([])) }, [])
@@ -100,8 +101,8 @@ export function InboxWorkspace() {
   }, [messages, messagesConversationId, selectedId, unreadOnly, refresh])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
-  const hasConversationFilters = Boolean(channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
-  const clearConversationFilters = () => { setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setChannelFilter(''); setTagFilter(''); setOffset(0) }
+  const hasConversationFilters = Boolean(conversationIdFilter || channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
+  const clearConversationFilters = () => { setConversationIdFilter(''); setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setChannelFilter(''); setTagFilter(''); setOffset(0) }
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
@@ -174,6 +175,7 @@ export function InboxWorkspace() {
         <label className="inbox-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={(event) => { setUnreadOnly(event.target.checked); setOffset(0) }} />{t('inbox.unreadOnly')}</label>
         <label className="inbox-channel-filter">{t('channels.inboxFilter')}<select value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</select></label>
         <label className="inbox-channel-filter">{t('inboxComposer.tagFilter')}<select value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('inboxComposer.allTags')}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
+        {conversationIdFilter && <button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</button>}
         {loading ? <p className="inbox-empty">{t('common.loading')}</p> : conversations.length === 0 ? <div className="inbox-empty"><MessageSquareText size={22} /><strong>{hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')}</strong><span>{hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}</span>{hasConversationFilters && <button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</button>}</div> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
           return <button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>

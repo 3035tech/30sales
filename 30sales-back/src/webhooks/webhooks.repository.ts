@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { conversations, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
+import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, WhatsappMessageStatusDto } from './webhooks.dto';
 
@@ -40,18 +40,32 @@ export class WebhooksRepository {
         .leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
         .where(and(eq(leads.organizationId, input.organizationId), eq(leads.personId, person.id))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
 
-      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+      const [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
       let conversationId = conversation?.id;
+      let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       if (!conversationId) {
         const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
         conversationId = createdConversation.id;
+        opportunityId = lead?.opportunityId ?? null;
       }
 
       const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
-      if (message) await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
-        .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
+      if (message) {
+        await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
+          .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
+        if (opportunityId) {
+          const [acceptedHandoff] = await transaction.select({ ownerUserId: opportunities.ownerUserId, handoffId: handoffs.id }).from(handoffs)
+            .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
+            .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.opportunityId, opportunityId), eq(handoffs.status, 'accepted'))).limit(1);
+          if (acceptedHandoff?.ownerUserId) {
+            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'lead_replied_after_handoff', priority: 'high', status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId: acceptedHandoff.ownerUserId, summary: 'The lead replied after the handoff was accepted.', evidence: input.bodyText, occurredAt: input.occurredAt })
+              .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
+            if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType: 'lead_replied_after_handoff', priority: 'high', conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId: acceptedHandoff.ownerUserId } });
+          }
+        }
+      }
       return message ? 'created' : 'duplicate';
     });
   }

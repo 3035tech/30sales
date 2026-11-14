@@ -331,6 +331,32 @@ export const externalRecords = pgTable('external_records', {
   index('external_records_org_provider_idx').on(table.organizationId, table.provider),
 ]);
 
+export const closerEvents = pgTable('closer_events', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  priority: text('priority').notNull(),
+  status: text('status').default('new').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  conversationId: uuid('conversation_id').notNull(),
+  opportunityId: uuid('opportunity_id').notNull(),
+  sourceMessageId: uuid('source_message_id').notNull(),
+  assignedToUserId: uuid('assigned_to_user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
+  summary: text('summary').notNull(),
+  evidence: text('evidence'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
+  resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'closer_events_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'closer_events_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'closer_events_message_tenant_fk', columns: [table.sourceMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  unique('closer_events_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
+  index('closer_events_org_assignee_status_time_idx').on(table.organizationId, table.assignedToUserId, table.status, table.occurredAt),
+]);
+
 
 export const inboxEvents = pgTable('inbox_events', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),

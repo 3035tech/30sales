@@ -107,7 +107,9 @@
 
 **Não lidas individuais no Inbox — primeira fatia entregue no código:** cada usuário tem cursor de leitura por conversa; mensagens inbound posteriores aparecem como não lidas para ele, sem limpar a fila dos outros closers. Abrir a conversa marca como lidas somente até a última mensagem inbound carregada na timeline; o cursor não aceita outbound, mensagem de outra conversa ou tenant. Filtro “somente não lidas” combina com busca, canal, etiqueta, status e responsável. Migration 0019 aditiva ainda não foi aplicada.
 
-**Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
+**Eventos do closer — primeira ocorrência entregue no código:** uma nova mensagem inbound numa conversa ligada a handoff aceito cria evento idempotente, tenant-scoped e atribuído ao owner da oportunidade; a central do closer exibe resumo/evidência, permite reconhecer e abrir a conversa exata no Inbox. Evento reconhecido sai da fila de pendências e fica auditado. Migration 0020 ainda não foi aplicada. Pedido explícito de humano/reunião, intenção de avançar, perguntas fora do playbook, falha de interpretação, resolução/adiamento/atribuição e políticas de SLA continuam no backlog.
+
+**Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite, eventos novos e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar passagem, reconhecer resposta após handoff e abrir Inbox/pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs, eventos e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. Pausa automática, outros gatilhos, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 
 - **Como closer**, quero receber uma fila única do que exige minha intervenção, para agir sem acompanhar todas as conversas de qualificação.
   - Cada item mostra conta, contato, oportunidade/lead, evento, horário, prioridade, prazo, resumo, evidência da conversa, fatos confirmados, lacunas e próxima ação sugerida.
@@ -193,7 +195,7 @@
 3. **Console read-only**: Hoje, Contas, Inbox e Pipeline; validar com BDR/SDR/closer usando casos reais anonimizados.
 4. **Escrita CRM/tarefas**: outbox, conflito por campo e dry-run; liberar para equipe pequena.
 5. **Handoff e inbox**: ownership, brief, SLA, assumir/devolver conversa, modos de automação e resposta pelo produto via adapters diretos dos provedores.
-6. **Central do closer**: primeira versão entregue com handoffs e oportunidades que precisam de ação; evoluir com notificações, eventos, reconhecimento/atribuição e contexto de conversa.
+6. **Central do closer**: primeira versão entregue com handoffs, eventos de resposta após handoff e oportunidades que precisam de ação; evoluir com outros gatilhos, resolução/adiamento/atribuição, contexto de conversa e SLA.
 7. **Eventos e notificações**: conectar webhooks, deduplicação/idempotência, pausa de Sofia por ownership, SLA e escalonamento; liberar um gatilho por vez.
 8. **IA assistiva**: resumo com evidências, fatos/lacunas e sugestão sem envio; avaliar contra casos; versionar playbooks.
 9. **Automação de baixo risco**: alertas e tarefas; depois retornos explicitamente combinados; medir/rollback.

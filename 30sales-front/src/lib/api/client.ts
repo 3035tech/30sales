@@ -14,6 +14,8 @@ const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uui
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string(), acceptedAt: z.string().nullable(), firstActivityAt: z.string().nullable() });
+const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(), priority: z.string(), status: z.string(), conversationId: z.string().uuid(), opportunityId: z.string().uuid(), accountName: z.string(), contactName: z.string(), summary: z.string(), evidence: z.string().nullable(), occurredAt: z.string(), acknowledgedAt: z.string().nullable() });
+const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
@@ -46,6 +48,7 @@ export type LeadSortBy = 'accountName' | 'contactName' | 'channel' | 'source' | 
 export type LeadAssigneeDto = z.infer<typeof leadAssigneeSchema>;
 export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
+export type CloserEventDto = z.infer<typeof closerEventSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
 export type OpportunityAssigneeDto = z.infer<typeof opportunityAssigneeSchema>;
@@ -103,9 +106,19 @@ function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['s
 
 export const api = {
   session: { get: () => request('/api/v1/session', sessionSchema) },
-  inbox: {
-    conversations: (params: { status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
+  closerEvents: {
+    list: (params: { limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/closer-events?${search.toString()}`, closerEventsPageSchema);
+    },
+    acknowledge: (eventId: string) => request(`/api/v1/closer-events/${encodeURIComponent(eventId)}/acknowledge`, z.object({ id: z.string().uuid(), status: z.string(), acknowledgedAt: z.string().nullable() }), { method: 'PATCH' }),
+  },
+  inbox: {
+    conversations: (params: { conversationId?: string; status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.conversationId) search.set('conversationId', params.conversationId);
       if (params.status) search.set('status', params.status);
       if (params.channelId) search.set('channelId', params.channelId);
       if (params.tagId) search.set('tagId', params.tagId);

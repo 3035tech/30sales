@@ -15,6 +15,8 @@ export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listConversationsSchema)) query: ListConversationsQueryDto) { return this.inboxService.list(request, query); }
+  @Get('channels')
+  channels(@ApiRequest() request: ApiRequestDto) { return this.inboxService.channels(request); }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
 }

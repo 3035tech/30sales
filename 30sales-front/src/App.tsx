@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase } from 'lucide-react'
+import { ArrowRight, BarChart3, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -15,9 +15,10 @@ import { TodayWorkspace } from './features/TodayWorkspace'
 import { FunnelReportWorkspace } from './features/FunnelReportWorkspace'
 import { AccountsWorkspace } from './features/AccountsWorkspace'
 import { CloserQueueWorkspace } from './features/CloserQueueWorkspace'
+import { ChannelsWorkspace } from './features/ChannelsWorkspace'
 import './App.css'
 
-type Page = 'home' | 'closerQueue' | 'inbox' | 'leads' | 'accounts' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
+type Page = 'home' | 'closerQueue' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -52,6 +53,7 @@ export default function App() {
       <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => setPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'accounts' ? 'active' : ''}`} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
+      <button className={`nav ${page === 'channels' ? 'active' : ''}`} onClick={() => setPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
       <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
@@ -82,6 +84,7 @@ export default function App() {
           <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
         </section> : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
           : page === 'closerQueue' && current?.activeOrganizationId ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => setPage('pipeline')} />
+          : page === 'channels' && current?.activeOrganizationId ? <ChannelsWorkspace />
           : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace />
           : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace initialSearch={leadSearchSeed} />
           : page === 'accounts' && current?.activeOrganizationId ? <AccountsWorkspace onOpenLeads={(name) => { setLeadSearchSeed(name); setPage('leads') }} />

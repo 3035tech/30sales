@@ -16,6 +16,7 @@
 - Filas Hoje, Inbox, Contas, Qualificação e Pipeline.
 - Atribuição, handoff, tarefas, checklist de prontidão e brief do closer.
 - Central de trabalho do closer com eventos que exigem ação humana, prioridade, prazo, contexto e ações diretas.
+- Cadastro de números por tenant, separados do closer responsável, com provedor Evolution ou WhatsApp Cloud API e filtro unificado do Inbox.
 - Ciclo de responsabilidade explícito: agente qualifica, closer aceita/devolve, agente retoma apenas com instrução.
 - Alteração manual de fatos/status com evidência e auditoria.
 - Relatórios do funil e SLA com definições claras.
@@ -32,7 +33,7 @@
 
 ### P3 — Envios automatizados e substituição
 
-- Evolution send/receive, callbacks e saúde no produto.
+- Adapters de envio/recebimento para Evolution e WhatsApp Cloud API oficial, callbacks e saúde do canal no produto; credenciais em secret manager.
 - Migração da Sofia A/G, B/F/D/H e C em ondas, um fluxo por função.
 - Agenda integrada e confirmação de reunião.
 - Resposta humana pelo produto e execução de ações externas depois de ownership, pausa e idempotência comprovados.
@@ -83,8 +84,11 @@
   - Falha do provider aparece como falha, não como mensagem entregue.
 - **Como closer**, quero responder sem automação por cima.
   - Mensagem humana/atribuição coloca conversa em modo humano; retries do webhook não mudam owner.
+  - O Inbox reúne vários números autorizados no tenant; canal é filtro/origem da conversa, enquanto owner é o closer/usuário. Conversa nova mantém o número de origem nas respostas.
 
 ### Eventos comerciais e central do closer — backlog
+
+**Cadastro de canais WhatsApp entregue no código:** API e tela registram um canal por número, com provedor Evolution ou Cloud API, identificadores externos e vínculo opcional à inbox Chatwoot. O Inbox permite filtrar por canal e apresenta nome/número na conversa. A habilitação do registro define sua disponibilidade para futuras regras de roteamento. Migration 0014 aditiva preserva conversas existentes com canal nulo. Nenhum token é salvo e não há conexão, health check, webhook ou envio real nesta entrega; os adapters dos provedores seguem no P3.
 
 **Central do closer — primeira versão entregue no frontend:** reúne passagens aguardando aceite e oportunidades próprias com próxima ação vencida ou ausente. Mostra conta, contato, motivo/evidência, fatos confirmados, lacunas e prazo; permite aceitar a passagem ou abrir o pipeline. Busca, filtro por tipo, ordenação e paginação usam os componentes existentes. Handoffs e oportunidades são carregados em páginas até o fim, sem limite fixo de registros na central. A visão reutiliza os endpoints CRM tenant-scoped. Notificação in-app, reconhecimento/adiamento, eventos de conversa da Sofia, pausa automática, ações de retorno ao agente e SLA configurável continuam no backlog abaixo.
 

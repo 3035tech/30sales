@@ -5,6 +5,7 @@
 .inbox-conversations { overflow: auto; border-right: 1px solid var(--line, #e7e9ed); }
 .inbox-conversation { width: 100%; display: flex; gap: 12px; padding: 15px; border: 0; border-bottom: 1px solid var(--line, #e7e9ed); background: transparent; text-align: left; cursor: pointer; color: inherit; }
 .inbox-conversation:hover, .inbox-conversation.selected { background: var(--surface-muted, #f5f7fa); }
+.inbox-channel-filter{display:grid;gap:5px;padding:12px;border-bottom:1px solid var(--line,#e7e9ed);color:#64748b;font-size:10px;font-weight:650}.inbox-channel-filter select{min-width:0;min-height:33px;border:1px solid #dbe4ee;border-radius:6px;padding:6px 8px;background:#fff;color:#334155;font-size:10px}
 .inbox-avatar { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 50%; background: #edf2fa; color: #244a82; }
 .inbox-conversation-copy { display: grid; gap: 4px; min-width: 0; }
 .inbox-conversation-copy strong, .inbox-conversation-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

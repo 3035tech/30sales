@@ -9,5 +9,6 @@ import { AuditModule } from './audit/audit.module';
 import { ImportsModule } from './imports/imports.module';
 import { ReportsModule } from './reports/reports.module';
 import { AccountsModule } from './accounts/accounts.module';
-@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule], controllers: [HealthController] })
+import { ChannelsModule } from './channels/channels.module';
+@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule], controllers: [HealthController] })
 export class AppModule {}

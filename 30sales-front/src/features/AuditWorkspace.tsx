@@ -29,6 +29,7 @@ export function AuditWorkspace() {
 
   useEffect(() => { void refresh() }, [refresh])
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const entityLabel = (value: string) => value === 'messaging_channel' ? t('channels.columns.name') : t(`audit.entities.${value}`, { defaultValue: value })
   const stateLabel = (event: AuditEventDto) => {
     if (!event.beforeState && !event.afterState) return null
     return <details className="audit-state"><summary>{t('audit.viewChange')}</summary><div><strong>{t('audit.before')}</strong><pre>{JSON.stringify(event.beforeState, null, 2) ?? '—'}</pre><strong>{t('audit.after')}</strong><pre>{JSON.stringify(event.afterState, null, 2) ?? '—'}</pre></div></details>
@@ -38,7 +39,7 @@ export function AuditWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p className="muted">{t('audit.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('audit.refresh')}><RefreshCw size={16} /></button></header>
     <div className="audit-filters">
       <label>{t('audit.action')}<input value={action} onChange={(event) => { setAction(event.target.value); setOffset(0) }} placeholder={t('audit.actionPlaceholder')} /></label>
-      <label>{t('audit.entityType')}<select value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation'].map((value) => <option key={value} value={value}>{t(`audit.entities.${value}`)}</option>)}</select></label>
+      <label>{t('audit.entityType')}<select value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation','messaging_channel'].map((value) => <option key={value} value={value}>{entityLabel(value)}</option>)}</select></label>
       <label>{t('audit.from')}<input type="datetime-local" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0) }} /></label>
       <label>{t('audit.to')}<input type="datetime-local" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0) }} /></label>
     </div>
@@ -48,7 +49,7 @@ export function AuditWorkspace() {
       {loading ? <div className="lead-empty">{t('common.loading')}</div> : page?.data.length ? <div className="audit-events">{page.data.map((event) => <article className="audit-event" key={event.id}>
         <span className="audit-event-mark" aria-hidden="true" />
         <div className="audit-event-main"><div className="audit-event-heading"><strong>{event.action}</strong><time dateTime={event.occurredAt}>{dateLabel(event.occurredAt)}</time></div>
-          <p>{t('audit.actorEntity', { actor: event.actorName ?? t(`audit.actorTypes.${event.actorType}`, { defaultValue: event.actorType }), entity: t(`audit.entities.${event.entityType}`, { defaultValue: event.entityType }) })}{event.entityId ? <code>{event.entityId}</code> : null}</p>
+          <p>{t('audit.actorEntity', { actor: event.actorName ?? t(`audit.actorTypes.${event.actorType}`, { defaultValue: event.actorType }), entity: entityLabel(event.entityType) })}{event.entityId ? <code>{event.entityId}</code> : null}</p>
           {event.reason && <p className="audit-reason">{event.reason}</p>}{event.correlationId && <p className="audit-correlation"><span>{t('audit.correlationId')}</span><code>{event.correlationId}</code></p>}{stateLabel(event)}
         </div>
       </article>)}</div> : <div className="lead-empty"><span className="card-icon"><ShieldCheck size={19} /></span><h3>{t('audit.empty')}</h3><p>{t('audit.emptyHint')}</p></div>}

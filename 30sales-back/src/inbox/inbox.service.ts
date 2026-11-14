@@ -11,6 +11,10 @@ export class InboxService {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.repository.list(new ConversationRepositoryListDto(context.organizationId, query));
   }
+  async channels(request: ApiRequestDto) {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    return this.repository.listChannels(context.organizationId);
+  }
   async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, query.limit, query.offset));

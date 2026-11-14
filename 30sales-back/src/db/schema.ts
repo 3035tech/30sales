@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { check, foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
@@ -191,11 +191,34 @@ export const handoffHistory = pgTable('handoff_history', {
 ]);
 
 
+export const messagingChannels = pgTable('messaging_channels', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  displayName: text('display_name').notNull(),
+  phoneNumber: text('phone_number').notNull(),
+  providerChannelId: text('provider_channel_id').notNull(),
+  providerAccountId: text('provider_account_id'),
+  chatwootInboxId: text('chatwoot_inbox_id'),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  check('messaging_channels_provider_check', sql`${table.provider} in ('evolution', 'whatsapp_cloud_api')`),
+  check('messaging_channels_phone_e164_check', sql`${table.phoneNumber} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  unique('messaging_channels_id_organization_unique').on(table.id, table.organizationId),
+  unique('messaging_channels_org_phone_unique').on(table.organizationId, table.phoneNumber),
+  unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
+  unique('messaging_channels_org_chatwoot_inbox_unique').on(table.organizationId, table.chatwootInboxId),
+  index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
+]);
+
 export const conversations = pgTable('conversations', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(),
   externalConversationId: text('external_conversation_id').notNull(),
+  channelId: uuid('channel_id'),
   accountId: uuid('account_id'),
   personId: uuid('person_id'),
   opportunityId: uuid('opportunity_id'),
@@ -208,10 +231,12 @@ export const conversations = pgTable('conversations', {
   foreignKey({ name: 'conversations_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('restrict'),
   foreignKey({ name: 'conversations_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('restrict'),
   foreignKey({ name: 'conversations_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('restrict'),
+  foreignKey({ name: 'conversations_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('restrict'),
   unique('conversations_id_organization_unique').on(table.id, table.organizationId),
   unique('conversations_provider_external_unique').on(table.organizationId, table.provider, table.externalConversationId),
   index('conversations_org_status_last_message_idx').on(table.organizationId, table.status, table.lastMessageAt),
   index('conversations_org_owner_last_message_idx').on(table.organizationId, table.ownerUserId, table.lastMessageAt),
+  index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
 ]);
 
 export const messages = pgTable('messages', {

@@ -36,6 +36,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `POST /api/v1/leads/:id/tasks`: cria tarefa com descrição e prazo, associada ao lead; atualiza `next_action_at` para o prazo aberto mais próximo.
 - `PATCH /api/v1/leads/tasks/:taskId/complete`: registra resultado (`completed`, `contacted`, `no_response` ou `follow_up`) e nota. Quando há retorno, cria a tarefa seguinte na mesma transação e preserva responsável. A ausência de body antigo mantém compatibilidade usando `completed`; a tela atual exige escolha explícita.
 - `GET /api/v1/handoffs?status=requested|accepted|returned`: lista os briefs e filas da organização ativa.
+- A resposta inclui `acceptedAt` e `firstActivityAt`: primeiro registro manual de ligação, reunião, e-mail ou mensagem da oportunidade ocorrido a partir do aceite. É uma métrica de atividade registrada, não confirmação de entrega do canal.
 - `POST /api/v1/handoffs`: cria ou reutiliza a oportunidade do lead e solicita o handoff com evidência, fatos, lacunas e próxima ação.
 - `PATCH /api/v1/handoffs/:id/accept`: closer/gestor aceita, vira owner da oportunidade e inicia a etapa de contato.
 - `PATCH /api/v1/handoffs/:id/return`: closer/gestor devolve com motivo; lead volta à fila SDR e tarefa com prazo é atribuída a quem pediu a passagem.

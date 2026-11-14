@@ -36,6 +36,8 @@ export class HandoffRecordDto {
     readonly closerName: string | null,
     readonly returnReason: string | null,
     readonly requestedAt: string,
+    readonly acceptedAt: string | null,
+    readonly firstActivityAt: string | null,
   ) {}
 }
 export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateHandoffDto, readonly correlationId: string | null = null) {} }

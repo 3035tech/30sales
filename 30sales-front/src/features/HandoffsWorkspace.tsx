@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type HandoffDto, type LeadDto } from '../lib/api/client'
+import './HandoffsWorkspace.css'
 
 type HandoffStatus = HandoffDto['status']
 const statuses: HandoffStatus[] = ['requested', 'accepted', 'returned']
@@ -58,6 +59,14 @@ export function HandoffsWorkspace() {
     finally { setSaving(false) }
   }
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const elapsed = (start: string, end = new Date().toISOString()) => {
+    const minutes = Math.max(0, Math.floor((new Date(end).getTime() - new Date(start).getTime()) / 60000))
+    if (minutes < 60) return new Intl.NumberFormat(i18n.language, { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(minutes)
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    const formattedHours = new Intl.NumberFormat(i18n.language, { style: 'unit', unit: 'hour', unitDisplay: 'short' }).format(hours)
+    return remainingMinutes ? `${formattedHours} ${new Intl.NumberFormat(i18n.language, { style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(remainingMinutes)}` : formattedHours
+  }
 
   return <section className="leads-page handoffs-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></button></header>
@@ -86,6 +95,7 @@ export function HandoffsWorkspace() {
           <div><strong>{t('handoffs.unknowns')}</strong>{handoff.unknowns.length ? <ul>{handoff.unknowns.map((item) => <li key={item}>{item}</li>)}</ul> : <p>{t('handoffs.noneRecorded')}</p>}</div>
           <div><strong>{t('handoffs.nextStep')}</strong><p>{handoff.nextStep} · {dateLabel(handoff.nextStepAt)}</p></div>
         </div>
+        {handoff.acceptedAt && <div className="handoff-response-clock"><strong>{handoff.firstActivityAt ? t('handoffTiming.firstActivity') : t('handoffTiming.waitingForActivity')}</strong><span>{handoff.firstActivityAt ? t('handoffTiming.firstActivityElapsed', { duration: elapsed(handoff.acceptedAt, handoff.firstActivityAt) }) : t('handoffTiming.waitingElapsed', { duration: elapsed(handoff.acceptedAt) })}</span><small>{t('handoffTiming.acceptedAt', { date: dateLabel(handoff.acceptedAt) })}</small></div>}
         <div className="handoff-card-foot"><span>{t('handoffs.requestedBy', { name: handoff.requestedByName })}{handoff.closerName ? ` · ${t('handoffs.closer', { name: handoff.closerName })}` : ''}</span>
           {handoff.status === 'requested' && <button className="primary handoff-action" onClick={() => void accept(handoff)}><Check size={15} />{t('handoffs.accept')}</button>}
           {handoff.status === 'accepted' && <button className="handoff-return-trigger" onClick={() => setReturningId(returningId === handoff.id ? '' : handoff.id)}><ArrowDownLeft size={15} />{t('handoffs.return')}</button>}

@@ -8,15 +8,23 @@ import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDt
 
 const requester = alias(user, 'handoff_requester');
 const closer = alias(user, 'handoff_closer');
-type HandoffRow = { id: string; opportunityId: string; leadId: string; opportunityName: string; accountName: string; contactName: string; status: 'requested' | 'accepted' | 'returned' | 'cancelled'; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date };
+type HandoffRow = { id: string; opportunityId: string; leadId: string; opportunityName: string; accountName: string; contactName: string; status: 'requested' | 'accepted' | 'returned' | 'cancelled'; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
 function mapHandoff(row: HandoffRow): HandoffRecordDto {
-  return new HandoffRecordDto(row.id, row.opportunityId, row.leadId, row.opportunityName, row.accountName, row.contactName, row.status as HandoffStatus, row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString());
+  return new HandoffRecordDto(row.id, row.opportunityId, row.leadId, row.opportunityName, row.accountName, row.contactName, row.status as HandoffStatus, row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
 }
+
+const firstCustomerActivityAt = sql<Date | null>`(
+  select min(a.occurred_at) from activities a
+  where a.organization_id = ${handoffs.organizationId}
+    and a.opportunity_id = ${handoffs.opportunityId}
+    and a.type in ('call', 'meeting', 'email', 'message')
+    and a.occurred_at >= ${handoffs.acceptedAt}
+)`;
 
 @Injectable()
 export class HandoffsRepository {
   private async getRecord(organizationId: string, handoffId: string): Promise<HandoffRecordDto | null> {
-    const [row] = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt })
+    const [row] = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
@@ -27,7 +35,7 @@ export class HandoffsRepository {
   }
 
   async list(input: HandoffRepositoryListDto): Promise<HandoffRecordDto[]> {
-    const rows = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt })
+    const rows = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
@@ -65,7 +73,7 @@ export class HandoffsRepository {
         await transaction.update(leads).set({ status: 'converted_to_sdr', updatedAt: new Date() }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, input.organizationId), eq(leads.status, 'responded')));
         await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: input.actorUserId });
       }
-      const [row] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt })
+      const [row] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(eq(handoffs.id, handoff.id)).limit(1);
       return row ? mapHandoff(row as HandoffRow) : null;
     });

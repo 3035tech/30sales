@@ -52,6 +52,8 @@
 
 **Redistribuição de oportunidades entregue no código:** gestores podem atribuir uma oportunidade aberta a um closer ativo do mesmo tenant ou deixá-la sem responsável. A API verifica papel do ator, membership e papel do destino; ganhas/perdidas ficam bloqueadas. Auditoria registra responsável anterior/novo, ator e correlation ID. A carteira reflete a atribuição após atualização.
 
+**Tempo até primeira atividade do closer entregue no código:** passagens aceitas mostram o instante do aceite e o tempo até a primeira atividade de contato registrada (ligação, reunião, e-mail ou mensagem). Se ainda não existe atividade, a fila mostra o tempo corrido aguardando. A medida considera registro manual de atividade, não confirmação de entrega; meta numérica e escalonamento continuam pendentes de configuração.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

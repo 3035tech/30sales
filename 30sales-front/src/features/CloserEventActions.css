@@ -1,1 +1,2 @@
 .closer-event-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}.closer-event-actions button,.closer-event-actions select{min-height:27px;border:1px solid #dbe4ee;border-radius:5px;background:#fff;padding:3px 7px;color:#475569;font-size:10px;cursor:pointer}.closer-event-actions button:hover{border-color:#94a3b8;background:#f8fafc}.closer-event-actions button:disabled,.closer-event-actions select:disabled{cursor:wait;opacity:.6}
+.closer-priority-urgent{color:#b42318}.closer-priority-high{color:#a44416}

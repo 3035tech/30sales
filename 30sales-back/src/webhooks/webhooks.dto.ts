@@ -21,6 +21,7 @@ export class IncomingWhatsappMessageDto {
     readonly senderPhone: string,
     readonly senderName: string | null,
     readonly messageType: string,
+    readonly closerSignal: 'human_requested' | 'question' | null,
     readonly bodyText: string | null,
     readonly occurredAt: Date,
     readonly payloadHash: string,

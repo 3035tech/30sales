@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
+import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, WhatsappMessageStatusDto } from './webhooks.dto';
 
@@ -56,13 +57,30 @@ export class WebhooksRepository {
         await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
         if (opportunityId) {
-          const [acceptedHandoff] = await transaction.select({ ownerUserId: opportunities.ownerUserId, handoffId: handoffs.id }).from(handoffs)
+          const [opportunity] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
+            .where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
+          const [acceptedHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
             .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
             .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.opportunityId, opportunityId), eq(handoffs.status, 'accepted'))).limit(1);
-          if (acceptedHandoff?.ownerUserId) {
-            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'lead_replied_after_handoff', priority: 'high', status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId: acceptedHandoff.ownerUserId, summary: 'The lead replied after the handoff was accepted.', evidence: input.bodyText, occurredAt: input.occurredAt })
+          const activeOpportunity = Boolean(opportunity?.ownerUserId && !['won', 'lost'].includes(opportunity.stage));
+          let closerMembership = false;
+          if (opportunity?.ownerUserId) {
+            const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
+              .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, opportunity.ownerUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`)).limit(1);
+            closerMembership = Boolean(membership);
+          }
+          const isCloserOwned = activeOpportunity && closerMembership;
+          const hasAcceptedHandoff = Boolean(acceptedHandoff && activeOpportunity);
+          const eventType = input.closerSignal === 'human_requested' && (hasAcceptedHandoff || isCloserOwned) ? 'human_requested'
+            : input.closerSignal === 'question' && (hasAcceptedHandoff || isCloserOwned) ? 'closer_question'
+              : hasAcceptedHandoff ? 'lead_replied_after_handoff' : null;
+          const assignedToUserId = activeOpportunity ? opportunity?.ownerUserId : null;
+          if (eventType && assignedToUserId) {
+            const priority = eventType === 'human_requested' ? 'urgent' : 'high';
+            const summary = eventType === 'human_requested' ? 'The lead explicitly asked to speak with a person.' : eventType === 'closer_question' ? 'The lead asked a question while the closer owns the opportunity.' : 'The lead replied after the handoff was accepted.';
+            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt })
               .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
-            if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType: 'lead_replied_after_handoff', priority: 'high', conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId: acceptedHandoff.ownerUserId } });
+            if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }
         }
       }

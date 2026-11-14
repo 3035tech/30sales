@@ -155,7 +155,7 @@ export class WebhooksService {
     const messageType = (this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent)).slice(0, 80);
     const bodyText = this.extractEvolutionText(messageContent)?.slice(0, 16000) ?? null;
     const occurredAt = this.toDate(data.messageTimestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, bodyText, occurredAt, payloadHash);
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash);
   }
 
   private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
@@ -167,7 +167,19 @@ export class WebhooksService {
     const contact = contacts.find((candidate) => this.phoneDigits(this.string(candidate.wa_id) ?? '') === senderPhone);
     const profile = this.record(contact?.profile);
     const occurredAt = this.toDate(message.timestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(profile.name), messageType, this.extractCloudText(message, messageType)?.slice(0, 16000) ?? null, occurredAt, payloadHash);
+    const bodyText = this.extractCloudText(message, messageType)?.slice(0, 16000) ?? null;
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(profile.name), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash);
+  }
+
+  private classifyCloserSignal(bodyText: string | null): 'human_requested' | 'question' | null {
+    if (!bodyText?.trim()) return null;
+    const normalized = bodyText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
+    const humanRequest = /\b(quero|queria|gostaria|preciso|posso|pode|tem como|me transfere|me passe|me passa|me coloca|me direcione|me chama|chame|i want|i'd like|i need|can i|could i|transfer me|connect me|put me through)\b.{0,80}\b(atendente|atendimento humano|humano|pessoa(?: real| de verdade)?|alguem(?: da equipe| de verdade)?|especialista|someone|a person|human|an agent|a representative|a specialist)\b/;
+    if (humanRequest.test(normalized)) return 'human_requested';
+    const greetingQuestion = /^(oi|ola|bom dia|boa tarde|boa noite)?\s*(tudo bem|tudo bom|como vai|como voce esta)[!.?\s]*$/;
+    if (greetingQuestion.test(normalized)) return null;
+    if (/[?？]/.test(normalized) || /^(como|qual|quais|quanto|quantos|quantas|quando|onde|por que|porque|quem|sera que|tem como|da para|what|how|which|who|when|where|why|can|could|does|do|is|are|will)\b/.test(normalized) || /\b(me explica|pode explicar|queria saber|gostaria de saber|me fala|me diz|sabe dizer|quero saber|preciso entender|como funciona|quanto custa|qual e o valor|qual o valor)\b/.test(normalized)) return 'question';
+    return null;
   }
 
   private extractEvolutionText(message: JsonRecord): string | null {

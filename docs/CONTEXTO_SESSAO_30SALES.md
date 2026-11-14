@@ -23,7 +23,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; fila individual de não lidas e ciclo inicial de eventos do closer estão integrados.
+- Branch atual: `feature/closer-conversation-signals`; sinais de atendimento humano e perguntas para o closer foram implementados nesta branch; integração e documentação revisadas.
 - Último commit em `develop`: `ad89b03 feat(closer): manage event lifecycle`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
@@ -35,6 +35,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - fila de não lidas individual por usuário com cursor por conversa integrada em `develop` (`08468fe`); migration 0019 criada, ainda sem aplicação.
 - evento idempotente para resposta do lead após handoff aceito integrado em `develop` (`a5caeb9`); atribui ao closer dono, permite reconhecimento e abre a conversa exata no Inbox.
 - ações do evento (reconhecer, adiar por uma hora, redistribuir para closer ativo e concluir) integradas em `develop` (`ad89b03`); migration `0021_silent_brood.sql` criada e ainda sem aplicação.
+- Branch feature/closer-conversation-signals: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration. Build/testes não executados por orientação.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0021_silent_brood.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
@@ -63,11 +64,11 @@ Limitação tratada: callback sem mensagem local é ignorado, então a corrida r
 
 Leitura não lida é individual: `POST /api/v1/conversations/:id/read` recebe o ID da última inbound carregada, valida conversa/tenant/direção e avança `conversation_reads.last_read_at` ao `created_at` dessa mensagem. `GET /api/v1/conversations` inclui `unread` e aceita `unreadOnly=true`. Migration `0019_outstanding_stryfe.sql` cria a tabela cursor tenant-scoped e índice de mensagens para consulta. A UI marca leitura após carregar mensagens, exibe selo e permite filtrar apenas não lidas. Não aplicar migrations ainda.
 
-Evento do closer: quando uma mensagem inbound é persistida em conversa ligada a oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner da oportunidade; a central lista eventos novos/adiados vencidos para aquele usuário, com ações de reconhecer, adiar por uma hora, redistribuir para closer e concluir. Reconhecimento/redistribuição/conclusão removem o evento da fila pendente; redistribuição e transições registram auditoria. Migration `0021_silent_brood.sql` adiciona `snoozed_until` e não foi aplicada. Pedido de humano/intenções, mais presets, recuperação automática por worker, SLA e polling/push seguem pendentes.
+Evento do closer: quando uma mensagem inbound é persistida em oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner. Esta branch implementa: pedido explícito para falar com pessoa vira `human_requested` urgente; pergunta numa oportunidade ativa atribuída a closer vira `closer_question` alta; ambos reutilizam uma ocorrência por mensagem. Pedido humano depende de oportunidade ativa com closer dono ou handoff aceito; não há roteamento de lead sem oportunidade/owner. Os demais fluxos (reconhecer, adiar, redistribuir, concluir) estão integrados em `develop`. Migrations `0020` e `0021` não foram aplicadas. SLA e polling/push seguem pendentes.
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada: adicionar gatilhos de pedido explícito de humano/reunião, intenção clara e falha de interpretação; depois, SLA e atualização automática da central. Anexos inbound seguem pendentes até escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada: adicionar gatilhos de intenção clara de avançar e falha de interpretação; depois, SLA e atualização automática da central. Anexos inbound seguem pendentes até escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
 
 Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 

@@ -2,7 +2,7 @@
 
 ## Repositório e fluxo Git
 
-Frontend, backend, documentação e contratos pertencem ao monorepo `30sales`; os apps continuam deployáveis separadamente. Git Flow configurado com `main` como produção, `develop` para integração e prefixos `feature/`, `release/`, `hotfix/` e `support/`. Feature atual: `feature/leads-workflow`. Não há remote configurado ainda.
+Frontend, backend, documentação e contratos pertencem ao monorepo `30sales`; os apps continuam deployáveis separadamente. Git Flow configurado com `main` como produção, `develop` para integração e prefixos `feature/`, `release/`, `hotfix/` e `support/`. `develop` é a branch atual de integração; não há remote configurado ainda.
 
 ## Frontend
 
@@ -30,11 +30,18 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `GET /api/v1/leads?status=&limit=&offset=`: fila paginada e filtrável, isolada por organização.
 - `POST /api/v1/leads`: cria conta, pessoa, lead e estado inicial em uma transação. Exige empresa, contato e e-mail ou telefone.
 - `PATCH /api/v1/leads/:id/status`: valida transição no service e registra alteração atomicamente.
+- `GET /api/v1/leads/tasks?from=&to=&status=&limit=`: lista tarefas por intervalo e estado na organização ativa.
+- `POST /api/v1/leads/:id/tasks`: cria tarefa com descrição e prazo, associada ao lead; atualiza `next_action_at` para o prazo aberto mais próximo.
+- `PATCH /api/v1/leads/tasks/:taskId/complete`: conclui uma tarefa aberta e recalcula a próxima ação do lead na mesma transação.
 - `GET /api/v1/session`: identidade, organizações acessíveis e tenant ativo.
+
+## Fila de tarefas
+
+A tela Tarefas mostra vencidas, de hoje e dos próximos sete dias, usando o fuso local do navegador para definir os limites diários. Tarefas são sempre ligadas a um lead e possuem descrição, prazo, estado, criador e timestamp de conclusão. O endpoint deriva a organização da sessão e restringe as consultas por `organization_id`; a FK composta impede a associação a lead de outro tenant. A migration `0003` cria a tabela e o enum `task_status`; ela está gerada, mas ainda não aplicada.
 
 ## Persistência e operação
 
-Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 substitui o enum de status pela máquina BDR documentada. Essas migrations ainda não foram aplicadas; 0002 existe para manter compatibilidade com a definição 0001 durante a implementação. Depois da primeira implantação, qualquer mudança de enum exige estratégia de expansão e migração compatível com os status persistidos. Nenhuma migration foi aplicada em banco. Antes de ambiente partilhado, provisionar owner/tenant com fluxo administrativo seguro, configurar PostgreSQL e SMTP, aplicar migration e exercitar os fluxos com contas de teste isoladas.
+Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 substitui o enum de status pela máquina BDR documentada; 0003 acrescenta a fila de tarefas. Essas migrations ainda não foram aplicadas; 0002 existe para manter compatibilidade com a definição 0001 durante a implementação. Depois da primeira implantação, qualquer mudança de enum exige estratégia de expansão e migração compatível com os status persistidos. Nenhuma migration foi aplicada em banco. Antes de ambiente partilhado, provisionar owner/tenant com fluxo administrativo seguro, configurar PostgreSQL e SMTP, aplicar migration e exercitar os fluxos com contas de teste isoladas.
 
 ## Referências de produto
 

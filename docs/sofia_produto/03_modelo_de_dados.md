@@ -63,6 +63,8 @@ Unicidade idempotente por `(organization_id,campaign_id,account_id,person_id)` c
 
 `stage_history`: opportunity, from/to stage, actor, reason, occurred_at, required-data snapshot. Fechado ganho exige `closed_at`; perdida exige motivo; oportunidade aberta exige próxima ação ou estado de espera com `next_action_at`.
 
+`tasks` (implementado na primeira entrega operacional): organização, lead, descrição, prazo, estado (`open`, `completed`, `cancelled`), usuário criador, data de conclusão e timestamps. FK composta `(lead_id, organization_id)` impede tarefas vinculadas a leads de outro tenant. `leads.next_action_at` é mantido como projeção do prazo aberto mais próximo; a fila consulta as tarefas como fonte de verdade.
+
 ### `activities`, `handoffs`, `appointments`
 
 `activities`: `id`, `organization_id`, `type`, `status`, `subject`, `description`, `owner_user_id`, `team_id`, `account_id`, `person_id`, `lead_id`, `opportunity_id`, `conversation_id`, `due_at`, `completed_at`, `result_key`, `evidence_message_id`, `external_ref`, timestamps.

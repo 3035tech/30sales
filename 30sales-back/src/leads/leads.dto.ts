@@ -20,3 +20,12 @@ export class LeadRepositoryFindDto {
 export class LeadRepositoryStatusChangeDto {
   constructor(readonly organizationId: string, readonly leadId: string, readonly status: UpdateLeadStatusDto['status'], readonly expectedStatus: (typeof LEAD_STATUSES)[number], readonly changedByUserId: string) {}
 }
+
+export const createTaskSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
+export type CreateTaskDto = z.infer<typeof createTaskSchema>;
+export const listTasksSchema = z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), status: z.enum(['open', 'completed', 'cancelled']).default('open'), limit: z.coerce.number().int().min(1).max(100).default(100) }).strict();
+export type ListTasksQueryDto = z.infer<typeof listTasksSchema>;
+export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string) {} }
+export class TaskRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListTasksQueryDto) {} }
+export class TaskRepositoryCreateDto { constructor(readonly organizationId: string, readonly leadId: string, readonly createdByUserId: string, readonly title: string, readonly dueAt: Date) {} }
+export class TaskRepositoryCompleteDto { constructor(readonly organizationId: string, readonly taskId: string, readonly completedAt: Date) {} }

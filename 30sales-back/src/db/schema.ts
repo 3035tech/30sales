@@ -4,6 +4,7 @@ import { organization as authOrganization, user as authUser } from './auth-schem
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
+export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
 
 export const accounts = pgTable('accounts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -53,4 +54,21 @@ export const leadStatusHistory = pgTable('lead_status_history', {
 }, (table) => [
   foreignKey({ name: 'lead_status_history_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
   index('lead_status_history_org_lead_idx').on(table.organizationId, table.leadId, table.changedAt),
+]);
+
+export const tasks = pgTable('tasks', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  leadId: uuid('lead_id').notNull(),
+  title: text('title').notNull(),
+  dueAt: timestamp('due_at', { withTimezone: true }).notNull(),
+  status: taskStatus('status').default('open').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'tasks_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  index('tasks_org_status_due_idx').on(table.organizationId, table.status, table.dueAt),
+  index('tasks_org_lead_status_idx').on(table.organizationId, table.leadId, table.status),
 ]);

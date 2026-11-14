@@ -17,6 +17,8 @@ const activitySchema = z.object({ id: z.string().uuid(), type: activityType, sub
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string() });
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string() });
+const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), occurredAt: z.string() });
+const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string() }), activeOrganizationId: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
@@ -34,6 +36,8 @@ export type ActivityType = z.infer<typeof activityType>;
 export type ActivityDto = z.infer<typeof activitySchema>;
 export type ConversationDto = z.infer<typeof conversationSchema>;
 export type MessageDto = z.infer<typeof messageSchema>;
+export type AuditEventDto = z.infer<typeof auditEventSchema>;
+export type AuditEventsPageDto = z.infer<typeof auditEventsPageSchema>;
 export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral' };
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type TeamMemberDto = z.infer<typeof memberSchema>;
@@ -88,6 +92,18 @@ export const api = {
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
+    },
+  },
+  audit: {
+    list: (params: { action?: string; entityType?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.action) search.set('action', params.action);
+      if (params.entityType) search.set('entityType', params.entityType);
+      if (params.from) search.set('from', params.from);
+      if (params.to) search.set('to', params.to);
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/audit-events?${search.toString()}`, auditEventsPageSchema);
     },
   },
 

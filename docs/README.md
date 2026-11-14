@@ -1,5 +1,9 @@
 # Documentação do 30Sales
 
+## Retomada de trabalho
+
+- [Contexto de continuidade da sessão](CONTEXTO_SESSAO_30SALES.md): objetivo, decisões persistentes, estado atual do código e próximo passo recomendado.
+
 ## Produto
 
 - [Especificação do produto](sofia_produto/README.md): visão, navegação, telas, campos, dados, estados, integrações, segurança, backlog e oportunidades de valor.

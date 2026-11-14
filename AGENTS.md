@@ -1,5 +1,7 @@
 # Padrões de engenharia do 30Sales
 
+> **Retomada do projeto:** antes de continuar uma sessão, leia [`docs/CONTEXTO_SESSAO_30SALES.md`](docs/CONTEXTO_SESSAO_30SALES.md) para o estado mais recente e o próximo passo registrado. Confira o Git; a memória não substitui o estado real do repositório.
+
 Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS multi-tenant desde o primeiro schema: uma organização/tenant representa a empresa cliente e pode ter muitos usuários; um usuário pode participar de mais de uma organização. Leia também `docs/sofia_produto/` para o domínio comercial.
 
 ## Arquitetura e tenant

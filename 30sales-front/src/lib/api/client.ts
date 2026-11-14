@@ -19,6 +19,9 @@ const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string() });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
 const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+const importPreviewCandidateSchema = z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string(), label: z.string(), matchedBy: z.array(z.enum(['external_id','account_name','email','phone'])) });
+const importPreviewRecordSchema = z.object({ recordType: z.string(), externalId: z.string(), targetType: z.enum(['account','person','lead','opportunity']), sourceStatus: z.string().nullable(), status: z.enum(['already_linked','type_conflict','possible_match','ambiguous','no_match']), linkedTarget: z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string() }).nullable(), candidates: z.array(importPreviewCandidateSchema) });
+const importsPreviewSchema = z.object({ provider: z.enum(['twenty','chatwoot','sofia_postgres']), records: z.array(importPreviewRecordSchema) });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string() }), activeOrganizationId: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
@@ -105,6 +108,9 @@ export const api = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/audit-events?${search.toString()}`, auditEventsPageSchema);
     },
+  },
+  imports: {
+    preview: (input: { provider: 'twenty' | 'chatwoot' | 'sofia_postgres'; records: Array<{ recordType: string; externalId: string; targetType: 'account' | 'person' | 'lead' | 'opportunity'; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/reconciliation-preview', importsPreviewSchema, { method: 'POST', body: JSON.stringify(input) }),
   },
 
   leads: {

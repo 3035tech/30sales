@@ -57,3 +57,4 @@ Durante o preview, mostrar status de origem e destino sugerido lado a lado. Valo
 - Limite do lote: 100 registros; IDs externos repetidos no lote são rejeitados. A busca não usa fuzzy matching, domínio, empresa alternativa nem regra histórica de deduplicação por telefone isoladamente.
 - `already_linked` informa vínculo existente do mesmo tipo; vínculo existente de outro tipo retorna `type_conflict`. Sem vínculo, candidatos podem resultar em `possible_match`, `ambiguous` ou `no_match`.
 - A saída é apenas apoio à revisão. Não há ação para aprovar candidato, gravar `external_records`, resolver conflito, importar histórico ou registrar progresso de job.
+- A tela **Importações** recebe CSV UTF-8 com os campos normalizados listados acima e encaminha a prévia pelo client central da aplicação. Ela não persiste o arquivo ou resultado. O CSV ainda precisa ser preparado manualmente; não é um adapter Twenty, Chatwoot ou Postgres Sofia.

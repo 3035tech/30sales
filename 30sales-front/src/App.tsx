@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -10,9 +10,10 @@ import { HandoffsWorkspace } from './features/HandoffsWorkspace'
 import { PipelineWorkspace } from './features/PipelineWorkspace'
 import { InboxWorkspace } from './features/InboxWorkspace'
 import { AuditWorkspace } from './features/AuditWorkspace'
+import { ImportsWorkspace } from './features/ImportsWorkspace'
 import './App.css'
 
-type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'audit' | 'team'
+type Page = 'home' | 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'audit' | 'imports' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -48,6 +49,7 @@ export default function App() {
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
       <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
       <button className={`nav ${page === 'audit' ? 'active' : ''}`} onClick={() => setPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</button>
+      <button className={`nav ${page === 'imports' ? 'active' : ''}`} onClick={() => setPage('imports')}><Database size={18} />{t('common.importsNav')}</button>
       <button className={`nav ${page === 'team' ? 'active' : ''}`} onClick={() => setPage('team')}><Users size={18} />{t('common.teamNav')}</button>
       <div className="rail-bottom">
         <span className="avatar">{current?.user.name.slice(0, 1) ?? 'S'}</span>
@@ -77,6 +79,7 @@ export default function App() {
             : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />
               : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
                 : page === 'audit' && current?.activeOrganizationId ? <AuditWorkspace />
+                  : page === 'imports' && current?.activeOrganizationId ? <ImportsWorkspace />
             : <HomeContent />}
       </div>
     </section>

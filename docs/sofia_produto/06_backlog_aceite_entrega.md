@@ -56,6 +56,8 @@
 
 **Relatório de primeira atividade entregue no código:** acrescenta média em minutos entre aceite e primeira atividade manual para handoffs aceitos no período, quantidade com atividade e quantidade ainda sem registro. O denominador é explicitado; não há limite de SLA presumido. Cálculo usa `occurred_at` da primeira call/meeting/email/message a partir de `accepted_at`.
 
+**Checklist de prontidão para closer entregue no frontend:** o SDR registra decisor/papel, volume, processo de cobrança e necessidade principal. Valores preenchidos são anexados aos fatos confirmados; campos vazios são incluídos como lacunas “não confirmado” no brief. O checklist não bloqueia o handoff; motivo, evidência, próxima ação e prazo continuam obrigatórios. Usa os arrays atuais, sem migration.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

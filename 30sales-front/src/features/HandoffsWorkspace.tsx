@@ -3,9 +3,12 @@ import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send, UserRoundCheck } fro
 import { useTranslation } from 'react-i18next'
 import { api, type HandoffDto, type LeadDto } from '../lib/api/client'
 import './HandoffsWorkspace.css'
+import './HandoffReadiness.css'
 
 type HandoffStatus = HandoffDto['status']
 const statuses: HandoffStatus[] = ['requested', 'accepted', 'returned']
+const readinessFields = ['decisionMaker', 'customerVolume', 'billingProcess', 'primaryNeed'] as const
+type ReadinessField = typeof readinessFields[number]
 function lines(value: string) { return value.split('\n').map((item) => item.trim()).filter(Boolean) }
 
 export function HandoffsWorkspace() {
@@ -21,6 +24,7 @@ export function HandoffsWorkspace() {
   const [evidence, setEvidence] = useState('')
   const [confirmedFacts, setConfirmedFacts] = useState('')
   const [unknowns, setUnknowns] = useState('')
+  const [readiness, setReadiness] = useState<Record<ReadinessField, string>>({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' })
   const [nextStep, setNextStep] = useState('')
   const [nextStepAt, setNextStepAt] = useState('')
   const [returningId, setReturningId] = useState('')
@@ -40,8 +44,10 @@ export function HandoffsWorkspace() {
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: lines(confirmedFacts), unknowns: lines(unknowns), nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
-      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setNextStep(''); setNextStepAt(''); setLeadId(''); await refresh()
+      const confirmedReadiness = readinessFields.filter((field) => readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${readiness[field].trim()}`)
+      const missingReadiness = readinessFields.filter((field) => !readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${t('handoffReadiness.notConfirmed')}`)
+      await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
+      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); await refresh()
     } catch { setError(t('errors.createHandoff')) }
     finally { setSaving(false) }
   }
@@ -78,6 +84,7 @@ export function HandoffsWorkspace() {
         <label>{t('handoffs.evidence')}<textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
         <label>{t('handoffs.confirmedFacts')}<textarea value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
         <label>{t('handoffs.unknowns')}<textarea value={unknowns} onChange={(event) => setUnknowns(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
+        <div className="handoff-readiness"><div><strong>{t('handoffReadiness.title')}</strong><small>{t('handoffReadiness.hint')}</small></div>{readinessFields.map((field) => <label key={field}>{t(`handoffReadiness.fields.${field}`)}<input value={readiness[field]} onChange={(event) => setReadiness((current) => ({ ...current, [field]: event.target.value }))} maxLength={500} placeholder={t('handoffReadiness.placeholder')} /></label>)}</div>
         <label>{t('handoffs.nextStep')}<input value={nextStep} onChange={(event) => setNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
         <label>{t('handoffs.nextStepAt')}<input type="datetime-local" value={nextStepAt} onChange={(event) => setNextStepAt(event.target.value)} required /></label>
         <button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</button>

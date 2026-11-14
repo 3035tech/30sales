@@ -44,18 +44,19 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - Conversa nova inicia com automação `paused`, owner vazio; runtime da Sofia ainda não foi ligado ao 30Sales.
 - Configuração e instruções de callback foram acrescentadas a `.env.example`, tela de canais e documentação. `META_APP_SECRET` e `META_WEBHOOK_VERIFY_TOKEN` são configurações do servidor.
 
+## Última fatia em andamento: status outbound do WhatsApp
+
+Meta Cloud API oficial documenta callbacks de estado no campo `value.statuses[]`, separado de `messages`; status pode chegar em eventos distintos (`sent`, `delivered`, `read`) e usa `statuses[].id` para correlação. Evolution documenta `MESSAGES_UPDATE`; os tipos atuais do projeto indicam estados `PENDING`, `SERVER_ACK`, `DELIVERY_ACK`, `READ`, `ERROR` etc. Fontes primárias consultadas: [Meta messages webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages) e [Evolution webhook configuration](https://github.com/evolution-foundation/evolution-docs/blob/main/docs/02-Configuration/Webhooks.md).
+
+Implementação feita nesta branch `feature/inbox-delivery-status` (ainda não integrada quando este contexto foi escrito): reconhecer ambos os eventos de status, mapear status para o enum existente (`sent`/`SERVER_ACK` → `accepted`; entrega → `delivered`; leitura → `read`; erro → `failed`), correlacionar por organização/provedor/canal/ID externo, deduplicar com ID determinístico e não regredir estado terminal/mais avançado. Nenhuma migration necessária. A UI já exibe `deliveryState` e já possui catálogos pt-BR/en para os estados.
+
+Limitação tratada: callback sem mensagem local é ignorado, então a corrida rara em que o callback antecede a gravação do ID externo exige futura reconciliação com worker/outbox. Sem migrations aplicadas, deploy ou teste/build nesta sessão.
+
 ## Próximo passo recomendado
 
-Continuar o Inbox implementando callbacks de estado de envio/entrega/leitura/falha:
+Concluir a feature branch atual revendo status/concorrência/deduplicação em leitura de código, atualizar estado da feature neste documento, integrar via `git flow feature finish inbox-delivery-status` e registrar commit resultante.
 
-1. Consultar documentação oficial atual de Meta Cloud API e Evolution antes de codificar payloads/eventos.
-2. Aceitar os callbacks dentro das rotas autenticadas existentes; Evolution deve passar a tratar também `MESSAGES_UPDATE` além de `MESSAGES_UPSERT`.
-3. Mapear status externo para `messages.deliveryState`, correlacionando pela ID externa do provider e canal/tenant; deduplicar callbacks repetidos e proteger transições contra regressão (por exemplo, `read` não voltar para `sent`).
-4. Tratar lote, evento incompleto, callback sem mensagem local, mensagem duplicada, falha de parsing e IDs desconhecidos sem cruzar tenant. Preservar assinatura/HMAC e segredo específico Evolution.
-5. Expor o estado de envio/entrega na timeline do Inbox e documentar estados, limites e pendências.
-6. Atualizar backlog, arquitetura técnica e este contexto. Usar Git Flow e integrar a feature em `develop` quando a implementação estiver completa.
-
-Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
+Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 
 ## Limites e forma de retomar
 

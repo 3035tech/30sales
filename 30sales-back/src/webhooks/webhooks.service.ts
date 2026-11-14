@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { env } from '../config/env';
-import { IncomingWhatsappMessageDto, type WebhookProvider } from './webhooks.dto';
+import { IncomingWhatsappMessageDto, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 
 type JsonRecord = Record<string, unknown>;
@@ -26,15 +26,17 @@ export class WebhooksService {
     const instance = this.string(event.instance);
     const eventName = this.string(event.event)?.toLowerCase().replaceAll('_', '.') ?? '';
     if (instance !== channel.providerChannelId) throw new UnauthorizedException();
-    if (eventName !== 'messages.upsert') return { accepted: true, processed: 0 };
-
     const data = Array.isArray(event.data) ? event.data : [event.data];
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     let processed = 0;
     for (const item of data) {
-      const message = this.normalizeEvolutionMessage(channel.id, channel.organizationId, item, payloadHash);
-      if (!message) continue;
-      if (await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
+      if (eventName === 'messages.upsert') {
+        const message = this.normalizeEvolutionMessage(channel.id, channel.organizationId, item, payloadHash);
+        if (message && await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
+      } else if (eventName === 'messages.update') {
+        const status = this.normalizeEvolutionStatus(channel.id, channel.organizationId, item, payloadHash);
+        if (status && await this.repository.recordMessageStatus(status) === 'updated') processed += 1;
+      }
     }
     return { accepted: true, processed };
   }
@@ -64,9 +66,68 @@ export class WebhooksService {
           if (!message) continue;
           if (await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
         }
+        const statuses = Array.isArray(value.statuses) ? value.statuses : [];
+        for (const statusValue of statuses) {
+          const status = this.normalizeCloudStatus(channel.id, channel.organizationId, statusValue, payloadHash);
+          if (status && await this.repository.recordMessageStatus(status) === 'updated') processed += 1;
+        }
       }
     }
     return { accepted: true, processed };
+  }
+
+  private normalizeEvolutionStatus(channelId: string, organizationId: string, value: unknown, payloadHash: string): WhatsappMessageStatusDto | null {
+    const data = this.record(value);
+    const key = this.record(data.key);
+    const externalMessageId = this.string(data.keyId) ?? this.string(key.id);
+    const update = this.record(data.update);
+    const rawStatus = update.status ?? data.status;
+    const deliveryState = this.mapEvolutionStatus(rawStatus);
+    if (!externalMessageId || externalMessageId.length > 250 || !deliveryState) return null;
+    const occurredAt = this.toDate(update.timestamp ?? data.messageTimestamp ?? data.timestamp);
+    const eventVersion = update.timestamp ?? data.messageTimestamp ?? data.timestamp;
+    const externalEventId = this.statusEventId(channelId, externalMessageId, deliveryState, eventVersion, payloadHash);
+    return new WhatsappMessageStatusDto(organizationId, channelId, 'evolution', externalMessageId, externalEventId, deliveryState, occurredAt, payloadHash);
+  }
+
+  private normalizeCloudStatus(channelId: string, organizationId: string, value: unknown, payloadHash: string): WhatsappMessageStatusDto | null {
+    const status = this.record(value);
+    const externalMessageId = this.string(status.id);
+    const deliveryState = this.mapCloudStatus(this.string(status.status));
+    if (!externalMessageId || externalMessageId.length > 250 || !deliveryState) return null;
+    const occurredAt = this.toDate(status.timestamp);
+    const externalEventId = this.statusEventId(channelId, externalMessageId, deliveryState, status.timestamp, payloadHash);
+    return new WhatsappMessageStatusDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, externalEventId, deliveryState, occurredAt, payloadHash);
+  }
+
+  private statusEventId(channelId: string, messageId: string, state: MessageDeliveryState, providerTimestamp: unknown, payloadHash: string): string {
+    const eventVersion = typeof providerTimestamp === 'string' || typeof providerTimestamp === 'number' ? String(providerTimestamp) : payloadHash;
+    return createHash('sha256').update(`${channelId}:${messageId}:${state}:${eventVersion}`).digest('hex');
+  }
+
+  private mapCloudStatus(status: string | null): MessageDeliveryState | null {
+    if (status === 'sent') return 'accepted';
+    if (status === 'delivered') return 'delivered';
+    if (status === 'read') return 'read';
+    if (status === 'failed') return 'failed';
+    return null;
+  }
+
+  private mapEvolutionStatus(status: unknown): MessageDeliveryState | null {
+    if (typeof status === 'number') {
+      if (status === 0) return 'failed';
+      if (status === 1 || status === 2) return 'accepted';
+      if (status === 3) return 'delivered';
+      if (status === 4 || status === 5) return 'read';
+      return null;
+    }
+    if (typeof status !== 'string') return null;
+    const normalized = status.toUpperCase();
+    if (normalized === 'ERROR' || normalized === 'FAILED') return 'failed';
+    if (normalized === 'PENDING' || normalized === 'SERVER_ACK' || normalized === 'SENT') return 'accepted';
+    if (normalized === 'DELIVERY_ACK' || normalized === 'DELIVERED') return 'delivered';
+    if (normalized === 'READ' || normalized === 'PLAYED') return 'read';
+    return null;
   }
 
   private assertCloudSignature(signature: string | undefined, rawBody: Buffer): void {

@@ -3,7 +3,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { conversations, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { IncomingWhatsappMessageDto } from './webhooks.dto';
+import { IncomingWhatsappMessageDto, WhatsappMessageStatusDto } from './webhooks.dto';
 
 @Injectable()
 export class WebhooksRepository {
@@ -54,5 +54,33 @@ export class WebhooksRepository {
         .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
       return message ? 'created' : 'duplicate';
     });
+  }
+
+  async recordMessageStatus(input: WhatsappMessageStatusDto): Promise<'updated' | 'duplicate' | 'unmatched' | 'unchanged'> {
+    return database.transaction(async (transaction) => {
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState })
+        .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.externalMessageId), eq(messages.direction, 'outbound'), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId)))
+        .for('update').limit(1);
+      if (!message) return 'unmatched';
+
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalEventId, eventType: 'messages.status', payloadHash: input.payloadHash, payloadRedacted: { messageId: message.id, deliveryState: input.deliveryState }, status: 'processed', attempts: '1', processedAt: new Date() })
+        .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+
+      const current = message.deliveryState;
+      const next = this.nextDeliveryState(current, input.deliveryState);
+      if (!next) return 'unchanged';
+      await transaction.update(messages).set({ deliveryState: next })
+        .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      return 'updated';
+    });
+  }
+
+  private nextDeliveryState(current: string, incoming: 'accepted' | 'delivered' | 'read' | 'failed'): 'accepted' | 'delivered' | 'read' | 'failed' | null {
+    if (current === incoming || current === 'read' || current === 'failed') return null;
+    if (incoming === 'failed') return current === 'requested' || current === 'accepted' || current === 'unknown' ? 'failed' : null;
+    const rank: Record<string, number> = { requested: 0, unknown: 0, accepted: 1, delivered: 2, read: 3 };
+    return (rank[incoming] ?? -1) > (rank[current] ?? -1) ? incoming : null;
   }
 }

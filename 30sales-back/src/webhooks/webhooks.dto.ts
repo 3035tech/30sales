@@ -27,3 +27,18 @@ export class IncomingWhatsappMessageDto {
   ) {}
 }
 
+export type MessageDeliveryState = 'accepted' | 'delivered' | 'read' | 'failed';
+
+export class WhatsappMessageStatusDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly provider: WebhookProvider,
+    readonly externalMessageId: string,
+    readonly externalEventId: string,
+    readonly deliveryState: MessageDeliveryState,
+    readonly occurredAt: Date,
+    readonly payloadHash: string,
+  ) {}
+}
+

@@ -23,6 +23,8 @@ export class FunnelReportDto {
     readonly firstActivityCount: number,
     readonly pendingFirstActivityCount: number,
     readonly averageMinutesToFirstActivity: number | null,
+    readonly leadCountsByStatus: Array<{ status: string; count: number }>,
+    readonly leadsCreatedInPeriodCount: number,
     readonly generatedAt: string,
   ) {}
 }

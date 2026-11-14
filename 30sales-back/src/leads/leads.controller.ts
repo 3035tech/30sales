@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignLeadSchema, createLeadSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
-import type { AssignLeadDto, CreateLeadDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
+import { assignLeadSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -22,6 +22,10 @@ export class LeadsController {
   @Get('assignees')
   assignees(@ApiRequest() request: ApiRequestDto) {
     return this.leadsService.listAssignees(request);
+  }
+  @Post('duplicate-check')
+  checkDuplicates(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(leadDuplicateCheckSchema)) dto: LeadDuplicateCheckDto) {
+    return this.leadsService.findPossibleDuplicates(request, dto);
   }
   @Post()
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createLeadSchema)) dto: CreateLeadDto) {

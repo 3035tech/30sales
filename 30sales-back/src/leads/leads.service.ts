@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { LEAD_TRANSITIONS } from './constants';
-import { AssignLeadDto, CompleteTaskDto, CreateLeadDto, LeadAssigneeDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
+import { AssignLeadDto, CompleteTaskDto, CreateLeadDto, LeadAssigneeDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
 import { LeadsRepository } from './leads.repository';
 import { TenantAccessService } from './tenant-access.service';
 
@@ -38,9 +38,15 @@ export class LeadsService {
     const context = await this.tenantAccess.require(request, 'read');
     return this.repository.list(new LeadRepositoryListDto(context.organizationId, query));
   }
+  async findPossibleDuplicates(request: ApiRequestDto, dto: LeadDuplicateCheckDto): Promise<LeadDuplicateCheckResponseDto> {
+    const context = await this.tenantAccess.require(request, 'create');
+    return this.repository.findPossibleDuplicates(new LeadRepositoryDuplicateCheckDto(context.organizationId, dto));
+  }
   async create(request: ApiRequestDto, dto: CreateLeadDto): Promise<LeadRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');
-    return this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName, dto.email || null, dto.phone?.trim() || null, dto.source, request.correlationId));
+    const result = await this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName, dto.email || null, dto.phone?.trim() || null, dto.source, dto.duplicateOverrideReason ?? null, request.correlationId));
+    if (result instanceof LeadDuplicateCheckResponseDto) throw new ConflictException({ code: 'LEAD_POSSIBLE_DUPLICATES', message: 'Review the possible matching leads before creating this record.', candidates: result.candidates });
+    return result;
   }
   async updateStatus(request: ApiRequestDto, leadId: string, dto: UpdateLeadStatusDto): Promise<LeadRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');

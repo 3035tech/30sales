@@ -6,6 +6,8 @@ import { access, roles, type OrganizationRole } from '../permissions';
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
 const leadStatus = z.enum(['new','researching','ready','queued','contacting','responded','converted_to_sdr','invalid_contact','no_channel','out_of_profile','duplicate_review','no_response','paused','do_not_contact']);
 const leadSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string(), assignedToUserId: z.string().uuid().nullable(), assignedToName: z.string().nullable() });
+const leadDuplicateCandidateSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), status: leadStatus, source: z.string(), matchedBy: z.array(z.enum(['account_name', 'email', 'phone'])) });
+const leadDuplicateCheckSchema = z.object({ candidates: z.array(leadDuplicateCandidateSchema) });
 const leadAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string(), role: z.string() });
 const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
@@ -48,7 +50,8 @@ export type ConversationDto = z.infer<typeof conversationSchema>;
 export type MessageDto = z.infer<typeof messageSchema>;
 export type AuditEventDto = z.infer<typeof auditEventSchema>;
 export type AuditEventsPageDto = z.infer<typeof auditEventsPageSchema>;
-export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral' };
+export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral'; duplicateOverrideReason?: string };
+export type LeadDuplicateCandidateDto = z.infer<typeof leadDuplicateCandidateSchema>;
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type TeamMemberDto = z.infer<typeof memberSchema>;
 export type InvitationDto = z.infer<typeof invitationSchema>;
@@ -123,6 +126,7 @@ export const api = {
 
   leads: {
     listPage: listLeadPage,
+    checkDuplicates: (input: Pick<CreateLeadInput, 'accountName' | 'email' | 'phone'>) => request('/api/v1/leads/duplicate-check', leadDuplicateCheckSchema, { method: 'POST', body: JSON.stringify({ accountName: input.accountName, email: input.email, phone: input.phone }) }),
     assignees: () => request('/api/v1/leads/assignees', z.array(leadAssigneeSchema)),
     assign: (id: string, assignedToUserId: string | null) => request(`/api/v1/leads/${encodeURIComponent(id)}/assignee`, leadSchema, { method: 'PATCH', body: JSON.stringify({ assignedToUserId }) }),
     list: (params: { status?: LeadStatus; assignedToUserId?: string; limit?: number; offset?: number } = {}) => {

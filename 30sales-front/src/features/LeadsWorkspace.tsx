@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Search, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
-import { api, parseLeadStatus, type CreateLeadInput, type LeadAssigneeDto, type LeadDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
+import { api, ApiError, parseLeadStatus, type CreateLeadInput, type LeadAssigneeDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './LeadsWorkspace.css'
+import './LeadDuplicateReview.css'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 const sourceOrder: NonNullable<CreateLeadInput['source']>[] = ['manual', 'import', 'whatsapp', 'referral']
@@ -34,6 +35,9 @@ export function LeadsWorkspace() {
   const [statusReason, setStatusReason] = useState('')
   const [statusSaving, setStatusSaving] = useState(false)
   const [form, setForm] = useState<CreateLeadInput>({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
+  const [duplicateCandidates, setDuplicateCandidates] = useState<LeadDuplicateCandidateDto[] | null>(null)
+  const [duplicateOverrideReason, setDuplicateOverrideReason] = useState('')
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false)
 
   useEffect(() => {
     const timeout = window.setTimeout(() => { setSearch(query); setOffset(0) }, 250)
@@ -53,18 +57,42 @@ export function LeadsWorkspace() {
 
   useEffect(() => { api.leads.assignees().then(setAssignees).catch(() => setAssignees(null)) }, [])
 
-  const createLead = async (event: React.FormEvent) => {
-    event.preventDefault()
+  const updateLeadForm = (update: Partial<CreateLeadInput>) => {
+    setForm((current) => ({ ...current, ...update }))
+    setDuplicateCandidates(null)
+    setDuplicateOverrideReason('')
+  }
+
+  const saveLead = async (overrideReason?: string) => {
     setSaving(true)
     setError('')
     try {
-      await api.leads.create(form)
+      await api.leads.create({ ...form, duplicateOverrideReason: overrideReason })
       setForm({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
+      setDuplicateCandidates(null)
+      setDuplicateOverrideReason('')
       setShowForm(false)
       setOffset(0)
       setRefreshVersion((version) => version + 1)
-    } catch { setError(t('errors.saveLead')) }
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'LEAD_POSSIBLE_DUPLICATES') {
+        try { const result = await api.leads.checkDuplicates(form); if (result.candidates.length) { setDuplicateCandidates(result.candidates); setError('') } else setError(t('errors.saveLead')) }
+        catch { setError(t('leadDuplicateReview.checkFailed')) }
+      } else setError(t('errors.saveLead'))
+    }
     finally { setSaving(false) }
+  }
+
+  const createLead = async (event: React.FormEvent) => {
+    event.preventDefault()
+    setCheckingDuplicates(true)
+    setError('')
+    try {
+      const result = await api.leads.checkDuplicates(form)
+      if (result.candidates.length) { setDuplicateCandidates(result.candidates); setDuplicateOverrideReason(''); return }
+      await saveLead()
+    } catch { setError(t('leadDuplicateReview.checkFailed')) }
+    finally { setCheckingDuplicates(false) }
   }
 
   const updateStatus = async (leadId: string, status: LeadStatus, reason: string) => {
@@ -110,12 +138,14 @@ export function LeadsWorkspace() {
     {showForm && <form className="lead-form" onSubmit={createLead}>
       <div className="lead-form-title"><Users size={18} /><div><strong>{t('leads.newLead')}</strong><small>{t('leads.newLeadHint')}</small></div></div>
       <div className="lead-fields">
-        <label>{t('leads.company')}<input value={form.accountName} onChange={(event) => setForm({ ...form, accountName: event.target.value })} minLength={2} maxLength={160} required /></label>
-        <label>{t('leads.contactName')}<input value={form.contactName} onChange={(event) => setForm({ ...form, contactName: event.target.value })} minLength={2} maxLength={160} required /></label>
-        <label>{t('common.email')}<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-        <label>{t('common.phone')}<input type="tel" value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} /></label>
+        <label>{t('leads.company')}<input value={form.accountName} onChange={(event) => updateLeadForm({ accountName: event.target.value })} minLength={2} maxLength={160} required /></label>
+        <label>{t('leads.contactName')}<input value={form.contactName} onChange={(event) => updateLeadForm({ contactName: event.target.value })} minLength={2} maxLength={160} required /></label>
+        <label>{t('common.email')}<input type="email" value={form.email} onChange={(event) => updateLeadForm({ email: event.target.value })} required={!form.phone} /></label>
+        <label>{t('common.phone')}<input type="tel" value={form.phone} onChange={(event) => updateLeadForm({ phone: event.target.value })} required={!form.email} /></label>
       </div>
-      <p className="form-hint">{t('leads.contactChannelHint')}</p><button className="primary" disabled={saving}>{saving ? t('common.saving') : t('leads.saveLead')}</button>
+      <p className="form-hint">{t('leads.contactChannelHint')}</p>
+      {duplicateCandidates && <section className="lead-duplicate-review" aria-live="polite"><div><strong>{t('leadDuplicateReview.title')}</strong><p>{t('leadDuplicateReview.hint')}</p></div><ul>{duplicateCandidates.map((candidate) => <li key={candidate.id}><span><strong>{candidate.accountName} · {candidate.contactName}</strong><small>{t(`leadStatuses.${candidate.status}`)} · {candidate.matchedBy.map((match) => t(`leadDuplicateReview.matchedBy.${match}`)).join(', ')}</small></span></li>)}</ul><label>{t('leadDuplicateReview.overrideReason')}<textarea value={duplicateOverrideReason} onChange={(event) => setDuplicateOverrideReason(event.target.value)} minLength={3} maxLength={500} required /></label><div className="lead-duplicate-actions"><button type="button" className="status-change-cancel" disabled={saving} onClick={() => { setDuplicateCandidates(null); setDuplicateOverrideReason('') }}>{t('leadDuplicateReview.edit')}</button><button type="button" className="primary" disabled={saving || duplicateOverrideReason.trim().length < 3} onClick={() => void saveLead(duplicateOverrideReason.trim())}>{saving ? t('common.saving') : t('leadDuplicateReview.createAnyway')}</button></div></section>}
+      {!duplicateCandidates && <button className="primary" disabled={saving || checkingDuplicates}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</button>}
     </form>}
     {error && <p className="error lead-error" role="alert">{error}</p>}
     {statusUpdate && <div className="status-change-backdrop"><form className="status-change-dialog" role="dialog" aria-modal="true" aria-labelledby="status-change-title" onSubmit={(event) => { event.preventDefault(); void updateStatus(statusUpdate.lead.id, statusUpdate.status, statusReason.trim()) }}>

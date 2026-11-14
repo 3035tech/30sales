@@ -58,6 +58,8 @@
 
 **Checklist de prontidão para closer entregue no frontend:** o SDR registra decisor/papel, volume, processo de cobrança e necessidade principal. Valores preenchidos são anexados aos fatos confirmados; campos vazios são incluídos como lacunas “não confirmado” no brief. O checklist não bloqueia o handoff; motivo, evidência, próxima ação e prazo continuam obrigatórios. Usa os arrays atuais, sem migration.
 
+**Prévia de duplicidades de lead entregue no código:** antes da criação, consulta possíveis registros do tenant por nome de empresa normalizado, e-mail e telefone. A API revalida no momento da escrita, sem expor os canais dos candidatos; criação duplicada exige justificativa e grava a lista de candidatos na auditoria. Não mescla registros. Busca limitada aos 10 candidatos mais recentes; não usa domínio fuzzy.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

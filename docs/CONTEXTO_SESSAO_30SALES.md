@@ -24,7 +24,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 ## Estado registrado nesta retomada
 
 - Branch atual: `feature/context-sync`; sinais de atendimento humano e perguntas para o closer foram integrados em develop.
-- Último commit em `develop`: `5739e02 feat(closer): classify conversation signals`.
+- Último commit em `develop`: `b38ef0d docs: sync 30sales session context`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);
@@ -35,7 +35,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - fila de não lidas individual por usuário com cursor por conversa integrada em `develop` (`08468fe`); migration 0019 criada, ainda sem aplicação.
 - evento idempotente para resposta do lead após handoff aceito integrado em `develop` (`a5caeb9`); atribui ao closer dono, permite reconhecimento e abre a conversa exata no Inbox.
 - ações do evento (reconhecer, adiar por uma hora, redistribuir para closer ativo e concluir) integradas em `develop` (`ad89b03`); migration `0021_silent_brood.sql` criada e ainda sem aplicação.
-- Branch feature/closer-conversation-signals: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration. Build/testes não executados por orientação.
+- 5739e02: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration. Build/testes não executados por orientação.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0021_silent_brood.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.

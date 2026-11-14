@@ -23,4 +23,4 @@ export class ActivityRecordDto {
   ) {}
 }
 export class ActivityRepositoryListDto { constructor(readonly organizationId: string, readonly opportunityId: string) {} }
-export class ActivityRepositoryCreateDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: CreateActivityDto) {} }
+export class ActivityRepositoryCreateDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: CreateActivityDto, readonly correlationId: string | null = null) {} }

@@ -38,7 +38,7 @@ export class HandoffRecordDto {
     readonly requestedAt: string,
   ) {}
 }
-export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateHandoffDto) {} }
+export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateHandoffDto, readonly correlationId: string | null = null) {} }
 export class HandoffRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListHandoffsQueryDto) {} }
-export class HandoffRepositoryAcceptDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string) {} }
-export class HandoffRepositoryReturnDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly input: ReturnHandoffDto) {} }
+export class HandoffRepositoryAcceptDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
+export class HandoffRepositoryReturnDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly input: ReturnHandoffDto, readonly correlationId: string | null = null) {} }

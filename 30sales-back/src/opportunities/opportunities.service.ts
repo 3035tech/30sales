@@ -21,7 +21,7 @@ export class OpportunitiesService {
     if (!MANAGER_ROLES.includes(context.role) && context.role !== 'closer') throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only closers and sales managers can update opportunity stages.' });
     const sameOpenStage = dto.stage === dto.expectedStage && dto.stage !== 'won' && dto.stage !== 'lost';
     if (!sameOpenStage && !OPPORTUNITY_TRANSITIONS[dto.expectedStage].includes(dto.stage)) throw new ConflictException({ code: 'INVALID_OPPORTUNITY_TRANSITION', message: 'This opportunity cannot move to the selected stage.' });
-    const result = await this.repository.transition(new OpportunityRepositoryTransitionDto(context.organizationId, opportunityId, context.userId, MANAGER_ROLES.includes(context.role), dto));
+    const result = await this.repository.transition(new OpportunityRepositoryTransitionDto(context.organizationId, opportunityId, context.userId, MANAGER_ROLES.includes(context.role), dto, request.correlationId));
     if (!result) throw new ConflictException({ code: 'OPPORTUNITY_CHANGED', message: 'The opportunity changed or is not assigned to you. Refresh the pipeline and retry.' });
     return result;
   }
@@ -37,7 +37,7 @@ export class OpportunitiesService {
     const context = await this.tenantAccess.require(request, 'create', 'activities');
     const canManageAll = MANAGER_ROLES.includes(context.role);
     if (!canManageAll && context.role !== 'closer') throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only the opportunity owner and sales managers can add opportunity activities.' });
-    const activity = await this.activitiesRepository.create(new ActivityRepositoryCreateDto(context.organizationId, opportunityId, context.userId, canManageAll, dto));
+    const activity = await this.activitiesRepository.create(new ActivityRepositoryCreateDto(context.organizationId, opportunityId, context.userId, canManageAll, dto, request.correlationId));
     if (!activity) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found or is not assigned to you in the active organization.' });
     return activity;
   }

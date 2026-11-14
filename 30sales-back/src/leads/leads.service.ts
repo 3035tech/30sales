@@ -14,13 +14,13 @@ export class LeadsService {
   }
   async createTask(request: ApiRequestDto, leadId: string, dto: CreateTaskDto): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');
-    const task = await this.repository.createTask(new TaskRepositoryCreateDto(context.organizationId, leadId, context.userId, dto.title, new Date(dto.dueAt)));
+    const task = await this.repository.createTask(new TaskRepositoryCreateDto(context.organizationId, leadId, context.userId, dto.title, new Date(dto.dueAt), request.correlationId));
     if (!task) throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Lead was not found in the active organization.' });
     return task;
   }
   async completeTask(request: ApiRequestDto, taskId: string): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');
-    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, new Date()));
+    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, new Date(), request.correlationId));
     if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Open task was not found in the active organization.' });
     return task;
   }
@@ -34,7 +34,7 @@ export class LeadsService {
   }
   async create(request: ApiRequestDto, dto: CreateLeadDto): Promise<LeadRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');
-    return this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName, dto.email || null, dto.phone?.trim() || null, dto.source));
+    return this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName, dto.email || null, dto.phone?.trim() || null, dto.source, request.correlationId));
   }
   async updateStatus(request: ApiRequestDto, leadId: string, dto: UpdateLeadStatusDto): Promise<LeadRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');
@@ -42,7 +42,7 @@ export class LeadsService {
     if (!current) throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Lead was not found in the active organization.' });
     const currentStatus = current.status;
     if (!LEAD_TRANSITIONS[currentStatus].includes(dto.status)) throw new ConflictException({ code: 'INVALID_LEAD_TRANSITION', message: 'This lead cannot transition to the selected status.' });
-    const updated = await this.repository.updateStatus(new LeadRepositoryStatusChangeDto(context.organizationId, leadId, dto.status, currentStatus, context.userId));
+    const updated = await this.repository.updateStatus(new LeadRepositoryStatusChangeDto(context.organizationId, leadId, dto.status, currentStatus, context.userId, request.correlationId));
     if (!updated) throw new ConflictException({ code: 'LEAD_CHANGED', message: 'The lead changed in another operation. Refresh the queue and retry.' });
     return updated;
   }

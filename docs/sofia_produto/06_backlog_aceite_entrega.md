@@ -34,6 +34,8 @@
 
 ## 6.2 User stories e aceites essenciais
 
+**Entregue no código (ainda sem migration aplicada):** CRUD inicial de leads e status, fila de tarefas com próxima ação, handoff com brief de fatos/lacunas/evidência, aceite pelo closer e devolução com motivo e tarefa SDR. Limites conhecidos: sem inbox/conversas, checklist completo da qualificação, várias oportunidades por lead, pipeline configurável, valores, agenda ou confirmação de reunião.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

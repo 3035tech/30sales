@@ -102,3 +102,8 @@ Eventos são append-only; consumidores usam outbox/inbox e idempotência. Payloa
 Notificações in-app são canônicas; e-mail/WhatsApp interno são entregas. Preferências não podem silenciar alertas críticos de falha ou handoff vencido para todos os responsáveis. Deduplicar alerta por incidente/versão e registrar sucesso de cada canal.
 
 Exemplos de regra: novo handoff sem aceite dentro do SLA → avisar owner e gestor; webhook parado → operação; canal desconectado → pausar e alertar; oportunidade sem próxima ação → fila do owner, não mensagem ao cliente.
+
+
+## Estados implementados na fila BDR inicial
+
+A primeira migration usa a máquina de estados desta especificação: `new → researching → ready → queued → contacting → responded → converted_to_sdr`. Saídas controladas: `invalid_contact`, `no_channel`, `out_of_profile`, `duplicate_review`, `no_response`, `paused` e `do_not_contact`. O service restringe as transições; cada mudança grava ator, timestamp e estado anterior/novo em `lead_status_history`. A ação `converted_to_sdr` registra somente a transição do lead; o aceite do closer e o handoff operacional continuam sendo um fluxo posterior.

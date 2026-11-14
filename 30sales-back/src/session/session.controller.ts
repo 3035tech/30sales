@@ -1,4 +1,12 @@
-import { Controller, Get, Headers as RequestHeaders, UnauthorizedException } from '@nestjs/common';
-import { auth } from '../auth/auth';
+import { Controller, Get } from '@nestjs/common';
+import { ApiRequest } from '../common/api-request.decorator';
+import { ApiRequestDto } from '../common/api-request.dto';
+import { SessionService } from './session.service';
 @Controller('api/v1')
-export class SessionController { @Get('session') async getSession(@RequestHeaders() headers: Record<string,string|string[]|undefined>) { const requestHeaders = new Headers(Object.entries(headers).flatMap(([key,value]) => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(', ') : value]])); const session = await auth.api.getSession({ headers: requestHeaders }); if (!session) throw new UnauthorizedException(); const organizations = await auth.api.listOrganizations({ headers: requestHeaders }); return { user: session.user, activeOrganizationId: session.session.activeOrganizationId ?? null, organizations }; } }
+export class SessionController {
+  constructor(private readonly sessionService: SessionService) {}
+  @Get('session')
+  getCurrent(@ApiRequest() request: ApiRequestDto) {
+    return this.sessionService.getCurrent(request);
+  }
+}

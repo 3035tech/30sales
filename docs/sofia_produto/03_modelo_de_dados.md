@@ -113,3 +113,15 @@ Política de retenção por classe: mensagens e contatos conforme política lega
 ## 3.4 Migração do schema atual
 
 Mapeamento base: `sofia_leads` → leads + conversas/contatos associados; `sofia_mensagens` → messages; `sofia_followups` → activities/jobs; `sofia_indicacoes` → referral records/leads relacionados; `sofia_config` → configurações versionadas e playbooks; `monitor_humano_alertas` → alert/job history; CRM outbox atual → outbox_events. Fazer por etapas, com external IDs preservados e reconciliação; não executar migrações históricas indiscriminadamente.
+
+
+## Fatia implementada: contas, pessoas e leads
+
+A primeira entrega concreta usa as tabelas `public.accounts`, `public.people`, `public.leads` e `public.lead_status_history`, sempre com `organization_id NOT NULL`. A migration `30sales-back/drizzle/0001_glorious_oracle.sql` é aditiva e ainda não foi aplicada.
+
+- `accounts`: id, organization_id, name e timestamps.
+- `people`: id, organization_id, name, email, phone e timestamps.
+- `leads`: id, organization_id, account_id, person_id, created_by_user_id, source, status, next_action_at e timestamps.
+- `lead_status_history`: organization_id, lead_id, status anterior/novo, autor e data da mudança.
+
+As FKs compostas `(account_id, organization_id)` e `(person_id, organization_id)` bloqueiam relações entre tenants. A criação de conta, pessoa, lead e status inicial ocorre numa transação. Status inicial: `new`; transições válidas seguem a máquina de estado BDR em `04_estados_regras_automacoes.md` e são validadas no service e registradas atomicamente no histórico. Enum atual contém `new`, `researching`, `ready`, `queued`, `contacting`, `responded`, `converted_to_sdr` e as saídas controladas `invalid_contact`, `no_channel`, `out_of_profile`, `duplicate_review`, `no_response`, `paused`, `do_not_contact`.

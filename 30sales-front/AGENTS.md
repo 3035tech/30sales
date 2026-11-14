@@ -37,3 +37,7 @@ Apply root [`../AGENTS.md`](../AGENTS.md) first. This app is a Vite + React + Ty
 ## API centralizada
 
 Todas as requisições ao backend, inclusive chamadas Better Auth, devem partir de `src/lib/api/client.ts`. Features/components importam métodos e DTOs deste client; nunca chamam `fetch`, `axios` ou `authClient` diretamente. O client é dono de cookies/credentials, correlation ID, schemas/parse de resposta, normalização de erros e métodos de cada domínio.
+
+## English code and localization
+
+Use English for identifiers, file names, comments, DTOs, enums, internal errors, and technical documentation in source code. User-facing labels, help, and errors are translated through i18next catalogs for `pt-BR` and `en`; never hardcode interface copy in components.

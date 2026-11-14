@@ -9,14 +9,16 @@
 
 ## Implementação atual
 
-O produto começou como SaaS multi-tenant. Frontend Vite/React e backend NestJS estão separados. Login e identidade usam Better Auth + PostgreSQL/Drizzle; organizações têm papéis tipados, convites exigem verificação de e-mail e envio configurável por SMTP. O frontend contém o shell, aceite de convite, gestão básica da equipe e assets oficiais da marca.
+- [Arquitetura e fluxo de dados](arquitetura_tecnica.md): Git Flow, API client, DTOs, camadas Nest, isolamento de tenant, endpoints e migrations.
+
+O produto começou como SaaS multi-tenant. Frontend Vite/React e backend NestJS estão separados. Login e identidade usam Better Auth + PostgreSQL/Drizzle; organizações têm papéis tipados, convites exigem verificação de e-mail e envio configurável por SMTP. O frontend contém shell, aceite de convite, gestão básica da equipe, fila de leads e assets oficiais da marca. Todas as chamadas passam por um client central.
 
 ### Limites desta etapa
 
 - O banco local/Dublin ainda não foi conectado e nenhuma migration foi aplicada.
 - Host, usuário e senha SMTP ainda precisam ser definidos em ambiente seguro.
 - É necessário provisionar com segurança o primeiro owner/tenant antes do uso por clientes.
-- As operações comerciais e APIs de leads ainda serão criadas com escopo de tenant obrigatório.
+- A primeira API de leads já está criada com escopo obrigatório de tenant. Outros domínios comerciais ainda serão implementados.
 - Não houve deploy.
 
 ## Ambiente de desenvolvimento

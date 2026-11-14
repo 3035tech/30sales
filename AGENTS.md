@@ -16,6 +16,7 @@ Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS
 
 ## Padrões de código
 
+- Código-fonte técnico em inglês: nomes de variáveis, funções, classes, DTOs, enums, arquivos, comentários e mensagens técnicas. Texto visível ao usuário fica em catálogos i18n separados (`pt-BR`, `en`), nunca hardcoded em componentes/serviços.
 - TypeScript strict; tipos de domínio explícitos; sem `any`, casts não verificados ou JSON solto para estados de negócio. Constantes/enums centralizados para estados, permissões, canais, limites e erros.
 - Módulos coesos por domínio. Separar controller/transport, application/domain service, repository e adapter externo quando houver responsabilidade real; evitar abstração sem necessidade concreta.
 - Controllers Nest contêm somente a assinatura/metadata dos endpoints e delegam ao service. Não conter regra comercial, autorização, transformação de domínio ou query.

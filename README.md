@@ -14,7 +14,7 @@ Toda operação de produto acontece no contexto de um tenant resolvido pelo back
 
 ## Instruções para agentes e engenharia
 
-Leia [`AGENTS.md`](AGENTS.md) antes de alterar o produto. Os diretórios `30sales-front` e `30sales-back` têm instruções complementares próprias. Os padrões foram adaptados do projeto 30studio para a arquitetura Vite + React + NestJS.
+Leia [`AGENTS.md`](AGENTS.md) antes de alterar o produto. O repositório segue Git Flow: `main`, `develop` e branches `feature/*`, `release/*` e `hotfix/*`. Consulte [`docs/arquitetura_tecnica.md`](docs/arquitetura_tecnica.md). Os diretórios `30sales-front` e `30sales-back` têm instruções complementares próprias. Os padrões foram adaptados do projeto 30studio para a arquitetura Vite + React + NestJS.
 
 ## Situação
 

@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health/health.controller';
-import { SessionController } from './session/session.controller';
-@Module({ controllers: [SessionController, HealthController] }) export class AppModule {}
+import { LeadsModule } from './leads/leads.module';
+import { SessionModule } from './session/session.module';
+@Module({ imports: [LeadsModule, SessionModule], controllers: [HealthController] })
+export class AppModule {}

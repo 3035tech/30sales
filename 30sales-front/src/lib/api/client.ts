@@ -133,7 +133,7 @@ export const api = {
     list: () => request('/api/v1/channels', z.array(channelSchema)),
     create: (input: CreateChannelInput) => request('/api/v1/channels', channelSchema, { method: 'POST', body: JSON.stringify(input) }),
     update: (id: string, input: { displayName?: string; isActive?: boolean }) => request(`/api/v1/channels/${encodeURIComponent(id)}`, channelSchema, { method: 'PATCH', body: JSON.stringify(input) }),
-    setCredentials: (id: string, input: { provider: 'evolution'; baseUrl: string; apiKey: string } | { provider: 'whatsapp_cloud_api'; accessToken: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
+    setCredentials: (id: string, input: { provider: 'evolution'; baseUrl: string; apiKey: string; webhookSecret: string } | { provider: 'whatsapp_cloud_api'; accessToken: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
   },
   audit: {
     list: (params: { action?: string; entityType?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) => {

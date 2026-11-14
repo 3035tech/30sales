@@ -10,5 +10,6 @@ import { ImportsModule } from './imports/imports.module';
 import { ReportsModule } from './reports/reports.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { ChannelsModule } from './channels/channels.module';
-@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule], controllers: [HealthController] })
+import { WebhooksModule } from './webhooks/webhooks.module';
+@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule], controllers: [HealthController] })
 export class AppModule {}

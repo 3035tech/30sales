@@ -13,7 +13,7 @@ export const createChannelSchema = z.object({
 export type CreateChannelDto = z.infer<typeof createChannelSchema>;
 export const updateChannelSchema = z.object({ displayName: z.string().trim().min(2).max(120).optional(), isActive: z.boolean().optional() }).strict().refine((input) => input.displayName !== undefined || input.isActive !== undefined);
 export type UpdateChannelDto = z.infer<typeof updateChannelSchema>;
-const evolutionCredentialsSchema = z.object({ provider: z.literal('evolution'), baseUrl: z.string().url(), apiKey: z.string().min(1).max(500) }).strict();
+const evolutionCredentialsSchema = z.object({ provider: z.literal('evolution'), baseUrl: z.string().url(), apiKey: z.string().min(1).max(500), webhookSecret: z.string().min(32).max(500) }).strict();
 const cloudApiCredentialsSchema = z.object({ provider: z.literal('whatsapp_cloud_api'), accessToken: z.string().min(1).max(4000) }).strict();
 export const channelCredentialsSchema = z.discriminatedUnion('provider', [evolutionCredentialsSchema, cloudApiCredentialsSchema]).superRefine((input, context) => {
   if (input.provider !== 'evolution') return;

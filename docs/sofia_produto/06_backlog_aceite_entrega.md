@@ -35,7 +35,7 @@
 
 ### P3 — Automação e ingestão em escala
 
-- Ingestão de webhooks inbound e callbacks de status para Evolution e Cloud API, deduplicação, saúde do canal e reconciliação de mensagens.
+- **Recepção inbound — primeira fatia entregue no código:** Evolution `MESSAGES_UPSERT` e WhatsApp Cloud API passam por autenticação do provedor, deduplicação e gravação tenant-scoped de evento, conversa, contato e mensagem. Nova conversa começa pausada até haver owner/runtime integrado. Callbacks de status, health check, anexos, retry via worker e reconciliação continuam pendentes.
 - Migração da Sofia A/G, B/F/D/H e C em ondas, um fluxo por função.
 - Agenda integrada e confirmação de reunião.
 - Runtime da Sofia consultando o modo da conversa; workers/outbox com retry limitado e dead-letter, após reconciliação dos envios síncronos atuais.

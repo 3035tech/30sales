@@ -10,6 +10,7 @@ const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', 
 
 export function ChannelsWorkspace() {
   const { t } = useTranslation()
+  const apiBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '')
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [form, setForm] = useState<CreateChannelInput>(emptyForm)
   const [query, setQuery] = useState('')
@@ -23,6 +24,7 @@ export function ChannelsWorkspace() {
   const [credentialsChannelId, setCredentialsChannelId] = useState('')
   const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
   const [evolutionApiKey, setEvolutionApiKey] = useState('')
+  const [evolutionWebhookSecret, setEvolutionWebhookSecret] = useState('')
   const [cloudAccessToken, setCloudAccessToken] = useState('')
   const [savingCredentials, setSavingCredentials] = useState(false)
   const [error, setError] = useState('')
@@ -32,6 +34,7 @@ export function ChannelsWorkspace() {
     setCredentialsChannelId('')
     setEvolutionBaseUrl('')
     setEvolutionApiKey('')
+    setEvolutionWebhookSecret('')
     setCloudAccessToken('')
   }
   const openCredentialForm = (channelId: string) => {
@@ -80,7 +83,7 @@ export function ChannelsWorkspace() {
     setSavingCredentials(true); setError('')
     try {
       await api.channels.setCredentials(channel.id, channel.provider === 'evolution'
-        ? { provider: 'evolution', baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey }
+        ? { provider: 'evolution', baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey, webhookSecret: evolutionWebhookSecret }
         : { provider: 'whatsapp_cloud_api', accessToken: cloudAccessToken })
       clearCredentialForm(); setRefresh((version) => version + 1)
     } catch { setError(t('channels.credentialsFailed')) }
@@ -110,7 +113,7 @@ export function ChannelsWorkspace() {
     {credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
       <div className="channel-form-heading"><Radio size={17} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
       <div className="channel-form-grid">
-        {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<input value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<input value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" required /></label></> : <label>{t('channels.cloudAccessToken')}<input value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" required /></label>}
+        {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<input value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<input value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" required /></label><label>{t('inboxComposer.evolutionWebhookSecret')}<input value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<input readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label></> : <><label>{t('channels.cloudAccessToken')}<input value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" required /></label><label>{t('inboxComposer.cloudWebhookUrl')}<input readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label></>}
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</button><button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t('channels.saveCredentials')}</button></div>
     </form> : null })()}

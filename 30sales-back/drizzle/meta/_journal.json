@@ -78,6 +78,13 @@
       "when": 1794667106182,
       "tag": "0010_wide_sersi",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794673234532,
+      "tag": "0011_cuddly_paper_doll",
+      "breakpoints": true
     }
   ]
 }

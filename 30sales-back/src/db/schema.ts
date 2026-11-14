@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { check, foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
@@ -225,6 +225,30 @@ export const messages = pgTable('messages', {
   unique('messages_id_organization_unique').on(table.id, table.organizationId),
   unique('messages_conversation_external_unique').on(table.organizationId, table.conversationId, table.externalMessageId),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
+]);
+
+export const externalRecords = pgTable('external_records', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  provider: text('provider').notNull(),
+  recordType: text('record_type').notNull(),
+  externalId: text('external_id').notNull(),
+  accountId: uuid('account_id'),
+  personId: uuid('person_id'),
+  leadId: uuid('lead_id'),
+  opportunityId: uuid('opportunity_id'),
+  sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
+  payloadHash: text('payload_hash'),
+}, (table) => [
+  foreignKey({ name: 'external_records_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'external_records_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'external_records_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'external_records_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  check('external_records_single_entity_check', sql`num_nonnulls(${table.accountId}, ${table.personId}, ${table.leadId}, ${table.opportunityId}) = 1`),
+  unique('external_records_org_provider_type_external_unique').on(table.organizationId, table.provider, table.recordType, table.externalId),
+  index('external_records_org_provider_idx').on(table.organizationId, table.provider),
 ]);
 
 

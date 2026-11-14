@@ -28,9 +28,15 @@ export class LeadAssigneeDto { constructor(readonly id: string, readonly name: s
 
 export const createTaskSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
 export type CreateTaskDto = z.infer<typeof createTaskSchema>;
+const taskFollowUpSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
+export const completeTaskSchema = z.object({ result: z.enum(['completed', 'contacted', 'no_response', 'follow_up']).default('completed'), resultNote: z.string().trim().max(2000).optional(), followUp: taskFollowUpSchema.optional() }).strict().superRefine((input, context) => {
+  if (input.result === 'follow_up' && !input.followUp) context.addIssue({ code: 'custom', path: ['followUp'], message: 'A follow-up task is required for this result.' });
+  if (input.result !== 'follow_up' && input.followUp) context.addIssue({ code: 'custom', path: ['followUp'], message: 'A follow-up task is only allowed for the follow-up result.' });
+}).default({ result: 'completed' });
+export type CompleteTaskDto = z.infer<typeof completeTaskSchema>;
 export const listTasksSchema = z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), assignedToUserId: z.string().uuid().optional(), status: z.enum(['open', 'completed', 'cancelled']).default('open'), limit: z.coerce.number().int().min(1).max(100).default(100) }).strict();
 export type ListTasksQueryDto = z.infer<typeof listTasksSchema>;
-export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string) {} }
+export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string, readonly completionResult: 'completed' | 'contacted' | 'no_response' | 'follow_up' | null, readonly completionNote: string | null) {} }
 export class TaskRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListTasksQueryDto) {} }
 export class TaskRepositoryCreateDto { constructor(readonly organizationId: string, readonly leadId: string, readonly createdByUserId: string, readonly title: string, readonly dueAt: Date, readonly correlationId: string | null = null) {} }
-export class TaskRepositoryCompleteDto { constructor(readonly organizationId: string, readonly taskId: string, readonly actorUserId: string, readonly completedAt: Date, readonly correlationId: string | null = null) {} }
+export class TaskRepositoryCompleteDto { constructor(readonly organizationId: string, readonly taskId: string, readonly actorUserId: string, readonly completedAt: Date, readonly input: CompleteTaskDto, readonly correlationId: string | null = null) {} }

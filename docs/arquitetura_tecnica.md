@@ -34,7 +34,7 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `PATCH /api/v1/leads/:id/assignee`: atribui ou remove o responsável, exige `leads.assign`, confirma membership no tenant e grava auditoria antes/depois com correlation ID.
 - `GET /api/v1/leads/tasks?from=&to=&status=&limit=`: lista tarefas por intervalo e estado na organização ativa.
 - `POST /api/v1/leads/:id/tasks`: cria tarefa com descrição e prazo, associada ao lead; atualiza `next_action_at` para o prazo aberto mais próximo.
-- `PATCH /api/v1/leads/tasks/:taskId/complete`: conclui uma tarefa aberta e recalcula a próxima ação do lead na mesma transação.
+- `PATCH /api/v1/leads/tasks/:taskId/complete`: registra resultado (`completed`, `contacted`, `no_response` ou `follow_up`) e nota. Quando há retorno, cria a tarefa seguinte na mesma transação e preserva responsável. A ausência de body antigo mantém compatibilidade usando `completed`; a tela atual exige escolha explícita.
 - `GET /api/v1/handoffs?status=requested|accepted|returned`: lista os briefs e filas da organização ativa.
 - `POST /api/v1/handoffs`: cria ou reutiliza a oportunidade do lead e solicita o handoff com evidência, fatos, lacunas e próxima ação.
 - `PATCH /api/v1/handoffs/:id/accept`: closer/gestor aceita, vira owner da oportunidade e inicia a etapa de contato.
@@ -77,6 +77,8 @@ A página inicial agrega em paralelo tarefas abertas vencidas/do dia e leads res
 ## Persistência e operação
 
 Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 mantém a evolução compatível do enum de status; 0003 acrescenta tarefas; 0004 oportunidades/handoffs; 0005 campos financeiros e histórico de etapa; 0006 atividades; 0007 conversas/mensagens; 0008 corrige exclusão referencial; 0009 ajusta a deduplicação por organização/conversa; 0010 adiciona tabelas base de inbox/outbox de eventos, jobs e auditoria; 0011 cria `external_records` para associar IDs de provedores e tipos de registro externos a contas, pessoas, leads e oportunidades; 0012 adiciona responsável nullable a leads e índice tenant/assignee/status. Todas permanecem sem aplicação em banco. As migrations são aditivas/corretivas; rollback da aplicação mantém schema/dados, e qualquer remoção exige migration separada após retenção/export. A tabela de auditoria já recebe os eventos de CRM descritos acima e tem endpoint de leitura; inbox/outbox e jobs ainda não têm consumidores/workers. `external_records` e endpoints de identidade/preview existem, mas ainda não há adapters de fonte ou importação persistente. Antes de ambiente partilhado, provisionar owner/tenant e aplicar migrations somente em ambiente aprovado.
+
+A migration `0013_task_outcomes` adiciona resultado e nota nullable às tarefas; tarefas já concluídas permanecem intactas e sem resultado histórico inventado. O rollback de aplicação mantém as colunas aditivas. A projeção `leads.next_action_at` agora é limpa quando não há tarefas abertas.
 
 ## Referências de produto
 

@@ -1,7 +1,7 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { LEAD_TRANSITIONS } from './constants';
-import { AssignLeadDto, CreateLeadDto, LeadAssigneeDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
+import { AssignLeadDto, CompleteTaskDto, CreateLeadDto, LeadAssigneeDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
 import { LeadsRepository } from './leads.repository';
 import { TenantAccessService } from './tenant-access.service';
 
@@ -22,9 +22,11 @@ export class LeadsService {
     if (!task) throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Lead was not found in the active organization.' });
     return task;
   }
-  async completeTask(request: ApiRequestDto, taskId: string): Promise<TaskRecordDto> {
+  async completeTask(request: ApiRequestDto, taskId: string, dto: CompleteTaskDto): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');
-    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, new Date(), request.correlationId));
+    const completedAt = new Date();
+    if (dto.followUp && new Date(dto.followUp.dueAt) <= completedAt) throw new BadRequestException({ code: 'FOLLOW_UP_DUE_AT_INVALID', message: 'The next task must be due in the future.' });
+    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, completedAt, dto, request.correlationId));
     if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Open task was not found in the active organization.' });
     return task;
   }

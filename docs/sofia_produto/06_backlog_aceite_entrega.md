@@ -44,6 +44,8 @@
 
 **Atribuição de leads entregue no código (migration ainda não aplicada):** responsável nullable, filtro e ordenação por pessoa, lista de membros do tenant para quem tem permissão, e seleção na tabela. Leads criados ficam atribuídos ao criador; registros antigos seguem sem backfill e respostas sem responsável aparecem na visão Hoje para distribuição. `PATCH /api/v1/leads/:id/assignee` exige `leads.assign`, valida membership do destino e grava auditoria com antes/depois e correlation ID. A visão Hoje filtra tarefas e leads respondidos para o usuário logado.
 
+**Resultado de tarefas entregue no código (migration ainda não aplicada):** a tela exige registrar se a ação foi concluída, houve contato, não houve resposta ou é necessário retornar. Retorno exige próxima ação e data futura; a nova tarefa é criada atomicamente ao concluir a anterior, mantendo responsável. Resultado/nota e os dois eventos recebem auditoria/correlation ID; `leads.next_action_at` é recalculado ou removido quando não há tarefa aberta. Tarefas concluídas no legado preservam campos de resultado vazios. Clientes antigos sem body continuam funcionando com resultado `completed`.
+
 ### Contas e identidade
 
 - **Como BDR**, quero ver se uma conta já está em prospecção, duplicada ou bloqueada antes de criar uma nova tentativa.

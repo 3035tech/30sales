@@ -81,6 +81,7 @@ Brief inclui dados conhecidos, desconhecidos e conflitantes separadamente. Evid�
 - Um compromisso de retorno possui data/hora, timezone, quem executa e canal.
 - Antes de executar: revalidar resposta nova, opt-out, ownership, status, feriado, horário e última mensagem; cancelar job obsoleto se estado mudou.
 - Se retorno é humano, criar tarefa, não mensagem automática. Se Sofia executa, marcar dono automation e registrar política.
+- Ao concluir tarefa humana, registrar resultado; retorno combinado cria a próxima tarefa atomicamente, mantendo responsável e atualizando a próxima ação do lead. Não inferir resultado para tarefa histórica.
 - Sem resposta não vira automaticamente perdido; aplicar cadência aprovada e limites. A política atual da Sofia que evita segunda abordagem de silêncio deve ser mantida até mudança explícita.
 - Lead pediu tempo: não cutucar antes do prazo. Nova mensagem do lead cancela retorno antigo incompatível.
 - Encerrar conversa não equivale a perder oportunidade se existe negócio ativo; estado de conversa e oportunidade são independentes.

@@ -80,10 +80,13 @@ export const tasks = pgTable('tasks', {
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   assignedToUserId: uuid('assigned_to_user_id').references(() => authUser.id, { onDelete: 'restrict' }),
   completedAt: timestamp('completed_at', { withTimezone: true }),
+  completionResult: text('completion_result'),
+  completionNote: text('completion_note'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'tasks_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  check('tasks_completion_result_check', sql`${table.completionResult} is null or ${table.completionResult} in ('completed', 'contacted', 'no_response', 'follow_up')`),
   index('tasks_org_status_due_idx').on(table.organizationId, table.status, table.dueAt),
   index('tasks_org_lead_status_idx').on(table.organizationId, table.leadId, table.status),
   index('tasks_org_assignee_status_due_idx').on(table.organizationId, table.assignedToUserId, table.status, table.dueAt),

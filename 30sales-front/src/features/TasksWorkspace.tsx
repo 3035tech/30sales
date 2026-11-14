@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Check, CircleAlert, ListTodo, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type LeadDto, type TaskDto } from '../lib/api/client'
+import './TasksWorkspace.css'
 
 type TaskView = 'overdue' | 'today' | 'upcoming'
 function dayStart(date: Date) { const value = new Date(date); value.setHours(0, 0, 0, 0); return value }
@@ -14,10 +15,16 @@ export function TasksWorkspace() {
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [completionSaving, setCompletionSaving] = useState(false)
   const [error, setError] = useState('')
   const [leadId, setLeadId] = useState('')
   const [title, setTitle] = useState('')
   const [dueAt, setDueAt] = useState('')
+  const [completionTaskId, setCompletionTaskId] = useState('')
+  const [completionResult, setCompletionResult] = useState<'completed' | 'contacted' | 'no_response' | 'follow_up'>('completed')
+  const [completionNote, setCompletionNote] = useState('')
+  const [followUpTitle, setFollowUpTitle] = useState('')
+  const [followUpDueAt, setFollowUpDueAt] = useState('')
 
   const range = useMemo(() => {
     const today = dayStart(new Date())
@@ -43,10 +50,14 @@ export function TasksWorkspace() {
     } catch { setError(t('errors.saveTask')) }
     finally { setSaving(false) }
   }
-  const complete = async (task: TaskDto) => {
-    setError('')
-    try { await api.tasks.complete(task.id); setTasks((current) => current.filter((item) => item.id !== task.id)) }
+  const complete = async (event: React.FormEvent, task: TaskDto) => {
+    event.preventDefault(); setError(''); setCompletionSaving(true)
+    try {
+      await api.tasks.complete(task.id, { result: completionResult, resultNote: completionNote.trim() || undefined, followUp: completionResult === 'follow_up' ? { title: followUpTitle.trim(), dueAt: new Date(followUpDueAt).toISOString() } : undefined })
+      setCompletionTaskId(''); setCompletionNote(''); setFollowUpTitle(''); setFollowUpDueAt(''); setCompletionResult('completed'); await refresh()
+    }
     catch { setError(t('errors.completeTask')) }
+    finally { setCompletionSaving(false) }
   }
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
@@ -71,7 +82,13 @@ export function TasksWorkspace() {
       <div className="lead-list-toolbar"><div><h3>{t(`tasks.${view}`)}</h3><p>{t('tasks.count', { count: tasks.length })}</p></div><CalendarClock size={18} /></div>
       {loading ? <div className="lead-empty">{t('common.loading')}</div> : tasks.length === 0 ? <div className="lead-empty"><span className="card-icon"><ListTodo size={19} /></span><h3>{t(`tasks.empty.${view}`)}</h3><p>{t('tasks.emptyHint')}</p></div> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' ? 'overdue' : ''}>
         <div className="task-time">{view === 'overdue' && <CircleAlert size={15} />}{dateLabel(task.dueAt)}</div><div className="task-copy"><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div>
-        <button className="task-complete" onClick={() => void complete(task)} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</button>
+        {completionTaskId !== task.id && <button className="task-complete" onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</button>}
+        {completionTaskId === task.id && <form className="task-completion-form" onSubmit={(event) => void complete(event, task)}>
+          <label>{t('taskCompletion.result')}<select value={completionResult} onChange={(event) => setCompletionResult(event.target.value as typeof completionResult)}><option value="completed">{t('taskCompletion.results.completed')}</option><option value="contacted">{t('taskCompletion.results.contacted')}</option><option value="no_response">{t('taskCompletion.results.no_response')}</option><option value="follow_up">{t('taskCompletion.results.follow_up')}</option></select></label>
+          <label>{t('taskCompletion.resultNote')}<textarea value={completionNote} onChange={(event) => setCompletionNote(event.target.value)} maxLength={2000} /></label>
+          {completionResult === 'follow_up' && <div className="task-follow-up"><label>{t('taskCompletion.followUpTitle')}<input value={followUpTitle} onChange={(event) => setFollowUpTitle(event.target.value)} minLength={2} maxLength={240} required /></label><label>{t('taskCompletion.followUpDueAt')}<input type="datetime-local" value={followUpDueAt} onChange={(event) => setFollowUpDueAt(event.target.value)} required /></label></div>}
+          <div className="task-completion-actions"><button type="button" onClick={() => setCompletionTaskId('')}>{t('common.cancel')}</button><button className="primary" disabled={completionSaving}>{completionSaving ? t('common.saving') : t('taskCompletion.saveResult')}</button></div>
+        </form>}
       </li>)}</ul>}
     </div>
   </section>

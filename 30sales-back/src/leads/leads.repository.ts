@@ -20,12 +20,12 @@ export class LeadsRepository {
     if (input.query.from) conditions.push(gte(tasks.dueAt, new Date(input.query.from)));
     if (input.query.to) conditions.push(lt(tasks.dueAt, new Date(input.query.to)));
     if (input.query.assignedToUserId) conditions.push(eq(tasks.assignedToUserId, input.query.assignedToUserId));
-    const rows = await database.select({ id: tasks.id, leadId: tasks.leadId, title: tasks.title, dueAt: tasks.dueAt, status: tasks.status, completedAt: tasks.completedAt, accountName: accounts.name, contactName: people.name }).from(tasks)
+    const rows = await database.select({ id: tasks.id, leadId: tasks.leadId, title: tasks.title, dueAt: tasks.dueAt, status: tasks.status, completedAt: tasks.completedAt, completionResult: tasks.completionResult, completionNote: tasks.completionNote, accountName: accounts.name, contactName: people.name }).from(tasks)
       .innerJoin(leads, and(eq(leads.id, tasks.leadId), eq(leads.organizationId, tasks.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
       .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
       .where(and(...conditions)).orderBy(asc(tasks.dueAt)).limit(input.query.limit);
-    return rows.map((row) => new TaskRecordDto(row.id, row.leadId, row.title, row.dueAt.toISOString(), row.status, row.completedAt?.toISOString() ?? null, row.accountName, row.contactName));
+    return rows.map((row) => new TaskRecordDto(row.id, row.leadId, row.title, row.dueAt.toISOString(), row.status, row.completedAt?.toISOString() ?? null, row.accountName, row.contactName, row.completionResult as TaskRecordDto['completionResult'], row.completionNote));
   }
   async createTask(input: TaskRepositoryCreateDto): Promise<TaskRecordDto | null> {
     return database.transaction(async (transaction) => {
@@ -35,18 +35,24 @@ export class LeadsRepository {
       await transaction.update(leads).set({ nextActionAt: sql`least(coalesce(${leads.nextActionAt}, ${input.dueAt}), ${input.dueAt})`, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId)));
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.createdByUserId, actorType: 'user', action: 'task.created', entityType: 'task', entityId: task.id, correlationId: input.correlationId, afterState: { status: 'open', dueAt: input.dueAt.toISOString() } });
       const [row] = await transaction.select({ accountName: accounts.name, contactName: people.name }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId))).innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).limit(1);
-      return new TaskRecordDto(task.id, task.leadId, task.title, task.dueAt.toISOString(), task.status, null, row.accountName, row.contactName);
+      return new TaskRecordDto(task.id, task.leadId, task.title, task.dueAt.toISOString(), task.status, null, row.accountName, row.contactName, null, null);
     });
   }
   async completeTask(input: TaskRepositoryCompleteDto): Promise<TaskRecordDto | null> {
     return database.transaction(async (transaction) => {
-      const [task] = await transaction.update(tasks).set({ status: 'completed', completedAt: input.completedAt, updatedAt: input.completedAt }).where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, input.organizationId), eq(tasks.status, 'open'))).returning();
+      const [task] = await transaction.update(tasks).set({ status: 'completed', completedAt: input.completedAt, completionResult: input.input.result, completionNote: input.input.resultNote ?? null, updatedAt: input.completedAt }).where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, input.organizationId), eq(tasks.status, 'open'))).returning();
       if (!task) return null;
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'user', actorUserId: input.actorUserId, action: 'task.completed', entityType: 'task', entityId: task.id, correlationId: input.correlationId, beforeState: { status: 'open' }, afterState: { status: 'completed' } });
+      let followUpTaskId: string | null = null;
+      if (input.input.followUp) {
+        const [followUp] = await transaction.insert(tasks).values({ organizationId: input.organizationId, leadId: task.leadId, title: input.input.followUp.title, dueAt: new Date(input.input.followUp.dueAt), status: 'open', createdByUserId: input.actorUserId, assignedToUserId: task.assignedToUserId ?? input.actorUserId }).returning({ id: tasks.id });
+        followUpTaskId = followUp.id;
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'user', actorUserId: input.actorUserId, action: 'task.created', entityType: 'task', entityId: followUp.id, correlationId: input.correlationId, afterState: { status: 'open', dueAt: input.input.followUp.dueAt, createdFromTaskId: task.id } });
+      }
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'user', actorUserId: input.actorUserId, action: 'task.completed', entityType: 'task', entityId: task.id, correlationId: input.correlationId, beforeState: { status: 'open' }, afterState: { status: 'completed', completionResult: input.input.result, completionNote: input.input.resultNote ?? null, followUpTaskId } });
       const [next] = await transaction.select({ dueAt: min(tasks.dueAt) }).from(tasks).where(and(eq(tasks.organizationId, input.organizationId), eq(tasks.leadId, task.leadId), eq(tasks.status, 'open')));
-      await transaction.update(leads).set({ nextActionAt: next.dueAt, updatedAt: input.completedAt }).where(and(eq(leads.id, task.leadId), eq(leads.organizationId, input.organizationId)));
+      await transaction.update(leads).set({ nextActionAt: next?.dueAt ?? null, updatedAt: input.completedAt }).where(and(eq(leads.id, task.leadId), eq(leads.organizationId, input.organizationId)));
       const [row] = await transaction.select({ accountName: accounts.name, contactName: people.name }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId))).innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId))).where(and(eq(leads.id, task.leadId), eq(leads.organizationId, input.organizationId))).limit(1);
-      return new TaskRecordDto(task.id, task.leadId, task.title, task.dueAt.toISOString(), 'completed', input.completedAt.toISOString(), row.accountName, row.contactName);
+      return new TaskRecordDto(task.id, task.leadId, task.title, task.dueAt.toISOString(), 'completed', input.completedAt.toISOString(), row.accountName, row.contactName, task.completionResult as TaskRecordDto['completionResult'], task.completionNote);
     });
   }
   async list(input: LeadRepositoryListDto): Promise<LeadPageDto> {

@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignLeadSchema, createLeadSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema } from './leads.dto';
-import type { AssignLeadDto, CreateLeadDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto } from './leads.dto';
+import { assignLeadSchema, createLeadSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -44,7 +44,7 @@ export class LeadsController {
     return this.leadsService.createTask(request, leadId, dto);
   }
   @Patch('tasks/:taskId/complete')
-  completeTask(@ApiRequest() request: ApiRequestDto, @Param('taskId', new ZodValidationPipe(leadIdSchema)) taskId: string) {
-    return this.leadsService.completeTask(request, taskId);
+  completeTask(@ApiRequest() request: ApiRequestDto, @Param('taskId', new ZodValidationPipe(leadIdSchema)) taskId: string, @Body(new ZodValidationPipe(completeTaskSchema)) dto: CompleteTaskDto) {
+    return this.leadsService.completeTask(request, taskId, dto);
   }
 }

@@ -16,6 +16,8 @@ Convenções: **M** = obrigatório para criar/avançar naquele fluxo; **O** = op
 | Última atividade | timestamp/canal/resumo | Distinguir enviada, entregue, recebida e falha |
 | Ações | Abrir, atribuir, concluir, reagendar, dispensar alerta | Concluir exige resultado; dispensar exige motivo quando alerta de risco |
 
+**Conclusão de tarefa no MVP:** escolher resultado (ação concluída, contato realizado, sem resposta ou retorno necessário) e registrar nota opcional. Ao escolher retorno, informar ação e data futura; a tarefa seguinte é criada na mesma operação, com responsável preservado. A conclusão atualiza a próxima ação do lead e registra auditoria. Valores históricos sem resultado permanecem desconhecidos.
+
 Estados: carregando, sem tarefas (com link para filas), erro recuperável, sem permissão, dados desatualizados com horário do último sync.
 
 ## 2.2 Inbox

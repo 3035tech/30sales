@@ -65,6 +65,8 @@ Unicidade idempotente por `(organization_id,campaign_id,account_id,person_id)` c
 
 `tasks` (implementado na primeira entrega operacional): organização, lead, descrição, prazo, estado (`open`, `completed`, `cancelled`), usuário criador, data de conclusão e timestamps. FK composta `(lead_id, organization_id)` impede tarefas vinculadas a leads de outro tenant. `leads.next_action_at` é mantido como projeção do prazo aberto mais próximo; a fila consulta as tarefas como fonte de verdade.
 
+A migration `0013_task_outcomes` acrescenta `completion_result` (`completed`, `contacted`, `no_response`, `follow_up`) e `completion_note`, ambos nullable para preservar tarefas históricas. Concluir com `follow_up` cria a próxima tarefa na mesma transação, atribuída ao responsável atual da tarefa, grava auditoria para ambos os eventos e recalcula `leads.next_action_at`; sem próximas tarefas, o campo é limpo.
+
 `opportunities` (primeiro handoff): organização, lead, conta, contato principal, nome, etapa, owner closer opcional, criador e timestamps. Nesta primeira versão há unicidade por lead; remover a limitação ao implementar múltiplas oportunidades por conta/lead.
 
 `handoffs`: oportunidade, status (`requested`, `accepted`, `returned`, `cancelled`), motivo, evidência, fatos confirmados, lacunas, próxima ação e prazo, usuário solicitante, closer que aceitou, motivo de devolução e timestamps. `handoff_history` registra ator, evento, observação e horário para cada solicitação, aceite e devolução. Ambas têm `organization_id` e FKs compostas para impedir cruzamento de tenant.

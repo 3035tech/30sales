@@ -69,6 +69,8 @@ Unicidade idempotente por `(organization_id,campaign_id,account_id,person_id)` c
 
 `handoffs`: oportunidade, status (`requested`, `accepted`, `returned`, `cancelled`), motivo, evidência, fatos confirmados, lacunas, próxima ação e prazo, usuário solicitante, closer que aceitou, motivo de devolução e timestamps. `handoff_history` registra ator, evento, observação e horário para cada solicitação, aceite e devolução. Ambas têm `organization_id` e FKs compostas para impedir cruzamento de tenant.
 
+O pipeline adiciona a `opportunities`: valor decimal potencial/fechado, moeda ISO, data real de fechamento, motivo de perda, próxima ação, prazo e `stage_changed_at`. Valores são nulos até serem informados; amount em oportunidade aberta é potencial, e em `won` é valor fechado. `opportunity_stage_history` preserva etapa anterior/nova, ator, motivo e data. A migration mantém os campos operacionais aditivos para permitir atualização gradual do código.
+
 ### `activities`, `handoffs`, `appointments`
 
 `activities`: `id`, `organization_id`, `type`, `status`, `subject`, `description`, `owner_user_id`, `team_id`, `account_id`, `person_id`, `lead_id`, `opportunity_id`, `conversation_id`, `due_at`, `completed_at`, `result_key`, `evidence_message_id`, `external_ref`, timestamps.

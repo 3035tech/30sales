@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { foreignKey, index, jsonb, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
@@ -88,6 +88,13 @@ export const opportunities = pgTable('opportunities', {
   stage: opportunityStage('stage').default('qualification').notNull(),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  amount: numeric('amount', { precision: 14, scale: 2 }),
+  currency: text('currency'),
+  closedAt: timestamp('closed_at', { withTimezone: true }),
+  lossReason: text('loss_reason'),
+  nextAction: text('next_action'),
+  nextActionAt: timestamp('next_action_at', { withTimezone: true }),
+  stageChangedAt: timestamp('stage_changed_at', { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
@@ -97,6 +104,22 @@ export const opportunities = pgTable('opportunities', {
   unique('opportunities_id_organization_unique').on(table.id, table.organizationId),
   unique('opportunities_org_lead_unique').on(table.organizationId, table.leadId),
   index('opportunities_org_stage_updated_idx').on(table.organizationId, table.stage, table.updatedAt),
+  index('opportunities_org_owner_stage_idx').on(table.organizationId, table.ownerUserId, table.stage),
+  index('opportunities_org_next_action_idx').on(table.organizationId, table.nextActionAt),
+]);
+
+export const opportunityStageHistory = pgTable('opportunity_stage_history', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull(),
+  opportunityId: uuid('opportunity_id').notNull(),
+  fromStage: opportunityStage('from_stage'),
+  toStage: opportunityStage('to_stage').notNull(),
+  actorUserId: uuid('actor_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  reason: text('reason'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'opportunity_stage_history_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  index('opportunity_stage_history_org_opportunity_idx').on(table.organizationId, table.opportunityId, table.occurredAt),
 ]);
 
 export const handoffs = pgTable('handoffs', {

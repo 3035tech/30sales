@@ -24,6 +24,8 @@ Outras rotas: `follow_up_scheduled`, `nurture`, `not_fit`, `declined`, `needs_re
 
 `qualification → accepted_for_contact → closer_contact_pending → discovery_scheduled → discovery_done → solution_confirmed → proposal_preparing → proposal_sent → negotiation → won | lost`.
 
+O pipeline implementado restringe mudanças às transições diretas da etapa atual. Etapa aberta exige próxima ação e prazo; ganho exige valor/moeda e data real de fechamento; perda exige motivo. Terminais não reabrem pelo endpoint normal. Cada mudança e ajuste na mesma etapa (com nota obrigatória) é registrado com ator e horário em `opportunity_stage_history`. Vistas operacionais expõem carteira própria, sem responsável, sem próxima ação, ação vencida e etapa parada há mais de sete dias; esse limite inicial é fixo e deverá virar política configurável após observar a operação.
+
 Rota `nurture` é aberta/suspensa com data ou condição. Estados terminais não reabrem silenciosamente; reabertura cria evento e motivo. `stage` separado de `outcome` e forecast.
 
 ### Job técnico

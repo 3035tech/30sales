@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, people, tasks } from '../db/schema';
+import { accounts, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks } from '../db/schema';
 import { user } from '../db/auth-schema';
 import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
 
@@ -51,8 +51,11 @@ export class HandoffsRepository {
       const [existingOpportunity] = await transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, lead.id))).limit(1);
       let opportunityId = existingOpportunity?.id;
       if (!opportunityId) {
-        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.input.reason.slice(0, 120)}`, createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
+        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.input.reason.slice(0, 120)}`, nextAction: input.input.nextStep, nextActionAt: new Date(input.input.nextStepAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
         opportunityId = opportunity.id;
+        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, toStage: 'qualification', actorUserId: input.actorUserId, reason: 'Opportunity created from a qualified handoff.' });
+      } else {
+        await transaction.update(opportunities).set({ nextAction: input.input.nextStep, nextActionAt: new Date(input.input.nextStepAt), updatedAt: new Date() }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
       }
       const [handoff] = await transaction.insert(handoffs).values({ organizationId: input.organizationId, opportunityId, reason: input.input.reason, evidence: input.input.evidence, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, nextStep: input.input.nextStep, nextStepAt: new Date(input.input.nextStepAt), requestedByUserId: input.actorUserId }).returning({ id: handoffs.id });
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: handoff.id, event: 'requested', actorUserId: input.actorUserId, note: input.input.reason });
@@ -71,7 +74,9 @@ export class HandoffsRepository {
     const updated = await database.transaction(async (transaction) => {
       const [handoff] = await transaction.update(handoffs).set({ status: 'accepted', acceptedByUserId: input.actorUserId, acceptedAt, updatedAt: acceptedAt }).where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'requested'))).returning({ id: handoffs.id, opportunityId: handoffs.opportunityId });
       if (!handoff) return null;
-      await transaction.update(opportunities).set({ ownerUserId: input.actorUserId, stage: 'closer_contact_pending', updatedAt: acceptedAt }).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      const [opportunity] = await transaction.select({ stage: opportunities.stage }).from(opportunities).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
+      await transaction.update(opportunities).set({ ownerUserId: input.actorUserId, stage: 'closer_contact_pending', stageChangedAt: acceptedAt, updatedAt: acceptedAt }).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: handoff.opportunityId, fromStage: opportunity?.stage ?? null, toStage: 'closer_contact_pending', actorUserId: input.actorUserId, reason: 'Closer accepted the handoff.' });
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: handoff.id, event: 'accepted', actorUserId: input.actorUserId });
       return handoff;
     });
@@ -81,17 +86,19 @@ export class HandoffsRepository {
   async returnToSdr(input: HandoffRepositoryReturnDto): Promise<HandoffRecordDto | null> {
     const returnedAt = new Date();
     const returnedId = await database.transaction(async (transaction) => {
-      const [existing] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, requestedByUserId: handoffs.requestedByUserId })
+      const [existing] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, requestedByUserId: handoffs.requestedByUserId, stage: opportunities.stage })
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
         .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'))).for('update', { of: handoffs }).limit(1);
       if (!existing) return null;
       await transaction.update(handoffs).set({ status: 'returned', returnReason: input.input.reason, updatedAt: returnedAt, returnedAt }).where(and(eq(handoffs.id, existing.id), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted')));
-      await transaction.update(opportunities).set({ ownerUserId: null, stage: 'qualification', updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.update(opportunities).set({ ownerUserId: null, stage: 'qualification', stageChangedAt: returnedAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: existing.opportunityId, fromStage: existing.stage, toStage: 'qualification', actorUserId: input.actorUserId, reason: input.input.reason });
       await transaction.update(leads).set({ status: 'responded', updatedAt: returnedAt }).where(and(eq(leads.id, existing.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, 'converted_to_sdr')));
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: existing.leadId, fromStatus: 'converted_to_sdr', toStatus: 'responded', changedByUserId: input.actorUserId });
       const dueAt = new Date(input.input.dueAt);
       await transaction.insert(tasks).values({ organizationId: input.organizationId, leadId: existing.leadId, title: input.input.nextStep, dueAt, status: 'open', createdByUserId: input.actorUserId, assignedToUserId: existing.requestedByUserId });
       await transaction.update(leads).set({ nextActionAt: sql`least(coalesce(${leads.nextActionAt}, ${dueAt}), ${dueAt})`, updatedAt: returnedAt }).where(and(eq(leads.id, existing.leadId), eq(leads.organizationId, input.organizationId)));
+      await transaction.update(opportunities).set({ nextAction: input.input.nextStep, nextActionAt: dueAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: existing.id, event: 'returned', actorUserId: input.actorUserId, note: input.input.reason });
       return existing.id;
     });

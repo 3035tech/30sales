@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, UserRoundCheck, Users } from 'lucide-react'
+import { ArrowRight, Building2, Check, ChevronDown, Command, Layers3, ListTodo, TrendingUp, UserRoundCheck, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -7,9 +7,10 @@ import { TeamSettings } from './features/TeamSettings'
 import { LeadsWorkspace } from './features/LeadsWorkspace'
 import { TasksWorkspace } from './features/TasksWorkspace'
 import { HandoffsWorkspace } from './features/HandoffsWorkspace'
+import { PipelineWorkspace } from './features/PipelineWorkspace'
 import './App.css'
 
-type Page = 'home' | 'leads' | 'tasks' | 'handoffs' | 'team'
+type Page = 'home' | 'leads' | 'tasks' | 'handoffs' | 'pipeline' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -42,6 +43,7 @@ export default function App() {
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => setPage('leads')}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
+      <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
       <button className={`nav ${page === 'team' ? 'active' : ''}`} onClick={() => setPage('team')}><Users size={18} />{t('common.teamNav')}</button>
       <div className="rail-bottom">
         <span className="avatar">{current?.user.name.slice(0, 1) ?? 'S'}</span>
@@ -68,6 +70,7 @@ export default function App() {
           : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace />
             : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />
             : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />
+              : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
             : <HomeContent />}
       </div>
     </section>

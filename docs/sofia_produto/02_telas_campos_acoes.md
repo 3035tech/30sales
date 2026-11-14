@@ -138,6 +138,8 @@ Tela tem checklist de prontidão, fatos e lacunas, timeline compacta, playbook u
 
 Cabeçalho: conta, valor/etapa, owner, estado e próxima ação. Coluna principal: timeline e notas. Painel lateral: brief, contatos, qualificação, riscos/lacunas. Pipeline drag-and-drop permitido apenas se passar validação e exigir campos no avanço; registrar de/para e ator.
 
+**Primeiro corte operacional:** quadro por etapa com vistas Minha carteira, Todas, Sem responsável, Sem próxima ação, Ação vencida e Paradas há 7+ dias. Cards destacam próxima ação, prazo, owner, contato, valor e idade da etapa. A ação Atualizar etapa abre formulário com os campos exigidos pelo destino. O histórico mostra ator, etapa e nota. Ainda não há edição de conta/contato, previsão de fechamento, reunião nem drag-and-drop.
+
 ## 2.8 Handoff
 
 Resumo e confirmação antes de transferir: destino (closer/equipe), conta, contato, oportunidade, motivo, aceite/evidência, lacunas, data de compromisso, link da conversa, prazo do primeiro contato.

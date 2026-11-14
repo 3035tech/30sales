@@ -8,6 +8,9 @@ const leadStatus = z.enum(['new','researching','ready','queued','contacting','re
 const leadSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string() });
+const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
+const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), toStage: opportunityStage, actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string() }), activeOrganizationId: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
@@ -16,6 +19,9 @@ export function parseLeadStatus(value: string): LeadStatus | null { const parsed
 export type LeadDto = z.infer<typeof leadSchema>;
 export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
+export type OpportunityStage = z.infer<typeof opportunityStage>;
+export type OpportunityDto = z.infer<typeof opportunitySchema>;
+export type OpportunityHistoryDto = z.infer<typeof opportunityHistorySchema>;
 export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral' };
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type TeamMemberDto = z.infer<typeof memberSchema>;
@@ -73,6 +79,18 @@ export const api = {
     create: (input: { leadId: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: string }) => request('/api/v1/handoffs', handoffSchema, { method: 'POST', body: JSON.stringify(input) }),
     accept: (id: string) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/accept`, handoffSchema, { method: 'PATCH' }),
     returnToSdr: (id: string, input: { reason: string; nextStep: string; dueAt: string }) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/return`, handoffSchema, { method: 'PATCH', body: JSON.stringify(input) }),
+  },
+  opportunities: {
+    list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; limit?: number; offset?: number } = {}) => {
+      const search = new URLSearchParams();
+      if (params.view) search.set('view', params.view);
+      if (params.stage) search.set('stage', params.stage);
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`/api/v1/opportunities?${search.toString()}`, z.array(opportunitySchema));
+    },
+    transition: (id: string, input: { expectedStage: OpportunityStage; stage: OpportunityStage; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
+    history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),
   },
   team: {
     async listMembers(organizationId: string): Promise<{ data: TeamMemberDto[] | null; error: { message: string } | null }> {

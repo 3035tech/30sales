@@ -37,6 +37,9 @@ Better Auth mantém identidades e memberships no schema PostgreSQL `auth`. Conta
 - `POST /api/v1/handoffs`: cria ou reutiliza a oportunidade do lead e solicita o handoff com evidência, fatos, lacunas e próxima ação.
 - `PATCH /api/v1/handoffs/:id/accept`: closer/gestor aceita, vira owner da oportunidade e inicia a etapa de contato.
 - `PATCH /api/v1/handoffs/:id/return`: closer/gestor devolve com motivo; lead volta à fila SDR e tarefa com prazo é atribuída a quem pediu a passagem.
+- `GET /api/v1/opportunities?view=mine|all|unassigned|no_next_action|overdue|stale&stage=`: pipeline tenant-scoped com foco na carteira do usuário e filas de risco.
+- `PATCH /api/v1/opportunities/:id/stage`: valida etapa, owner, campos de próxima ação, ganho/perda e histórico.
+- `GET /api/v1/opportunities/:id/history`: histórico de mudanças com ator, etapa, data e nota.
 - `GET /api/v1/session`: identidade, organizações acessíveis e tenant ativo.
 
 ## Fila de tarefas
@@ -47,11 +50,15 @@ A tela Tarefas mostra vencidas, de hoje e dos próximos sete dias, usando o fuso
 
 O BDR/SDR pode passar um lead respondido com motivo, evidência de interesse, fatos confirmados, lacunas e próxima ação datada. A operação cria ou reutiliza a oportunidade do lead e registra eventos de solicitação, aceite e devolução; leads retornados voltam a `responded` e recebem tarefa atribuída a quem solicitou a passagem. Aceite e devolução exigem `pipeline.update` e papel owner/admin/manager/closer. A migration `0004` é aditiva e mantém `tasks.assigned_to_user_id` nullable para compatibilidade com gravações da versão anterior; no deploy futuro, preencher responsáveis existentes e só depois avaliar torná-la obrigatória. Rollback de aplicação consiste em voltar o código e manter as novas tabelas/coluna aditivas; remover os objetos exige migração separada e confirmação de que nenhum dado novo precisa ser preservado. Nenhuma migration foi aplicada.
 
-Limitação desta fatia: o modelo permite uma oportunidade por lead. Pipeline completo, transições de etapa, valor, motivo de perda e várias oportunidades do mesmo lead ainda precisam ser implementados antes de usar como CRM de fechamento.
+Limitação desta fatia: o modelo permite uma oportunidade por lead. Ainda faltam inbox/conversas e evidência ligada às mensagens, catálogo de produtos, previsão configurável, agenda/reuniões e múltiplas oportunidades por lead; por isso, a migração ainda não substitui integralmente Twenty/Chatwoot.
+
+## Pipeline CRM do closer
+
+A tela apresenta a carteira do closer em colunas por etapa, valor potencial por moeda, próxima ação e idade da etapa. Vistas operacionais: minha carteira, todas, sem owner, sem próxima ação, ação vencida e paradas há mais de sete dias. Mudança de etapa segue a sequência definida em `opportunities.constants.ts` e grava `opportunity_stage_history`; ajustes sem trocar etapa também exigem nota e ficam no histórico. Toda etapa aberta exige ação e data; ganho exige valor, moeda e data real não futura; perda exige motivo. O backend restringe edição ao owner closer ou a owner/admin/manager, e aceita concorrência apenas quando a etapa de origem ainda corresponde ao estado enviado. O campo amount é potencial enquanto aberto e fechado real em `won`; totais são agrupados por moeda, sem conversão implícita. A migration `0005` só adiciona campos/tabela e não remove nem reescreve dados; rollback de app mantém o schema aditivo, e remoção posterior exige migração específica após retenção/export do histórico.
 
 ## Persistência e operação
 
-Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 substitui o enum de status pela máquina BDR documentada; 0003 acrescenta a fila de tarefas; 0004 acrescenta oportunidades, handoffs, histórico de transições e responsável opcional da tarefa. Essas migrations ainda não foram aplicadas; 0002 existe para manter compatibilidade com a definição 0001 durante a implementação. Depois da primeira implantação, qualquer mudança de enum exige estratégia de expansão e migração compatível com os status persistidos. Nenhuma migration foi aplicada em banco. Antes de ambiente partilhado, provisionar owner/tenant com fluxo administrativo seguro, configurar PostgreSQL e SMTP, aplicar migration e exercitar os fluxos com contas de teste isoladas.
+Migrations Drizzle versionadas em `30sales-back/drizzle/`. A migration 0001 acrescenta tipos/tabelas/índices/constraints; 0002 substitui o enum de status pela máquina BDR documentada; 0003 acrescenta a fila de tarefas; 0004 acrescenta oportunidades e handoffs; 0005 acrescenta campos financeiros/operacionais opcionais e histórico de etapa. Essas migrations ainda não foram aplicadas; 0002 existe para manter compatibilidade com a definição 0001 durante a implementação. Depois da primeira implantação, qualquer mudança de enum exige estratégia de expansão e migração compatível com os status persistidos. Nenhuma migration foi aplicada em banco. Antes de ambiente partilhado, provisionar owner/tenant com fluxo administrativo seguro, configurar PostgreSQL e SMTP, aplicar migration e exercitar os fluxos com contas de teste isoladas.
 
 ## Referências de produto
 

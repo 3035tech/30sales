@@ -9,7 +9,7 @@ CREATE TABLE "agent_settings" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "agent_settings_org_agent_unique" UNIQUE("organization_id","agent_key"),
-	CONSTRAINT "agent_settings_agent_key_check" CHECK ("agent_settings"."agent_key" in ('sofia')),
+	CONSTRAINT "agent_settings_agent_key_check" CHECK ("agent_settings"."agent_key" in ('assistant')),
 	CONSTRAINT "agent_settings_model_check" CHECK ("agent_settings"."model" in ('claude-haiku-4-5-20251001')),
 	CONSTRAINT "agent_settings_prompt_length_check" CHECK (length("agent_settings"."system_prompt") <= 30000)
 );

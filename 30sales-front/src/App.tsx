@@ -16,10 +16,11 @@ import { FunnelReportWorkspace } from './features/FunnelReportWorkspace'
 import { AccountsWorkspace } from './features/AccountsWorkspace'
 import { CloserQueueWorkspace } from './features/CloserQueueWorkspace'
 import { ChannelsWorkspace } from './features/ChannelsWorkspace'
-import { SofiaSettingsWorkspace } from './features/SofiaSettingsWorkspace'
+import { AssistantSettingsWorkspace } from './features/AssistantSettingsWorkspace'
+import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspace'
 import './App.css'
 
-type Page = 'home' | 'closerQueue' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'sofia' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
+type Page = 'home' | 'closerQueue' | 'closerSla' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 
 export default function App() {
   const { t } = useTranslation()
@@ -53,11 +54,12 @@ export default function App() {
       <div className="rail-caption">{t('common.workspace')}</div>
       <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
       <button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} onClick={() => setPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</button>
+      <button className={`nav ${page === 'closerSla' ? 'active' : ''}`} onClick={() => setPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</button>
       <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => { setInboxSearchSeed(''); setInboxConversationSeed(''); setPage('inbox') }}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
       <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
       <button className={`nav ${page === 'accounts' ? 'active' : ''}`} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
       <button className={`nav ${page === 'channels' ? 'active' : ''}`} onClick={() => setPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
-      <button className={`nav ${page === 'sofia' ? 'active' : ''}`} onClick={() => setPage('sofia')}><Bot size={18} />{t('sofiaSettings.nav')}</button>
+      <button className={`nav ${page === 'assistant' ? 'active' : ''}`} onClick={() => setPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</button>
       <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
       <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
       <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
@@ -86,10 +88,11 @@ export default function App() {
         </section> : current && !current.activeOrganizationId ? <section className="welcome">
           <span className="welcome-icon"><Building2 size={24} /></span><p className="eyebrow">{t('home.chooseEyebrow')}</p><h2>{t('home.chooseTitle')}</h2><p className="muted">{t('home.chooseHint')}</p>
           <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
-        </section> : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
+        </section> : page === 'closerSla' && current?.activeOrganizationId ? <CloserSlaSettingsWorkspace />
+          : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
           : page === 'closerQueue' && current?.activeOrganizationId ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => setPage('pipeline')} onOpenInbox={(conversationId) => { setInboxConversationSeed(conversationId); setInboxSearchSeed(''); setPage('inbox') }} />
           : page === 'channels' && current?.activeOrganizationId ? <ChannelsWorkspace />
-          : page === 'sofia' && current?.activeOrganizationId ? <SofiaSettingsWorkspace />
+          : page === 'assistant' && current?.activeOrganizationId ? <AssistantSettingsWorkspace />
           : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
           : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace initialSearch={leadSearchSeed} />
           : page === 'accounts' && current?.activeOrganizationId ? <AccountsWorkspace onOpenLeads={(name) => { setLeadSearchSeed(name); setPage('leads') }} />

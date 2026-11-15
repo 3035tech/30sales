@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api } from '../lib/api/client'
 import './ImportsWorkspace.css'
 
-type Provider = 'twenty' | 'chatwoot' | 'sofia_postgres'
+type Provider = 'twenty' | 'chatwoot' | 'legacy_postgres'
 type ImportRecord = { recordType: string; externalId: string; targetType: 'account' | 'person' | 'lead' | 'opportunity'; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }
 const headers = ['recordType', 'externalId', 'targetType', 'accountName', 'contactName', 'email', 'phone', 'sourceStatus'] as const
 
@@ -73,7 +73,7 @@ export function ImportsWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('imports.eyebrow')}</p><h2>{t('imports.title')}</h2><p className="muted">{t('imports.description')}</p></div><button className="refresh" onClick={() => { setResult(null); setRecords([]); setFileName(''); setParseError('') }} aria-label={t('imports.reset')}><RefreshCw size={16} /></button></header>
     <div className="imports-safety"><ShieldCheck size={18} /><span>{t('imports.readOnly')}</span></div>
     <section className="imports-upload">
-      <label>{t('imports.provider')}<select value={provider} onChange={(event) => { setProvider(event.target.value as Provider); setResult(null) }}><option value="twenty">Twenty</option><option value="chatwoot">Chatwoot</option><option value="sofia_postgres">Sofia Postgres</option></select></label>
+      <label>{t('imports.provider')}<select value={provider} onChange={(event) => { setProvider(event.target.value as Provider); setResult(null) }}><option value="twenty">Twenty</option><option value="chatwoot">Chatwoot</option><option value="legacy_postgres">Legacy PostgreSQL</option></select></label>
       <label className="imports-file"><span>{t('imports.csvFile')}</span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></label>
       <p className="imports-format">{t('imports.format')}<code>{headers.join(', ')}</code></p>
       {parseError && <p className="error imports-error">{t(`imports.errors.${parseError}`, { defaultValue: t('imports.errors.invalidCsv') })}</p>}

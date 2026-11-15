@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const sofiaInboundEventSchema = z.object({
+export const assistantInboundEventSchema = z.object({
   organizationId: z.string().uuid(),
   channelId: z.string().uuid(),
   conversationId: z.string().uuid(),
@@ -12,10 +12,10 @@ export const sofiaInboundEventSchema = z.object({
   bodyText: z.string().max(16000).nullable().optional(),
   occurredAt: z.string().datetime(),
 }).strict();
-export type SofiaInboundEventDto = z.infer<typeof sofiaInboundEventSchema>;
+export type AssistantInboundEventDto = z.infer<typeof assistantInboundEventSchema>;
 
-export type SofiaRuntimeMessageDto = { role: 'user' | 'assistant'; content: string };
-export const sofiaAgentResponseSchema = z.object({
+export type AssistantRuntimeMessageDto = { role: 'user' | 'assistant'; content: string };
+export const assistantAgentResponseSchema = z.object({
   replyText: z.string().trim().min(1).max(4096),
   intent: z.enum(['qualification', 'information_request', 'explicit_human_request', 'meeting_request', 'proposal_request', 'not_interested', 'unclear']),
   summary: z.string().trim().min(1).max(1000),
@@ -23,17 +23,17 @@ export const sofiaAgentResponseSchema = z.object({
   unknowns: z.array(z.string().trim().min(1).max(300)).max(12),
   nextStep: z.string().trim().min(1).max(500),
 }).strict();
-export type SofiaAgentResponseDto = z.infer<typeof sofiaAgentResponseSchema>;
+export type AssistantAgentResponseDto = z.infer<typeof assistantAgentResponseSchema>;
 
-export type SofiaRuntimeContextDto = {
-  event: SofiaInboundEventDto;
+export type AssistantRuntimeContextDto = {
+  event: AssistantInboundEventDto;
   enabled: boolean;
   model: string;
   systemPrompt: string;
   automationMode: string;
   ownerUserId: string | null;
   recipientPhone: string;
-  messages: SofiaRuntimeMessageDto[];
+  messages: AssistantRuntimeMessageDto[];
 };
 
-export type SofiaQueueEventDto = { id: string; organizationId: string; payload: unknown; attempts: number };
+export type AssistantQueueEventDto = { id: string; organizationId: string; payload: unknown; attempts: number };

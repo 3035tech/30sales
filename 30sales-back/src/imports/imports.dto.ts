@@ -6,7 +6,7 @@ const externalIdentitySchema = z.object({
 }).strict();
 
 export const checkExternalIdentitiesSchema = z.object({
-  provider: z.enum(['twenty', 'chatwoot', 'sofia_postgres']),
+  provider: z.enum(['twenty', 'chatwoot', 'legacy_postgres']),
   identities: z.array(externalIdentitySchema).min(1).max(500).superRefine((identities, context) => {
     const seen = new Set<string>();
     identities.forEach((identity, index) => {
@@ -46,7 +46,7 @@ const previewRecordSchema = externalIdentitySchema.extend({
 });
 
 export const previewImportsSchema = z.object({
-  provider: z.enum(['twenty', 'chatwoot', 'sofia_postgres']),
+  provider: z.enum(['twenty', 'chatwoot', 'legacy_postgres']),
   records: z.array(previewRecordSchema).min(1).max(100).superRefine((records, context) => {
     const seen = new Set<string>();
     records.forEach((record, index) => {

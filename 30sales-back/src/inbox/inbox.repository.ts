@@ -4,16 +4,16 @@ import { database } from '../db';
 import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto, SofiaQualificationDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto, AssistantQualificationDto } from './inbox.dto';
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing';
 
 @Injectable()
 export class InboxRepository {
-  async isSofiaEnabled(organizationId: string): Promise<boolean> {
+  async isAssistantEnabled(organizationId: string): Promise<boolean> {
     const [settings] = await database.select({ enabled: agentSettings.enabled }).from(agentSettings)
-      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
+      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
     return settings?.enabled ?? false;
   }
 
@@ -41,7 +41,7 @@ export class InboxRepository {
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .where(and(...conditions));
-    const rows = await database.select({ id: conversations.id, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.sofiaQualificationIntent, qualificationSummary: conversations.sofiaQualificationSummary, confirmedFacts: conversations.sofiaConfirmedFacts, unknowns: conversations.sofiaUnknowns, nextStep: conversations.sofiaNextStep, qualificationUpdatedAt: conversations.sofiaQualificationUpdatedAt, unread: unreadExists })
+    const rows = await database.select({ id: conversations.id, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.assistantQualificationIntent, qualificationSummary: conversations.assistantQualificationSummary, confirmedFacts: conversations.assistantConfirmedFacts, unknowns: conversations.assistantUnknowns, nextStep: conversations.assistantNextStep, qualificationUpdatedAt: conversations.assistantQualificationUpdatedAt, unread: unreadExists })
       .from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
@@ -56,7 +56,7 @@ export class InboxRepository {
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
     for (const tag of tagRows) tagsByConversation.set(tag.conversationId, [...(tagsByConversation.get(tag.conversationId) ?? []), new ConversationTagDto(tag.id, tag.name)]);
-    const data = rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new SofiaQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null));
+    const data = rows.map((row) => new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, row.automationMode as ConversationListItemDto['automationMode'], Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null));
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
@@ -150,11 +150,11 @@ export class InboxRepository {
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
-      const ownerUserId = input.mode === 'sofia' ? null : input.mode === 'human' ? input.actorUserId : current.ownerUserId;
+      const ownerUserId = input.mode === 'assistant' ? null : input.mode === 'human' ? input.actorUserId : current.ownerUserId;
       if (current.ownerUserId === ownerUserId && current.automationMode === input.mode) return new ConversationControlResultDto(current.id, current.ownerUserId, input.mode);
       const [updated] = await transaction.update(conversations).set({ ownerUserId, automationMode: input.mode, updatedAt: new Date() })
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: input.mode === 'sofia' ? 'conversation.sofia_resumed' : input.mode === 'paused' ? 'conversation.sofia_paused' : 'conversation.human_mode_set', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: input.mode === 'assistant' ? 'conversation.assistant_resumed' : input.mode === 'paused' ? 'conversation.assistant_paused' : 'conversation.human_mode_set', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: updated.id, occurredAt: new Date().toISOString() })})`);
       return new ConversationControlResultDto(updated.id, updated.ownerUserId, updated.automationMode as ConversationControlResultDto['automationMode']);
     });

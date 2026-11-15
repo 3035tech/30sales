@@ -1,20 +1,49 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, closerEvents } from '../db/schema';
+import { auditEvents, closerEventSlaPolicies, closerEvents } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto } from './closer-events.dto';
+import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto } from './closer-events.dto';
 
 @Injectable()
 export class CloserEventsRepository {
   async list(input: CloserEventsListDto): Promise<CloserEventsPageDto> {
     const conditions = and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.assignedToUserId, input.userId), sql`(${closerEvents.status} = 'new' or (${closerEvents.status} = 'snoozed' and (${closerEvents.snoozedUntil} is null or ${closerEvents.snoozedUntil} <= now())))`);
-    const rows = await database.select({ id: closerEvents.id, eventType: closerEvents.eventType, priority: closerEvents.priority, status: closerEvents.status, conversationId: closerEvents.conversationId, opportunityId: closerEvents.opportunityId, assignedToUserId: closerEvents.assignedToUserId, accountName: sql<string>`(select a.name from conversations c join accounts a on a.id = c.account_id and a.organization_id = c.organization_id where c.id = ${closerEvents.conversationId} and c.organization_id = ${closerEvents.organizationId})`, contactName: sql<string>`(select p.name from conversations c join people p on p.id = c.person_id and p.organization_id = c.organization_id where c.id = ${closerEvents.conversationId} and c.organization_id = ${closerEvents.organizationId})`, summary: closerEvents.summary, evidence: closerEvents.evidence, occurredAt: closerEvents.occurredAt, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil })
+    const rows = await database.select({ id: closerEvents.id, eventType: closerEvents.eventType, priority: closerEvents.priority, status: closerEvents.status, conversationId: closerEvents.conversationId, opportunityId: closerEvents.opportunityId, assignedToUserId: closerEvents.assignedToUserId, accountName: sql<string>`(select a.name from conversations c join accounts a on a.id = c.account_id and a.organization_id = c.organization_id where c.id = ${closerEvents.conversationId} and c.organization_id = ${closerEvents.organizationId})`, contactName: sql<string>`(select p.name from conversations c join people p on p.id = c.person_id and p.organization_id = c.organization_id where c.id = ${closerEvents.conversationId} and c.organization_id = ${closerEvents.organizationId})`, summary: closerEvents.summary, evidence: closerEvents.evidence, occurredAt: closerEvents.occurredAt, dueAt: closerEvents.dueAt, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil })
       .from(closerEvents).where(conditions).orderBy(desc(closerEvents.occurredAt), desc(closerEvents.id)).limit(input.query.limit).offset(input.query.offset);
     const [count] = await database.select({ total: sql<number>`count(*)::int` }).from(closerEvents).where(conditions);
     const total = count?.total ?? 0;
-    const data = rows.map((row) => new CloserEventDto(row.id, row.eventType, row.priority, row.status, row.conversationId, row.opportunityId, row.assignedToUserId, row.accountName, row.contactName, row.summary, row.evidence, row.occurredAt.toISOString(), row.acknowledgedAt?.toISOString() ?? null, row.snoozedUntil?.toISOString() ?? null));
+    const data = rows.map((row) => new CloserEventDto(row.id, row.eventType, row.priority, row.status, row.conversationId, row.opportunityId, row.assignedToUserId, row.accountName, row.contactName, row.summary, row.evidence, row.occurredAt.toISOString(), row.dueAt?.toISOString() ?? null, row.acknowledgedAt?.toISOString() ?? null, row.snoozedUntil?.toISOString() ?? null));
     return new CloserEventsPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
+  }
+
+  async getSlaPolicies(organizationId: string): Promise<CloserEventSlaPolicyDto[]> {
+    const rows = await database.select({ eventType: closerEventSlaPolicies.eventType, targetMinutes: closerEventSlaPolicies.targetMinutes })
+      .from(closerEventSlaPolicies).where(eq(closerEventSlaPolicies.organizationId, organizationId));
+    return rows.map((row) => new CloserEventSlaPolicyDto(row.eventType, row.targetMinutes));
+  }
+
+  async saveSlaPolicies(input: CloserEventSlaPoliciesSaveDto): Promise<CloserEventSlaPolicyDto[]> {
+    return database.transaction(async (transaction) => {
+      const saved: CloserEventSlaPolicyDto[] = [];
+      for (const policy of input.input.policies) {
+        const [current] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+          .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, policy.eventType))).for('update').limit(1);
+        if (current?.targetMinutes === policy.targetMinutes || (!current && policy.targetMinutes === null)) {
+          saved.push(new CloserEventSlaPolicyDto(policy.eventType, current?.targetMinutes ?? null));
+          continue;
+        }
+        if (policy.targetMinutes === null) {
+          await transaction.delete(closerEventSlaPolicies).where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, policy.eventType)));
+        } else {
+          await transaction.insert(closerEventSlaPolicies).values({ organizationId: input.organizationId, eventType: policy.eventType, targetMinutes: policy.targetMinutes, updatedByUserId: input.userId })
+            .onConflictDoUpdate({ target: [closerEventSlaPolicies.organizationId, closerEventSlaPolicies.eventType], set: { targetMinutes: policy.targetMinutes, updatedByUserId: input.userId, updatedAt: new Date() } });
+        }
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'closer_event.sla_policy_updated', entityType: 'closer_event_sla_policy', entityId: null, correlationId: input.correlationId, beforeState: { eventType: policy.eventType, targetMinutes: current?.targetMinutes ?? null }, afterState: { eventType: policy.eventType, targetMinutes: policy.targetMinutes } });
+        saved.push(new CloserEventSlaPolicyDto(policy.eventType, policy.targetMinutes));
+      }
+      return saved;
+    });
   }
 
   async listAssignees(organizationId: string): Promise<CloserEventAssigneeDto[]> {

@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
@@ -229,7 +229,7 @@ export const agentSettings = pgTable('agent_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   unique('agent_settings_org_agent_unique').on(table.organizationId, table.agentKey),
-  check('agent_settings_agent_key_check', sql`${table.agentKey} in ('sofia')`),
+  check('agent_settings_agent_key_check', sql`${table.agentKey} in ('assistant')`),
   check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5')`),
   check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
   index('agent_settings_org_enabled_idx').on(table.organizationId, table.enabled),
@@ -246,13 +246,13 @@ export const conversations = pgTable('conversations', {
   opportunityId: uuid('opportunity_id'),
   status: conversationStatus('status').default('open').notNull(),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
-  automationMode: text('automation_mode').default('sofia').notNull(),
-  sofiaQualificationIntent: text('sofia_qualification_intent'),
-  sofiaQualificationSummary: text('sofia_qualification_summary'),
-  sofiaConfirmedFacts: jsonb('sofia_confirmed_facts').$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
-  sofiaUnknowns: jsonb('sofia_unknowns').$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
-  sofiaNextStep: text('sofia_next_step'),
-  sofiaQualificationUpdatedAt: timestamp('sofia_qualification_updated_at', { withTimezone: true }),
+  automationMode: text('automation_mode').default('assistant').notNull(),
+  assistantQualificationIntent: text('assistant_qualification_intent'),
+  assistantQualificationSummary: text('assistant_qualification_summary'),
+  assistantConfirmedFacts: jsonb('assistant_confirmed_facts').$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
+  assistantUnknowns: jsonb('assistant_unknowns').$type<string[]>().default(sql`'[]'::jsonb`).notNull(),
+  assistantNextStep: text('assistant_next_step'),
+  assistantQualificationUpdatedAt: timestamp('assistant_qualification_updated_at', { withTimezone: true }),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -263,7 +263,7 @@ export const conversations = pgTable('conversations', {
   foreignKey({ name: 'conversations_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('restrict'),
   unique('conversations_id_organization_unique').on(table.id, table.organizationId),
   unique('conversations_provider_external_unique').on(table.organizationId, table.provider, table.externalConversationId),
-  check('conversations_automation_mode_check', sql`${table.automationMode} in ('sofia', 'human', 'paused')`),
+  check('conversations_automation_mode_check', sql`${table.automationMode} in ('assistant', 'human', 'paused')`),
   index('conversations_org_status_last_message_idx').on(table.organizationId, table.status, table.lastMessageAt),
   index('conversations_org_owner_last_message_idx').on(table.organizationId, table.ownerUserId, table.lastMessageAt),
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
@@ -370,6 +370,7 @@ export const closerEvents = pgTable('closer_events', {
   summary: text('summary').notNull(),
   evidence: text('evidence'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  dueAt: timestamp('due_at', { withTimezone: true }),
   acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
   snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
@@ -381,6 +382,21 @@ export const closerEvents = pgTable('closer_events', {
   foreignKey({ name: 'closer_events_message_tenant_fk', columns: [table.sourceMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
   unique('closer_events_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
   index('closer_events_org_assignee_status_time_idx').on(table.organizationId, table.assignedToUserId, table.status, table.occurredAt),
+  index('closer_events_org_assignee_status_due_idx').on(table.organizationId, table.assignedToUserId, table.status, table.dueAt),
+]);
+
+export const closerEventSlaPolicies = pgTable('closer_event_sla_policies', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  eventType: text('event_type').notNull(),
+  targetMinutes: integer('target_minutes').notNull(),
+  updatedByUserId: uuid('updated_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('closer_event_sla_policies_org_type_unique').on(table.organizationId, table.eventType),
+  check('closer_event_sla_policies_event_type_check', sql`${table.eventType} in ('qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure')`),
+  check('closer_event_sla_policies_target_minutes_check', sql`${table.targetMinutes} between 1 and 10080`),
 ]);
 
 

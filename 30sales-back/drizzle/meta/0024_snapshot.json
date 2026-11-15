@@ -1031,7 +1031,7 @@
       "checkConstraints": {
         "agent_settings_agent_key_check": {
           "name": "agent_settings_agent_key_check",
-          "value": "\"agent_settings\".\"agent_key\" in ('sofia')"
+          "value": "\"agent_settings\".\"agent_key\" in ('assistant')"
         },
         "agent_settings_model_check": {
           "name": "agent_settings_model_check",
@@ -1942,42 +1942,42 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'sofia'"
+          "default": "'assistant'"
         },
-        "sofia_qualification_intent": {
-          "name": "sofia_qualification_intent",
+        "assistant_qualification_intent": {
+          "name": "assistant_qualification_intent",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "sofia_qualification_summary": {
-          "name": "sofia_qualification_summary",
+        "assistant_qualification_summary": {
+          "name": "assistant_qualification_summary",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "sofia_confirmed_facts": {
-          "name": "sofia_confirmed_facts",
+        "assistant_confirmed_facts": {
+          "name": "assistant_confirmed_facts",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "sofia_unknowns": {
-          "name": "sofia_unknowns",
+        "assistant_unknowns": {
+          "name": "assistant_unknowns",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
         },
-        "sofia_next_step": {
-          "name": "sofia_next_step",
+        "assistant_next_step": {
+          "name": "assistant_next_step",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "sofia_qualification_updated_at": {
-          "name": "sofia_qualification_updated_at",
+        "assistant_qualification_updated_at": {
+          "name": "assistant_qualification_updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -2200,7 +2200,7 @@
       "checkConstraints": {
         "conversations_automation_mode_check": {
           "name": "conversations_automation_mode_check",
-          "value": "\"conversations\".\"automation_mode\" in ('sofia', 'human', 'paused')"
+          "value": "\"conversations\".\"automation_mode\" in ('assistant', 'human', 'paused')"
         }
       },
       "isRLSEnabled": false

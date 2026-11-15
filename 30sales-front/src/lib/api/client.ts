@@ -14,8 +14,9 @@ const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uui
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), conversationId: z.string().uuid().nullable(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string(), acceptedAt: z.string().nullable(), firstActivityAt: z.string().nullable() });
-const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(), priority: z.string(), status: z.string(), conversationId: z.string().uuid(), opportunityId: z.string().uuid(), assignedToUserId: z.string().uuid(), accountName: z.string(), contactName: z.string(), summary: z.string(), evidence: z.string().nullable(), occurredAt: z.string(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable() });
+const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(), priority: z.string(), status: z.string(), conversationId: z.string().uuid(), opportunityId: z.string().uuid(), assignedToUserId: z.string().uuid(), accountName: z.string(), contactName: z.string(), summary: z.string(), evidence: z.string().nullable(), occurredAt: z.string(), dueAt: z.string().nullable(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable() });
 const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eventType: z.enum(['qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure']), targetMinutes: z.number().int().nullable() })), canManage: z.boolean() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
@@ -26,16 +27,16 @@ const activitySchema = z.object({ id: z.string().uuid(), type: activityType, sub
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
-const sofiaSettingsSchema = z.object({ enabled: z.boolean(), model: z.string(), systemPrompt: z.string(), updatedAt: z.string().nullable(), runtimeAvailable: z.boolean() });
+const assistantSettingsSchema = z.object({ enabled: z.boolean(), model: z.string(), systemPrompt: z.string(), updatedAt: z.string().nullable(), runtimeAvailable: z.boolean() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
-const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['sofia','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema), sofiaQualification: z.object({ intent: z.string(), summary: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), updatedAt: z.string() }).nullable() });
+const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['assistant','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema), assistantQualification: z.object({ intent: z.string(), summary: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), updatedAt: z.string() }).nullable() });
 const conversationPageSchema = z.object({ data: z.array(conversationSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional() });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
 const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const importPreviewCandidateSchema = z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string(), label: z.string(), matchedBy: z.array(z.enum(['external_id','account_name','email','phone'])) });
 const importPreviewRecordSchema = z.object({ recordType: z.string(), externalId: z.string(), targetType: z.enum(['account','person','lead','opportunity']), sourceStatus: z.string().nullable(), status: z.enum(['already_linked','type_conflict','possible_match','ambiguous','no_match']), linkedTarget: z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string() }).nullable(), candidates: z.array(importPreviewCandidateSchema) });
-const importsPreviewSchema = z.object({ provider: z.enum(['twenty','chatwoot','sofia_postgres']), records: z.array(importPreviewRecordSchema) });
+const importsPreviewSchema = z.object({ provider: z.enum(['twenty','chatwoot','legacy_postgres']), records: z.array(importPreviewRecordSchema) });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string() }), activeOrganizationId: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
@@ -50,6 +51,7 @@ export type LeadAssigneeDto = z.infer<typeof leadAssigneeSchema>;
 export type TaskDto = z.infer<typeof taskSchema>;
 export type HandoffDto = z.infer<typeof handoffSchema>;
 export type CloserEventDto = z.infer<typeof closerEventSchema>;
+export type CloserEventSlaSettingsDto = z.infer<typeof closerEventSlaSettingsSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
 export type OpportunityAssigneeDto = z.infer<typeof opportunityAssigneeSchema>;
@@ -60,7 +62,7 @@ export type ActivityDto = z.infer<typeof activitySchema>;
 export type ConversationDto = z.infer<typeof conversationSchema>;
 export type ConversationPageDto = z.infer<typeof conversationPageSchema>;
 export type ChannelDto = z.infer<typeof channelSchema>;
-export type SofiaSettingsDto = z.infer<typeof sofiaSettingsSchema>;
+export type AssistantSettingsDto = z.infer<typeof assistantSettingsSchema>;
 export type CreateChannelInput = { provider: ChannelDto['provider']; displayName: string; phoneNumber: string; providerChannelId: string; providerAccountId?: string };
 export type MessageDto = z.infer<typeof messageSchema>;
 export type AuditEventDto = z.infer<typeof auditEventSchema>;
@@ -116,6 +118,8 @@ export const api = {
       return request(`/api/v1/closer-events?${search.toString()}`, closerEventsPageSchema);
     },
     assignees: () => request('/api/v1/closer-events/assignees', z.array(z.object({ id: z.string().uuid(), name: z.string() }))),
+    slaSettings: () => request('/api/v1/closer-events/sla-policies', closerEventSlaSettingsSchema),
+    saveSlaSettings: (input: { policies: CloserEventSlaSettingsDto['policies'] }) => request('/api/v1/closer-events/sla-policies', closerEventSlaSettingsSchema, { method: 'PUT', body: JSON.stringify(input) }),
     act: (eventId: string, input: { action: 'acknowledge' | 'snooze' | 'reassign' | 'resolve'; snoozedUntil?: string; assignedToUserId?: string }) => request(`/api/v1/closer-events/${encodeURIComponent(eventId)}/actions`, z.object({ id: z.string().uuid(), status: z.string(), assignedToUserId: z.string().uuid(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable(), resolvedAt: z.string().nullable() }), { method: 'PATCH', body: JSON.stringify(input) }),
   },
   inbox: {
@@ -143,10 +147,10 @@ export const api = {
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
     markRead: (conversationId: string, lastInboundMessageId: string | null) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, z.object({ conversationId: z.string().uuid(), lastReadAt: z.string().nullable() }), { method: 'POST', body: JSON.stringify({ lastInboundMessageId }) }),
-    claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),
-    assign: (conversationId: string, ownerUserId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/owner`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
-    release: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/release`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST' }),
-    setAutomationMode: (conversationId: string, mode: 'sofia' | 'paused') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/automation`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['sofia','human','paused']) }), { method: 'POST', body: JSON.stringify(mode) }),
+    claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST' }),
+    assign: (conversationId: string, ownerUserId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/owner`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
+    release: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/release`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST' }),
+    setAutomationMode: (conversationId: string, mode: 'assistant' | 'paused') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/automation`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST', body: JSON.stringify(mode) }),
     setStatus: (conversationId: string, status: 'open' | 'resolved') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/status`, z.object({ id: z.string().uuid(), status: z.enum(['open','resolved']) }), { method: 'PATCH', body: JSON.stringify({ status }) }),
     sendMessage: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
@@ -154,8 +158,8 @@ export const api = {
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),
   },
   agents: {
-    getSofiaSettings: () => request('/api/v1/agents/sofia', sofiaSettingsSchema),
-    saveSofiaSettings: (input: { enabled: boolean; systemPrompt: string }) => request('/api/v1/agents/sofia', sofiaSettingsSchema, { method: 'PUT', body: JSON.stringify(input) }),
+    getAssistantSettings: () => request('/api/v1/agents/assistant', assistantSettingsSchema),
+    saveAssistantSettings: (input: { enabled: boolean; systemPrompt: string }) => request('/api/v1/agents/assistant', assistantSettingsSchema, { method: 'PUT', body: JSON.stringify(input) }),
   },
   channels: {
     list: () => request('/api/v1/channels', z.array(channelSchema)),
@@ -176,7 +180,7 @@ export const api = {
     },
   },
   imports: {
-    preview: (input: { provider: 'twenty' | 'chatwoot' | 'sofia_postgres'; records: Array<{ recordType: string; externalId: string; targetType: 'account' | 'person' | 'lead' | 'opportunity'; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/reconciliation-preview', importsPreviewSchema, { method: 'POST', body: JSON.stringify(input) }),
+    preview: (input: { provider: 'twenty' | 'chatwoot' | 'legacy_postgres'; records: Array<{ recordType: string; externalId: string; targetType: 'account' | 'person' | 'lead' | 'opportunity'; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/reconciliation-preview', importsPreviewSchema, { method: 'POST', body: JSON.stringify(input) }),
   },
 
   leads: {

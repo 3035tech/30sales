@@ -1,0 +1,6 @@
+ALTER TABLE "user_notifications" DROP CONSTRAINT "user_notifications_target_check";--> statement-breakpoint
+ALTER TABLE "user_notifications" DROP CONSTRAINT "user_notifications_type_check";--> statement-breakpoint
+ALTER TABLE "user_notifications" ADD COLUMN "handoff_id" uuid;--> statement-breakpoint
+ALTER TABLE "user_notifications" ADD CONSTRAINT "user_notifications_handoff_tenant_fk" FOREIGN KEY ("handoff_id","organization_id") REFERENCES "public"."handoffs"("id","organization_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "user_notifications" ADD CONSTRAINT "user_notifications_target_check" CHECK (num_nonnulls("user_notifications"."closer_event_id", "user_notifications"."conversation_id", "user_notifications"."task_id", "user_notifications"."handoff_id") = 1);--> statement-breakpoint
+ALTER TABLE "user_notifications" ADD CONSTRAINT "user_notifications_type_check" CHECK ("user_notifications"."notification_type" in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned'));

@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks } from '../db/schema';
-import { user } from '../db/auth-schema';
+import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
+import { member as authMember, user } from '../db/auth-schema';
 import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
 
 const requester = alias(user, 'handoff_requester');
@@ -62,7 +62,7 @@ export class HandoffsRepository {
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
-      .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, input.query.status)))
+      .where(and(eq(handoffs.organizationId, input.organizationId), input.query.handoffId ? eq(handoffs.id, input.query.handoffId) : eq(handoffs.status, input.query.status)))
       .orderBy(desc(handoffs.requestedAt), desc(handoffs.id)).limit(input.query.limit).offset(input.query.offset);
     return rows.map((row) => mapHandoff(row as HandoffRow));
   }
@@ -103,13 +103,15 @@ export class HandoffsRepository {
   async accept(input: HandoffRepositoryAcceptDto): Promise<HandoffRecordDto | null> {
     const acceptedAt = new Date();
     const updated = await database.transaction(async (transaction) => {
-      const [handoff] = await transaction.update(handoffs).set({ status: 'accepted', acceptedByUserId: input.actorUserId, acceptedAt, updatedAt: acceptedAt }).where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'requested'))).returning({ id: handoffs.id, opportunityId: handoffs.opportunityId });
+      const [handoff] = await transaction.update(handoffs).set({ status: 'accepted', acceptedByUserId: input.actorUserId, acceptedAt, updatedAt: acceptedAt }).where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'requested'))).returning({ id: handoffs.id, opportunityId: handoffs.opportunityId, requestedByUserId: handoffs.requestedByUserId });
       if (!handoff) return null;
       const [opportunity] = await transaction.select({ stage: opportunities.stage }).from(opportunities).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
       await transaction.update(opportunities).set({ ownerUserId: input.actorUserId, stage: 'closer_contact_pending', stageChangedAt: acceptedAt, updatedAt: acceptedAt }).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId)));
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: handoff.opportunityId, fromStage: opportunity?.stage ?? null, toStage: 'closer_contact_pending', actorUserId: input.actorUserId, reason: 'Closer accepted the handoff.' });
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: handoff.id, event: 'accepted', actorUserId: input.actorUserId });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'handoff.accepted', entityType: 'handoff', entityId: handoff.id, correlationId: input.correlationId, beforeState: { status: 'requested' }, afterState: { status: 'accepted', opportunityId: handoff.opportunityId } });
+      const [requesterMembership] = await transaction.select({ userId: authMember.userId }).from(authMember).where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, handoff.requestedByUserId))).limit(1);
+      if (requesterMembership) await transaction.insert(userNotifications).values({ organizationId: input.organizationId, recipientUserId: handoff.requestedByUserId, handoffId: handoff.id, notificationType: 'handoff_accepted', idempotencyKey: `handoff-accepted:${handoff.id}:${handoff.requestedByUserId}` }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       const [conversation] = await transaction.update(conversations).set({ ownerUserId: input.actorUserId, automationMode: 'human', status: 'open', updatedAt: acceptedAt })
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.opportunityId, handoff.opportunityId))).returning({ id: conversations.id });
       if (conversation) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: acceptedAt.toISOString() })})`);
@@ -127,7 +129,7 @@ export class HandoffsRepository {
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
         .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'))).for('update', { of: handoffs }).limit(1);
       if (!existing) return null;
-      await transaction.update(handoffs).set({ status: 'returned', returnReason: input.input.reason, updatedAt: returnedAt, returnedAt }).where(and(eq(handoffs.id, existing.id), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted')));
+      await transaction.update(handoffs).set({ status: 'returned', returnReason: input.input.reason, nextStep: input.input.nextStep, nextStepAt: new Date(input.input.dueAt), updatedAt: returnedAt, returnedAt }).where(and(eq(handoffs.id, existing.id), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted')));
       await transaction.update(opportunities).set({ ownerUserId: null, stage: 'qualification', stageChangedAt: returnedAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: existing.opportunityId, fromStage: existing.stage, toStage: 'qualification', actorUserId: input.actorUserId, reason: input.input.reason });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.stage_changed', entityType: 'opportunity', entityId: existing.opportunityId, correlationId: input.correlationId, beforeState: { stage: existing.stage }, afterState: { stage: 'qualification', ownerUserId: null } });
@@ -141,6 +143,8 @@ export class HandoffsRepository {
       await transaction.update(opportunities).set({ nextAction: input.input.nextStep, nextActionAt: dueAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: existing.id, event: 'returned', actorUserId: input.actorUserId, note: input.input.reason });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'handoff.returned', entityType: 'handoff', entityId: existing.id, correlationId: input.correlationId, beforeState: { status: 'accepted' }, afterState: { status: 'returned' } });
+      const [requesterMembership] = await transaction.select({ userId: authMember.userId }).from(authMember).where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, existing.requestedByUserId))).limit(1);
+      if (requesterMembership) await transaction.insert(userNotifications).values({ organizationId: input.organizationId, recipientUserId: existing.requestedByUserId, handoffId: existing.id, notificationType: 'handoff_returned', idempotencyKey: `handoff-returned:${existing.id}:${existing.requestedByUserId}` }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       return existing.id;
     });
     return returnedId ? this.getRecord(input.organizationId, returnedId) : null;

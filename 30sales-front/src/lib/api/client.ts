@@ -18,7 +18,7 @@ const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(
 const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eventType: z.enum(['qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure']), targetMinutes: z.number().int().nullable(), escalateToManagers: z.boolean() })), canManage: z.boolean() });
 const closerSlaNotificationSchema = z.object({ id: z.string().uuid(), closerEventId: z.string().uuid(), conversationId: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated']), eventType: z.string(), summary: z.string(), accountName: z.string().nullable(), dueAt: z.string(), createdAt: z.string() });
-const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue']), conversationId: z.string().uuid().nullable(), taskId: z.string().uuid().nullable(), taskTitle: z.string().nullable(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
+const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned']), conversationId: z.string().uuid().nullable(), taskId: z.string().uuid().nullable(), handoffId: z.string().uuid().nullable(), taskTitle: z.string().nullable(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
 const userNotificationsPageSchema = z.object({ data: z.array(userNotificationSchema), unreadCount: z.number().int().nonnegative() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
@@ -255,9 +255,10 @@ export const api = {
     complete: (id: string, input: { result: z.infer<typeof taskResult>; resultNote?: string; followUp?: { title: string; dueAt: string } }) => request(`/api/v1/leads/tasks/${encodeURIComponent(id)}/complete`, taskSchema, { method: 'PATCH', body: JSON.stringify(input) }),
   },
   handoffs: {
-    list: (status: HandoffDto['status'] = 'requested', params: { limit?: number; offset?: number } = {}) => {
+    list: (status: HandoffDto['status'] = 'requested', params: { limit?: number; offset?: number; handoffId?: string } = {}) => {
       const search = new URLSearchParams({ status, limit: String(params.limit ?? 100) });
       if (params.offset !== undefined) search.set('offset', String(params.offset));
+      if (params.handoffId) search.set('handoffId', params.handoffId);
       return request(`/api/v1/handoffs?${search.toString()}`, z.array(handoffSchema));
     },
     create: (input: { leadId: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: string }) => request('/api/v1/handoffs', handoffSchema, { method: 'POST', body: JSON.stringify(input) }),

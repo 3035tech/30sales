@@ -216,6 +216,24 @@ export const messagingChannels = pgTable('messaging_channels', {
   index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
 ]);
 
+export const agentSettings = pgTable('agent_settings', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  agentKey: text('agent_key').notNull(),
+  enabled: boolean('enabled').default(false).notNull(),
+  model: text('model').default('claude-haiku-4-5-20251001').notNull(),
+  systemPrompt: text('system_prompt').default('').notNull(),
+  updatedByUserId: uuid('updated_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('agent_settings_org_agent_unique').on(table.organizationId, table.agentKey),
+  check('agent_settings_agent_key_check', sql`${table.agentKey} in ('sofia')`),
+  check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-4-5-20251001')`),
+  check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
+  index('agent_settings_org_enabled_idx').on(table.organizationId, table.enabled),
+]);
+
 export const conversations = pgTable('conversations', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

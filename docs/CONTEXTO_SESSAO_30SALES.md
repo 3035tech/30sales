@@ -128,3 +128,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Ícones sem rótulo visível recomendados somente em ações frequentes/unívocas e já nomeadas para tecnologias assistivas (menu móvel, notificações, atualizar, baixar anexo identificado). Manter rótulos visíveis em ações primárias e de contexto.
 - Pendências UX preservadas para as próximas fatias: título duplicado do shell/conteúdo; configurar canal fictício para exercitar thread completa do Inbox; avaliar divisão do bundle acima do aviso de 500 kB.
 - Login sem sessão, estado de solicitação de recuperação e rota sem token vistos no Chrome. Não houve envio de e-mail/reset real. Por preferência persistente, sem build ou testes automatizados nesta fatia; `git diff --check` passou.
+
+## Próxima revisão UX: closer e Pipeline
+
+- Na avaliação do Pipeline, etapas customizadas não existem: dez valores e as transições estão fixos no frontend, enum do PostgreSQL e regras backend. Não há tela “Configurar etapas”. A customização será uma fatia transversal (tenant settings, transições, handoffs/automação, relatórios, permissões e histórico), não apenas um botão na UI.
+- A listagem atual é tenant-scoped e paginada no servidor, padrão 25 (até 100) com “carregar mais”. Para carteiras grandes, planejar modo tabela compacto, paginação direta/cursor, filtros de etapa/responsável/prazo/valor e busca por e-mail/telefone; calcular totais da busca no servidor além do lote visível.
+- Revisão não foi feita logada porque a sessão atual do Chrome expirou e não havia credencial fictícia claramente identificada na lista de preenchimento automático. Evidência veio do código e da inspeção anterior do board com registros de demonstração. Nenhuma credencial foi usada.
+- Detalhes e recomendação em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md), seção “Perspectiva de closer”. Próximo slice de produto recomendado: visão compacta e filtrável de carteira; depois, configuração de etapas com estado de ganho/perda terminal e controle de transição validado pelo backend.

@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Sse } from '@nestjs/common';
+import type { MessageEvent } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -15,6 +17,7 @@ export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listConversationsSchema)) query: ListConversationsQueryDto) { return this.inboxService.list(request, query); }
+  @Sse('events') events(@ApiRequest() request: ApiRequestDto): Promise<Observable<MessageEvent>> { return this.inboxService.events(request); }
   @Get('channels')
   channels(@ApiRequest() request: ApiRequestDto) { return this.inboxService.channels(request); }
   @Get('assignees')

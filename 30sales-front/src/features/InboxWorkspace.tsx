@@ -41,11 +41,15 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const refreshSequence = useRef(0)
   const readCursorKey = useRef('')
   const skipUnreadAutoSelect = useRef(false)
+  const refreshMessagesRef = useRef<() => void>(() => {})
+  const refreshRef = useRef(refresh)
+  const selectedIdRef = useRef(selectedId)
+  refreshRef.current = refresh
+  selectedIdRef.current = selectedId
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (quiet = false) => {
     const sequence = ++refreshSequence.current
-    setLoading(true)
-    setError('')
+    if (!quiet) { setLoading(true); setError('') }
     try {
       const result = await api.inbox.conversations({ conversationId: conversationIdFilter || undefined, channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
       if (sequence !== refreshSequence.current) return
@@ -63,7 +67,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         return result.data[0]?.id ?? ''
       })
     } catch {
-      if (sequence !== refreshSequence.current) return
+      if (sequence !== refreshSequence.current || quiet) return
       setError(t('inbox.loadFailed'))
     } finally {
       if (sequence === refreshSequence.current) setLoading(false)
@@ -103,20 +107,40 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         if (active && initial) setMessagesLoading(false)
       }
     }
+    const reloadMessages = () => { void loadMessages() }
+    refreshMessagesRef.current = reloadMessages
     void loadMessages(true)
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void loadMessages()
-    }, 8000)
-    const refreshOnReturn = () => {
-      if (document.visibilityState === 'visible') void loadMessages()
-    }
-    document.addEventListener('visibilitychange', refreshOnReturn)
     return () => {
       active = false
-      window.clearInterval(timer)
-      document.removeEventListener('visibilitychange', refreshOnReturn)
+      if (refreshMessagesRef.current === reloadMessages) refreshMessagesRef.current = () => {}
     }
   }, [selectedId, t])
+  useEffect(() => {
+    const stream = api.inbox.subscribe()
+    const refreshOnConnect = () => {
+      if (document.visibilityState !== 'visible') return
+      void refreshRef.current(true)
+      refreshMessagesRef.current()
+    }
+    const refreshOnConversationUpdate = (event: Event) => {
+      if (document.visibilityState !== 'visible') return
+      void refreshRef.current(true)
+      try {
+        const update = JSON.parse((event as MessageEvent<string>).data) as { conversationId?: string }
+        if (update.conversationId === selectedIdRef.current) refreshMessagesRef.current()
+      } catch { /* Ignore malformed event data; the next update will retry the refresh. */ }
+    }
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') refreshOnConnect()
+    }
+    stream.addEventListener('ready', refreshOnConnect)
+    stream.addEventListener('conversation.updated', refreshOnConversationUpdate)
+    document.addEventListener('visibilitychange', refreshOnReturn)
+    return () => {
+      stream.close()
+      document.removeEventListener('visibilitychange', refreshOnReturn)
+    }
+  }, [])
   useEffect(() => {
     const lastInbound = [...messages].reverse().find((message) => message.direction === 'inbound')
     if (!selectedId || messagesConversationId !== selectedId || !lastInbound) return

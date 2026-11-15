@@ -80,13 +80,42 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   useEffect(() => {
     if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
+    let requestInFlight = false
     setMessages([])
     setMessagesConversationId('')
     setMessagesLoading(true)
-    api.inbox.messages(selectedId, { limit: 100 }).then((result) => { if (active) { setMessages(result); setMessagesConversationId(selectedId) } })
-      .catch(() => { if (active) setError(t('inbox.messagesFailed')) })
-      .finally(() => { if (active) setMessagesLoading(false) })
-    return () => { active = false }
+    const loadMessages = async (initial = false) => {
+      if (requestInFlight) return
+      requestInFlight = true
+      try {
+        const result = await api.inbox.messages(selectedId, { limit: 100 })
+        if (active) {
+          setMessages((current) => current.length === result.length && current.every((message, index) => {
+            const next = result[index]
+            return message.id === next?.id && message.deliveryState === next.deliveryState && message.bodyText === next.bodyText
+          }) ? current : result)
+          setMessagesConversationId(selectedId)
+        }
+      } catch {
+        if (active && initial) setError(t('inbox.messagesFailed'))
+      } finally {
+        requestInFlight = false
+        if (active && initial) setMessagesLoading(false)
+      }
+    }
+    void loadMessages(true)
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void loadMessages()
+    }, 8000)
+    const refreshOnReturn = () => {
+      if (document.visibilityState === 'visible') void loadMessages()
+    }
+    document.addEventListener('visibilitychange', refreshOnReturn)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refreshOnReturn)
+    }
   }, [selectedId, t])
   useEffect(() => {
     const lastInbound = [...messages].reverse().find((message) => message.direction === 'inbound')

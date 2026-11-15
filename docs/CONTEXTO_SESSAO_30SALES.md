@@ -23,8 +23,8 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `feature/context-sync`; sinais de atendimento humano e perguntas para o closer foram integrados em develop.
-- Último commit em `develop`: `b38ef0d docs: sync 30sales session context`.
+- Branch atual: `feature/closer-buying-intent`; eventos de intenção concreta de avançar estão em implementação.
+- Último commit em `develop`: `9722808 docs: correct current session status`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);
@@ -68,7 +68,7 @@ Evento do closer: quando uma mensagem inbound é persistida em oportunidade com 
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada: adicionar gatilhos de intenção clara de avançar e falha de interpretação; depois, SLA e atualização automática da central. Anexos inbound seguem pendentes até escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada: adicionar gatilho de falha de interpretação; depois, SLA e atualização automática da central. Anexos inbound seguem pendentes até escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
 
 Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
 

@@ -72,12 +72,13 @@ export class WebhooksRepository {
           const isCloserOwned = activeOpportunity && closerMembership;
           const hasAcceptedHandoff = Boolean(acceptedHandoff && activeOpportunity);
           const eventType = input.closerSignal === 'human_requested' && (hasAcceptedHandoff || isCloserOwned) ? 'human_requested'
-            : input.closerSignal === 'question' && (hasAcceptedHandoff || isCloserOwned) ? 'closer_question'
+            : input.closerSignal === 'buying_intent' && (hasAcceptedHandoff || isCloserOwned) ? 'buying_intent'
+              : input.closerSignal === 'question' && (hasAcceptedHandoff || isCloserOwned) ? 'closer_question'
               : hasAcceptedHandoff ? 'lead_replied_after_handoff' : null;
           const assignedToUserId = activeOpportunity ? opportunity?.ownerUserId : null;
           if (eventType && assignedToUserId) {
             const priority = eventType === 'human_requested' ? 'urgent' : 'high';
-            const summary = eventType === 'human_requested' ? 'The lead explicitly asked to speak with a person.' : eventType === 'closer_question' ? 'The lead asked a question while the closer owns the opportunity.' : 'The lead replied after the handoff was accepted.';
+            const summary = eventType === 'human_requested' ? 'The lead explicitly asked to speak with a person.' : eventType === 'buying_intent' ? 'The lead showed concrete intent to move forward.' : eventType === 'closer_question' ? 'The lead asked a question while the closer owns the opportunity.' : 'The lead replied after the handoff was accepted.';
             const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt })
               .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });

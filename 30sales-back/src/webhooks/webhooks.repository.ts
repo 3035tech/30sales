@@ -4,7 +4,7 @@ import { database } from '../db';
 import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { IncomingWhatsappMessageDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
 
 @Injectable()
 export class WebhooksRepository {
@@ -18,6 +18,54 @@ export class WebhooksRepository {
     const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).where(and(eq(messagingChannels.providerChannelId, phoneNumberId), eq(messagingChannels.provider, 'whatsapp_cloud_api'))).limit(2);
     return rows.length === 1 ? rows[0] : null;
+  }
+
+  async findChannel(channelId: string): Promise<WebhookChannelDto | null> {
+    const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(eq(messagingChannels.id, channelId)).limit(1);
+    return row ?? null;
+  }
+
+  async recordInterpretationFailure(input: InterpretationFailureSignalDto): Promise<'created' | 'escalated' | 'already_urgent' | 'duplicate' | 'unmatched' | 'unroutable'> {
+    return database.transaction(async (transaction) => {
+      const [source] = await transaction.select({ messageId: messages.id, conversationId: conversations.id, opportunityId: conversations.opportunityId, occurredAt: messages.occurredAt, bodyText: messages.bodyText })
+        .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.input.externalMessageId), eq(messages.direction, 'inbound'), eq(conversations.channelId, input.channelId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.input.externalConversationId))).limit(1);
+      if (!source) return 'unmatched';
+      if (!source.opportunityId) return 'unroutable';
+
+      const [opportunity] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
+        .where(and(eq(opportunities.id, source.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
+      if (!opportunity?.ownerUserId || ['won', 'lost'].includes(opportunity.stage)) return 'unroutable';
+      const [acceptedHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
+        .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.opportunityId, source.opportunityId), eq(handoffs.status, 'accepted'))).limit(1);
+      const [membership] = await transaction.select({ role: authMember.role }).from(authMember)
+        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, opportunity.ownerUserId))).limit(1);
+      const hasCloserRole = membership?.role.split(',').map((role) => role.trim()).includes('closer') ?? false;
+      if (!acceptedHandoff && !hasCloserRole) return 'unroutable';
+
+      const externalEventId = 'agent.interpretation_failure:' + input.channelId + ':' + input.input.externalMessageId;
+      const [inboxEvent] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId, eventType: 'agent.interpretation_failure', payloadHash: input.payloadHash, payloadRedacted: { sourceMessageId: source.messageId }, status: 'processed', attempts: '1', processedAt: new Date() })
+        .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!inboxEvent) return 'duplicate';
+
+      const idempotencyKey = 'lead-reply:' + source.messageId;
+      const [existing] = await transaction.select({ id: closerEvents.id, eventType: closerEvents.eventType }).from(closerEvents)
+        .where(and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.idempotencyKey, idempotencyKey))).limit(1);
+      let eventId = existing?.id;
+      const outcome: 'created' | 'escalated' = existing ? 'escalated' : 'created';
+      if (existing?.eventType === 'human_requested') return 'already_urgent';
+      const summary = input.input.reason;
+      if (existing) {
+        await transaction.update(closerEvents).set({ eventType: 'interpretation_failure', priority: 'urgent', status: 'new', summary, acknowledgedAt: null, snoozedUntil: null, resolvedAt: null, updatedAt: new Date() })
+          .where(and(eq(closerEvents.id, existing.id), eq(closerEvents.organizationId, input.organizationId)));
+      } else {
+        const [created] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'interpretation_failure', priority: 'urgent', status: 'new', idempotencyKey, conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, summary, evidence: source.bodyText, occurredAt: source.occurredAt }).returning({ id: closerEvents.id });
+        eventId = created.id;
+      }
+      if (eventId) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: existing ? 'closer_event.escalated' : 'closer_event.created', entityType: 'closer_event', entityId: eventId, afterState: { eventType: 'interpretation_failure', priority: 'urgent', conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, reason: input.input.reason } });
+      return outcome;
+    });
   }
 
   async recordIncomingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate'> {

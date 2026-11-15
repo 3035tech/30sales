@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { WebhooksService } from './webhooks.service';
+import { interpretationFailureSignalSchema, type InterpretationFailureSignalInputDto } from './webhooks.dto';
 
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
@@ -18,6 +19,16 @@ export class WebhooksController {
   @Post('evolution/:channelId')
   ingestEvolution(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: RawBodyRequest) {
     return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
+  }
+
+  @Post(':channelId/agent-signals/interpretation-failure')
+  ingestInterpretationFailure(
+    @Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string,
+    @Headers('x-30sales-webhook-key') webhookSecret: string | undefined,
+    @Body(new ZodValidationPipe(interpretationFailureSignalSchema)) payload: InterpretationFailureSignalInputDto,
+    @Req() request: RawBodyRequest,
+  ) {
+    return this.webhooksService.ingestInterpretationFailure(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
   }
 
   @Post('whatsapp-cloud')

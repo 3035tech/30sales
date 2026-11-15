@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { env } from '../config/env';
-import { IncomingWhatsappMessageDto, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
+import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, type InterpretationFailureSignalInputDto, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 
 type JsonRecord = Record<string, unknown>;
@@ -39,6 +39,17 @@ export class WebhooksService {
       }
     }
     return { accepted: true, processed };
+  }
+
+  async ingestInterpretationFailure(channelId: string, webhookSecret: string | undefined, input: InterpretationFailureSignalInputDto, rawBody: Buffer): Promise<{ accepted: true; outcome: string }> {
+    const channel = await this.repository.findChannel(channelId);
+    if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
+    const credentials = this.credentialCrypto.decrypt(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
+    const signalSecret = credentials.provider === 'evolution' ? credentials.webhookSecret : credentials.signalSecret;
+    if (!this.matchesSecret(webhookSecret, signalSecret)) throw new UnauthorizedException();
+    const payloadHash = createHash('sha256').update(rawBody).digest('hex');
+    const outcome = await this.repository.recordInterpretationFailure(new InterpretationFailureSignalDto(channel.organizationId, channel.id, credentials.provider, input, payloadHash));
+    return { accepted: true, outcome };
   }
 
   async ingestCloud(signature: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {

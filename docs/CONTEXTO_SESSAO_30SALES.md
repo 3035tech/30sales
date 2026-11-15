@@ -23,7 +23,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; detecção de intenção concreta de avançar integrada.
+- Branch atual: `feature/closer-interpretation-failure`; contrato explícito de falha/baixa confiança está em implementação.
 - Último commit de funcionalidade em `develop`: `1c4a900 feat(closer): detect buying intent`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
@@ -37,6 +37,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - ações do evento (reconhecer, adiar por uma hora, redistribuir para closer ativo e concluir) integradas em `develop` (`ad89b03`); migration `0021_silent_brood.sql` criada e ainda sem aplicação.
 - 5739e02: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration.
 - 1c4a900: identifica intenção concreta de avançar (reunião/demo, proposta/orçamento e início de contratação/teste) como buying_intent alta; pedido humano mantém prioridade urgente. Considera negação por frase e mantém idempotência/roteamento existentes. Sem migration. Build/testes não executados por orientação.
+- Nova feature recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica, correlaciona a mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime Sofia ainda pendente.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0021_silent_brood.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
@@ -65,7 +66,7 @@ Limitação tratada: callback sem mensagem local é ignorado, então a corrida r
 
 Leitura não lida é individual: `POST /api/v1/conversations/:id/read` recebe o ID da última inbound carregada, valida conversa/tenant/direção e avança `conversation_reads.last_read_at` ao `created_at` dessa mensagem. `GET /api/v1/conversations` inclui `unread` e aceita `unreadOnly=true`. Migration `0019_outstanding_stryfe.sql` cria a tabela cursor tenant-scoped e índice de mensagens para consulta. A UI marca leitura após carregar mensagens, exibe selo e permite filtrar apenas não lidas. Não aplicar migrations ainda.
 
-Evento do closer: quando uma mensagem inbound é persistida em oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner. A feature integrada implementa: pedido explícito para falar com pessoa vira `human_requested` urgente; pergunta numa oportunidade ativa atribuída a closer vira `closer_question` alta; intenção concreta (reunião/demo, proposta/orçamento, contratação/teste) vira `buying_intent` alta; ambos reutilizam uma ocorrência por mensagem. Pedido humano depende de oportunidade ativa com closer dono ou handoff aceito; não há roteamento de lead sem oportunidade/owner. Os demais fluxos (reconhecer, adiar, redistribuir, concluir) estão integrados em `develop`. Migrations `0020` e `0021` não foram aplicadas. SLA e polling/push seguem pendentes.
+Evento do closer: quando uma mensagem inbound é persistida em oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner. As features integradas implementam: pedido explícito para falar com pessoa vira `human_requested` urgente; pergunta numa oportunidade ativa atribuída a closer vira `closer_question` alta; intenção concreta (reunião/demo, proposta/orçamento, contratação/teste) vira `buying_intent` alta; sinal explícito da Sofia pode criar/elevar `interpretation_failure` urgente via webhook autenticado; ambos reutilizam uma ocorrência por mensagem. Pedido humano depende de oportunidade ativa com closer dono ou handoff aceito; não há roteamento de lead sem oportunidade/owner. Os demais fluxos (reconhecer, adiar, redistribuir, concluir) estão integrados em `develop`. Migrations `0020` e `0021` não foram aplicadas. SLA e polling/push seguem pendentes.
 
 ## Próximo passo recomendado
 

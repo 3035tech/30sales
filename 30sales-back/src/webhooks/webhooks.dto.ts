@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export type WebhookProvider = 'evolution' | 'whatsapp_cloud_api';
 
 export type WebhookChannelDto = {
@@ -43,3 +45,19 @@ export class WhatsappMessageStatusDto {
   ) {}
 }
 
+
+export const interpretationFailureSignalSchema = z.object({
+  externalConversationId: z.string().trim().min(1).max(300),
+  externalMessageId: z.string().trim().min(1).max(250),
+  reason: z.string().trim().min(3).max(500),
+}).strict();
+export type InterpretationFailureSignalInputDto = z.infer<typeof interpretationFailureSignalSchema>;
+export class InterpretationFailureSignalDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly provider: WebhookProvider,
+    readonly input: InterpretationFailureSignalInputDto,
+    readonly payloadHash: string,
+  ) {}
+}

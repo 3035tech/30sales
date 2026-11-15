@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
 import './Pipeline.css'
@@ -23,6 +24,8 @@ function localDateTime(value?: string) {
 
 export function PipelineWorkspace() {
   const { t, i18n } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const opportunityId = searchParams.get('opportunityId') ?? undefined
   const [view, setView] = useState<PipelineView>('mine')
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
   const [assignableClosers, setAssignableClosers] = useState<OpportunityAssigneeDto[] | null>(null)
@@ -32,15 +35,15 @@ export function PipelineWorkspace() {
   const [error, setError] = useState('')
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
-    try { const page = await api.opportunities.list({ view, limit: 100 }); setOpportunities(page); setHasMore(page.length === 100) }
+    try { const page = await api.opportunities.list({ view, opportunityId, limit: 100 }); setOpportunities(page); setHasMore(!opportunityId && page.length === 100) }
     catch { setError(t('errors.loadPipeline')) }
     finally { setLoading(false) }
-  }, [view, t])
+  }, [opportunityId, view, t])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { api.opportunities.assignees().then(setAssignableClosers).catch(() => setAssignableClosers(null)) }, [])
   const loadMore = async () => {
     setLoadingMore(true); setError('')
-    try { const page = await api.opportunities.list({ view, limit: 100, offset: opportunities.length }); setOpportunities((current) => [...current, ...page]); setHasMore(page.length === 100) }
+    try { const page = await api.opportunities.list({ view, opportunityId, limit: 100, offset: opportunities.length }); setOpportunities((current) => [...current, ...page]); setHasMore(!opportunityId && page.length === 100) }
     catch { setError(t('errors.loadPipeline')) }
     finally { setLoadingMore(false) }
   }
@@ -54,7 +57,7 @@ export function PipelineWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('pipeline.eyebrow')}</p><h2>{t('pipeline.title')}</h2><p className="muted">{t('pipeline.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('pipeline.refresh')}><RefreshCw size={16} /></button></header>
     <div className="pipeline-metrics"><article><span><TrendingUp size={16} />{t('pipeline.openDeals')}</span><strong>{active.length}</strong></article><article><span><CalendarClock size={16} />{t('pipeline.openValue')}</span><strong>{exposedValue}</strong></article><article className={atRisk ? 'risk' : ''}><span><AlertTriangle size={16} />{t('pipeline.atRisk')}</span><strong>{atRisk}</strong></article></div>
     <div className="pipeline-views" role="tablist" aria-label={t('pipeline.views')}>
-      {(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => setView(item)}>{t(`pipeline.viewsList.${item}`)}</button>)}
+      {(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => { setView(item); if (opportunityId) setSearchParams({}) }}>{t(`pipeline.viewsList.${item}`)}</button>)}
     </div>
     {error && opportunities.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && opportunities.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}

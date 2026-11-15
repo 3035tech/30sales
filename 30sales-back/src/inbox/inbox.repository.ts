@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messageAttachments, messages, messagingChannels, people } from '../db/schema';
+import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
@@ -139,7 +139,8 @@ export class InboxRepository {
       if (current.ownerUserId === input.ownerUserId && current.automationMode === 'human') return new ConversationControlResultDto(current.id, input.ownerUserId, 'human');
       const [updated] = await transaction.update(conversations).set({ ownerUserId: input.ownerUserId, automationMode: 'human', updatedAt: new Date() })
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.assigned', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
+      const [auditEvent] = await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.assigned', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } }).returning({ id: auditEvents.id });
+      if (input.ownerUserId !== input.actorUserId) await transaction.insert(userNotifications).values({ organizationId: input.organizationId, recipientUserId: input.ownerUserId, conversationId: updated.id, notificationType: 'conversation_assigned', idempotencyKey: `conversation-assigned:${auditEvent.id}` }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: updated.id, occurredAt: new Date().toISOString() })})`);
       return new ConversationControlResultDto(updated.id, updated.ownerUserId, updated.automationMode as ConversationControlResultDto['automationMode']);
     });

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, people } from '../db/schema';
+import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -104,6 +104,25 @@ export class WebhooksRepository {
       if (message) {
         await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
+        await transaction.insert(outboxEvents).values({
+          organizationId: input.organizationId,
+          eventType: 'agent.inbound_message_received',
+          aggregateType: 'conversation',
+          aggregateId: conversationId,
+          idempotencyKey: `agent-inbound:${message.id}`,
+          payload: {
+            organizationId: input.organizationId,
+            channelId: input.channelId,
+            conversationId,
+            messageId: message.id,
+            provider: input.provider,
+            externalConversationId: input.externalConversationId,
+            externalMessageId: input.externalMessageId,
+            messageType: input.messageType,
+            bodyText: input.bodyText,
+            occurredAt: input.occurredAt.toISOString(),
+          },
+        }).onConflictDoNothing({ target: [outboxEvents.organizationId, outboxEvents.idempotencyKey] });
         if (opportunityId) {
           const [opportunity] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
             .where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Clock3, MessageCircle, RefreshCw, Search, ShieldAlert, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
@@ -61,10 +61,44 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const [eventAssignTarget, setEventAssignTarget] = useState('')
   const [eventAssignId, setEventAssignId] = useState('')
   const [refresh, setRefresh] = useState(0)
+  const queueLoadInProgressRef = useRef(false)
+  const pendingRefreshRef = useRef(false)
+  const hasLoadedQueueRef = useRef(false)
+  const mountedRef = useRef(true)
+  const requestRefresh = useCallback(() => {
+    if (queueLoadInProgressRef.current) {
+      pendingRefreshRef.current = true
+      return
+    }
+    setRefresh((version) => version + 1)
+  }, [])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  useEffect(() => {
+    const refreshIfVisible = () => {
+      if (document.visibilityState === 'visible') requestRefresh()
+    }
+    const interval = window.setInterval(refreshIfVisible, 30_000)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
+  }, [requestRefresh])
 
   useEffect(() => {
     let active = true
-    setLoading(true); setError(''); setPartial(false); setHandoffs([]); setOpportunities([]); setCloserEvents([])
+    if (queueLoadInProgressRef.current) {
+      pendingRefreshRef.current = true
+      return () => { active = false }
+    }
+    queueLoadInProgressRef.current = true
+    if (!hasLoadedQueueRef.current) setLoading(true)
+    setError(''); setPartial(false)
     Promise.allSettled([listAllRequestedHandoffs(), listAllOwnedOpportunities(), listAllCloserEvents(), api.closerEvents.assignees()]).then(([handoffResult, opportunityResult, eventResult, assigneeResult]) => {
       if (!active) return
       if (handoffResult.status === 'fulfilled') setHandoffs(handoffResult.value)
@@ -73,13 +107,23 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
       if (assigneeResult.status === 'fulfilled') setEventAssignees(assigneeResult.value)
       const failed = Number(handoffResult.status === 'rejected') + Number(opportunityResult.status === 'rejected') + Number(eventResult.status === 'rejected') + Number(assigneeResult.status === 'rejected')
       setPartial(failed > 0 && failed < 4); setError(failed === 4 ? t('closerQueue.loadFailed') : '')
-    }).finally(() => { if (active) setLoading(false) })
+    }).finally(() => {
+      queueLoadInProgressRef.current = false
+      if (active) {
+        hasLoadedQueueRef.current = true
+        setLoading(false)
+      }
+      if (pendingRefreshRef.current && mountedRef.current) {
+        pendingRefreshRef.current = false
+        requestRefresh()
+      }
+    })
     return () => { active = false }
-  }, [refresh, t])
+  }, [refresh, t, requestRefresh])
 
   const acceptHandoff = async (handoff: HandoffDto) => {
     setAcceptingId(handoff.id); setError('')
-    try { await api.handoffs.accept(handoff.id); setRefresh((version) => version + 1) }
+    try { await api.handoffs.accept(handoff.id); requestRefresh() }
     catch { setError(t('closerQueue.acceptFailed')) }
     finally { setAcceptingId('') }
   }
@@ -95,7 +139,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
     setAcceptingId(event.id); setError('')
     try {
       await api.closerEvents.act(event.id, input)
-      setEventAssignTarget(''); setEventAssignId(''); setRefresh((version) => version + 1)
+      setEventAssignTarget(''); setEventAssignId(''); requestRefresh()
     } catch { setError(t('closerQueue.eventActionFailed')) }
     finally { setAcceptingId('') }
   }
@@ -139,7 +183,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const emptyState = <div><strong>{error || t('closerQueue.empty')}</strong>{partial && <p>{t('closerQueue.partial')}</p>}</div>
 
   return <section className="closer-queue-page">
-    <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><button className="refresh" type="button" onClick={() => setRefresh((version) => version + 1)} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></button></header>
+    <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><button className="refresh" type="button" onClick={requestRefresh} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></button></header>
     <div className="closer-queue-summary"><article className="summary-handoffs"><span><UserRoundCheck size={15} />{t('closerQueue.summary.handoffs')}</span><strong>{handoffCount}</strong></article><article className="summary-replies"><span><MessageCircle size={15} />{t('closerEventActions.eventsSummary')}</span><strong>{replyCount}</strong></article><article className="summary-overdue"><span><Clock3 size={15} />{t('closerQueue.summary.overdue')}</span><strong>{overdueCount}</strong></article><article><span><ShieldAlert size={15} />{t('closerQueue.summary.noAction')}</span><strong>{noActionCount}</strong></article></div>
     {partial && <p className="closer-queue-partial">{t('closerQueue.partial')}</p>}
     <DataTable rows={pageRows} columns={columns} getRowId={(item) => item.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: items.length, hasNextPage: offset + limit < items.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={emptyState} filters={<>

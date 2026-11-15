@@ -160,7 +160,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
   useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
-  const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign') => {
+  const controlConversation = async (action: 'claim' | 'release' | 'sofia' | 'pause' | 'assign' | 'resolve' | 'reopen') => {
     if (!selected) return
     setControlling(true)
     setError('')
@@ -168,6 +168,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       if (action === 'claim') await api.inbox.claim(selected.id)
       else if (action === 'release') await api.inbox.release(selected.id)
       else if (action === 'assign') await api.inbox.assign(selected.id, assigneeTarget)
+      else if (action === 'resolve' || action === 'reopen') await api.inbox.setStatus(selected.id, action === 'resolve' ? 'resolved' : 'open')
       else await api.inbox.setAutomationMode(selected.id, action === 'sofia' ? 'sofia' : 'paused')
       await refresh()
     } catch {
@@ -245,6 +246,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {selected.ownerUserId === currentUserId && selected.automationMode === 'human' && <button type="button" disabled={controlling} onClick={() => void controlConversation('pause')}>{t('inbox.pauseSofia')}</button>}
             {selected.automationMode === 'paused' && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <button type="button" disabled={controlling} onClick={() => void controlConversation('sofia')}>{t('inbox.resumeSofia')}</button>}
             {selected.ownerUserId === currentUserId && <button type="button" disabled={controlling} onClick={() => void controlConversation('release')}>{t('inbox.release')}</button>}
+            {selected.ownerUserId === currentUserId && selected.status !== 'resolved' && <button type="button" disabled={controlling} onClick={() => void controlConversation('resolve')}>{t('inbox.resolve')}</button>}
+            {selected.ownerUserId === currentUserId && selected.status === 'resolved' && <button type="button" disabled={controlling} onClick={() => void controlConversation('reopen')}>{t('inbox.reopen')}</button>}
             <span className="tag">{t(`inbox.status.${selected.status}`)}</span></div></header>
           <div className="inbox-tag-manager"><strong>{t('inboxComposer.tagsLabel')}</strong><div className="inbox-tag-list">{selected.tags.map((tag) => <span key={tag.id}>{tag.name}{canEditTags && <button type="button" aria-label={t('inboxComposer.removeTag', { name: tag.name })} disabled={tagBusy} onClick={() => void removeTag(tag.id)}>×</button>}</span>)}</div>{canEditTags && <div><input value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} maxLength={32} placeholder={t('inboxComposer.tagPlaceholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addTag() } }} /><button type="button" disabled={tagBusy || tagDraft.trim().length < 2} onClick={() => void addTag()}>{tagBusy ? t('common.saving') : t('inboxComposer.addTag')}</button></div>}</div>
           <div className="inbox-messages" aria-live="polite">

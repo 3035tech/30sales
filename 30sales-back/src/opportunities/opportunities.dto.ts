@@ -3,7 +3,24 @@ import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.const
 
 const stageSchema = z.enum(OPPORTUNITY_STAGES);
 
-export const listOpportunitiesSchema = z.object({ stage: stageSchema.optional(), opportunityId: z.string().uuid().optional(), view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'), search: z.string().trim().max(200).optional(), sortBy: z.enum(['nextActionAt', 'accountName', 'contactName', 'stageChangedAt']).default('nextActionAt'), sortDirection: z.enum(['asc', 'desc']).default('asc'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listOpportunitiesSchema = z.object({
+  stage: stageSchema.optional(),
+  pipelineStageKey: z.string().uuid().optional(),
+  opportunityId: z.string().uuid().optional(),
+  view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'),
+  assignedToUserId: z.union([z.literal('unassigned'), z.string().uuid()]).optional(),
+  dueAfter: z.string().datetime({ offset: true }).optional(),
+  dueBefore: z.string().datetime({ offset: true }).optional(),
+  noNextAction: z.enum(['true']).optional(),
+  search: z.string().trim().max(200).optional(),
+  sortBy: z.enum(['nextActionAt', 'accountName', 'contactName', 'stageChangedAt', 'opportunityName', 'stage', 'ownerName']).default('nextActionAt'),
+  sortDirection: z.enum(['asc', 'desc']).default('asc'),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+}).strict().superRefine((query, context) => {
+  if (query.pipelineStageKey && query.stage !== 'custom') context.addIssue({ code: 'custom', message: 'A custom stage key requires stage=custom.', path: ['pipelineStageKey'] });
+  if (query.dueAfter && query.dueBefore && new Date(query.dueAfter) > new Date(query.dueBefore)) context.addIssue({ code: 'custom', message: 'The due date range is invalid.', path: ['dueAfter'] });
+});
 export type ListOpportunitiesQueryDto = z.infer<typeof listOpportunitiesSchema>;
 
 export const transitionOpportunitySchema = z.object({

@@ -131,16 +131,21 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 ## Próxima revisão UX: closer e Pipeline
 
-- Na avaliação do Pipeline, etapas customizadas não existem: dez valores e as transições estão fixos no frontend, enum do PostgreSQL e regras backend. Não há tela “Configurar etapas”. A customização será uma fatia transversal (tenant settings, transições, handoffs/automação, relatórios, permissões e histórico), não apenas um botão na UI.
-- A listagem atual é tenant-scoped e paginada no servidor, padrão 25 (até 100) com “carregar mais”. Para carteiras grandes, planejar modo tabela compacto, paginação direta/cursor, filtros de etapa/responsável/prazo/valor e busca por e-mail/telefone; calcular totais da busca no servidor além do lote visível.
+- Etapas customizadas já foram implementadas e integradas; a tela “Configurar etapas” fica disponível a owner/admin/manager e suas migrations `0035`/`0036` seguem geradas, não aplicadas.
+- A carteira agora tem quadro e lista compacta, busca por e-mail/telefone e filtros por etapa/responsável/prazo, ordenação por colunas e paginação direta server-side. Os indicadores ainda representam registros carregados, não o resultado total filtrado.
 - Revisão não foi feita logada porque a sessão atual do Chrome expirou e não havia credencial fictícia claramente identificada na lista de preenchimento automático. Evidência veio do código e da inspeção anterior do board com registros de demonstração. Nenhuma credencial foi usada.
-- Detalhes em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md), seção “Perspectiva de closer”. Gestão de etapas foi integrada em `develop`; próximo slice recomendado: visão compacta e filtros adicionais para carteira grande.
+- Detalhes e limites em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md), seção “Perspectiva de closer”. Próximos ganhos: agregados server-side para a busca inteira e paginação por cursor se o volume real justificar.
 
-## Etapas configuráveis do Pipeline — implementação em andamento
+## Etapas configuráveis do Pipeline — concluído
 
-- Branch atual: `develop`.
+- Integrada em `develop` no merge `413163d` (feature commit `5e4d3d9`).
 - Owner/admin/manager pode criar, renomear, reordenar e arquivar etapas abertas customizadas em Configurações > Etapas do pipeline; o closer vê as etapas no board e pode avançar oportunidades com validação tenant-scoped no backend. Etapas padrão mantêm transições legadas; “Ganha” e “Perdida” permanecem terminais.
 - Histórico, handoffs, relatórios e fila do closer reconhecem o nome/chave de etapas customizadas. A chave do tenant é parte das FKs compostas para impedir referências cruzadas.
 - Migrations Drizzle `0035_curvy_tattoo.sql` (enum isolado para respeitar a transação do PostgreSQL) e `0036_sparkling_vengeance.sql` (schema e constraints) geradas e **não aplicadas**.
 - `git diff --check` passou. Não rodei build/testes nem inspeção autenticada no Chrome nesta fatia por preferência persistente e sessão expirada.
-- Integrada em `develop` no merge `413163d` (feature commit `5e4d3d9`). A melhoria compacta da carteira para grandes volumes segue pendente.
+
+## Carteira compacta do Pipeline — implementação em andamento
+
+- Branch atual: `feature/closer-compact-pipeline`.
+- A lista compacta inclui busca por empresa, contato, e-mail, telefone, negócio, próxima ação e responsável; filtros server-side por etapa, responsável e prazo; ordenação nas colunas; salto de página; expansão sob demanda dos controles completos da oportunidade.
+- Sem alteração de schema ou migration. Sem build/testes por preferência; revisar diff e executar `git diff --check` antes da integração.

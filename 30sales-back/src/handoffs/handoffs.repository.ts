@@ -14,11 +14,21 @@ function mapHandoff(row: HandoffRow): HandoffRecordDto {
 }
 
 const firstCustomerActivityAt = sql<Date | null>`(
-  select min(a.occurred_at) from activities a
-  where a.organization_id = ${handoffs.organizationId}
-    and a.opportunity_id = ${handoffs.opportunityId}
-    and a.type in ('call', 'meeting', 'email', 'message')
-    and a.occurred_at >= ${handoffs.acceptedAt}
+  select min(first_activity.occurred_at) from (
+    select a.occurred_at from activities a
+    where a.organization_id = ${handoffs.organizationId}
+      and a.opportunity_id = ${handoffs.opportunityId}
+      and a.type in ('call', 'meeting', 'email', 'message')
+      and a.occurred_at >= ${handoffs.acceptedAt}
+    union all
+    select m.occurred_at from messages m
+    inner join conversations c on c.id = m.conversation_id and c.organization_id = m.organization_id
+    where c.organization_id = ${handoffs.organizationId}
+      and c.opportunity_id = ${handoffs.opportunityId}
+      and m.direction = 'outbound' and m.actor_type = 'user'
+      and m.delivery_state in ('accepted', 'delivered', 'read')
+      and m.occurred_at >= ${handoffs.acceptedAt}
+  ) first_activity
 )`;
 const handoffRecordSelection = {
   id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId,

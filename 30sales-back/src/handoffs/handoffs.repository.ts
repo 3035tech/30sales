@@ -103,7 +103,7 @@ export class HandoffsRepository {
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.opportunityId, handoff.opportunityId))).returning({ id: conversations.id });
       if (conversation) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: acceptedAt.toISOString() })})`);
       await transaction.update(closerEvents).set({ status: 'resolved', resolvedAt: acceptedAt, updatedAt: acceptedAt })
-        .where(and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.opportunityId, handoff.opportunityId), eq(closerEvents.eventType, 'qualified_handoff'), inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed'])));
+        .where(and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.opportunityId, handoff.opportunityId), inArray(closerEvents.eventType, ['qualified_handoff', 'human_requested']), inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed'])));
       return handoff;
     });
     return updated ? this.getRecord(input.organizationId, updated.id) : null;

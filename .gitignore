@@ -4,6 +4,7 @@
 # Build and test artifacts
 **/dist/
 **/coverage/
+**/var/media/
 **/.turbo/
 **/.next/
 **/*.tsbuildinfo

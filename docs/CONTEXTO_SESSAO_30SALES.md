@@ -6,6 +6,7 @@
 - A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
 - Fatia integrada em `develop` no merge `9fe6c26` a partir de `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
 - Fatia integrada em `develop` no merge `85609b5` (feature `91e4492`): alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
+- Fatia em andamento `feature/inbound-media-attachments`: Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs em diretório privado fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. `MEDIA_STORAGE_DIR` deve apontar em produção para volume durável compartilhado.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
 
@@ -32,7 +33,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; polling automático da central e notificações de SLA integrados.
+- Base desta fatia: `develop` com polling automático da central e notificações de SLA; branch atual `feature/inbound-media-attachments`.
 - Último commit de funcionalidade em `develop`: `8ee33dd feat(closer): auto refresh work queue`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
@@ -49,7 +50,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - 8849abc: recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica com segredo próprio de canal, correlaciona mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime do assistente foi feita em fatia posterior.
 - 8ee33dd: adiciona polling da central a cada 30 segundos quando visível e ao retornar à aba, sem limpar os itens durante a atualização. Sem migration.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
-- Migrations geradas até `0028_legal_psynapse.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
+- Migrations geradas até `0029_thin_plazm.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
 
 ## Comportamento inbound entregue no código
@@ -57,9 +58,9 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - Meta Cloud API: callback GET verifica `META_WEBHOOK_VERIFY_TOKEN`; POST valida HMAC SHA-256 em `X-Hub-Signature-256` usando `META_APP_SECRET` e o corpo bruto.
 - Evolution: `POST /api/v1/webhooks/evolution/:channelId` exige `X-30Sales-Webhook-Key`, segredo exclusivo de webhook por canal; verifica também a instância configurada. A API key de envio é separada.
 - Evolution `MESSAGES_UPSERT` e Cloud `entry[].changes[].value.messages` são deduplicados em `inbox_events` e persistidos com tenant, contato, conversa e mensagem. Conversa inbound reabre como `open`.
-- Ignora eventos Evolution originados pelo próprio número, grupos, broadcast e LID sem telefone resolvível. Texto/caption e algumas respostas interativas são extraídos; mídia sem texto fica sem anexos estruturados por enquanto.
+- Ignora eventos Evolution originados pelo próprio número, grupos, broadcast e LID sem telefone resolvível. Texto/caption e algumas respostas interativas são extraídos. Esta fatia adiciona anexos de imagem, vídeo, áudio, documento e figurinha, com payload de recuperação cifrado, download por adapter e blob fora do PostgreSQL.
 - Identidade só associa a pessoa/lead/oportunidade quando encontrada no tenant. Número desconhecido pode criar Person sem inventar conta ou lead.
-- Conversa nova inicia com automação `paused`, owner vazio; runtime da Sofia ainda não foi ligado ao 30Sales.
+- Conversa nova inicia em `assistant` se o tenant habilitou o agente; sem configuração, inicia em `paused`. Ownership humano permanece separado da origem/número do canal.
 - Configuração e instruções de callback foram acrescentadas a `.env.example`, tela de canais e documentação. `META_APP_SECRET` e `META_WEBHOOK_VERIFY_TOKEN` são configurações do servidor.
 
 ## Última fatia concluída: status outbound do WhatsApp
@@ -76,11 +77,11 @@ Limitação tratada: callback sem mensagem local é ignorado, então a corrida r
 
 Leitura não lida é individual: `POST /api/v1/conversations/:id/read` recebe o ID da última inbound carregada, valida conversa/tenant/direção e avança `conversation_reads.last_read_at` ao `created_at` dessa mensagem. `GET /api/v1/conversations` inclui `unread` e aceita `unreadOnly=true`. Migration `0019_outstanding_stryfe.sql` cria a tabela cursor tenant-scoped e índice de mensagens para consulta. A UI marca leitura após carregar mensagens, exibe selo e permite filtrar apenas não lidas. Não aplicar migrations ainda.
 
-Evento do closer: quando uma mensagem inbound é persistida em oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner. As features integradas implementam: pedido explícito para falar com pessoa vira `human_requested` urgente; pergunta numa oportunidade ativa atribuída a closer vira `closer_question` alta; intenção concreta (reunião/demo, proposta/orçamento, contratação/teste) vira `buying_intent` alta; sinal explícito da Sofia pode criar/elevar `interpretation_failure` urgente via webhook autenticado; ambos reutilizam uma ocorrência por mensagem. Pedido humano depende de oportunidade ativa com closer dono ou handoff aceito; não há roteamento de lead sem oportunidade/owner. Os demais fluxos (reconhecer, adiar, redistribuir, concluir) estão integrados em `develop`. Migrations `0020` e `0021` não foram aplicadas. SLA e push seguem pendentes; polling da central está integrado.
+Evento do closer: quando uma mensagem inbound é persistida em oportunidade com handoff aceito, cria `closer_events` idempotente e atribuído ao owner. As features integradas implementam: pedido explícito para falar com pessoa vira `human_requested` urgente; pergunta numa oportunidade ativa atribuída a closer vira `closer_question` alta; intenção concreta (reunião/demo, proposta/orçamento, contratação/teste) vira `buying_intent` alta; sinal explícito de falha de interpretação pode criar/elevar `interpretation_failure` urgente via webhook autenticado; os sinais reutilizam uma ocorrência por mensagem. Pedido humano depende de oportunidade ativa com closer dono ou handoff aceito; não há roteamento de lead sem oportunidade/owner. Os demais fluxos (reconhecer, adiar, redistribuir, concluir) estão integrados em `develop`. Migrations `0020` e `0021` não foram aplicadas. SLA configurável, notificações in-app e polling da central estão integrados; canais externos de notificação seguem pendentes.
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada após integrar as notificações de SLA: anexos inbound, depois health check/cadastro de conexão. Para anexos, escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada após integrar anexos: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar `MEDIA_STORAGE_DIR` em volume durável compartilhado; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
 
 Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspondência; revisar canais externos de notificação quando houver requisito explícito.
 

@@ -1,6 +1,21 @@
 import { z } from 'zod';
 
 export type WebhookProvider = 'evolution' | 'whatsapp_cloud_api';
+export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker';
+
+export class InboundMediaDto {
+  constructor(
+    readonly mediaType: InboundMediaType,
+    readonly sourceMediaId: string | null,
+    readonly sourceCiphertext: string,
+    readonly sourceIv: string,
+    readonly sourceAuthTag: string,
+    readonly mimeType: string | null,
+    readonly fileName: string | null,
+    readonly sizeBytes: number | null,
+    readonly sha256: string | null,
+  ) {}
+}
 
 export type WebhookChannelDto = {
   id: string;
@@ -27,6 +42,7 @@ export class IncomingWhatsappMessageDto {
     readonly bodyText: string | null,
     readonly occurredAt: Date,
     readonly payloadHash: string,
+    readonly media: InboundMediaDto | null = null,
   ) {}
 }
 

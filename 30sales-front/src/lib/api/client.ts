@@ -32,7 +32,8 @@ const assistantSettingsSchema = z.object({ enabled: z.boolean(), model: z.string
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['assistant','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema), assistantQualification: z.object({ intent: z.string(), summary: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), updatedAt: z.string() }).nullable() });
 const conversationPageSchema = z.object({ data: z.array(conversationSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
-const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional() });
+const attachmentSchema = z.object({ id: z.string().uuid(), mediaType: z.enum(['image','video','audio','document','sticker']), mimeType: z.string().nullable(), fileName: z.string().nullable(), sizeBytes: z.number().int().nullable(), status: z.enum(['pending','processing','available','failed']) });
+const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional(), attachments: z.array(attachmentSchema) });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
 const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const importPreviewCandidateSchema = z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string(), label: z.string(), matchedBy: z.array(z.enum(['external_id','account_name','email','phone'])) });
@@ -67,6 +68,7 @@ export type ChannelDto = z.infer<typeof channelSchema>;
 export type AssistantSettingsDto = z.infer<typeof assistantSettingsSchema>;
 export type CreateChannelInput = { provider: ChannelDto['provider']; displayName: string; phoneNumber: string; providerChannelId: string; providerAccountId?: string };
 export type MessageDto = z.infer<typeof messageSchema>;
+export type MessageAttachmentDto = z.infer<typeof attachmentSchema>;
 export type AuditEventDto = z.infer<typeof auditEventSchema>;
 export type AuditEventsPageDto = z.infer<typeof auditEventsPageSchema>;
 export type CreateLeadInput = { accountName: string; contactName: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral'; duplicateOverrideReason?: string };
@@ -91,6 +93,18 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
   const parsed = schema.safeParse(payload);
   if (!parsed.success) throw new ApiError(502, 'INVALID_API_RESPONSE', 'O servidor retornou uma resposta inesperada.');
   return parsed.data;
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const headers = new Headers({ accept: 'application/octet-stream', 'x-request-id': crypto.randomUUID() });
+  const response = await fetch(`${import.meta.env.VITE_API_URL ?? ''}${path}`, { headers, credentials: 'include' });
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const errorSchema = z.object({ code: z.string().optional(), message: z.string().optional(), error: z.string().optional() }).passthrough();
+    const parsedError = errorSchema.safeParse(payload);
+    throw new ApiError(response.status, parsedError.success ? parsedError.data.code ?? 'REQUEST_FAILED' : 'REQUEST_FAILED', parsedError.success ? parsedError.data.message ?? parsedError.data.error ?? 'The request could not be completed.' : 'The request could not be completed.');
+  }
+  return response.blob();
 }
 
 function authError(result: { error?: { message?: string } | null }): { message: string } | null {
@@ -150,6 +164,7 @@ export const api = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
+    downloadAttachment: (attachmentId: string) => requestBlob(`/api/v1/attachments/${encodeURIComponent(attachmentId)}/content`),
     markRead: (conversationId: string, lastInboundMessageId: string | null) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, z.object({ conversationId: z.string().uuid(), lastReadAt: z.string().nullable() }), { method: 'POST', body: JSON.stringify({ lastInboundMessageId }) }),
     claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST' }),
     assign: (conversationId: string, ownerUserId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/owner`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),

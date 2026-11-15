@@ -1,0 +1,66 @@
+import { Injectable } from '@nestjs/common';
+import { and, asc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
+import { database } from '../db';
+import { auditEvents, messageAttachments, messages, messagingChannels } from '../db/schema';
+import { MediaAttachmentDownloadDto, MediaAttachmentWorkDto } from './attachments.dto';
+
+@Injectable()
+export class AttachmentsRepository {
+  async claimPending(limit = 10): Promise<MediaAttachmentWorkDto[]> {
+    return database.transaction(async (transaction) => {
+      const now = new Date();
+      const rows = await transaction.select({
+        id: messageAttachments.id, organizationId: messageAttachments.organizationId, channelId: messageAttachments.channelId,
+        provider: messageAttachments.provider, providerChannelId: messagingChannels.providerChannelId, conversationId: messages.conversationId,
+        mediaType: messageAttachments.mediaType, sourceMediaId: messageAttachments.sourceMediaId, sourceCiphertext: messageAttachments.sourceCiphertext,
+        sourceIv: messageAttachments.sourceIv, sourceAuthTag: messageAttachments.sourceAuthTag,
+        credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag,
+        mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes,
+        sha256: messageAttachments.sha256, attemptCount: messageAttachments.attemptCount,
+      }).from(messageAttachments)
+        .innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, messageAttachments.channelId), eq(messagingChannels.organizationId, messageAttachments.organizationId)))
+        .where(and(eq(messagingChannels.isActive, true), isNotNull(messagingChannels.credentialsCiphertext), isNotNull(messagingChannels.credentialsIv), isNotNull(messagingChannels.credentialsAuthTag),
+          lte(messageAttachments.availableAt, now), or(eq(messageAttachments.status, 'pending'), and(eq(messageAttachments.status, 'processing'), lte(messageAttachments.lockedUntil, now)))))
+        .orderBy(asc(messageAttachments.availableAt), asc(messageAttachments.id)).limit(limit).for('update', { of: messageAttachments, skipLocked: true });
+      if (!rows.length) return [];
+      const lockedUntil = new Date(now.getTime() + 180_000);
+      await transaction.update(messageAttachments).set({ status: 'processing', attemptCount: sql`${messageAttachments.attemptCount} + 1`, lockedUntil, updatedAt: now })
+        .where(and(inArray(messageAttachments.id, rows.map((row) => row.id)), inArray(messageAttachments.organizationId, [...new Set(rows.map((row) => row.organizationId))])));
+      return rows.flatMap((row) => row.sourceCiphertext && row.sourceIv && row.sourceAuthTag && row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
+        ? [new MediaAttachmentWorkDto(row.id, row.organizationId, row.channelId, row.provider, row.providerChannelId, row.conversationId,
+          row.mediaType, row.sourceMediaId, row.sourceCiphertext, row.sourceIv, row.sourceAuthTag, row.credentialsCiphertext, row.credentialsIv,
+          row.credentialsAuthTag, row.mimeType, row.fileName, row.sizeBytes, row.sha256, row.attemptCount + 1)] : []);
+    });
+  }
+
+  async markAvailable(input: MediaAttachmentWorkDto, storageKey: string, mimeType: string | null, fileName: string | null, sizeBytes: number, sha256: string): Promise<void> {
+    await database.transaction(async (transaction) => {
+      await transaction.update(messageAttachments).set({ status: 'available', storageKey, mimeType: mimeType ?? input.mimeType, fileName: fileName ?? input.fileName, sizeBytes, sha256,
+        sourceCiphertext: null, sourceIv: null, sourceAuthTag: null, lockedUntil: null, lastErrorCode: null, updatedAt: new Date() })
+        .where(and(eq(messageAttachments.id, input.id), eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.status, 'processing')));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId, occurredAt: new Date().toISOString() })})`);
+    });
+  }
+
+  async markFailed(input: MediaAttachmentWorkDto, errorCode: string): Promise<void> {
+    const terminal = input.attemptCount >= 5 || ['MEDIA_SIZE_LIMIT_EXCEEDED', 'MEDIA_CHECKSUM_MISMATCH', 'MEDIA_SOURCE_INVALID'].includes(errorCode);
+    const retryDelaySeconds = Math.min(300, 5 * 2 ** (input.attemptCount - 1));
+    await database.transaction(async (transaction) => {
+      await transaction.update(messageAttachments).set({ status: terminal ? 'failed' : 'pending', availableAt: new Date(Date.now() + retryDelaySeconds * 1000), lockedUntil: null, lastErrorCode: errorCode, updatedAt: new Date() })
+        .where(and(eq(messageAttachments.id, input.id), eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.status, 'processing')));
+      if (terminal) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId, occurredAt: new Date().toISOString() })})`);
+    });
+  }
+
+  async authorizeDownload(organizationId: string, attachmentId: string, userId: string, correlationId: string | null): Promise<MediaAttachmentDownloadDto | null> {
+    return database.transaction(async (transaction) => {
+      const [attachment] = await transaction.select({ storageKey: messageAttachments.storageKey, fileName: messageAttachments.fileName, status: messageAttachments.status })
+        .from(messageAttachments).innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
+        .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, 'available'), isNotNull(messageAttachments.storageKey))).limit(1);
+      if (!attachment?.storageKey) return null;
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'message_attachment.download_requested', entityType: 'message_attachment', entityId: attachmentId, correlationId });
+      return new MediaAttachmentDownloadDto(attachment.storageKey, attachment.fileName);
+    });
+  }
+}

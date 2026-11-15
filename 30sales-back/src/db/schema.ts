@@ -13,6 +13,9 @@ export const conversationStatus = pgEnum('conversation_status', ['open', 'pendin
 export const messageDirection = pgEnum('message_direction', ['inbound', 'outbound', 'internal']);
 export const messageActorType = pgEnum('message_actor_type', ['contact', 'user', 'assistant', 'system']);
 export const messageDeliveryState = pgEnum('message_delivery_state', ['received', 'requested', 'accepted', 'delivered', 'read', 'failed', 'unknown']);
+export const mediaAttachmentProvider = pgEnum('media_attachment_provider', ['evolution', 'whatsapp_cloud_api']);
+export const mediaAttachmentType = pgEnum('media_attachment_type', ['image', 'video', 'audio', 'document', 'sticker']);
+export const mediaAttachmentStatus = pgEnum('media_attachment_status', ['pending', 'processing', 'available', 'failed']);
 export const eventProcessingState = pgEnum('event_processing_state', ['pending', 'processing', 'processed', 'failed']);
 export const outboxState = pgEnum('outbox_state', ['pending', 'published', 'failed']);
 export const jobState = pgEnum('job_state', ['queued', 'running', 'completed', 'failed']);
@@ -330,6 +333,39 @@ export const messages = pgTable('messages', {
   unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
   index('messages_org_conversation_direction_created_idx').on(table.organizationId, table.conversationId, table.direction, table.createdAt),
+]);
+
+export const messageAttachments = pgTable('message_attachments', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  messageId: uuid('message_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  provider: mediaAttachmentProvider('provider').notNull(),
+  mediaType: mediaAttachmentType('media_type').notNull(),
+  sourceMediaId: text('source_media_id'),
+  sourceCiphertext: text('source_ciphertext'),
+  sourceIv: text('source_iv'),
+  sourceAuthTag: text('source_auth_tag'),
+  mimeType: text('mime_type'),
+  fileName: text('file_name'),
+  sizeBytes: integer('size_bytes'),
+  sha256: text('sha256'),
+  storageKey: text('storage_key'),
+  status: mediaAttachmentStatus('status').default('pending').notNull(),
+  attemptCount: integer('attempt_count').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  lockedUntil: timestamp('locked_until', { withTimezone: true }),
+  lastErrorCode: text('last_error_code'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'message_attachments_message_tenant_fk', columns: [table.messageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'message_attachments_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
+  unique('message_attachments_message_tenant_unique').on(table.messageId, table.organizationId),
+  unique('message_attachments_id_organization_unique').on(table.id, table.organizationId),
+  check('message_attachments_size_check', sql`${table.sizeBytes} is null or ${table.sizeBytes} between 0 and 1073741824`),
+  index('message_attachments_org_status_available_idx').on(table.organizationId, table.status, table.availableAt),
+  index('message_attachments_org_message_idx').on(table.organizationId, table.messageId),
 ]);
 
 export const externalRecords = pgTable('external_records', {

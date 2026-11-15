@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type AuditEventDto, type AuditEventsPageDto } from '../lib/api/client'
 import './AuditWorkspace.css'
 
@@ -43,16 +44,17 @@ export function AuditWorkspace() {
       <label>{t('audit.from')}<input type="datetime-local" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0) }} /></label>
       <label>{t('audit.to')}<input type="datetime-local" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0) }} /></label>
     </div>
-    {error && <p className="error lead-error">{t('audit.loadFailed')}</p>}
+    {error && page?.data.length ? <WorkspaceState kind="error" compact message={t('audit.loadFailed')} detail={t('table.resultsRetained')} /> : null}
     <div className="lead-list-panel">
       <div className="lead-list-toolbar"><div><h3>{t('audit.eventList')}</h3><p>{t('audit.count', { count: page?.pagination.total ?? 0 })}</p></div><ShieldCheck size={18} /></div>
-      {loading ? <div className="lead-empty">{t('common.loading')}</div> : page?.data.length ? <div className="audit-events">{page.data.map((event) => <article className="audit-event" key={event.id}>
+      {loading && page?.data.length ? <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} /> : null}
+      {loading && !page ? <WorkspaceState kind="loading" message={t('common.loading')} /> : page?.data.length ? <div className="audit-events">{page.data.map((event) => <article className="audit-event" key={event.id}>
         <span className="audit-event-mark" aria-hidden="true" />
         <div className="audit-event-main"><div className="audit-event-heading"><strong>{event.action}</strong><time dateTime={event.occurredAt}>{dateLabel(event.occurredAt)}</time></div>
           <p>{t('audit.actorEntity', { actor: event.actorName ?? t(`audit.actorTypes.${event.actorType}`, { defaultValue: event.actorType }), entity: entityLabel(event.entityType) })}{event.entityId ? <code>{event.entityId}</code> : null}</p>
           {event.reason && <p className="audit-reason">{event.reason}</p>}{event.correlationId && <p className="audit-correlation"><span>{t('audit.correlationId')}</span><code>{event.correlationId}</code></p>}{stateLabel(event)}
         </div>
-      </article>)}</div> : <div className="lead-empty"><span className="card-icon"><ShieldCheck size={19} /></span><h3>{t('audit.empty')}</h3><p>{t('audit.emptyHint')}</p></div>}
+      </article>)}</div> : <WorkspaceState kind={error ? 'error' : 'empty'} message={error ? t('audit.loadFailed') : t('audit.empty')} detail={error ? undefined : t('audit.emptyHint')} />}
       <footer className="audit-pagination"><span>{t('table.range', { from: page?.pagination.total ? offset + 1 : 0, to: Math.min(offset + limit, page?.pagination.total ?? 0), total: page?.pagination.total ?? 0 })}</span><label>{t('table.rowsPerPage')}<select value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0) }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label><div><button type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>{t('table.previous')}</button><button type="button" onClick={() => setOffset(offset + limit)} disabled={!page?.pagination.hasNextPage}>{t('table.next')}</button></div></footer>
     </div>
   </section>

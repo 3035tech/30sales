@@ -13,6 +13,8 @@ Os achados P1 de contexto também foram corrigidos: o cabeçalho agora usa títu
 
 A navegação plana e sem URL foi substituída por quatro grupos de trabalho e rotas diretas com hash (por exemplo `/#/inbox` e `/#/reports/funnel`). O hash mantém deep links funcionando sem exigir configuração de fallback no servidor estático. Busca contextual originada de Contas e abertura de conversa via notificação também ficam serializadas na URL; os controles de navegação atualizam histórico e funcionam com voltar/avançar.
 
+Os estados de carregamento, erro, vazio, falha parcial e atualização foram padronizados com um componente compartilhado. Listas e relatórios mantêm os últimos dados carregados durante atualizações e identificam quando eles ainda estão sendo atualizados; falhas parciais não são apresentadas como listas vazias ou indicadores iguais a zero. A central Hoje e a carteira do closer distinguem fontes indisponíveis. A verificação visual em navegador ainda está pendente.
+
 ## Achados priorizados
 
 | Prioridade | Achado | Efeito para a pessoa usuária | Direção recomendada |
@@ -22,7 +24,7 @@ A navegação plana e sem URL foi substituída por quatro grupos de trabalho e r
 | P1 | A organização ativa aparece num botão sem ação (`.workspace`). | Usuários com mais de uma organização não conseguem trocar de contexto pelo shell após a seleção inicial. | Abrir seletor com organizações disponíveis e indicar claramente o contexto ativo. |
 | P1 | Notificações existentes são somente de SLA e apareciam dentro da carteira do closer. | Alertas importantes podem passar despercebidos fora dessa tela; não há centro global. | Central no cabeçalho e ampliar categorias de forma explícita (tarefas, Inbox e atribuições), com preferência por ação direta. A fatia atual globaliza os alertas de SLA existentes. |
 | P2 | As 15 áreas aparecem numa lista plana; a página é controlada por estado sem rota própria. | A navegação tem pouca hierarquia; URLs não preservam área/estado nem permitem link direto ou voltar pelo histórico. | Agrupar áreas por trabalho (Atendimento, Vendas, Administração) e introduzir rotas estáveis com estados essenciais na URL. |
-| P2 | Cobertura de estados de carregamento, falha parcial e dados desatualizados varia entre áreas. | Usuários podem não saber se a informação é atual ou se parte da tela falhou. | Padronizar estados e oferecer atualização/retry junto ao conteúdo afetado. |
+| P2 | Cobertura de estados de carregamento, falha parcial e dados desatualizados varia entre áreas. | Usuários podem não saber se a informação é atual ou se parte da tela falhou. | **Implementado:** estados compartilhados, dados anteriores identificados durante refresh e métricas indisponíveis sem falso zero. Fazer inspeção visual quando o app estiver disponível. |
 
 ## Critérios de qualidade para as próximas fatias
 

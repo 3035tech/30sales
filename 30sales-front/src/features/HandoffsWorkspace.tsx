@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send, UserRoundCheck } from 'lucide-react'
+import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type HandoffDto, type LeadDto } from '../lib/api/client'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './HandoffsWorkspace.css'
 import './HandoffReadiness.css'
 
@@ -90,12 +91,13 @@ export function HandoffsWorkspace() {
         <button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</button>
       </div>
     </form>
-    {error && <p className="error lead-error">{error}</p>}
+    {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
       {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => setStatus(item)}>{t(`handoffs.status.${item}`)}</button>)}
     </div>
     <div className="handoff-list">
-      {loading ? <div className="lead-empty">{t('common.loading')}</div> : handoffs.length === 0 ? <div className="lead-empty"><span className="card-icon"><UserRoundCheck size={19} /></span><h3>{t('handoffs.empty')}</h3><p>{t('handoffs.emptyHint')}</p></div> : handoffs.map((handoff) => <article className="handoff-card" key={handoff.id}>
+      {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+      {loading && handoffs.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : handoffs.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={t('handoffs.empty')} detail={t('handoffs.emptyHint')} /> : handoffs.map((handoff) => <article className="handoff-card" key={handoff.id}>
         <div className="handoff-card-head"><div><span className="eyebrow">{handoff.accountName} · {handoff.contactName}</span><h3>{handoff.opportunityName}</h3></div><span className={`handoff-badge handoff-${handoff.status}`}>{t(`handoffs.status.${handoff.status}`)}</span></div>
         <div className="handoff-brief"><div><strong>{t('handoffs.reason')}</strong><p>{handoff.reason}</p></div><div><strong>{t('handoffs.evidence')}</strong><p>{handoff.evidence}</p></div>
           <div><strong>{t('handoffs.confirmedFacts')}</strong>{handoff.confirmedFacts.length ? <ul>{handoff.confirmedFacts.map((fact) => <li key={fact}>{fact}</li>)}</ul> : <p>{t('handoffs.noneRecorded')}</p>}</div>

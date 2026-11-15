@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Clock3, MessageCircle, RefreshCw, Search, ShieldAlert, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type CloserEventDto, type CloserSlaNotificationDto, type HandoffDto, type OpportunityDto } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './CloserQueueWorkspace.css'
@@ -58,6 +59,8 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const [limit, setLimit] = useState(25)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [queueLoadFailed, setQueueLoadFailed] = useState(false)
   const [error, setError] = useState('')
   const [partial, setPartial] = useState(false)
   const [acceptingId, setAcceptingId] = useState('')
@@ -101,7 +104,8 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
     }
     queueLoadInProgressRef.current = true
     if (!hasLoadedQueueRef.current) setLoading(true)
-    setError(''); setPartial(false)
+    else setRefreshing(true)
+    setError(''); setPartial(false); setQueueLoadFailed(false)
     Promise.allSettled([listAllHandoffs('requested'), listAllHandoffs('accepted'), listAllOwnedOpportunities(), listAllCloserEvents(), api.closerEvents.assignees(), api.closerEvents.slaNotifications()]).then(([handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult, notificationResult]) => {
       if (!active) return
       if (handoffResult.status === 'fulfilled') setHandoffs(handoffResult.value)
@@ -111,12 +115,13 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
       if (assigneeResult.status === 'fulfilled') setEventAssignees(assigneeResult.value)
       if (notificationResult.status === 'fulfilled') setSlaNotifications(notificationResult.value)
       const failed = [handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult, notificationResult].filter((result) => result.status === 'rejected').length
-      setPartial(failed > 0 && failed < 6); setError(failed === 6 ? t('closerQueue.loadFailed') : '')
+      setPartial(failed > 0 && failed < 6); setQueueLoadFailed(failed === 6); setError(failed === 6 ? t('closerQueue.loadFailed') : '')
     }).finally(() => {
       queueLoadInProgressRef.current = false
       if (active) {
         hasLoadedQueueRef.current = true
         setLoading(false)
+        setRefreshing(false)
       }
       if (pendingRefreshRef.current && mountedRef.current) {
         pendingRefreshRef.current = false
@@ -205,20 +210,23 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
     { id: 'event', label: t('closerQueue.columns.context'), render: (item) => <div className="closer-event-cell"><strong>{item.title}</strong><p>{item.context}</p>{item.event?.eventType === 'interpretation_failure' && <small className="closer-interpretation-reason">{t('closerEventActions.interpretationFailureReason', { reason: item.event.summary })}</small>}{item.event?.status === 'acknowledged' && <small>{t('closerQueue.acknowledged')}</small>}{item.handoff && item.handoff.confirmedFacts.length > 0 && <small>{t('closerQueue.confirmedFacts', { facts: item.handoff.confirmedFacts.join(' · ') })}</small>}{item.handoff && item.handoff.unknowns.length > 0 && <small className="closer-unknowns">{t('closerQueue.openQuestions', { questions: item.handoff.unknowns.join(' · ') })}</small>}{item.event && <div className="closer-event-actions"><button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'snooze', snoozedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString() })}>{t('closerEventActions.snoozeOneHour')}</button><button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'resolve' })}>{t('closerEventActions.resolveEvent')}</button><select aria-label={t('closerEventActions.reassignEvent')} value={eventAssignId === item.event.id ? eventAssignTarget : ''} disabled={acceptingId === item.event.id} onChange={(change) => { setEventAssignId(item.event!.id); setEventAssignTarget(change.target.value) }}><option value="">{t('closerEventActions.reassignEvent')}</option>{eventAssignees.filter((assignee) => assignee.id !== item.event!.assignedToUserId).map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</select>{eventAssignId === item.event.id && eventAssignTarget && <button type="button" disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'reassign', assignedToUserId: eventAssignTarget })}>{t('closerEventActions.confirmReassign')}</button>}</div>}<button className="closer-item-action" type="button" disabled={Boolean(acceptingId)} onClick={() => item.handoff ? item.handoff.status === 'requested' ? void acceptHandoff(item.handoff) : item.handoff.conversationId ? onOpenInbox(item.handoff.conversationId) : onOpenPipeline() : item.event ? void openEvent(item.event) : onOpenPipeline()}>{item.handoff ? (item.handoff.status === 'requested' ? acceptingId === item.handoff.id ? t('closerQueue.accepting') : t('closerQueue.acceptAction') : item.handoff.conversationId ? t('closerQueue.openConversation') : t('closerQueue.openPipeline')) : item.event ? (acceptingId === item.event.id ? t('common.loading') : t('closerQueue.openConversation')) : t('closerQueue.openPipeline')}<ArrowRight size={13} /></button></div> },
     { id: 'deadline', label: t('closerQueue.columns.deadline'), render: (item) => <span className="closer-deadline">{item.deadline ? <>{dateLabel(item.deadline)}{item.event?.dueAt && new Date(item.event.dueAt).getTime() <= Date.now() && <small>{t('closerSlaSettings.overdue')}</small>}</> : '—'}</span> },
   ]
+  const summaryValue = (value: number) => !hasLoadedQueueRef.current || queueLoadFailed || partial ? '—' : value
   const handoffCount = items.filter((item) => item.kind === 'handoff').length
   const waitingFirstActivityCount = items.filter((item) => item.kind === 'awaiting_first_activity').length
   const replyCount = items.filter((item) => Boolean(item.event)).length
   const overdueCount = items.filter((item) => item.kind === 'overdue').length
   const noActionCount = items.filter((item) => item.kind === 'no_action').length
   const pageRows = items.slice(offset, offset + limit)
-  const emptyState = <div><strong>{error || t('closerQueue.empty')}</strong>{partial && <p>{t('closerQueue.partial')}</p>}</div>
+  const emptyState = <div><strong>{error || t('closerQueue.empty')}</strong></div>
 
   return <section className="closer-queue-page">
     <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><button className="refresh" type="button" onClick={requestRefresh} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></button></header>
     {slaNotifications.length > 0 && <section className="closer-sla-notifications" aria-label={t('closerSlaSettings.notifications.title')}><h3>{t('closerSlaSettings.notifications.title')}</h3>{slaNotifications.map((notification) => <article key={notification.id}><div><strong>{t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</strong><span>{notification.accountName ?? notification.summary}</span><small>{t(`closerEventTypes.${notification.eventType}`)} · {dateLabel(notification.dueAt)}</small></div><button type="button" disabled={Boolean(acceptingId)} onClick={() => void openSlaNotification(notification)}>{t('closerQueue.openConversation')}<ArrowRight size={13} /></button></article>)}</section>}
-    <div className="closer-queue-summary"><article className="summary-handoffs"><span><UserRoundCheck size={15} />{t('closerQueue.summary.handoffs')}</span><strong>{handoffCount}</strong></article><article className="summary-replies"><span><MessageCircle size={15} />{t('closerEventActions.eventsSummary')}</span><strong>{replyCount}</strong></article><article className="summary-overdue"><span><Clock3 size={15} />{t('closerQueue.summary.overdue')}</span><strong>{overdueCount}</strong></article><article className="summary-waiting"><span><Clock3 size={15} />{t('closerQueue.summary.waitingFirstActivity')}</span><strong>{waitingFirstActivityCount}</strong></article><article><span><ShieldAlert size={15} />{t('closerQueue.summary.noAction')}</span><strong>{noActionCount}</strong></article></div>
-    {partial && <p className="closer-queue-partial">{t('closerQueue.partial')}</p>}
-    <DataTable rows={pageRows} columns={columns} getRowId={(item) => item.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: items.length, hasNextPage: offset + limit < items.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={emptyState} filters={<>
+    <div className="closer-queue-summary"><article className="summary-handoffs"><span><UserRoundCheck size={15} />{t('closerQueue.summary.handoffs')}</span><strong>{summaryValue(handoffCount)}</strong></article><article className="summary-replies"><span><MessageCircle size={15} />{t('closerEventActions.eventsSummary')}</span><strong>{summaryValue(replyCount)}</strong></article><article className="summary-overdue"><span><Clock3 size={15} />{t('closerQueue.summary.overdue')}</span><strong>{summaryValue(overdueCount)}</strong></article><article className="summary-waiting"><span><Clock3 size={15} />{t('closerQueue.summary.waitingFirstActivity')}</span><strong>{summaryValue(waitingFirstActivityCount)}</strong></article><article><span><ShieldAlert size={15} />{t('closerQueue.summary.noAction')}</span><strong>{summaryValue(noActionCount)}</strong></article></div>
+    {error && items.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+    {partial && <WorkspaceState kind="partial" compact message={t('closerQueue.partial')} />}
+    {refreshing && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+    <DataTable rows={pageRows} columns={columns} getRowId={(item) => item.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: items.length, hasNextPage: offset + limit < items.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={emptyState} emptyStateKind={error ? 'error' : 'empty'} filters={<>
       <label className="closer-queue-search"><Search size={15} /><input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('closerQueue.search')} aria-label={t('closerQueue.search')} /></label>
       <label className="closer-queue-filter">{t('closerQueue.filterLabel')}<select value={kindFilter} onChange={(event) => { setKindFilter(event.target.value as WorkKind | ''); setOffset(0) }}><option value="">{t('closerQueue.allTypes')}</option>{(['handoff', 'awaiting_first_activity', 'lead_reply', 'overdue', 'no_action'] as const).map((kind) => <option key={kind} value={kind}>{kind === 'lead_reply' ? t('closerEventActions.eventsFilter') : t(`closerQueue.kinds.${kind}`)}</option>)}</select></label>
     </>} />

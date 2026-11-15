@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarClock, Check, CircleAlert, ListTodo, Plus, RefreshCw } from 'lucide-react'
+import { CalendarClock, Check, CircleAlert, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type LeadDto, type TaskDto } from '../lib/api/client'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './TasksWorkspace.css'
 
 type TaskView = 'overdue' | 'today' | 'upcoming'
@@ -77,10 +78,11 @@ export function TasksWorkspace() {
         <button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('tasks.addTask')}</button>
       </div>
     </form>
-    {error && <p className="error lead-error">{error}</p>}
+    {error && tasks.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="lead-list-panel task-list">
       <div className="lead-list-toolbar"><div><h3>{t(`tasks.${view}`)}</h3><p>{t('tasks.count', { count: tasks.length })}</p></div><CalendarClock size={18} /></div>
-      {loading ? <div className="lead-empty">{t('common.loading')}</div> : tasks.length === 0 ? <div className="lead-empty"><span className="card-icon"><ListTodo size={19} /></span><h3>{t(`tasks.empty.${view}`)}</h3><p>{t('tasks.emptyHint')}</p></div> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' ? 'overdue' : ''}>
+      {loading && tasks.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+      {loading && tasks.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : tasks.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={t(`tasks.empty.${view}`)} detail={t('tasks.emptyHint')} /> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' ? 'overdue' : ''}>
         <div className="task-time">{view === 'overdue' && <CircleAlert size={15} />}{dateLabel(task.dueAt)}</div><div className="task-copy"><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div>
         {completionTaskId !== task.id && <button className="task-complete" onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</button>}
         {completionTaskId === task.id && <form className="task-completion-form" onSubmit={(event) => void complete(event, task)}>

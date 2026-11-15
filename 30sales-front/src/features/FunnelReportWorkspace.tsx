@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type FunnelReportDto, type LeadStatus, type OpportunityStage } from '../lib/api/client'
 import './FunnelReportWorkspace.css'
 import './HandoffReport.css'
@@ -43,8 +44,9 @@ export function FunnelReportWorkspace() {
   return <section className="leads-page funnel-report-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></button></header>
     <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} required /></label><label>{t('funnelReport.to')}<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} required /></label><button className="primary">{t('funnelReport.apply')}</button></form>
-    {error && <p className="error lead-error">{error}</p>}
-    {loading ? <div className="lead-empty">{t('common.loading')}</div> : report && <>
+    {error && report && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+    {loading && report && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+    {loading && !report ? <WorkspaceState kind="loading" message={t('common.loading')} /> : report && <>
       <div className="funnel-report-metrics">
         <article><span>{t('funnelReport.currentOpen')}</span><strong>{report.currentOpenCount}</strong><small>{t('funnelReport.currentOpenHint')}</small></article>
         <article><span><TrendingUp size={15} />{t('funnelReport.won')}</span><strong>{report.wonInPeriodCount}</strong><small>{report.wonAmountByCurrency.length ? report.wonAmountByCurrency.map((item) => money(item.currency, item.amount)).join(' · ') : t('funnelReport.noWonValue')}</small></article>
@@ -58,5 +60,6 @@ export function FunnelReportWorkspace() {
       <p className="funnel-report-definition">{t('funnelReport.definitions', { from: dateLabel(report.from), to: dateLabel(report.to), created: report.createdInPeriodCount })}</p>
       <p className="funnel-report-updated">{t('funnelReport.updatedAt', { value: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(report.generatedAt)) })}</p>
     </>}
+    {!loading && !report && error && <WorkspaceState kind="error" message={error} />}
   </section>
 }

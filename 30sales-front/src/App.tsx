@@ -21,6 +21,11 @@ import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspac
 import './App.css'
 
 type Page = 'home' | 'closerQueue' | 'closerSla' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
+const pageTranslationKeys: Record<Page, string> = {
+  home: 'today', closerQueue: 'closerQueue', closerSla: 'closerSlaSettings', inbox: 'inbox', leads: 'leads',
+  accounts: 'accounts', channels: 'channels', assistant: 'assistantSettings', tasks: 'tasks', handoffs: 'handoffs',
+  pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team',
+}
 
 export default function App() {
   const { t } = useTranslation()
@@ -35,6 +40,8 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [changingOrganization, setChangingOrganization] = useState(false)
+  const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
 
   useEffect(() => {
     api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
@@ -63,12 +70,24 @@ export default function App() {
   }, [current?.activeOrganizationId])
 
   const chooseOrganization = async (organizationId: string) => {
-    const result = await api.auth.setActiveOrganization(organizationId)
-    if (result.error) {
-      setError(t('errors.requestFailed'))
-      return
+    if (organizationId === current?.activeOrganizationId || changingOrganization) return
+    setChangingOrganization(true)
+    setOrganizationSwitchError(false)
+    try {
+      const result = await api.auth.setActiveOrganization(organizationId)
+      if (result.error) throw new Error('Organization switch failed')
+      setCurrent((previous) => previous ? { ...previous, activeOrganizationId: organizationId } : previous)
+      setNotifications([])
+      setPage('home')
+      setLeadSearchSeed('')
+      setInboxSearchSeed('')
+      setInboxConversationSeed('')
+      setMobileMenuOpen(false)
+    } catch {
+      setOrganizationSwitchError(true)
+    } finally {
+      setChangingOrganization(false)
     }
-    setCurrent((previous) => previous ? { ...previous, activeOrganizationId: organizationId } : previous)
   }
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId)
@@ -115,7 +134,7 @@ export default function App() {
     </aside>
     <section className="main">
       <header>
-        <div><span className="eyebrow">{t('home.eyebrow')}</span><h1>{t('home.headline')}</h1></div>
+        <div><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">
           <button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</button>
           {current?.activeOrganizationId && <div className="notification-menu">
@@ -133,11 +152,16 @@ export default function App() {
               </button>)}
             </section>}
           </div>}
-          {activeOrganization && <button className="workspace"><Building2 size={16} />{activeOrganization.name}<ChevronDown size={15} /></button>}
+          {activeOrganization && <div className="workspace-selector-wrap">
+            <div className="workspace workspace-selector"><Building2 size={16} /><select aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || (current?.organizations.length ?? 0) < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+              {current?.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+            </select><ChevronDown size={15} aria-hidden="true" /></div>
+            {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
+          </div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>
-      <div className="content">
+      <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
         {loading ? <div className="notice">{t('common.loading')}</div> : error ? <section className="welcome">
           <span className="welcome-icon"><Command size={24} /></span><p className="eyebrow">{t('home.accessEyebrow')}</p><h2>{t('home.signInTitle')}</h2>
           <p className="muted">{t('home.signInHint')}</p><Login onError={setError} />{error !== 'authRequired' && <p className="error">{error}</p>}

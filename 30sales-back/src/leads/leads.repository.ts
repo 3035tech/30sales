@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, ilike, lt, min, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, isNull, lt, min, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, auditEvents, leadStatusHistory, leads, people, tasks } from '../db/schema';
+import { accounts, auditEvents, leadStatusHistory, leads, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { LeadAssigneeDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
 
@@ -49,7 +49,10 @@ export class LeadsRepository {
     return rows.map((row) => new LeadAssigneeDto(row.id, row.name, row.role));
   }
   async listTasks(input: TaskRepositoryListDto): Promise<TaskRecordDto[]> {
-    const conditions = [eq(tasks.organizationId, input.organizationId), eq(tasks.status, input.query.status)];
+    const conditions = [eq(tasks.organizationId, input.organizationId)];
+    if (input.query.taskId) conditions.push(eq(tasks.id, input.query.taskId));
+    if (input.query.status) conditions.push(eq(tasks.status, input.query.status));
+    else if (!input.query.taskId) conditions.push(eq(tasks.status, 'open'));
     if (input.query.from) conditions.push(gte(tasks.dueAt, new Date(input.query.from)));
     if (input.query.to) conditions.push(lt(tasks.dueAt, new Date(input.query.to)));
     if (input.query.assignedToUserId) conditions.push(eq(tasks.assignedToUserId, input.query.assignedToUserId));
@@ -82,6 +85,7 @@ export class LeadsRepository {
     return database.transaction(async (transaction) => {
       const [task] = await transaction.update(tasks).set({ status: 'completed', completedAt: input.completedAt, completionResult: input.input.result, completionNote: input.input.resultNote ?? null, updatedAt: input.completedAt }).where(and(eq(tasks.id, input.taskId), eq(tasks.organizationId, input.organizationId), eq(tasks.status, 'open'))).returning();
       if (!task) return null;
+      await transaction.update(userNotifications).set({ readAt: input.completedAt }).where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.taskId, task.id), isNull(userNotifications.readAt)));
       let followUpTaskId: string | null = null;
       if (input.input.followUp) {
         const [followUp] = await transaction.insert(tasks).values({ organizationId: input.organizationId, leadId: task.leadId, title: input.input.followUp.title, dueAt: new Date(input.input.followUp.dueAt), status: 'open', createdByUserId: input.actorUserId, assignedToUserId: task.assignedToUserId ?? input.actorUserId }).returning({ id: tasks.id });

@@ -89,6 +89,7 @@ export const tasks = pgTable('tasks', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'tasks_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  unique('tasks_id_organization_unique').on(table.id, table.organizationId),
   check('tasks_completion_result_check', sql`${table.completionResult} is null or ${table.completionResult} in ('completed', 'contacted', 'no_response', 'follow_up')`),
   index('tasks_org_status_due_idx').on(table.organizationId, table.status, table.dueAt),
   index('tasks_org_lead_status_idx').on(table.organizationId, table.leadId, table.status),
@@ -445,6 +446,7 @@ export const userNotifications = pgTable('user_notifications', {
   recipientUserId: uuid('recipient_user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
   closerEventId: uuid('closer_event_id'),
   conversationId: uuid('conversation_id'),
+  taskId: uuid('task_id'),
   notificationType: text('notification_type').notNull(),
   idempotencyKey: text('idempotency_key').notNull(),
   readAt: timestamp('read_at', { withTimezone: true }),
@@ -452,10 +454,11 @@ export const userNotifications = pgTable('user_notifications', {
 }, (table) => [
   foreignKey({ name: 'user_notifications_event_tenant_fk', columns: [table.closerEventId, table.organizationId], foreignColumns: [closerEvents.id, closerEvents.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'user_notifications_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'user_notifications_task_tenant_fk', columns: [table.taskId, table.organizationId], foreignColumns: [tasks.id, tasks.organizationId] }).onDelete('cascade'),
   unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
   index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
-  check('user_notifications_target_check', sql`(${table.closerEventId} is null) <> (${table.conversationId} is null)`),
-  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message')`),
+  check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}) = 1`),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue')`),
 ]);
 
 export const inboxEvents = pgTable('inbox_events', {

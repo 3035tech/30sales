@@ -18,7 +18,7 @@ const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(
 const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eventType: z.enum(['qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure']), targetMinutes: z.number().int().nullable(), escalateToManagers: z.boolean() })), canManage: z.boolean() });
 const closerSlaNotificationSchema = z.object({ id: z.string().uuid(), closerEventId: z.string().uuid(), conversationId: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated']), eventType: z.string(), summary: z.string(), accountName: z.string().nullable(), dueAt: z.string(), createdAt: z.string() });
-const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message']), conversationId: z.string().uuid(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
+const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue']), conversationId: z.string().uuid().nullable(), taskId: z.string().uuid().nullable(), taskTitle: z.string().nullable(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
 const userNotificationsPageSchema = z.object({ data: z.array(userNotificationSchema), unreadCount: z.number().int().nonnegative() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
@@ -241,8 +241,9 @@ export const api = {
     },
   },
   tasks: {
-    list: (params: { from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {
+    list: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {
       const search = new URLSearchParams();
+      if (params.taskId) search.set('taskId', params.taskId);
       if (params.from) search.set('from', params.from);
       if (params.to) search.set('to', params.to);
       if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);

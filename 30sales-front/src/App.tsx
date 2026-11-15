@@ -125,7 +125,8 @@ export default function App() {
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
       setUnreadNotificationCount((count) => Math.max(0, count - 1))
       setNotificationsOpen(false)
-      navigateToPage('inbox', { conversationId: notification.conversationId })
+      if (notification.taskId) navigateToPage('tasks', { taskId: notification.taskId })
+      else if (notification.conversationId) navigateToPage('inbox', { conversationId: notification.conversationId })
     } catch { setNotificationsError(true) }
   }
 
@@ -178,10 +179,10 @@ export default function App() {
               <div className="notification-panel-heading"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>
               {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
               {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
-                <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
-                <span>{notification.notificationType === 'inbox_new_message' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.accountName ?? notification.summary}</span>
+                <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : notification.notificationType === 'task_overdue' ? t('systemNotifications.taskOverdue') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
+                <span>{notification.notificationType === 'inbox_new_message' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.notificationType === 'task_overdue' ? [notification.taskTitle, notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.accountName ?? notification.summary}</span>
                 <small>{notification.eventType ? `${t(`closerEventTypes.${notification.eventType}`)} · ` : ''}{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt ?? notification.createdAt))}</small>
-                <span className="notification-open">{t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
+                <span className="notification-open">{notification.taskId ? t('systemNotifications.openTask') : t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
               </button>)}
             </section>}
           </div>}

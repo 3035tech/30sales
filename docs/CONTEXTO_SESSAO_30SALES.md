@@ -134,13 +134,13 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Na avaliação do Pipeline, etapas customizadas não existem: dez valores e as transições estão fixos no frontend, enum do PostgreSQL e regras backend. Não há tela “Configurar etapas”. A customização será uma fatia transversal (tenant settings, transições, handoffs/automação, relatórios, permissões e histórico), não apenas um botão na UI.
 - A listagem atual é tenant-scoped e paginada no servidor, padrão 25 (até 100) com “carregar mais”. Para carteiras grandes, planejar modo tabela compacto, paginação direta/cursor, filtros de etapa/responsável/prazo/valor e busca por e-mail/telefone; calcular totais da busca no servidor além do lote visível.
 - Revisão não foi feita logada porque a sessão atual do Chrome expirou e não havia credencial fictícia claramente identificada na lista de preenchimento automático. Evidência veio do código e da inspeção anterior do board com registros de demonstração. Nenhuma credencial foi usada.
-- Detalhes em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md), seção “Perspectiva de closer”. Gestão de etapas está sendo implementada nesta feature; próximo slice recomendado após integração: visão compacta e filtros adicionais para carteira grande.
+- Detalhes em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md), seção “Perspectiva de closer”. Gestão de etapas foi integrada em `develop`; próximo slice recomendado: visão compacta e filtros adicionais para carteira grande.
 
 ## Etapas configuráveis do Pipeline — implementação em andamento
 
-- Branch atual: `feature/pipeline-stage-management`.
+- Branch atual: `develop`.
 - Owner/admin/manager pode criar, renomear, reordenar e arquivar etapas abertas customizadas em Configurações > Etapas do pipeline; o closer vê as etapas no board e pode avançar oportunidades com validação tenant-scoped no backend. Etapas padrão mantêm transições legadas; “Ganha” e “Perdida” permanecem terminais.
 - Histórico, handoffs, relatórios e fila do closer reconhecem o nome/chave de etapas customizadas. A chave do tenant é parte das FKs compostas para impedir referências cruzadas.
 - Migrations Drizzle `0035_curvy_tattoo.sql` (enum isolado para respeitar a transação do PostgreSQL) e `0036_sparkling_vengeance.sql` (schema e constraints) geradas e **não aplicadas**.
 - `git diff --check` passou. Não rodei build/testes nem inspeção autenticada no Chrome nesta fatia por preferência persistente e sessão expirada.
-- Ainda falta validar estaticamente o diff final, integrar a feature em `develop` e atualizar o nome do próximo passo recomendado. A melhoria compacta da carteira para grandes volumes segue pendente.
+- Integrada em `develop` no merge `413163d` (feature commit `5e4d3d9`). A melhoria compacta da carteira para grandes volumes segue pendente.

@@ -443,16 +443,19 @@ export const userNotifications = pgTable('user_notifications', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   recipientUserId: uuid('recipient_user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
-  closerEventId: uuid('closer_event_id').notNull(),
+  closerEventId: uuid('closer_event_id'),
+  conversationId: uuid('conversation_id'),
   notificationType: text('notification_type').notNull(),
   idempotencyKey: text('idempotency_key').notNull(),
   readAt: timestamp('read_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'user_notifications_event_tenant_fk', columns: [table.closerEventId, table.organizationId], foreignColumns: [closerEvents.id, closerEvents.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'user_notifications_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
   unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
   index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
-  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated')`),
+  check('user_notifications_target_check', sql`(${table.closerEventId} is null) <> (${table.conversationId} is null)`),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message')`),
 ]);
 
 export const inboxEvents = pgTable('inbox_events', {

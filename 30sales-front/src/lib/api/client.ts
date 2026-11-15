@@ -18,6 +18,8 @@ const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(
 const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eventType: z.enum(['qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure']), targetMinutes: z.number().int().nullable(), escalateToManagers: z.boolean() })), canManage: z.boolean() });
 const closerSlaNotificationSchema = z.object({ id: z.string().uuid(), closerEventId: z.string().uuid(), conversationId: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated']), eventType: z.string(), summary: z.string(), accountName: z.string().nullable(), dueAt: z.string(), createdAt: z.string() });
+const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message']), conversationId: z.string().uuid(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
+const userNotificationsPageSchema = z.object({ data: z.array(userNotificationSchema), unreadCount: z.number().int().nonnegative() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
 const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
@@ -56,6 +58,7 @@ export type HandoffDto = z.infer<typeof handoffSchema>;
 export type CloserEventDto = z.infer<typeof closerEventSchema>;
 export type CloserEventSlaSettingsDto = z.infer<typeof closerEventSlaSettingsSchema>;
 export type CloserSlaNotificationDto = z.infer<typeof closerSlaNotificationSchema>;
+export type UserNotificationDto = z.infer<typeof userNotificationSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
 export type OpportunityAssigneeDto = z.infer<typeof opportunityAssigneeSchema>;
@@ -128,6 +131,10 @@ function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['s
 
 export const api = {
   session: { get: () => request('/api/v1/session', sessionSchema) },
+  notifications: {
+    list: (limit = 20) => request(`/api/v1/notifications?limit=${limit}`, userNotificationsPageSchema),
+    markRead: (notificationId: string) => request(`/api/v1/notifications/${encodeURIComponent(notificationId)}/read`, z.object({ id: z.string().uuid(), read: z.literal(true) }), { method: 'PATCH' }),
+  },
   closerEvents: {
     list: (params: { limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();

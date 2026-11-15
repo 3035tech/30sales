@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
+import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -94,14 +94,16 @@ export class WebhooksRepository {
         .leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
         .where(and(eq(leads.organizationId, input.organizationId), eq(leads.personId, person.id))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
 
-      const [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId }).from(conversations)
+      const [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
       let conversationId = conversation?.id;
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
+      let notificationRecipientUserId = conversation?.ownerUserId ?? null;
       if (!conversationId) {
         const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'assistant' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
+        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'assistant' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
         conversationId = createdConversation.id;
+        notificationRecipientUserId = createdConversation.ownerUserId;
         opportunityId = lead?.opportunityId ?? null;
       }
 
@@ -152,6 +154,7 @@ export class WebhooksRepository {
             .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
             .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.opportunityId, opportunityId), eq(handoffs.status, 'accepted'))).limit(1);
           const activeOpportunity = Boolean(opportunity?.ownerUserId && !['won', 'lost'].includes(opportunity.stage));
+          if (!notificationRecipientUserId && activeOpportunity) notificationRecipientUserId = opportunity?.ownerUserId ?? null;
           let closerMembership = false;
           if (opportunity?.ownerUserId) {
             const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
@@ -175,6 +178,17 @@ export class WebhooksRepository {
               .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }
+        }
+        if (notificationRecipientUserId) {
+          const [recipientMembership] = await transaction.select({ userId: authMember.userId }).from(authMember)
+            .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, notificationRecipientUserId))).limit(1);
+          if (recipientMembership) await transaction.insert(userNotifications).values({
+            organizationId: input.organizationId,
+            recipientUserId: notificationRecipientUserId,
+            conversationId,
+            notificationType: 'inbox_new_message',
+            idempotencyKey: `inbox-new-message:${message.id}`,
+          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
         }
       }
       return message ? 'created' : 'duplicate';

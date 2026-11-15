@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type CloserSlaNotificationDto, type SessionDto } from './lib/api/client'
+import { WorkspaceState } from './components/ui/WorkspaceState'
+import { api, type SessionDto, type UserNotificationDto } from './lib/api/client'
 import i18n from './lib/i18n'
 import { TeamSettings } from './features/TeamSettings'
 import { LeadsWorkspace } from './features/LeadsWorkspace'
@@ -47,9 +48,12 @@ export default function App() {
   const leadSearchSeed = page === 'leads' ? searchParams.get('search') ?? '' : ''
   const inboxSearchSeed = page === 'inbox' ? searchParams.get('search') ?? '' : ''
   const inboxConversationSeed = page === 'inbox' ? searchParams.get('conversationId') ?? '' : ''
-  const [notifications, setNotifications] = useState<CloserSlaNotificationDto[]>([])
+  const [notifications, setNotifications] = useState<UserNotificationDto[]>([])
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const notificationsLoadedRef = useRef(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [changingOrganization, setChangingOrganization] = useState(false)
   const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
@@ -82,9 +86,10 @@ export default function App() {
     let active = true
     const refresh = () => {
       if (document.visibilityState !== 'visible') return
-      api.closerEvents.slaNotifications().then((items) => {
-        if (active) { setNotifications(items); setNotificationsError(false) }
-      }).catch(() => { if (active) setNotificationsError(true) })
+      if (!notificationsLoadedRef.current) setNotificationsLoading(true)
+      api.notifications.list().then((page) => {
+        if (active) { setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true }
+      }).catch(() => { if (active) setNotificationsError(true) }).finally(() => { if (active) setNotificationsLoading(false) })
     }
     refresh()
     const interval = window.setInterval(refresh, 30_000)
@@ -101,6 +106,8 @@ export default function App() {
       if (result.error) throw new Error('Organization switch failed')
       setCurrent((previous) => previous ? { ...previous, activeOrganizationId: organizationId } : previous)
       setNotifications([])
+      setUnreadNotificationCount(0)
+      notificationsLoadedRef.current = false
       navigateToPage('home', {}, { replace: true })
       setMobileMenuOpen(false)
     } catch {
@@ -112,10 +119,11 @@ export default function App() {
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId)
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
-  const openNotification = async (notification: CloserSlaNotificationDto) => {
+  const openNotification = async (notification: UserNotificationDto) => {
     try {
-      await api.closerEvents.readSlaNotification(notification.id)
+      await api.notifications.markRead(notification.id)
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
+      setUnreadNotificationCount((count) => Math.max(0, count - 1))
       setNotificationsOpen(false)
       navigateToPage('inbox', { conversationId: notification.conversationId })
     } catch { setNotificationsError(true) }
@@ -163,16 +171,16 @@ export default function App() {
         <div className="account">
           <button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</button>
           {current?.activeOrganizationId && <div className="notification-menu">
-            <button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: notifications.length })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
-              <Bell size={18} />{notifications.length > 0 && <span className="notification-count">{notifications.length > 99 ? '99+' : notifications.length}</span>}
+            <button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: unreadNotificationCount })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
+              <Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-count">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}
             </button>
             {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
-              <div className="notification-panel-heading"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: notifications.length })}</span></div>
-              {notificationsError && <p className="notification-message" role="alert">{t('systemNotifications.loadFailed')}</p>}
-              {notifications.length === 0 ? <p className="notification-message">{t('systemNotifications.empty')}</p> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
-                <span className="notification-item-title">{t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
-                <span>{notification.accountName ?? notification.summary}</span>
-                <small>{t(`closerEventTypes.${notification.eventType}`)} · {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt))}</small>
+              <div className="notification-panel-heading"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>
+              {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
+              {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
+                <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
+                <span>{notification.notificationType === 'inbox_new_message' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.accountName ?? notification.summary}</span>
+                <small>{notification.eventType ? `${t(`closerEventTypes.${notification.eventType}`)} · ` : ''}{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt ?? notification.createdAt))}</small>
                 <span className="notification-open">{t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
               </button>)}
             </section>}

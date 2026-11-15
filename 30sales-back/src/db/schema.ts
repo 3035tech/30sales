@@ -447,6 +447,7 @@ export const userNotifications = pgTable('user_notifications', {
   closerEventId: uuid('closer_event_id'),
   conversationId: uuid('conversation_id'),
   taskId: uuid('task_id'),
+  handoffId: uuid('handoff_id'),
   notificationType: text('notification_type').notNull(),
   idempotencyKey: text('idempotency_key').notNull(),
   readAt: timestamp('read_at', { withTimezone: true }),
@@ -455,10 +456,11 @@ export const userNotifications = pgTable('user_notifications', {
   foreignKey({ name: 'user_notifications_event_tenant_fk', columns: [table.closerEventId, table.organizationId], foreignColumns: [closerEvents.id, closerEvents.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'user_notifications_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'user_notifications_task_tenant_fk', columns: [table.taskId, table.organizationId], foreignColumns: [tasks.id, tasks.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'user_notifications_handoff_tenant_fk', columns: [table.handoffId, table.organizationId], foreignColumns: [handoffs.id, handoffs.organizationId] }).onDelete('cascade'),
   unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
   index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
-  check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}) = 1`),
-  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue')`),
+  check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}, ${table.handoffId}) = 1`),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned')`),
 ]);
 
 export const inboxEvents = pgTable('inbox_events', {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto } from '../lib/api/client'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './HandoffsWorkspace.css'
@@ -14,7 +15,12 @@ function lines(value: string) { return value.split('\n').map((item) => item.trim
 
 export function HandoffsWorkspace() {
   const { t, i18n } = useTranslation()
-  const [status, setStatus] = useState<HandoffStatus>('requested')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const handoffId = searchParams.get('handoffId') ?? undefined
+  const [status, setStatus] = useState<HandoffStatus>(() => {
+    const requestedStatus = searchParams.get('status')
+    return statuses.includes(requestedStatus as HandoffStatus) ? requestedStatus as HandoffStatus : handoffId ? 'accepted' : 'requested'
+  })
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -35,10 +41,10 @@ export function HandoffsWorkspace() {
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
-    try { setHandoffs(await api.handoffs.list(status)) }
+    try { setHandoffs(await api.handoffs.list(status, { handoffId })) }
     catch { setError(t('errors.loadHandoffs')) }
     finally { setLoading(false) }
-  }, [status, t])
+  }, [handoffId, status, t])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { api.leads.list({ status: 'responded', limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [])
 
@@ -93,7 +99,7 @@ export function HandoffsWorkspace() {
     </form>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
-      {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => setStatus(item)}>{t(`handoffs.status.${item}`)}</button>)}
+      {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</button>)}
     </div>
     <div className="handoff-list">
       {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}

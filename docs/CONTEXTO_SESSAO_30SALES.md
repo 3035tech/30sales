@@ -1,5 +1,13 @@
 # Contexto de continuidade — 30Sales
 
+## Auditoria visual e funcional em 15/11/2026
+
+- Inspecionado no Chrome autenticado com tenant e registros fictícios em banco descartável. Ambiente local aberto em `http://localhost:5173/#/closer`.
+- Áreas validadas: Hoje, Tarefas, Inbox, Leads, Contas, Pipeline, Passagens para closer, Relatórios e notificações globais; viewport desktop e 390×844.
+- Corrigidos nesta fatia: respostas de data agregada em Contas e eventos do closer; ciclo do `refreshRef` no Inbox; estilos completos e responsivos do board Pipeline; cabeçalho global em mobile; conflito entre seletor global de cabeçalhos e cabeçalhos internos; altura da caixa vazia do Inbox mobile; capitalização indevida na descrição de Hoje. Compilações Nest e Vite passaram.
+- Pendências da auditoria: título visível duplicado no shell/conteúdo; Inbox sem thread exercitável até configurar canal de teste; bundle JS principal ~691 kB, acima do limite de aviso do Vite. Ver detalhes e evidências em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md).
+- Trabalho ainda na feature `feature/ux-visual-audit-fixes`; integrar em `develop` ao fechar esta fatia. Sem suíte automatizada executada.
+
 ## Retomada em 15/11/2026
 
 - `develop` recebeu a integração de falhas permanentes do modelo à central do closer no merge `db8cf23`.

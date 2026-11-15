@@ -44,9 +44,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const readCursorKey = useRef('')
   const skipUnreadAutoSelect = useRef(false)
   const refreshMessagesRef = useRef<() => void>(() => {})
-  const refreshRef = useRef(refresh)
+  const refreshRef = useRef<(quiet?: boolean) => Promise<void>>(async () => {})
   const selectedIdRef = useRef(selectedId)
-  refreshRef.current = refresh
   selectedIdRef.current = selectedId
 
   const refresh = useCallback(async (quiet = false) => {
@@ -75,6 +74,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       if (sequence === refreshSequence.current) setLoading(false)
     }
   }, [conversationIdFilter, channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
+  refreshRef.current = refresh
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
   useEffect(() => { api.inbox.tags().then(setTags).catch(() => setTags([])) }, [])

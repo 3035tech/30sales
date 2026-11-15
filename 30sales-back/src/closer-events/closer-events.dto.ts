@@ -18,7 +18,7 @@ export const closerEventActionSchema = z.object({ action: z.enum(['acknowledge',
 export type CloserEventActionInputDto = z.infer<typeof closerEventActionSchema>;
 export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly query: ListCloserEventsQueryDto) {} }
 export class CloserEventDto {
-  constructor(readonly id: string, readonly eventType: string, readonly priority: string, readonly status: string, readonly conversationId: string, readonly opportunityId: string, readonly assignedToUserId: string, readonly accountName: string, readonly contactName: string, readonly summary: string, readonly evidence: string | null, readonly occurredAt: string, readonly dueAt: string | null, readonly acknowledgedAt: string | null, readonly snoozedUntil: string | null) {}
+  constructor(readonly id: string, readonly eventType: string, readonly priority: string, readonly status: string, readonly conversationId: string, readonly opportunityId: string, readonly assignedToUserId: string, readonly accountName: string | null, readonly contactName: string | null, readonly summary: string, readonly evidence: string | null, readonly occurredAt: string, readonly dueAt: string | null, readonly acknowledgedAt: string | null, readonly snoozedUntil: string | null) {}
 }
 export class CloserEventSlaPolicyDto { constructor(readonly eventType: string, readonly targetMinutes: number | null, readonly escalateToManagers = false) {} }
 export class CloserEventSlaSettingsDto { constructor(readonly policies: CloserEventSlaPolicyDto[], readonly canManage: boolean) {} }

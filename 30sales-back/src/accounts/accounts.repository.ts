@@ -45,7 +45,7 @@ export class AccountsRepository {
       .groupBy(accounts.id)
       .orderBy(input.query.sortDirection === 'asc' ? sortExpression : desc(sortExpression), accounts.name, accounts.id)
       .limit(input.query.limit).offset(input.query.offset);
-    const data = rows.map((row) => new AccountRecordDto(row.id, row.name, Number(row.contactCount), Number(row.leadCount), Number(row.respondedCount), Number(row.opportunityCount), row.latestActivityAt?.toISOString() ?? null));
+    const data = rows.map((row) => new AccountRecordDto(row.id, row.name, Number(row.contactCount), Number(row.leadCount), Number(row.respondedCount), Number(row.opportunityCount), row.latestActivityAt ? new Date(row.latestActivityAt.toString()).toISOString() : null));
     const total = Number(totalRows[0]?.total ?? 0);
     return new AccountPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }

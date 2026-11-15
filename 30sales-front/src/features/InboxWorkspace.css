@@ -59,4 +59,4 @@
 .inbox-empty { display: grid; align-content: center; justify-items: center; gap: 10px; min-height: 140px; padding: 24px; color: var(--muted, #6f7785); text-align: center; }
 .inbox-empty strong { color: inherit; }
 .thread-empty { min-height: 300px; }
-@media (max-width: 760px) { .inbox-layout { grid-template-columns: minmax(0, 1fr); max-height: none; } .inbox-conversations { max-height: 250px; border-right: 0; border-bottom: 1px solid var(--line, #e7e9ed); } .inbox-message { max-width: 92%; } .inbox-qualification-columns { grid-template-columns:minmax(0,1fr); } }
+@media (max-width: 760px) { .inbox-layout { grid-template-columns: minmax(0, 1fr); max-height: none; min-height: 0; } .inbox-conversations { max-height: 250px; border-right: 0; border-bottom: 1px solid var(--line, #e7e9ed); } .inbox-message { max-width: 92%; } .inbox-qualification-columns { grid-template-columns:minmax(0,1fr); } .thread-empty { min-height: 140px; } }

@@ -2,14 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Radio, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
-import { api, type ChannelDto, type CreateChannelInput } from '../lib/api/client'
+import { api, type ChannelDto, type ChannelHealthCheckDto, type CreateChannelInput } from '../lib/api/client'
 import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status'
 const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 export function ChannelsWorkspace() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const apiBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '')
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [form, setForm] = useState<CreateChannelInput>(emptyForm)
@@ -28,6 +28,9 @@ export function ChannelsWorkspace() {
   const [cloudAccessToken, setCloudAccessToken] = useState('')
   const [cloudSignalSecret, setCloudSignalSecret] = useState('')
   const [savingCredentials, setSavingCredentials] = useState(false)
+  const [healthChecks, setHealthChecks] = useState<Record<string, ChannelHealthCheckDto>>({})
+  const [healthCheckErrors, setHealthCheckErrors] = useState<Record<string, boolean>>({})
+  const [checkingChannelIds, setCheckingChannelIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
 
@@ -58,11 +61,11 @@ export function ChannelsWorkspace() {
     const direction = sortDirection === 'asc' ? 1 : -1
     return filtered.sort((left, right) => {
       const values: Record<SortKey, [string, string]> = {
-        displayName: [left.displayName, right.displayName], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], providerChannelId: [left.providerChannelId, right.providerChannelId], status: [left.isActive ? '1' : '0', right.isActive ? '1' : '0'],
+        displayName: [left.displayName, right.displayName], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], providerChannelId: [left.providerChannelId, right.providerChannelId], status: [`${left.isActive ? '0' : '1'}-${left.isConfigured ? '0' : '1'}-${healthChecks[left.id]?.status ?? 'z'}`, `${right.isActive ? '0' : '1'}-${right.isConfigured ? '0' : '1'}-${healthChecks[right.id]?.status ?? 'z'}`],
       }
       return values[sortKey][0].localeCompare(values[sortKey][1]) * direction || left.id.localeCompare(right.id)
     })
-  }, [channels, query, sortKey, sortDirection])
+  }, [channels, healthChecks, query, sortKey, sortDirection])
 
   const createChannel = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
@@ -87,9 +90,25 @@ export function ChannelsWorkspace() {
       await api.channels.setCredentials(channel.id, channel.provider === 'evolution'
         ? { provider: 'evolution', baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey, webhookSecret: evolutionWebhookSecret }
         : { provider: 'whatsapp_cloud_api', accessToken: cloudAccessToken, signalSecret: cloudSignalSecret })
+      setHealthChecks((current) => { const next = { ...current }; delete next[channel.id]; return next })
+      setHealthCheckErrors((current) => { const next = { ...current }; delete next[channel.id]; return next })
       clearCredentialForm(); setRefresh((version) => version + 1)
     } catch { setError(t('channels.credentialsFailed')) }
     finally { setSavingCredentials(false) }
+  }
+
+  const checkConnection = async (channelId: string) => {
+    setCheckingChannelIds((current) => [...current, channelId])
+    setHealthChecks((current) => { const next = { ...current }; delete next[channelId]; return next })
+    setHealthCheckErrors((current) => ({ ...current, [channelId]: false }))
+    try {
+      const result = await api.channels.healthCheck(channelId)
+      setHealthChecks((current) => ({ ...current, [channelId]: result }))
+    } catch {
+      setHealthCheckErrors((current) => ({ ...current, [channelId]: true }))
+    } finally {
+      setCheckingChannelIds((current) => current.filter((id) => id !== channelId))
+    }
   }
 
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
@@ -97,7 +116,12 @@ export function ChannelsWorkspace() {
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => t(`channels.providers.${channel.provider}`) },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
     { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}</div> },
-    { id: 'status', label: t('channels.columns.routing'), render: (channel) => <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><button type="button" onClick={() => openCredentialForm(channel.id)}>{t('channels.configureCredentials')}</button><button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</button></div> },
+    { id: 'status', label: t('channels.columns.routing'), render: (channel) => {
+      const health = healthChecks[channel.id]
+      const checkedAt = health ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(health.checkedAt)) : ''
+      const checking = checkingChannelIds.includes(channel.id)
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><button type="button" onClick={() => openCredentialForm(channel.id)}>{t('channels.configureCredentials')}</button><button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</button><button type="button" disabled={checking} onClick={() => void checkConnection(channel.id)}>{checking ? t('channels.checkingConnection') : t('channels.checkProvider')}</button>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+    } },
   ]
   return <section className="channels-page">
     <header className="channels-heading"><div><p className="eyebrow">{t('channels.eyebrow')}</p><h2>{t('channels.title')}</h2><p className="muted">{t('channels.description')}</p></div><button className="refresh" type="button" onClick={() => setRefresh((version) => version + 1)} aria-label={t('channels.refresh')}><RefreshCw size={16} /></button></header>

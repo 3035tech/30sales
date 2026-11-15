@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -19,4 +19,7 @@ export class ChannelsController {
   update(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(updateChannelSchema)) input: UpdateChannelDto) { return this.channelsService.update(request, channelId, input); }
   @Put(':id/credentials')
   configureCredentials(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(channelCredentialsSchema)) credentials: ChannelCredentialsDto) { return this.channelsService.configureCredentials(request, channelId, credentials); }
+  @Post(':id/health-check')
+  @HttpCode(HttpStatus.OK)
+  healthCheck(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.healthCheck(request, channelId); }
 }

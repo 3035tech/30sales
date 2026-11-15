@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 import { database } from '../db';
 import { auditEvents, messagingChannels } from '../db/schema';
-import { ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto } from './channels.dto';
+import { ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto } from './channels.dto';
 
 @Injectable()
 export class ChannelsRepository {
@@ -43,6 +43,29 @@ export class ChannelsRepository {
         .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).returning();
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.credentials_updated', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, afterState: { provider: row.provider, credentialsConfigured: true } });
       return this.toDto(row);
+    });
+  }
+
+  async healthCheckTarget(organizationId: string, channelId: string): Promise<ChannelHealthCheckTargetDto | null> {
+    const [row] = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId,
+      credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId))).limit(1);
+    if (!row) return null;
+    const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
+      ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
+      : null;
+    return new ChannelHealthCheckTargetDto(row.id, row.provider as ChannelRecordDto['provider'], row.providerChannelId, credentials);
+  }
+
+  async auditHealthCheck(input: ChannelHealthCheckAuditDto): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [channel] = await transaction.select({ id: messagingChannels.id }).from(messagingChannels)
+        .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
+      if (!channel) return false;
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user',
+        action: 'channel.connection_checked', entityType: 'messaging_channel', entityId: channel.id, correlationId: input.correlationId,
+        afterState: { status: input.status, checkedAt: input.checkedAt.toISOString() } });
+      return true;
     });
   }
 

@@ -86,3 +86,10 @@ Os estados de carregamento, erro, vazio, falha parcial e atualização foram pad
 - Inteiros usam `number | null` no estado e aceitam apenas dígitos; decimais retornam números e aceitam separador local. Valores monetários usam máscara pela moeda selecionada. E-mails são normalizados para minúsculas e telefones mantêm valor canônico, com máscara brasileira quando aplicável e validação E.164 na configuração de canal.
 - A tipografia usa a escala definida nos tokens da marca; Inter segue como fonte de interface e Manrope para títulos.
 - `git diff --check` passou e nenhuma feature declara diretamente controles HTML nativos. Não rodei build/testes nem fiz inspeção visual em navegador nesta fatia, conforme a preferência persistente.
+
+## Revisão de alinhamento após a padronização — em correção
+
+- Causa encontrada na cascata: os seletores de base de input, select e textarea tinham duas classes e superavam CSS de tela que definia alturas compactas para filtros, paginação e composição de mensagens. O resultado era controle maior que o espaço reservado e desalinhamento entre rótulos, campos e ações.
+- Correção preparada em `fix/ui-control-layout-cascade`: reduzir especificidade dos três seletores-base, mantendo os estilos compartilhados e permitindo que regras específicas do layout definam dimensões e espaçamentos.
+- A busca confirmou que os controles nativos seguem encapsulados em `FormControls`; não há JSX bruto de botão/campo nas features nem no shell.
+- Acesso ao Chrome falhou pelo host de navegador e Playwright não está instalado no projeto. A conclusão desta auditoria visual ainda depende de inspeção em runtime, principalmente nos filtros/paginação do Inbox e Pipeline e nos formulários responsivos.

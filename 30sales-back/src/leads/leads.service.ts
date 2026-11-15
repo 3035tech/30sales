@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { LEAD_TRANSITIONS } from './constants';
-import { AssignLeadDto, CompleteTaskDto, CreateLeadDto, LeadAssigneeDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
+import { AssignLeadDto, CompleteTaskDto, CreateLeadDto, LeadAssigneeDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
 import { LeadsRepository } from './leads.repository';
 import { TenantAccessService } from './tenant-access.service';
 
@@ -15,6 +15,10 @@ export class LeadsService {
   async listTasks(request: ApiRequestDto, query: ListTasksQueryDto): Promise<TaskRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read');
     return this.repository.listTasks(new TaskRepositoryListDto(context.organizationId, query));
+  }
+  async listTasksPage(request: ApiRequestDto, query: ListTasksQueryDto): Promise<TaskPageDto> {
+    const context = await this.tenantAccess.require(request, 'read');
+    return this.repository.listTasksPage(new TaskRepositoryListDto(context.organizationId, query));
   }
   async createTask(request: ApiRequestDto, leadId: string, dto: CreateTaskDto): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');

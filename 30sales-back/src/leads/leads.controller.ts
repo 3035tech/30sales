@@ -43,6 +43,10 @@ export class LeadsController {
   listTasks(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listTasksSchema)) query: ListTasksQueryDto) {
     return this.leadsService.listTasks(request, query);
   }
+  @Get('tasks/page')
+  listTasksPage(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listTasksSchema)) query: ListTasksQueryDto) {
+    return this.leadsService.listTasksPage(request, query);
+  }
   @Post(':id/tasks')
   createTask(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(createTaskSchema)) dto: CreateTaskDto) {
     return this.leadsService.createTask(request, leadId, dto);

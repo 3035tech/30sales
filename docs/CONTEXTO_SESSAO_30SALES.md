@@ -161,11 +161,11 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 ## Carga sintética para inspeção visual — concluída
 
-- Na branch `feature/ux-demo-data-seed`, foi criado `30sales-back/scripts/seed-ux-demo.ts`, executável por `npm run db:seed:ux-demo`. O script exige URL local na porta `55432`, nome de banco `30sales`, tenant Acme de demonstração, membro existente e confirmação explícita; usa Drizzle e IDs determinísticos, com marcador idempotente.
+- Criada na branch `feature/ux-demo-data-seed` e integrada em `develop` no merge `4e2b1be`, a carga usa `30sales-back/scripts/seed-ux-demo.ts`, executável por `npm run db:seed:ux-demo`. O script exige URL local na porta `55432`, nome de banco `30sales`, tenant Acme de demonstração, membro existente e confirmação explícita; usa Drizzle e IDs determinísticos, com marcador idempotente.
 - Aplicadas somente no banco descartável local `30sales-ux-db` as migrations já versionadas `0035_curvy_tattoo.sql` e `0036_sparkling_vengeance.sql`. `0035` foi confirmada em transação separada porque o PostgreSQL exige confirmar o novo valor do enum antes de referenciá-lo em constraints da `0036`. Nenhum outro banco/ambiente foi alterado.
 - Carga `ui-demo-v1` concluída: 60 contas, 60 pessoas, 60 leads, 60 tarefas, 50 oportunidades, 150 atividades, 50 handoffs, 50 conversas, 233 mensagens, 50 eventos do closer, 60 notificações, 60 eventos de auditoria, 6 etiquetas e 10 etapas padrão do pipeline. As contagens atuais do tenant incluem registros preexistentes: contas/pessoas/leads 66; tarefas 63; oportunidades 56; atividades 152; conversas 50; mensagens 233; eventos do closer 50; notificações 86; auditoria 61. Seed repetido detectou o marcador e não alterou dados.
 - O canal de Inbox fictício está inativo e sem credenciais; nenhum envio externo foi possível. Emails usam `example.test`. Não foram criados usuários/memberships artificiais nem históricos de importação.
-- Sem build ou suíte de testes, conforme preferência persistente; `git diff --check` deve ser conferido antes da integração.
+- `git show --check` passou. Sem build ou suíte de testes, conforme preferência persistente.
 
 ## Auditoria de desalinhamento dos controles — em correção
 

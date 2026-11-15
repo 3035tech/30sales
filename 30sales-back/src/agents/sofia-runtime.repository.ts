@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { database, pool } from '../db';
-import { agentSettings, auditEvents, conversations, messages, messagingChannels, outboxEvents, people } from '../db/schema';
+import { accounts, agentSettings, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people } from '../db/schema';
+import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
-import { sofiaInboundEventSchema, type SofiaInboundEventDto, type SofiaQueueEventDto, type SofiaRuntimeContextDto } from './sofia-runtime.dto';
+import { sofiaInboundEventSchema, type SofiaAgentResponseDto, type SofiaInboundEventDto, type SofiaQueueEventDto, type SofiaRuntimeContextDto } from './sofia-runtime.dto';
 
 type AgentSendChannel = { channelId: string; provider: SofiaInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
@@ -65,13 +66,13 @@ export class SofiaRuntimeRepository {
     };
   }
 
-  async sendIfStillAutomated(input: { queueEventId: string; context: SofiaRuntimeContextDto; replyText: string; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<'sent' | 'skipped'> {
+  async sendIfStillAutomated(input: { queueEventId: string; context: SofiaRuntimeContextDto; result: SofiaAgentResponseDto; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<'sent' | 'skipped'> {
     return database.transaction(async (transaction) => {
-      const [conversation] = await transaction.select({ id: conversations.id, organizationId: conversations.organizationId, channelId: conversations.channelId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
+      const [conversation] = await transaction.select({ id: conversations.id, organizationId: conversations.organizationId, channelId: conversations.channelId, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.context.event.conversationId), eq(conversations.organizationId, input.context.event.organizationId))).for('update').limit(1);
       if (!conversation || conversation.automationMode !== 'sofia' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return 'skipped';
 
-      const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings)
+      const [agent] = await transaction.select({ enabled: agentSettings.enabled, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
         .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
       if (!agent?.enabled) return 'skipped';
 
@@ -87,13 +88,96 @@ export class SofiaRuntimeRepository {
       const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone: input.context.recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();
       const idempotencyKey = `sofia-reply:${input.context.event.messageId}`;
-      const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
+      const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
       if (message) {
         await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${occurredAt}), ${occurredAt})`, updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
       const action = delivery.deliveryState === 'failed' ? 'conversation.sofia_reply_failed' : delivery.deliveryState === 'unknown' ? 'conversation.sofia_reply_delivery_unknown' : 'conversation.sofia_reply_sent';
       await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action, entityType: 'conversation', entityId: conversation.id, afterState: { messageId: message.id, sourceMessageId: input.context.event.messageId, deliveryState: delivery.deliveryState } });
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
+      }
+      await transaction.update(conversations).set({
+        sofiaQualificationIntent: input.result.intent,
+        sofiaQualificationSummary: input.result.summary,
+        sofiaConfirmedFacts: input.result.confirmedFacts,
+        sofiaUnknowns: input.result.unknowns,
+        sofiaNextStep: input.result.nextStep,
+        sofiaQualificationUpdatedAt: occurredAt,
+      }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'conversation.sofia_qualification_updated', entityType: 'conversation', entityId: conversation.id, afterState: { intent: input.result.intent, confirmedFactCount: input.result.confirmedFacts.length, unknownCount: input.result.unknowns.length } });
+
+      const requestsCloser = ['meeting_request', 'proposal_request'].includes(input.result.intent);
+      if (requestsCloser && agent.updatedByUserId && conversation.personId) {
+        const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name, personName: people.name })
+          .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+          .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.organizationId, conversation.organizationId), eq(leads.personId, conversation.personId), conversation.accountId ? eq(leads.accountId, conversation.accountId) : sql`true`))
+          .orderBy(desc(leads.createdAt), desc(leads.id)).for('update', { of: leads }).limit(1);
+        const ineligibleLeadStatuses = ['invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact'];
+        if (lead && !ineligibleLeadStatuses.includes(lead.status)) {
+          const [activeHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
+            .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
+            .where(and(eq(handoffs.organizationId, conversation.organizationId), eq(opportunities.leadId, lead.id), sql`${handoffs.status} in ('requested', 'accepted')`)).limit(1);
+          if (!activeHandoff) {
+            let opportunityId = conversation.opportunityId;
+            let opportunityOwnerUserId: string | null = null;
+            if (opportunityId) {
+              const [linkedOpportunity] = await transaction.select({ id: opportunities.id, ownerUserId: opportunities.ownerUserId }).from(opportunities)
+                .where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, conversation.organizationId), eq(opportunities.leadId, lead.id))).for('update').limit(1);
+              if (!linkedOpportunity) opportunityId = null;
+              else opportunityOwnerUserId = linkedOpportunity.ownerUserId;
+            }
+            if (!opportunityId) {
+              const [existingOpportunity] = await transaction.select({ id: opportunities.id, ownerUserId: opportunities.ownerUserId }).from(opportunities)
+                .where(and(eq(opportunities.organizationId, conversation.organizationId), eq(opportunities.leadId, lead.id))).for('update').limit(1);
+              opportunityId = existingOpportunity?.id ?? null;
+              opportunityOwnerUserId = existingOpportunity?.ownerUserId ?? null;
+            }
+            if (!opportunityId) {
+              const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
+              const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
+              opportunityId = createdOpportunity.id;
+              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, toStage: 'qualification', actorUserId: agent.updatedByUserId, reason: 'Opportunity created from Sofia qualified handoff.' });
+              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: 'qualification', source: 'sofia_handoff' } });
+            }
+
+            const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
+            await transaction.update(opportunities).set({ nextAction: input.result.nextStep, nextActionAt: dueAt, updatedAt: occurredAt }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, conversation.organizationId)));
+            const [handoff] = await transaction.insert(handoffs).values({ organizationId: conversation.organizationId, opportunityId, reason: input.result.summary, evidence: `Lead requested a ${input.result.intent === 'meeting_request' ? 'meeting or demonstration' : 'proposal'}. Latest message: ${input.context.messages.at(-1)?.content.slice(0, 1500) ?? ''}`, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, nextStep: input.result.nextStep, nextStepAt: dueAt, requestedByUserId: agent.updatedByUserId, requestedByAgent: true }).returning({ id: handoffs.id });
+            await transaction.insert(handoffHistory).values({ organizationId: conversation.organizationId, handoffId: handoff.id, event: 'requested', actorUserId: agent.updatedByUserId, note: 'Prepared by Sofia from the qualified conversation.' });
+            await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'handoff.requested', entityType: 'handoff', entityId: handoff.id, afterState: { status: 'requested', opportunityId, source: 'sofia' } });
+            if (lead.status !== 'converted_to_sdr') {
+              if (lead.status !== 'responded') {
+                await transaction.update(leads).set({ status: 'responded', updatedAt: occurredAt }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, conversation.organizationId)));
+                await transaction.insert(leadStatusHistory).values({ organizationId: conversation.organizationId, leadId: lead.id, fromStatus: lead.status, toStatus: 'responded', changedByUserId: agent.updatedByUserId });
+              }
+              await transaction.update(leads).set({ status: 'converted_to_sdr', updatedAt: occurredAt }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, conversation.organizationId)));
+              await transaction.insert(leadStatusHistory).values({ organizationId: conversation.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: agent.updatedByUserId });
+              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'lead.status_changed', entityType: 'lead', entityId: lead.id, afterState: { status: 'converted_to_sdr', source: 'sofia_handoff' } });
+            }
+            await transaction.update(conversations).set({ opportunityId, automationMode: 'human', updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
+            const activeCloserLoad = transaction.select({ userId: closerEvents.assignedToUserId, workload: count() }).from(closerEvents)
+              .where(and(eq(closerEvents.organizationId, conversation.organizationId), inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed'])))
+              .groupBy(closerEvents.assignedToUserId).as('active_closer_load');
+            const closerConditions = [eq(authMember.organizationId, conversation.organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`];
+            if (opportunityOwnerUserId) closerConditions.push(eq(authMember.userId, opportunityOwnerUserId));
+            const [closer] = await transaction.select({ userId: authMember.userId }).from(authMember).leftJoin(activeCloserLoad, eq(activeCloserLoad.userId, authMember.userId))
+              .where(and(...closerConditions))
+              .orderBy(asc(sql`coalesce(${activeCloserLoad.workload}, 0)`), asc(authMember.createdAt), asc(authMember.userId)).limit(1);
+            if (closer) {
+              await transaction.insert(closerEvents).values({ organizationId: conversation.organizationId, eventType: 'qualified_handoff', priority: 'high', idempotencyKey: `sofia-qualified-handoff:${input.context.event.messageId}`, conversationId: conversation.id, opportunityId, sourceMessageId: input.context.event.messageId, assignedToUserId: closer.userId, summary: input.result.summary.slice(0, 1000), evidence: input.context.messages.at(-1)?.content.slice(0, 1500) ?? null, occurredAt })
+                .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] });
+            }
+            const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'internal', actorType: 'system', bodyText: 'Sofia prepared a qualified handoff for the closer. Review the handoff summary and take ownership of this conversation.', deliveryState: 'unknown', idempotencyKey: `sofia-handoff:${input.context.event.messageId}`, occurredAt })
+              .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
+            if (notice) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
+          }
+        }
+      } else if (input.result.intent === 'explicit_human_request') {
+        await transaction.update(conversations).set({ automationMode: 'human', updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
+        const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'internal', actorType: 'system', bodyText: 'The lead asked to speak with a person. Sofia paused automated replies so the team can take over.', deliveryState: 'unknown', idempotencyKey: `sofia-human-request:${input.context.event.messageId}`, occurredAt })
+          .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
+        if (notice) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
       }
       await transaction.update(outboxEvents).set({ status: 'published', publishedAt: occurredAt, lastErrorCode: null }).where(and(eq(outboxEvents.id, input.queueEventId), eq(outboxEvents.organizationId, conversation.organizationId), eq(outboxEvents.status, 'pending')));
       return 'sent';

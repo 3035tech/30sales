@@ -145,8 +145,16 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   }
 
   const items = useMemo(() => {
-    const work: WorkItem[] = handoffs.map((handoff) => ({ id: `handoff:${handoff.id}`, kind: 'handoff', accountName: handoff.accountName, contactName: handoff.contactName, title: handoff.reason, context: handoff.evidence, occurredAt: handoff.requestedAt, deadline: handoff.nextStepAt, handoff }))
-    work.push(...closerEvents.map((event) => ({ id: `event:${event.id}`, kind: 'lead_reply' as const, accountName: event.accountName, contactName: event.contactName, title: t(`closerEventTypes.${event.eventType}`), context: event.evidence ?? '', occurredAt: event.occurredAt, deadline: null, event })))
+    const handoffByOpportunity = new Map(handoffs.map((handoff) => [handoff.opportunityId, handoff]))
+    const linkedHandoffIds = new Set(closerEvents.flatMap((event) => {
+      const handoff = event.eventType === 'qualified_handoff' ? handoffByOpportunity.get(event.opportunityId) : undefined
+      return handoff ? [handoff.id] : []
+    }))
+    const work: WorkItem[] = handoffs.filter((handoff) => !linkedHandoffIds.has(handoff.id)).map((handoff) => ({ id: `handoff:${handoff.id}`, kind: 'handoff', accountName: handoff.accountName, contactName: handoff.contactName, title: handoff.reason, context: handoff.evidence, occurredAt: handoff.requestedAt, deadline: handoff.nextStepAt, handoff }))
+    work.push(...closerEvents.map((event) => {
+      const handoff = event.eventType === 'qualified_handoff' ? handoffByOpportunity.get(event.opportunityId) : undefined
+      return { id: handoff ? `handoff:${handoff.id}` : `event:${event.id}`, kind: handoff ? 'handoff' as const : 'lead_reply' as const, accountName: event.accountName, contactName: event.contactName, title: handoff?.reason ?? t(`closerEventTypes.${event.eventType}`), context: handoff?.evidence ?? event.evidence ?? '', occurredAt: handoff?.requestedAt ?? event.occurredAt, deadline: handoff?.nextStepAt ?? null, handoff, event }
+    }))
     const terminalStages = new Set(['won', 'lost'])
     for (const opportunity of opportunities) {
       if (terminalStages.has(opportunity.stage) || opportunity.ownerUserId !== userId) continue

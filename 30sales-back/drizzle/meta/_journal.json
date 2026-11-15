@@ -169,6 +169,13 @@
       "when": 1794706653370,
       "tag": "0023_violet_swarm",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794738100230,
+      "tag": "0024_harsh_dark_beast",
+      "breakpoints": true
     }
   ]
 }

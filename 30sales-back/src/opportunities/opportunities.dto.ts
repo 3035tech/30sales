@@ -3,7 +3,7 @@ import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.const
 
 const stageSchema = z.enum(OPPORTUNITY_STAGES);
 
-export const listOpportunitiesSchema = z.object({ stage: stageSchema.optional(), view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listOpportunitiesSchema = z.object({ stage: stageSchema.optional(), opportunityId: z.string().uuid().optional(), view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListOpportunitiesQueryDto = z.infer<typeof listOpportunitiesSchema>;
 
 export const transitionOpportunitySchema = z.object({

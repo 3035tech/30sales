@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, isNull, lt, notInArray, SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people } from '../db/schema';
+import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
 import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 
@@ -17,6 +17,7 @@ function mapOpportunity(row: OpportunityRow, canUpdate = false) {
 export class OpportunitiesRepository {
   async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {
     const conditions: SQL[] = [eq(opportunities.organizationId, input.organizationId)];
+    if (input.query.opportunityId) conditions.push(eq(opportunities.id, input.query.opportunityId));
     if (input.query.view !== 'all') conditions.push(notInArray(opportunities.stage, ['won', 'lost']));
     if (input.query.stage) conditions.push(eq(opportunities.stage, input.query.stage));
     if (input.query.view === 'mine') conditions.push(eq(opportunities.ownerUserId, input.userId));
@@ -56,7 +57,8 @@ export class OpportunitiesRepository {
       const [updated] = await transaction.update(opportunities).set({ ownerUserId: input.ownerUserId, updatedAt: new Date() })
         .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).returning({ id: opportunities.id });
       if (!updated) return null;
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.owner_changed', entityType: 'opportunity', entityId: input.opportunityId, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId }, afterState: { ownerUserId: input.ownerUserId } });
+      const [auditEvent] = await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.owner_changed', entityType: 'opportunity', entityId: input.opportunityId, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId }, afterState: { ownerUserId: input.ownerUserId } }).returning({ id: auditEvents.id });
+      if (input.ownerUserId && input.ownerUserId !== input.actorUserId) await transaction.insert(userNotifications).values({ organizationId: input.organizationId, recipientUserId: input.ownerUserId, opportunityId: input.opportunityId, notificationType: 'opportunity_assigned', idempotencyKey: `opportunity-assigned:${auditEvent.id}` }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       return updated.id;
     });
     if (opportunityId === 'invalid_assignee') return opportunityId;

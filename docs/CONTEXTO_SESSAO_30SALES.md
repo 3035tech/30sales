@@ -9,7 +9,7 @@
 - Fatia integrada em `develop` no merge `c63d3b8` (feature `101c846`): Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. Atualização solicitada nesta retomada troca o disco local por bucket S3 privado.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
-- Fatia em andamento na branch `feature/media-s3-storage`: anexos passam a usar bucket S3 privado em vez de disco local, com SSE-S3 ao gravar e leitura pelo backend autenticado. Bucket e região vêm de `MEDIA_S3_BUCKET`/`AWS_REGION`; credenciais usam a cadeia padrão AWS, preferindo IAM role. Ainda não integrada em `develop`; sem build/testes por preferência do usuário.
+- Fatia integrada em `develop` no merge `4215661` (feature `0311e49`): anexos usam bucket S3 privado em vez de disco local, com SSE-S3 ao gravar e leitura pelo backend autenticado. Bucket e região vêm de `MEDIA_S3_BUCKET`/`AWS_REGION`; credenciais usam a cadeia padrão AWS, preferindo IAM role. O bucket/role ainda precisam ser configurados no ambiente de deploy. Sem build/testes por preferência do usuário.
 
 Atualizado em 15/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
 
@@ -82,7 +82,7 @@ Evento do closer: quando uma mensagem inbound é persistida em oportunidade com 
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada após integrar S3: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar bucket privado/role IAM; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar bucket privado/role IAM; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
 
 Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspondência; revisar canais externos de notificação quando houver requisito explícito.
 

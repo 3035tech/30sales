@@ -9,7 +9,7 @@ export class AgentsRepository {
   async getSofiaSettings(organizationId: string): Promise<SofiaSettingsDto> {
     const [settings] = await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt, updatedAt: agentSettings.updatedAt })
       .from(agentSettings).where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
-    return new SofiaSettingsDto(settings?.enabled ?? false, settings?.model ?? 'claude-haiku-4-5-20251001', settings?.systemPrompt ?? '', settings?.updatedAt.toISOString() ?? null);
+    return new SofiaSettingsDto(settings?.enabled ?? false, settings?.model ?? 'claude-haiku-5-5', settings?.systemPrompt ?? '', settings?.updatedAt.toISOString() ?? null);
   }
 
   async saveSofiaSettings(input: SofiaSettingsRepositoryDto): Promise<SofiaSettingsDto> {

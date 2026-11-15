@@ -43,7 +43,7 @@ export function SofiaSettingsWorkspace() {
   return <section className="sofia-settings-page">
     <header className="sofia-settings-heading"><div><p className="eyebrow">{t('sofiaSettings.eyebrow')}</p><h2>{t('sofiaSettings.title')}</h2><p className="muted">{t('sofiaSettings.description')}</p></div></header>
     {loading ? <p className="notice">{t('common.loading')}</p> : <form className="sofia-settings-panel" onSubmit={save}>
-      <div className="sofia-settings-model"><Bot size={20} /><div><strong>{t('sofiaSettings.model')}</strong><span>{settings?.model ?? 'claude-haiku-4-5-20251001'}</span></div></div>
+      <div className="sofia-settings-model"><Bot size={20} /><div><strong>{t('sofiaSettings.model')}</strong><span>{settings?.model ?? 'claude-haiku-5-5'}</span></div></div>
       <label className="sofia-settings-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false) }} /><span><strong>{t('sofiaSettings.enabled')}</strong><small>{t('sofiaSettings.enabledHint')}</small></span></label>
       <label className="sofia-settings-prompt"><span><strong>{t('sofiaSettings.prompt')}</strong><small>{t('sofiaSettings.promptHint')}</small></span><textarea value={systemPrompt} onChange={(event) => { setSystemPrompt(event.target.value); setSaved(false) }} maxLength={30000} rows={16} /></label>
       <div className="sofia-settings-footer"><span>{t('sofiaSettings.characters', { count: systemPrompt.length })}</span><button className="primary" type="submit" disabled={saving}>{saving ? t('sofiaSettings.saving') : <><Save size={15} />{t('sofiaSettings.save')}</>}</button></div>

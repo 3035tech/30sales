@@ -221,7 +221,7 @@ export const agentSettings = pgTable('agent_settings', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   agentKey: text('agent_key').notNull(),
   enabled: boolean('enabled').default(false).notNull(),
-  model: text('model').default('claude-haiku-4-5-20251001').notNull(),
+  model: text('model').default('claude-haiku-5-5').notNull(),
   systemPrompt: text('system_prompt').default('').notNull(),
   updatedByUserId: uuid('updated_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -229,7 +229,7 @@ export const agentSettings = pgTable('agent_settings', {
 }, (table) => [
   unique('agent_settings_org_agent_unique').on(table.organizationId, table.agentKey),
   check('agent_settings_agent_key_check', sql`${table.agentKey} in ('sofia')`),
-  check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-4-5-20251001')`),
+  check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5')`),
   check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
   index('agent_settings_org_enabled_idx').on(table.organizationId, table.enabled),
 ]);

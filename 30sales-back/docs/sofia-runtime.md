@@ -6,6 +6,8 @@ Sofia is a first-party 30Sales capability. Chatwoot, Twenty CRM, and n8n are not
 
 `WebhooksRepository.recordIncomingMessage` persists the provider event, conversation, contact message, and `agent.inbound_message_received` outbox event in one database transaction. The idempotency key is based on the internal message UUID, so provider retries do not create duplicate Sofia work.
 
+Each organization can configure Sofia's enabled state and system prompt through the authenticated agent settings API and workspace screen. Settings are stored under the organization ID, audited without copying prompt text into the audit log, and default to disabled. The model is currently fixed to Claude Haiku 4.5. Enabling the setting does not activate automated replies yet; the queue consumer remains a separate implementation step.
+
 The event includes the tenant, channel, conversation, and internal message UUIDs plus the provider's exact external conversation/message IDs, message type, normalized body, and occurrence time. Sofia work must always resolve the conversation and message by their internal IDs and organization ID; phone or text similarity is not a supported correlation mechanism.
 
 The event is a durable handoff point for the in-process 30Sales Sofia runtime. It is not yet consumed: runtime configuration, prompt management, an AI provider client, queue claiming/retries, and reply generation are still required. Before generating or sending a reply, the consumer must re-read the conversation and proceed only when `automationMode` is `sofia`, the channel is active, and the event has not already been handled. Human ownership and paused mode must suppress automated replies.
@@ -26,4 +28,4 @@ The authenticated inbox SSE endpoint streams tenant-scoped conversation update i
 
 ## Current boundary
 
-The internal runtime queue still has no consumer. This implementation does not call an external orchestration service, model, CRM, or support inbox, and it does not send an automated Sofia reply yet. The SSE stream currently publishes provider-ingested inbound message updates; other conversation mutations will be added as they are moved onto the internal event flow.
+The internal runtime queue still has no consumer. This implementation does not call an external orchestration service, model, CRM, or support inbox, and it does not send an automated Sofia reply yet. The SSE stream currently publishes provider-ingested inbound message updates; other conversation mutations will be added as they are moved onto the internal event flow. The agent-settings migration is additive; rollback is `DROP TABLE agent_settings` after disabling any consumer that may read it.

@@ -26,6 +26,7 @@ const activitySchema = z.object({ id: z.string().uuid(), type: activityType, sub
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
+const sofiaSettingsSchema = z.object({ enabled: z.boolean(), model: z.string(), systemPrompt: z.string(), updatedAt: z.string().nullable() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['sofia','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema) });
 const conversationPageSchema = z.object({ data: z.array(conversationSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
@@ -59,6 +60,7 @@ export type ActivityDto = z.infer<typeof activitySchema>;
 export type ConversationDto = z.infer<typeof conversationSchema>;
 export type ConversationPageDto = z.infer<typeof conversationPageSchema>;
 export type ChannelDto = z.infer<typeof channelSchema>;
+export type SofiaSettingsDto = z.infer<typeof sofiaSettingsSchema>;
 export type CreateChannelInput = { provider: ChannelDto['provider']; displayName: string; phoneNumber: string; providerChannelId: string; providerAccountId?: string };
 export type MessageDto = z.infer<typeof messageSchema>;
 export type AuditEventDto = z.infer<typeof auditEventSchema>;
@@ -149,6 +151,10 @@ export const api = {
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addTag: (conversationId: string, name: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name }) }),
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),
+  },
+  agents: {
+    getSofiaSettings: () => request('/api/v1/agents/sofia', sofiaSettingsSchema),
+    saveSofiaSettings: (input: { enabled: boolean; systemPrompt: string }) => request('/api/v1/agents/sofia', sofiaSettingsSchema, { method: 'PUT', body: JSON.stringify(input) }),
   },
   channels: {
     list: () => request('/api/v1/channels', z.array(channelSchema)),

@@ -12,5 +12,6 @@ import { AccountsModule } from './accounts/accounts.module';
 import { ChannelsModule } from './channels/channels.module';
 import { CloserEventsModule } from './closer-events/closer-events.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
-@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule], controllers: [HealthController] })
+import { AgentsModule } from './agents/agents.module';
+@Module({ imports: [LeadsModule, SessionModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule, AgentsModule], controllers: [HealthController] })
 export class AppModule {}

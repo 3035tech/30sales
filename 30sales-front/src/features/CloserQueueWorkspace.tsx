@@ -160,7 +160,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const openSlaNotification = async (notification: CloserSlaNotificationDto) => {
     setAcceptingId(notification.id); setError('')
     try {
-      await api.closerEvents.readSlaNotification(notification.id)
+      await api.notifications.markRead(notification.id)
       setSlaNotifications((current) => current.filter((item) => item.id !== notification.id))
       onOpenInbox(notification.conversationId)
     } catch { setError(t('closerQueue.eventActionFailed')) }

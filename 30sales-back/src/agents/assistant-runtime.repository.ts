@@ -1,16 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
 import { database, pool } from '../db';
-import { accounts, agentSettings, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people } from '../db/schema';
+import { accounts, agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
-import { sofiaInboundEventSchema, type SofiaAgentResponseDto, type SofiaInboundEventDto, type SofiaQueueEventDto, type SofiaRuntimeContextDto } from './sofia-runtime.dto';
+import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
 
-type AgentSendChannel = { channelId: string; provider: SofiaInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
+type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
 @Injectable()
-export class SofiaRuntimeRepository {
-  async claimNextEvent(): Promise<SofiaQueueEventDto | null> {
+export class AssistantRuntimeRepository {
+  async claimNextEvent(): Promise<AssistantQueueEventDto | null> {
     const result = await pool.query<{ id: string; organizationId: string; payload: unknown; attempts: number }>(`
       WITH next_event AS (
         SELECT id FROM outbox_events
@@ -29,8 +29,8 @@ export class SofiaRuntimeRepository {
     return result.rows[0] ?? null;
   }
 
-  async loadContext(queueEvent: SofiaQueueEventDto): Promise<SofiaRuntimeContextDto | null> {
-    const payload = sofiaInboundEventSchema.safeParse(queueEvent.payload);
+  async loadContext(queueEvent: AssistantQueueEventDto): Promise<AssistantRuntimeContextDto | null> {
+    const payload = assistantInboundEventSchema.safeParse(queueEvent.payload);
     if (!payload.success || payload.data.organizationId !== queueEvent.organizationId) return null;
     const event = payload.data;
     const [context] = await database.select({
@@ -40,7 +40,7 @@ export class SofiaRuntimeRepository {
     }).from(conversations)
       .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .innerJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
-      .innerJoin(agentSettings, and(eq(agentSettings.organizationId, conversations.organizationId), eq(agentSettings.agentKey, 'sofia')))
+      .innerJoin(agentSettings, and(eq(agentSettings.organizationId, conversations.organizationId), eq(agentSettings.agentKey, 'assistant')))
       .where(and(eq(conversations.id, event.conversationId), eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, event.channelId))).limit(1);
     if (!context || context.provider !== event.provider || !context.channelActive) return null;
 
@@ -66,14 +66,14 @@ export class SofiaRuntimeRepository {
     };
   }
 
-  async sendIfStillAutomated(input: { queueEventId: string; context: SofiaRuntimeContextDto; result: SofiaAgentResponseDto; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<'sent' | 'skipped'> {
+  async sendIfStillAutomated(input: { queueEventId: string; context: AssistantRuntimeContextDto; result: AssistantAgentResponseDto; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<'sent' | 'skipped'> {
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, organizationId: conversations.organizationId, channelId: conversations.channelId, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.context.event.conversationId), eq(conversations.organizationId, input.context.event.organizationId))).for('update').limit(1);
-      if (!conversation || conversation.automationMode !== 'sofia' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return 'skipped';
+      if (!conversation || conversation.automationMode !== 'assistant' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return 'skipped';
 
       const [agent] = await transaction.select({ enabled: agentSettings.enabled, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
-        .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
+        .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
       if (!agent?.enabled) return 'skipped';
 
       const [latestInbound] = await transaction.select({ id: messages.id }).from(messages)
@@ -87,24 +87,24 @@ export class SofiaRuntimeRepository {
 
       const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone: input.context.recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();
-      const idempotencyKey = `sofia-reply:${input.context.event.messageId}`;
+      const idempotencyKey = `assistant-reply:${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
       if (message) {
         await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${occurredAt}), ${occurredAt})`, updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
-      const action = delivery.deliveryState === 'failed' ? 'conversation.sofia_reply_failed' : delivery.deliveryState === 'unknown' ? 'conversation.sofia_reply_delivery_unknown' : 'conversation.sofia_reply_sent';
+      const action = delivery.deliveryState === 'failed' ? 'conversation.assistant_reply_failed' : delivery.deliveryState === 'unknown' ? 'conversation.assistant_reply_delivery_unknown' : 'conversation.assistant_reply_sent';
       await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action, entityType: 'conversation', entityId: conversation.id, afterState: { messageId: message.id, sourceMessageId: input.context.event.messageId, deliveryState: delivery.deliveryState } });
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
       }
       await transaction.update(conversations).set({
-        sofiaQualificationIntent: input.result.intent,
-        sofiaQualificationSummary: input.result.summary,
-        sofiaConfirmedFacts: input.result.confirmedFacts,
-        sofiaUnknowns: input.result.unknowns,
-        sofiaNextStep: input.result.nextStep,
-        sofiaQualificationUpdatedAt: occurredAt,
+        assistantQualificationIntent: input.result.intent,
+        assistantQualificationSummary: input.result.summary,
+        assistantConfirmedFacts: input.result.confirmedFacts,
+        assistantUnknowns: input.result.unknowns,
+        assistantNextStep: input.result.nextStep,
+        assistantQualificationUpdatedAt: occurredAt,
       }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
-      await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'conversation.sofia_qualification_updated', entityType: 'conversation', entityId: conversation.id, afterState: { intent: input.result.intent, confirmedFactCount: input.result.confirmedFacts.length, unknownCount: input.result.unknowns.length } });
+      await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'conversation.assistant_qualification_updated', entityType: 'conversation', entityId: conversation.id, afterState: { intent: input.result.intent, confirmedFactCount: input.result.confirmedFacts.length, unknownCount: input.result.unknowns.length } });
 
       const requestsCloser = ['meeting_request', 'proposal_request'].includes(input.result.intent);
       const requestsHuman = input.result.intent === 'explicit_human_request';
@@ -140,8 +140,8 @@ export class SofiaRuntimeRepository {
               const initialStage = requestsHuman ? 'closer_contact_pending' : 'qualification';
               const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
               opportunityId = createdOpportunity.id;
-              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, toStage: initialStage, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Sofia qualified handoff.' });
-              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, source: requestsHuman ? 'sofia_human_request' : 'sofia_handoff' } });
+              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, toStage: initialStage, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
+              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, source: requestsHuman ? 'assistant_human_request' : 'assistant_handoff' } });
             }
 
             const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
@@ -149,8 +149,8 @@ export class SofiaRuntimeRepository {
             const requestDescription = requestsHuman ? 'Lead asked to speak with a person.' : `Lead requested a ${input.result.intent === 'meeting_request' ? 'meeting or demonstration' : 'proposal'}.`;
             const [handoff] = await transaction.insert(handoffs).values({ organizationId: conversation.organizationId, opportunityId, reason: input.result.summary, evidence: `${requestDescription} Latest message: ${input.context.messages.at(-1)?.content.slice(0, 1500) ?? ''}`, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, nextStep: input.result.nextStep, nextStepAt: dueAt, requestedByUserId: agent.updatedByUserId, requestedByAgent: true }).returning({ id: handoffs.id });
             humanHandoffCreated = requestsHuman;
-            await transaction.insert(handoffHistory).values({ organizationId: conversation.organizationId, handoffId: handoff.id, event: 'requested', actorUserId: agent.updatedByUserId, note: requestsHuman ? 'Prepared by Sofia after an explicit request for a person; qualification may be incomplete.' : 'Prepared by Sofia from the qualified conversation.' });
-            await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'handoff.requested', entityType: 'handoff', entityId: handoff.id, afterState: { status: 'requested', opportunityId, source: requestsHuman ? 'sofia_human_request' : 'sofia' } });
+            await transaction.insert(handoffHistory).values({ organizationId: conversation.organizationId, handoffId: handoff.id, event: 'requested', actorUserId: agent.updatedByUserId, note: requestsHuman ? 'Prepared by Assistant after an explicit request for a person; qualification may be incomplete.' : 'Prepared by Assistant from the qualified conversation.' });
+            await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'handoff.requested', entityType: 'handoff', entityId: handoff.id, afterState: { status: 'requested', opportunityId, source: requestsHuman ? 'assistant_human_request' : 'assistant' } });
             if (lead.status !== 'converted_to_sdr') {
               if (lead.status !== 'responded') {
                 await transaction.update(leads).set({ status: 'responded', updatedAt: occurredAt }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, conversation.organizationId)));
@@ -158,7 +158,7 @@ export class SofiaRuntimeRepository {
               }
               await transaction.update(leads).set({ status: 'converted_to_sdr', updatedAt: occurredAt }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, conversation.organizationId)));
               await transaction.insert(leadStatusHistory).values({ organizationId: conversation.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: agent.updatedByUserId });
-              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'lead.status_changed', entityType: 'lead', entityId: lead.id, afterState: { status: 'converted_to_sdr', source: 'sofia_handoff' } });
+              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'lead.status_changed', entityType: 'lead', entityId: lead.id, afterState: { status: 'converted_to_sdr', source: 'assistant_handoff' } });
             }
             await transaction.update(conversations).set({ opportunityId, automationMode: 'human', updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
             const activeCloserLoad = transaction.select({ userId: closerEvents.assignedToUserId, workload: count() }).from(closerEvents)
@@ -170,11 +170,15 @@ export class SofiaRuntimeRepository {
               .where(and(...closerConditions))
               .orderBy(asc(sql`coalesce(${activeCloserLoad.workload}, 0)`), asc(authMember.createdAt), asc(authMember.userId)).limit(1);
             if (closer) {
-              await transaction.insert(closerEvents).values({ organizationId: conversation.organizationId, eventType: requestsHuman ? 'human_requested' : 'qualified_handoff', priority: requestsHuman ? 'urgent' : 'high', idempotencyKey: `sofia-${requestsHuman ? 'human-request' : 'qualified-handoff'}:${input.context.event.messageId}`, conversationId: conversation.id, opportunityId, sourceMessageId: input.context.event.messageId, assignedToUserId: closer.userId, summary: input.result.summary.slice(0, 1000), evidence: input.context.messages.at(-1)?.content.slice(0, 1500) ?? null, occurredAt })
+              const eventType = requestsHuman ? 'human_requested' : 'qualified_handoff';
+              const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+                .where(and(eq(closerEventSlaPolicies.organizationId, conversation.organizationId), eq(closerEventSlaPolicies.eventType, eventType))).limit(1);
+              const dueAt = slaPolicy ? new Date(occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
+              await transaction.insert(closerEvents).values({ organizationId: conversation.organizationId, eventType, priority: requestsHuman ? 'urgent' : 'high', idempotencyKey: `assistant-${requestsHuman ? 'human-request' : 'qualified-handoff'}:${input.context.event.messageId}`, conversationId: conversation.id, opportunityId, sourceMessageId: input.context.event.messageId, assignedToUserId: closer.userId, summary: input.result.summary.slice(0, 1000), evidence: input.context.messages.at(-1)?.content.slice(0, 1500) ?? null, occurredAt, dueAt })
                 .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] });
             }
-            const noticeText = requestsHuman ? 'The lead asked to speak with a person. Sofia paused automation and prepared the conversation for a closer. Review the open qualification questions before replying.' : 'Sofia prepared a qualified handoff for the closer. Review the handoff summary and take ownership of this conversation.';
-            const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'internal', actorType: 'system', bodyText: noticeText, deliveryState: 'unknown', idempotencyKey: `sofia-handoff:${input.context.event.messageId}`, occurredAt })
+            const noticeText = requestsHuman ? 'The lead asked to speak with a person. Assistant paused automation and prepared the conversation for a closer. Review the open qualification questions before replying.' : 'Assistant prepared a qualified handoff for the closer. Review the handoff summary and take ownership of this conversation.';
+            const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'internal', actorType: 'system', bodyText: noticeText, deliveryState: 'unknown', idempotencyKey: `assistant-handoff:${input.context.event.messageId}`, occurredAt })
               .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
             if (notice) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
           }
@@ -182,7 +186,7 @@ export class SofiaRuntimeRepository {
       }
       if (requestsHuman && !humanHandoffCreated) {
         await transaction.update(conversations).set({ automationMode: 'human', updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
-        const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, direction: 'internal', actorType: 'system', bodyText: 'The lead asked to speak with a person. Sofia paused automated replies so the team can take over.', deliveryState: 'unknown', idempotencyKey: `sofia-human-request:${input.context.event.messageId}`, conversationId: conversation.id, occurredAt })
+        const [notice] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, direction: 'internal', actorType: 'system', bodyText: 'The lead asked to speak with a person. Assistant paused automated replies so the team can take over.', deliveryState: 'unknown', idempotencyKey: `assistant-human-request:${input.context.event.messageId}`, conversationId: conversation.id, occurredAt })
           .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
         if (notice) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
       }
@@ -195,12 +199,12 @@ export class SofiaRuntimeRepository {
     await pool.query("UPDATE outbox_events SET status = 'published', published_at = now(), last_error_code = null WHERE id = $1 AND status = 'pending'", [eventId]);
   }
 
-  async escalateUnsupportedMessage(queueEvent: SofiaQueueEventDto, event: SofiaInboundEventDto): Promise<void> {
+  async escalateUnsupportedMessage(queueEvent: AssistantQueueEventDto, event: AssistantInboundEventDto): Promise<void> {
     if (event.organizationId !== queueEvent.organizationId) return;
     await database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, event.conversationId), eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, event.channelId))).for('update').limit(1);
-      if (!conversation || conversation.automationMode !== 'sofia' || conversation.ownerUserId) {
+      if (!conversation || conversation.automationMode !== 'assistant' || conversation.ownerUserId) {
         await transaction.update(outboxEvents).set({ status: 'published', publishedAt: new Date(), lastErrorCode: null }).where(and(eq(outboxEvents.id, queueEvent.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, 'pending')));
         return;
       }
@@ -212,18 +216,18 @@ export class SofiaRuntimeRepository {
         return;
       }
 
-      const [notice] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: event.conversationId, direction: 'internal', actorType: 'system', bodyText: 'Sofia could not interpret this message type. Automation was paused so a teammate can review and reply.', deliveryState: 'unknown', idempotencyKey: `sofia-unsupported:${event.messageId}`, occurredAt: new Date() })
+      const [notice] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: event.conversationId, direction: 'internal', actorType: 'system', bodyText: 'Assistant could not interpret this message type. Automation was paused so a teammate can review and reply.', deliveryState: 'unknown', idempotencyKey: `assistant-unsupported:${event.messageId}`, occurredAt: new Date() })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
       await transaction.update(conversations).set({ automationMode: 'human', updatedAt: new Date() }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, event.organizationId)));
       if (notice) {
-        await transaction.insert(auditEvents).values({ organizationId: event.organizationId, actorType: 'system', action: 'conversation.sofia_unsupported_message', entityType: 'conversation', entityId: event.conversationId, afterState: { messageId: notice.id, sourceMessageId: event.messageId, messageType: event.messageType, automationMode: 'human' } });
+        await transaction.insert(auditEvents).values({ organizationId: event.organizationId, actorType: 'system', action: 'conversation.assistant_unsupported_message', entityType: 'conversation', entityId: event.conversationId, afterState: { messageId: notice.id, sourceMessageId: event.messageId, messageType: event.messageType, automationMode: 'human' } });
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: event.organizationId, conversationId: event.conversationId, occurredAt: new Date().toISOString() })})`);
       }
       await transaction.update(outboxEvents).set({ status: 'published', publishedAt: new Date(), lastErrorCode: null }).where(and(eq(outboxEvents.id, queueEvent.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, 'pending')));
     });
   }
 
-  async retryOrFail(queueEvent: SofiaQueueEventDto, errorCode: string, retryable: boolean): Promise<boolean> {
+  async retryOrFail(queueEvent: AssistantQueueEventDto, errorCode: string, retryable: boolean): Promise<boolean> {
     const terminal = !retryable || queueEvent.attempts >= 5;
     const delaySeconds = Math.min(300, queueEvent.attempts * queueEvent.attempts * 10);
     const result = await pool.query(`UPDATE outbox_events SET status = $2, available_at = now() + ($3::int * interval '1 second'), last_error_code = $4 WHERE id = $1 AND status = 'pending'`, [queueEvent.id, terminal ? 'failed' : 'pending', terminal ? 0 : delaySeconds, errorCode]);
@@ -231,15 +235,15 @@ export class SofiaRuntimeRepository {
     return terminal && result.rowCount === 1;
   }
 
-  private async recordFailureNotice(queueEvent: SofiaQueueEventDto, errorCode: string): Promise<void> {
-    const payload = sofiaInboundEventSchema.safeParse(queueEvent.payload);
+  private async recordFailureNotice(queueEvent: AssistantQueueEventDto, errorCode: string): Promise<void> {
+    const payload = assistantInboundEventSchema.safeParse(queueEvent.payload);
     if (!payload.success || payload.data.organizationId !== queueEvent.organizationId) return;
     const event = payload.data;
     await database.transaction(async (transaction) => {
-      const [notice] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: event.conversationId, direction: 'internal', actorType: 'system', bodyText: 'Sofia could not prepare an automatic reply. A teammate needs to review this conversation.', deliveryState: 'unknown', idempotencyKey: `sofia-failure:${queueEvent.id}`, occurredAt: new Date() })
+      const [notice] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: event.conversationId, direction: 'internal', actorType: 'system', bodyText: 'Assistant could not prepare an automatic reply. A teammate needs to review this conversation.', deliveryState: 'unknown', idempotencyKey: `assistant-failure:${queueEvent.id}`, occurredAt: new Date() })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
       if (!notice) return;
-      await transaction.insert(auditEvents).values({ organizationId: event.organizationId, actorType: 'system', action: 'conversation.sofia_runtime_failed', entityType: 'conversation', entityId: event.conversationId, afterState: { messageId: notice.id, sourceMessageId: event.messageId, errorCode } });
+      await transaction.insert(auditEvents).values({ organizationId: event.organizationId, actorType: 'system', action: 'conversation.assistant_runtime_failed', entityType: 'conversation', entityId: event.conversationId, afterState: { messageId: notice.id, sourceMessageId: event.messageId, errorCode } });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: event.organizationId, conversationId: event.conversationId, occurredAt: new Date().toISOString() })})`);
     });
   }

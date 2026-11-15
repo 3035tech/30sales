@@ -2,22 +2,22 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { env } from '../config/env';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from '../inbox/whatsapp-text-provider.service';
-import { SofiaLanguageModelService, SofiaRuntimeModelError } from './sofia-language-model.service';
-import { SofiaRuntimeRepository } from './sofia-runtime.repository';
-import { sofiaInboundEventSchema, type SofiaQueueEventDto } from './sofia-runtime.dto';
+import { AssistantLanguageModelService, AssistantRuntimeModelError } from './assistant-language-model.service';
+import { AssistantRuntimeRepository } from './assistant-runtime.repository';
+import { assistantInboundEventSchema, type AssistantQueueEventDto } from './assistant-runtime.dto';
 import { WebhooksService } from '../webhooks/webhooks.service';
 
 @Injectable()
-export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(SofiaRuntimeWorker.name);
+export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(AssistantRuntimeWorker.name);
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: SofiaRuntimeRepository, private readonly model: SofiaLanguageModelService, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
+  constructor(private readonly repository: AssistantRuntimeRepository, private readonly model: AssistantLanguageModelService, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
 
   onModuleInit(): void {
     if (!env.ANTHROPIC_API_KEY) {
-      this.logger.warn('Sofia runtime is disabled because ANTHROPIC_API_KEY is not configured.');
+      this.logger.warn('Assistant runtime is disabled because ANTHROPIC_API_KEY is not configured.');
       return;
     }
     this.timer = setInterval(() => { void this.processNext() }, 1000);
@@ -32,12 +32,12 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
   private async processNext(): Promise<void> {
     if (this.processing || !env.ANTHROPIC_API_KEY) return;
     this.processing = true;
-    let queueEvent: SofiaQueueEventDto | null = null;
+    let queueEvent: AssistantQueueEventDto | null = null;
     try {
       queueEvent = await this.repository.claimNextEvent();
       if (!queueEvent) return;
       const context = await this.repository.loadContext(queueEvent);
-      if (!context || !context.enabled || context.automationMode !== 'sofia' || context.ownerUserId || !context.systemPrompt.trim()) {
+      if (!context || !context.enabled || context.automationMode !== 'assistant' || context.ownerUserId || !context.systemPrompt.trim()) {
         await this.repository.completeEvent(queueEvent.id);
         return;
       }
@@ -58,15 +58,15 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
       await this.repository.completeEvent(queueEvent.id);
     } catch (error) {
       if (!queueEvent) {
-        this.logger.error(`Sofia queue polling failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+        this.logger.error(`Assistant queue polling failed: ${error instanceof Error ? error.message : 'unknown error'}`);
         return;
       }
-      const code = error instanceof SofiaRuntimeModelError ? error.code : 'SOFIA_RUNTIME_PROCESSING_FAILED';
-      const retryable = error instanceof SofiaRuntimeModelError ? error.retryable : true;
+      const code = error instanceof AssistantRuntimeModelError ? error.code : 'ASSISTANT_RUNTIME_PROCESSING_FAILED';
+      const retryable = error instanceof AssistantRuntimeModelError ? error.retryable : true;
       try {
         const terminal = !retryable || queueEvent.attempts >= 5;
-        if (terminal && error instanceof SofiaRuntimeModelError && ['SOFIA_MODEL_RESPONSE_INVALID', 'SOFIA_MODEL_REFUSED'].includes(error.code)) {
-          const parsedEvent = sofiaInboundEventSchema.safeParse(queueEvent.payload);
+        if (terminal && error instanceof AssistantRuntimeModelError && ['ASSISTANT_MODEL_RESPONSE_INVALID', 'ASSISTANT_MODEL_REFUSED'].includes(error.code)) {
+          const parsedEvent = assistantInboundEventSchema.safeParse(queueEvent.payload);
           const payload = parsedEvent.success && parsedEvent.data.organizationId === queueEvent.organizationId ? parsedEvent.data : null;
           if (payload) await this.webhooks.recordRuntimeInterpretationFailure({
             organizationId: payload.organizationId,
@@ -74,13 +74,13 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
             provider: payload.provider,
             externalConversationId: payload.externalConversationId,
             externalMessageId: payload.externalMessageId,
-            reason: `Sofia could not interpret this message (${code}).`,
+            reason: `Assistant could not interpret this message (${code}).`,
           });
         }
         const failed = await this.repository.retryOrFail(queueEvent, code, retryable);
-        this.logger.error(`Sofia event ${queueEvent.id} failed with ${code}${failed ? ' and was sent to human review' : ' and will be retried'}.`);
+        this.logger.error(`Assistant event ${queueEvent.id} failed with ${code}${failed ? ' and was sent to human review' : ' and will be retried'}.`);
       } catch (retryError) {
-        this.logger.error(`Sofia event ${queueEvent.id} could not be rescheduled: ${retryError instanceof Error ? retryError.message : 'unknown error'}`);
+        this.logger.error(`Assistant event ${queueEvent.id} could not be rescheduled: ${retryError instanceof Error ? retryError.message : 'unknown error'}`);
       }
     } finally {
       this.processing = false;

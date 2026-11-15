@@ -35,7 +35,7 @@ export class InboxController {
   @Patch(':id/owner')
   assign(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(assignConversationSchema)) input: AssignConversationDto) { return this.inboxService.assign(request, conversationId, input); }
   @Post(':id/automation')
-  setAutomation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationAutomationModeSchema)) mode: 'sofia' | 'human' | 'paused') { return this.inboxService.setAutomationMode(request, conversationId, mode); }
+  setAutomation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationAutomationModeSchema)) mode: 'assistant' | 'human' | 'paused') { return this.inboxService.setAutomationMode(request, conversationId, mode); }
   @Patch(':id/status')
   setStatus(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationStatusUpdateSchema)) input: ConversationStatusUpdateInputDto) { return this.inboxService.setStatus(request, conversationId, input); }
   @Post(':id/messages')

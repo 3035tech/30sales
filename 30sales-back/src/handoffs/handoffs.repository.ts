@@ -37,7 +37,7 @@ const handoffRecordSelection = {
   status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence,
   confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep,
   nextStepAt: handoffs.nextStepAt,
-  requestedByName: sql<string>`case when ${handoffs.requestedByAgent} then 'Sofia' else ${requester.name} end`,
+  requestedByName: sql<string>`case when ${handoffs.requestedByAgent} then 'Assistant' else ${requester.name} end`,
   closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt,
   acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt,
 };

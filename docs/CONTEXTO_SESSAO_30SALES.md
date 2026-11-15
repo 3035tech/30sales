@@ -2,10 +2,11 @@
 
 ## Retomada em 15/11/2026
 
-- O estado real do Git superou o resumo anterior: `develop` já contém o runtime da Sofia ligado ao outbox (`SofiaRuntimeWorker`), com checagem tenant-scoped da mensagem inbound mais recente, modo de automação, ownership e estado do canal antes do envio. `30sales-back/docs/sofia-runtime.md` descreve os fluxos atuais.
-- Próxima lacuna identificada no backlog: integrar falhas permanentes de interpretação do modelo ao sinal tenant-scoped já implementado em `WebhooksService`/`WebhooksRepository`.
-- Trabalho atual em `feature/sofia-runtime-interpretation-signals`: quando recusa do modelo ou resposta estruturada inválida encerra o job, o runtime chama o serviço interno de sinais com IDs externos já carregados no evento. O serviço correlaciona a mensagem persistida e cria/eleva evento urgente idempotente quando existe oportunidade elegível atribuída a closer. O aviso interno de falha existente segue como fallback. Alterações ainda não integradas em `develop`; nenhuma migration necessária.
-- Por preferência persistente, não rodar build/testes nem migrations sem pedido explícito. `git diff --check` foi executado sem erro nesta retomada.
+- `develop` recebeu a integração de falhas permanentes do modelo à central do closer no merge `db8cf23`.
+- A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
+- Fatia implementada em `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
+- As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
+- Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
 
 Atualizado em 15/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
 

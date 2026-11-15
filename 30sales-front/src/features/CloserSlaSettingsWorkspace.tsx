@@ -1,0 +1,52 @@
+import { useEffect, useState } from 'react'
+import { Save } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { api, type CloserEventSlaSettingsDto } from '../lib/api/client'
+import './CloserSlaSettingsWorkspace.css'
+
+export function CloserSlaSettingsWorkspace() {
+  const { t } = useTranslation()
+  const [settings, setSettings] = useState<CloserEventSlaSettingsDto | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    api.closerEvents.slaSettings().then((result) => { if (active) setSettings(result) })
+      .catch(() => { if (active) setError(t('closerSlaSettings.loadFailed')) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [t])
+
+  const updateTarget = (eventType: CloserEventSlaSettingsDto['policies'][number]['eventType'], value: string) => {
+    setSaved(false)
+    setSettings((current) => current ? { ...current, policies: current.policies.map((policy) => policy.eventType === eventType ? { ...policy, targetMinutes: value === '' ? null : Number(value) } : policy) } : current)
+  }
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!settings) return
+    setSaving(true); setError(''); setSaved(false)
+    try {
+      const result = await api.closerEvents.saveSlaSettings({ policies: settings.policies })
+      setSettings(result); setSaved(true)
+    } catch { setError(t('closerSlaSettings.saveFailed')) }
+    finally { setSaving(false) }
+  }
+
+  return <section className="closer-sla-page">
+    <header><p className="eyebrow">{t('closerSlaSettings.eyebrow')}</p><h2>{t('closerSlaSettings.title')}</h2><p className="muted">{t('closerSlaSettings.description')}</p></header>
+    {loading ? <p className="notice">{t('common.loading')}</p> : settings && <form className="closer-sla-panel" onSubmit={(event) => void save(event)}>
+      {settings.policies.map((policy) => <label className="closer-sla-row" key={policy.eventType}>
+        <span>{t(`closerSlaSettings.eventTypes.${policy.eventType}`)}</span>
+        <span className="closer-sla-control"><input type="number" min={1} max={10080} step={1} disabled={!settings.canManage || saving} value={policy.targetMinutes ?? ''} placeholder={t('closerSlaSettings.disabled')} onChange={(event) => updateTarget(policy.eventType, event.target.value)} /><span>{t('closerSlaSettings.minutes')}</span></span>
+      </label>)}
+      {!settings.canManage && <p className="notice">{t('closerSlaSettings.managerOnly')}</p>}
+      {settings.canManage && <div className="closer-sla-footer"><button className="primary" type="submit" disabled={saving}>{saving ? t('closerSlaSettings.saving') : <><Save size={15} />{t('closerSlaSettings.save')}</>}</button></div>}
+      {error && <p className="error" role="alert">{error}</p>}{saved && <p className="success-message" role="status">{t('closerSlaSettings.saved')}</p>}
+    </form>}
+    {!loading && !settings && error && <p className="error" role="alert">{error}</p>}
+  </section>
+}

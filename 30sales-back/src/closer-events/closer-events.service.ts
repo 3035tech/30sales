@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CloserEventActionInputDto, CloserEventMutationDto, CloserEventsListDto, CloserEventsPageDto, ListCloserEventsQueryDto } from './closer-events.dto';
+import { CloserEventActionInputDto, CloserEventMutationDto, CloserEventsListDto, CloserEventsPageDto, CloserEventSlaPoliciesInputDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserEventSlaSettingsDto, closerEventTypeValues, ListCloserEventsQueryDto } from './closer-events.dto';
 import { CloserEventsRepository } from './closer-events.repository';
 
 @Injectable()
@@ -14,6 +14,21 @@ export class CloserEventsService {
   async assignees(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.listAssignees(context.organizationId);
+  }
+  async getSlaPolicies(request: ApiRequestDto): Promise<CloserEventSlaSettingsDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    const configured = await this.repository.getSlaPolicies(context.organizationId);
+    const byType = new Map(configured.map((policy) => [policy.eventType, policy.targetMinutes]));
+    const canManage = context.role.split(',').map((role) => role.trim()).some((role) => ['owner', 'admin', 'manager'].includes(role));
+    return new CloserEventSlaSettingsDto(closerEventTypeValues.map((eventType) => new CloserEventSlaPolicyDto(eventType, byType.get(eventType) ?? null)), canManage);
+  }
+  async saveSlaPolicies(request: ApiRequestDto, input: CloserEventSlaPoliciesInputDto): Promise<CloserEventSlaSettingsDto> {
+    const context = await this.tenantAccess.require(request, 'update', 'pipeline');
+    if (!context.role.split(',').map((role) => role.trim()).some((role) => ['owner', 'admin', 'manager'].includes(role))) {
+      throw new ForbiddenException({ code: 'CLOSER_EVENT_SLA_MANAGE_REQUIRED', message: 'A sales manager must configure closer event SLAs.' });
+    }
+    await this.repository.saveSlaPolicies(new CloserEventSlaPoliciesSaveDto(context.organizationId, context.userId, input, request.correlationId));
+    return this.getSlaPolicies(request);
   }
   async act(request: ApiRequestDto, eventId: string, input: CloserEventActionInputDto) {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');

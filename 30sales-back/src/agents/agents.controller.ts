@@ -3,15 +3,15 @@ import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AgentsService } from './agents.service';
-import { sofiaSettingsInputSchema, type SofiaSettingsInputDto } from './agents.dto';
+import { assistantSettingsInputSchema, type AssistantSettingsInputDto } from './agents.dto';
 
-@Controller('api/v1/agents/sofia')
+@Controller('api/v1/agents/assistant')
 export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
 
   @Get()
-  getSettings(@ApiRequest() request: ApiRequestDto) { return this.agentsService.getSofiaSettings(request); }
+  getSettings(@ApiRequest() request: ApiRequestDto) { return this.agentsService.getAssistantSettings(request); }
 
   @Put()
-  saveSettings(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(sofiaSettingsInputSchema)) input: SofiaSettingsInputDto) { return this.agentsService.saveSofiaSettings(request, input); }
+  saveSettings(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(assistantSettingsInputSchema)) input: AssistantSettingsInputDto) { return this.agentsService.saveAssistantSettings(request, input); }
 }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
+import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -34,6 +34,10 @@ export class WebhooksRepository {
       if (!source) return 'unmatched';
       if (!source.opportunityId) return 'unroutable';
 
+      const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+        .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, 'interpretation_failure'))).limit(1);
+      const dueAt = slaPolicy ? new Date(source.occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
+
       const [opportunity] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
         .where(and(eq(opportunities.id, source.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
       if (!opportunity?.ownerUserId || ['won', 'lost'].includes(opportunity.stage)) return 'unroutable';
@@ -57,10 +61,10 @@ export class WebhooksRepository {
       if (existing?.eventType === 'human_requested') return 'already_urgent';
       const summary = input.input.reason;
       if (existing) {
-        await transaction.update(closerEvents).set({ eventType: 'interpretation_failure', priority: 'urgent', status: 'new', summary, acknowledgedAt: null, snoozedUntil: null, resolvedAt: null, updatedAt: new Date() })
+        await transaction.update(closerEvents).set({ eventType: 'interpretation_failure', priority: 'urgent', status: 'new', summary, dueAt, acknowledgedAt: null, snoozedUntil: null, resolvedAt: null, updatedAt: new Date() })
           .where(and(eq(closerEvents.id, existing.id), eq(closerEvents.organizationId, input.organizationId)));
       } else {
-        const [created] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'interpretation_failure', priority: 'urgent', status: 'new', idempotencyKey, conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, summary, evidence: source.bodyText, occurredAt: source.occurredAt }).returning({ id: closerEvents.id });
+        const [created] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'interpretation_failure', priority: 'urgent', status: 'new', idempotencyKey, conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, summary, evidence: source.bodyText, occurredAt: source.occurredAt, dueAt }).returning({ id: closerEvents.id });
         eventId = created.id;
       }
       if (eventId) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: existing ? 'closer_event.escalated' : 'closer_event.created', entityType: 'closer_event', entityId: eventId, afterState: { eventType: 'interpretation_failure', priority: 'urgent', conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, reason: input.input.reason } });
@@ -94,8 +98,8 @@ export class WebhooksRepository {
       let conversationId = conversation?.id;
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       if (!conversationId) {
-        const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
-        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'sofia' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
+        const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'assistant' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
         conversationId = createdConversation.id;
         opportunityId = lead?.opportunityId ?? null;
       }
@@ -148,7 +152,10 @@ export class WebhooksRepository {
           if (eventType && assignedToUserId) {
             const priority = eventType === 'human_requested' ? 'urgent' : 'high';
             const summary = eventType === 'human_requested' ? 'The lead explicitly asked to speak with a person.' : eventType === 'buying_intent' ? 'The lead showed concrete intent to move forward.' : eventType === 'closer_question' ? 'The lead asked a question while the closer owns the opportunity.' : 'The lead replied after the handoff was accepted.';
-            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt })
+            const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+              .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, eventType))).limit(1);
+            const dueAt = slaPolicy ? new Date(input.occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
+            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt, dueAt })
               .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }

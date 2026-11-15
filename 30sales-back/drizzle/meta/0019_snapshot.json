@@ -1554,7 +1554,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'sofia'"
+          "default": "'assistant'"
         },
         "last_message_at": {
           "name": "last_message_at",
@@ -1774,7 +1774,7 @@
       "checkConstraints": {
         "conversations_automation_mode_check": {
           "name": "conversations_automation_mode_check",
-          "value": "\"conversations\".\"automation_mode\" in ('sofia', 'human', 'paused')"
+          "value": "\"conversations\".\"automation_mode\" in ('assistant', 'human', 'paused')"
         }
       },
       "isRLSEnabled": false

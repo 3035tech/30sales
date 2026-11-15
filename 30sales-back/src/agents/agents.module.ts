@@ -6,9 +6,9 @@ import { TenantAccessService } from '../leads/tenant-access.service';
 import { AgentsController } from './agents.controller';
 import { AgentsRepository } from './agents.repository';
 import { AgentsService } from './agents.service';
-import { SofiaLanguageModelService } from './sofia-language-model.service';
-import { SofiaRuntimeRepository } from './sofia-runtime.repository';
-import { SofiaRuntimeWorker } from './sofia-runtime.worker';
+import { AssistantLanguageModelService } from './assistant-language-model.service';
+import { AssistantRuntimeRepository } from './assistant-runtime.repository';
+import { AssistantRuntimeWorker } from './assistant-runtime.worker';
 
-@Module({ imports: [ChannelsModule, InboxModule, WebhooksModule], controllers: [AgentsController], providers: [AgentsService, AgentsRepository, SofiaLanguageModelService, SofiaRuntimeRepository, SofiaRuntimeWorker, TenantAccessService] })
+@Module({ imports: [ChannelsModule, InboxModule, WebhooksModule], controllers: [AgentsController], providers: [AgentsService, AgentsRepository, AssistantLanguageModelService, AssistantRuntimeRepository, AssistantRuntimeWorker, TenantAccessService] })
 export class AgentsModule {}

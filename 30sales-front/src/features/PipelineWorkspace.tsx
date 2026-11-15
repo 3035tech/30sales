@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
 import './Pipeline.css'
 import './ActivityTimeline.css'
@@ -55,8 +56,9 @@ export function PipelineWorkspace() {
     <div className="pipeline-views" role="tablist" aria-label={t('pipeline.views')}>
       {(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => setView(item)}>{t(`pipeline.viewsList.${item}`)}</button>)}
     </div>
-    {error && <p className="error lead-error">{error}</p>}
-    {loading ? <div className="lead-empty">{t('common.loading')}</div> : opportunities.length === 0 ? <div className="lead-list-panel lead-empty"><span className="card-icon"><TrendingUp size={19} /></span><h3>{t('pipeline.empty')}</h3><p>{t('pipeline.emptyHint')}</p></div> : <div className="pipeline-board">
+    {error && opportunities.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+    {loading && opportunities.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+    {loading && opportunities.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : opportunities.length === 0 ? <WorkspaceState kind={error ? 'error' : 'empty'} message={error || t('pipeline.empty')} detail={error ? undefined : t('pipeline.emptyHint')} /> : <div className="pipeline-board">
       {stages.filter((stage) => stageCounts[stage] > 0 || !terminal(stage)).map((stage) => <section className="pipeline-column" key={stage}>
         <header><h3>{t(`opportunityStages.${stage}`)}</h3><span>{stageCounts[stage]}</span></header>
         {opportunities.filter((item) => item.stage === stage).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} assignableClosers={assignableClosers} onUpdated={() => void refresh()} />)}

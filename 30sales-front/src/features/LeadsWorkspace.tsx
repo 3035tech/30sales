@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Search, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, ApiError, parseLeadStatus, type CreateLeadInput, type LeadAssigneeDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './LeadsWorkspace.css'
@@ -131,7 +132,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     {assignees && <label className="lead-filter-label">{t('leadAssignment.assignee')}<select value={assigneeFilter} onChange={(event) => { setAssigneeFilter(event.target.value); setOffset(0) }}><option value="">{t('leadAssignment.allAssignees')}</option><option value="unassigned">{t('leadAssignment.unassigned')}</option>{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>}
   </>
 
-  const emptyState = search || statusFilter || sourceFilter || assigneeFilter ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setAssigneeFilter(''); setOffset(0) }}>{t('leads.clearFilters')}</button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button></div>
+  const emptyState = error ? <div><strong>{error}</strong></div> : search || statusFilter || sourceFilter || assigneeFilter ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setAssigneeFilter(''); setOffset(0) }}>{t('leads.clearFilters')}</button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</button></div>
 
   return <section className="leads-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
@@ -149,7 +150,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
       {duplicateCandidates && <section className="lead-duplicate-review" aria-live="polite"><div><strong>{t('leadDuplicateReview.title')}</strong><p>{t('leadDuplicateReview.hint')}</p></div><ul>{duplicateCandidates.map((candidate) => <li key={candidate.id}><span><strong>{candidate.accountName} · {candidate.contactName}</strong><small>{t(`leadStatuses.${candidate.status}`)} · {candidate.matchedBy.map((match) => t(`leadDuplicateReview.matchedBy.${match}`)).join(', ')}</small></span></li>)}</ul><label>{t('leadDuplicateReview.overrideReason')}<textarea value={duplicateOverrideReason} onChange={(event) => setDuplicateOverrideReason(event.target.value)} minLength={3} maxLength={500} required /></label><div className="lead-duplicate-actions"><button type="button" className="status-change-cancel" disabled={saving} onClick={() => { setDuplicateCandidates(null); setDuplicateOverrideReason('') }}>{t('leadDuplicateReview.edit')}</button><button type="button" className="primary" disabled={saving || duplicateOverrideReason.trim().length < 3} onClick={() => void saveLead(duplicateOverrideReason.trim())}>{saving ? t('common.saving') : t('leadDuplicateReview.createAnyway')}</button></div></section>}
       {!duplicateCandidates && <button className="primary" disabled={saving || checkingDuplicates}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</button>}
     </form>}
-    {error && <p className="error lead-error" role="alert">{error}</p>}
+    {error && leads.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {statusUpdate && <div className="status-change-backdrop"><form className="status-change-dialog" role="dialog" aria-modal="true" aria-labelledby="status-change-title" onSubmit={(event) => { event.preventDefault(); void updateStatus(statusUpdate.lead.id, statusUpdate.status, statusReason.trim()) }}>
       <p className="eyebrow">{t('statusEvidence.eyebrow')}</p><h3 id="status-change-title">{t('statusEvidence.title')}</h3><p>{t('statusEvidence.description', { company: statusUpdate.lead.accountName, status: t(`leadStatuses.${statusUpdate.status}`) })}</p>
       <label>{t('statusEvidence.reason')}<textarea value={statusReason} onChange={(event) => setStatusReason(event.target.value)} minLength={3} maxLength={1000} required autoFocus /></label>
@@ -157,7 +158,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     </form></div>}
     <div className="lead-list-panel">
       <div className="lead-list-toolbar"><div><h3>{t('leads.queue')}</h3><p>{t('leads.count', { count: total })}</p></div></div>
-      <DataTable rows={leads} columns={columns} getRowId={(lead) => lead.id} sort={{ key: sortBy, direction: sortDirection }} onSortChange={(key, direction) => { setSortBy(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit: pageSize, offset, total, hasNextPage }} onPageChange={setOffset} onPageSizeChange={(value) => { setPageSize(value); setOffset(0) }} filters={filters} loading={loading} emptyState={emptyState} />
+      <DataTable rows={leads} columns={columns} getRowId={(lead) => lead.id} sort={{ key: sortBy, direction: sortDirection }} onSortChange={(key, direction) => { setSortBy(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit: pageSize, offset, total, hasNextPage }} onPageChange={setOffset} onPageSizeChange={(value) => { setPageSize(value); setOffset(0) }} filters={filters} loading={loading} emptyState={emptyState} emptyStateKind={error ? 'error' : 'empty'} />
     </div>
   </section>
 }

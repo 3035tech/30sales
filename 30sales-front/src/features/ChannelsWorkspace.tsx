@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, Radio, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type ChannelDto, type ChannelHealthCheckDto, type CreateChannelInput } from '../lib/api/client'
 import './ChannelsWorkspace.css'
 
@@ -143,7 +144,7 @@ export function ChannelsWorkspace() {
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</button><button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t('channels.saveCredentials')}</button></div>
     </form> : null })()}
-    {error && <p className="error" role="alert">{error}</p>}
-    <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} filters={<label className="channel-search"><Search size={15} /><input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />
+    {error && rows.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+    <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} emptyStateKind={error ? 'error' : 'empty'} filters={<label className="channel-search"><Search size={15} /><input value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />
   </section>
 }

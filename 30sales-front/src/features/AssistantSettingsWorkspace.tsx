@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { ApiError, api, type AssistantSettingsDto } from '../lib/api/client'
 import './AssistantSettingsWorkspace.css'
 
@@ -42,12 +43,12 @@ export function AssistantSettingsWorkspace() {
 
   return <section className="assistant-settings-page">
     <header className="assistant-settings-heading"><div><p className="eyebrow">{t('assistantSettings.eyebrow')}</p><h2>{t('assistantSettings.title')}</h2><p className="muted">{t('assistantSettings.description')}</p></div></header>
-    {loading ? <p className="notice">{t('common.loading')}</p> : <form className="assistant-settings-panel" onSubmit={save}>
+    {loading ? <WorkspaceState kind="loading" message={t('common.loading')} /> : !settings ? <WorkspaceState kind="error" message={error || t('assistantSettings.loadFailed')} /> : <form className="assistant-settings-panel" onSubmit={save}>
       <div className="assistant-settings-model"><Bot size={20} /><div><strong>{t('assistantSettings.model')}</strong><span>{settings?.model ?? 'claude-haiku-5-5'}</span></div></div>
       <label className="assistant-settings-toggle"><input type="checkbox" checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false) }} /><span><strong>{t('assistantSettings.enabled')}</strong><small>{t('assistantSettings.enabledHint')}</small></span></label>
       <label className="assistant-settings-prompt"><span><strong>{t('assistantSettings.prompt')}</strong><small>{t('assistantSettings.promptHint')}</small></span><textarea value={systemPrompt} onChange={(event) => { setSystemPrompt(event.target.value); setSaved(false) }} maxLength={30000} rows={16} /></label>
       <div className="assistant-settings-footer"><span>{t('assistantSettings.characters', { count: systemPrompt.length })}</span><button className="primary" type="submit" disabled={saving}>{saving ? t('assistantSettings.saving') : <><Save size={15} />{t('assistantSettings.save')}</>}</button></div>
-      {error && <p className="error" role="alert">{error}</p>}{saved && <p className="success-message" role="status">{t('assistantSettings.saved')}</p>}
+      {error && <WorkspaceState kind="error" compact message={error} />}{saved && <p className="success-message" role="status">{t('assistantSettings.saved')}</p>}
       <p className="assistant-settings-runtime">{t(settings?.runtimeAvailable ? 'assistantSettings.runtimeReady' : 'assistantSettings.runtimeMissing')}</p>
     </form>}
   </section>

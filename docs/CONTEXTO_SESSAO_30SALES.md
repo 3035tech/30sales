@@ -23,7 +23,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `feature/context-sync`; endpoint de falha de interpretação integrado em develop, runtime Sofia pendente.
+- Branch atual: `develop`; endpoint de falha de interpretação integrado, runtime Sofia pendente.
 - Último commit de funcionalidade em `develop`: `8849abc feat(closer): ingest interpretation failures`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);

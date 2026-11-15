@@ -5,7 +5,7 @@
 - `develop` recebeu a integração de falhas permanentes do modelo à central do closer no merge `db8cf23`.
 - A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
 - Fatia integrada em `develop` no merge `9fe6c26` a partir de `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
-- Fatia atual `feature/closer-sla-notifications`: alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
+- Fatia integrada em `develop` no merge `85609b5` (feature `91e4492`): alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
 
@@ -32,7 +32,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- No início da retomada, `develop` tinha polling automático da central integrado; branch atual desta fatia: `feature/closer-sla-notifications`.
+- Branch atual: `develop`; polling automático da central e notificações de SLA integrados.
 - Último commit de funcionalidade em `develop`: `8ee33dd feat(closer): auto refresh work queue`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);

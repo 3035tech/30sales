@@ -123,7 +123,11 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
 
   const acceptHandoff = async (handoff: HandoffDto) => {
     setAcceptingId(handoff.id); setError('')
-    try { await api.handoffs.accept(handoff.id); requestRefresh() }
+    try {
+      const accepted = await api.handoffs.accept(handoff.id)
+      requestRefresh()
+      if (accepted.conversationId) onOpenInbox(accepted.conversationId)
+    }
     catch { setError(t('closerQueue.acceptFailed')) }
     finally { setAcceptingId('') }
   }

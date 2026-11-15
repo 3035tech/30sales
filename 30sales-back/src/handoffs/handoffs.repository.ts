@@ -8,9 +8,9 @@ import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDt
 
 const requester = alias(user, 'handoff_requester');
 const closer = alias(user, 'handoff_closer');
-type HandoffRow = { id: string; opportunityId: string; leadId: string; opportunityName: string; accountName: string; contactName: string; status: 'requested' | 'accepted' | 'returned' | 'cancelled'; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
+type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string; status: 'requested' | 'accepted' | 'returned' | 'cancelled'; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
 function mapHandoff(row: HandoffRow): HandoffRecordDto {
-  return new HandoffRecordDto(row.id, row.opportunityId, row.leadId, row.opportunityName, row.accountName, row.contactName, row.status as HandoffStatus, row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
+  return new HandoffRecordDto(row.id, row.opportunityId, row.conversationId, row.leadId, row.opportunityName, row.accountName, row.contactName, row.status as HandoffStatus, row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
 }
 
 const firstCustomerActivityAt = sql<Date | null>`(
@@ -22,6 +22,7 @@ const firstCustomerActivityAt = sql<Date | null>`(
 )`;
 const handoffRecordSelection = {
   id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId,
+  conversationId: sql<string | null>`(select ${conversations.id} from conversations where ${conversations.organizationId} = ${handoffs.organizationId} and ${conversations.opportunityId} = ${handoffs.opportunityId} order by ${conversations.updatedAt} desc, ${conversations.id} desc limit 1)`,
   opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name,
   status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence,
   confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep,

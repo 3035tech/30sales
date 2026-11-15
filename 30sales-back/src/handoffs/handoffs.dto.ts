@@ -21,6 +21,7 @@ export class HandoffRecordDto {
   constructor(
     readonly id: string,
     readonly opportunityId: string,
+    readonly conversationId: string | null,
     readonly leadId: string,
     readonly opportunityName: string,
     readonly accountName: string,

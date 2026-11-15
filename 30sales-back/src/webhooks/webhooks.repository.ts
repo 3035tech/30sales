@@ -34,9 +34,10 @@ export class WebhooksRepository {
       if (!source) return 'unmatched';
       if (!source.opportunityId) return 'unroutable';
 
-      const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+      const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes, escalateToManagers: closerEventSlaPolicies.escalateToManagers }).from(closerEventSlaPolicies)
         .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, 'interpretation_failure'))).limit(1);
       const dueAt = slaPolicy ? new Date(source.occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
+      const slaEscalateToManagers = slaPolicy?.escalateToManagers ?? false;
 
       const [opportunity] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
         .where(and(eq(opportunities.id, source.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
@@ -61,10 +62,10 @@ export class WebhooksRepository {
       if (existing?.eventType === 'human_requested') return 'already_urgent';
       const summary = input.input.reason;
       if (existing) {
-        await transaction.update(closerEvents).set({ eventType: 'interpretation_failure', priority: 'urgent', status: 'new', summary, dueAt, acknowledgedAt: null, snoozedUntil: null, resolvedAt: null, updatedAt: new Date() })
+        await transaction.update(closerEvents).set({ eventType: 'interpretation_failure', priority: 'urgent', status: 'new', summary, dueAt, slaNotifiedAt: null, slaEscalateToManagers, acknowledgedAt: null, snoozedUntil: null, resolvedAt: null, updatedAt: new Date() })
           .where(and(eq(closerEvents.id, existing.id), eq(closerEvents.organizationId, input.organizationId)));
       } else {
-        const [created] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'interpretation_failure', priority: 'urgent', status: 'new', idempotencyKey, conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, summary, evidence: source.bodyText, occurredAt: source.occurredAt, dueAt }).returning({ id: closerEvents.id });
+        const [created] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType: 'interpretation_failure', priority: 'urgent', status: 'new', idempotencyKey, conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, summary, evidence: source.bodyText, occurredAt: source.occurredAt, dueAt, slaEscalateToManagers }).returning({ id: closerEvents.id });
         eventId = created.id;
       }
       if (eventId) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: existing ? 'closer_event.escalated' : 'closer_event.created', entityType: 'closer_event', entityId: eventId, afterState: { eventType: 'interpretation_failure', priority: 'urgent', conversationId: source.conversationId, opportunityId: source.opportunityId, sourceMessageId: source.messageId, assignedToUserId: opportunity.ownerUserId, reason: input.input.reason } });
@@ -152,10 +153,10 @@ export class WebhooksRepository {
           if (eventType && assignedToUserId) {
             const priority = eventType === 'human_requested' ? 'urgent' : 'high';
             const summary = eventType === 'human_requested' ? 'The lead explicitly asked to speak with a person.' : eventType === 'buying_intent' ? 'The lead showed concrete intent to move forward.' : eventType === 'closer_question' ? 'The lead asked a question while the closer owns the opportunity.' : 'The lead replied after the handoff was accepted.';
-            const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+            const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes, escalateToManagers: closerEventSlaPolicies.escalateToManagers }).from(closerEventSlaPolicies)
               .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, eventType))).limit(1);
             const dueAt = slaPolicy ? new Date(input.occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
-            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt, dueAt })
+            const [closerEvent] = await transaction.insert(closerEvents).values({ organizationId: input.organizationId, eventType, priority, status: 'new', idempotencyKey: `lead-reply:${message.id}`, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId, summary, evidence: input.bodyText, occurredAt: input.occurredAt, dueAt, slaEscalateToManagers: slaPolicy?.escalateToManagers ?? false })
               .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] }).returning({ id: closerEvents.id });
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }

@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { closerEventActionSchema, closerEventSlaPoliciesInputSchema, listCloserEventsSchema } from './closer-events.dto';
-import type { CloserEventActionInputDto, CloserEventSlaPoliciesInputDto, ListCloserEventsQueryDto } from './closer-events.dto';
+import { closerEventActionSchema, closerEventSlaPoliciesInputSchema, listCloserEventsSchema, listCloserSlaNotificationsSchema } from './closer-events.dto';
+import type { CloserEventActionInputDto, CloserEventSlaPoliciesInputDto, ListCloserEventsQueryDto, ListCloserSlaNotificationsQueryDto } from './closer-events.dto';
 import { CloserEventsService } from './closer-events.service';
 
 @Controller('api/v1/closer-events')
@@ -18,6 +18,10 @@ export class CloserEventsController {
   getSlaPolicies(@ApiRequest() request: ApiRequestDto) { return this.closerEventsService.getSlaPolicies(request); }
   @Put('sla-policies')
   saveSlaPolicies(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(closerEventSlaPoliciesInputSchema)) input: CloserEventSlaPoliciesInputDto) { return this.closerEventsService.saveSlaPolicies(request, input); }
+  @Get('sla-notifications')
+  listSlaNotifications(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listCloserSlaNotificationsSchema)) query: ListCloserSlaNotificationsQueryDto) { return this.closerEventsService.listSlaNotifications(request, query); }
+  @Patch('sla-notifications/:id/read')
+  markSlaNotificationRead(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) notificationId: string) { return this.closerEventsService.markSlaNotificationRead(request, notificationId); }
   @Patch(':id/actions')
   act(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) eventId: string, @Body(new ZodValidationPipe(closerEventActionSchema)) input: CloserEventActionInputDto) { return this.closerEventsService.act(request, eventId, input); }
 }

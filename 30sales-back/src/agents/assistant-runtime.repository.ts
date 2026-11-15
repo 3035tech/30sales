@@ -171,10 +171,10 @@ export class AssistantRuntimeRepository {
               .orderBy(asc(sql`coalesce(${activeCloserLoad.workload}, 0)`), asc(authMember.createdAt), asc(authMember.userId)).limit(1);
             if (closer) {
               const eventType = requestsHuman ? 'human_requested' : 'qualified_handoff';
-              const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+              const [slaPolicy] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes, escalateToManagers: closerEventSlaPolicies.escalateToManagers }).from(closerEventSlaPolicies)
                 .where(and(eq(closerEventSlaPolicies.organizationId, conversation.organizationId), eq(closerEventSlaPolicies.eventType, eventType))).limit(1);
               const dueAt = slaPolicy ? new Date(occurredAt.getTime() + slaPolicy.targetMinutes * 60_000) : null;
-              await transaction.insert(closerEvents).values({ organizationId: conversation.organizationId, eventType, priority: requestsHuman ? 'urgent' : 'high', idempotencyKey: `assistant-${requestsHuman ? 'human-request' : 'qualified-handoff'}:${input.context.event.messageId}`, conversationId: conversation.id, opportunityId, sourceMessageId: input.context.event.messageId, assignedToUserId: closer.userId, summary: input.result.summary.slice(0, 1000), evidence: input.context.messages.at(-1)?.content.slice(0, 1500) ?? null, occurredAt, dueAt })
+              await transaction.insert(closerEvents).values({ organizationId: conversation.organizationId, eventType, priority: requestsHuman ? 'urgent' : 'high', idempotencyKey: `assistant-${requestsHuman ? 'human-request' : 'qualified-handoff'}:${input.context.event.messageId}`, conversationId: conversation.id, opportunityId, sourceMessageId: input.context.event.messageId, assignedToUserId: closer.userId, summary: input.result.summary.slice(0, 1000), evidence: input.context.messages.at(-1)?.content.slice(0, 1500) ?? null, occurredAt, dueAt, slaEscalateToManagers: slaPolicy?.escalateToManagers ?? false })
                 .onConflictDoNothing({ target: [closerEvents.organizationId, closerEvents.idempotencyKey] });
             }
             const noticeText = requestsHuman ? 'The lead asked to speak with a person. Assistant paused automation and prepared the conversation for a closer. Review the open qualification questions before replying.' : 'Assistant prepared a qualified handoff for the closer. Review the handoff summary and take ownership of this conversation.';

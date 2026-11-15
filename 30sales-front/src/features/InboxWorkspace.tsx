@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ClipboardList, MessageSquareText, RefreshCw } from 'lucide-react'
+import { ClipboardList, Download, MessageSquareText, Paperclip, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type ChannelDto, type ConversationDto, type MessageDto } from '../lib/api/client'
+import { api, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './InboxWorkspace.css'
+import './InboxAttachments.css'
 
 export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
@@ -96,7 +97,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         if (active) {
           setMessages((current) => current.length === result.length && current.every((message, index) => {
             const next = result[index]
-            return message.id === next?.id && message.deliveryState === next.deliveryState && message.bodyText === next.bodyText
+            return message.id === next?.id && message.deliveryState === next.deliveryState && message.bodyText === next.bodyText && JSON.stringify(message.attachments) === JSON.stringify(next.attachments)
           }) ? current : result)
           setMessagesConversationId(selectedId)
         }
@@ -215,6 +216,15 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     finally { setTagBusy(false) }
   }
   const formatDate = (value: string | null) => value ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : t('inbox.noMessagesYet')
+  const downloadAttachment = async (attachment: MessageAttachmentDto) => {
+    try {
+      const content = await api.inbox.downloadAttachment(attachment.id)
+      const url = URL.createObjectURL(content)
+      const link = document.createElement('a')
+      link.href = url; link.download = attachment.fileName ?? t('inbox.attachmentFallback'); link.click()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch { setError(t('inbox.attachmentDownloadFailed')) }
+  }
 
   return <section className="inbox-page">
     <header className="inbox-heading"><div><p className="eyebrow">{t('inbox.eyebrow')}</p><h2>{t('inbox.title')}</h2><p className="muted">{t('inbox.description')}</p></div>
@@ -254,7 +264,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           <div className="inbox-messages" aria-live="polite">
             {messagesLoading ? <p className="inbox-empty">{t('common.loading')}</p> : messages.length === 0 ? <div className="inbox-empty"><span>{t('inbox.noMessagesYet')}</span><span>{t('inbox.emptyMessagesHint')}</span></div> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
-              <p>{message.bodyText || t('inbox.nonTextMessage')}</p>{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
+              {message.bodyText ? <p>{message.bodyText}</p> : message.attachments.length === 0 && <p>{t('inbox.nonTextMessage')}</p>}{message.attachments.map((attachment) => <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <button type="button" aria-label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void downloadAttachment(attachment)}><Download size={14} />{t('inbox.download')}</button>}</div>)}{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
             </article>)}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>

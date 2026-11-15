@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MessageAttachmentDto } from '../attachments/attachments.dto';
 import { conversationStatus, messageActorType, messageDeliveryState, messageDirection } from '../db/schema';
 
 export const listConversationsSchema = z.object({ conversationId: z.string().uuid().optional(), status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), tagId: z.string().uuid().optional(), ownerUserId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(), search: z.string().trim().max(120).optional(), unreadOnly: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
@@ -36,7 +37,7 @@ export class ConversationNoteCreateDto { constructor(readonly organizationId: st
 export class ConversationMessageSendDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
 export class ConversationMessageDeliveryDto { constructor(readonly organizationId: string, readonly messageId: string, readonly actorUserId: string, readonly deliveryState: 'accepted' | 'failed' | 'unknown', readonly externalMessageId: string | null, readonly correlationId: string | null = null) {} }
 export class MessageRecordDto {
-  constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string, readonly actorUserId: string | null = null, readonly actorName: string | null = null) {}
+  constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string, readonly actorUserId: string | null = null, readonly actorName: string | null = null, readonly attachments: MessageAttachmentDto[] = []) {}
 }
 export class ConversationMessagesQueryDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly limit: number, readonly offset: number) {} }
 export class ConversationReadDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly lastInboundMessageId: string | null, readonly correlationId: string | null = null) {} }

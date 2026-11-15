@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { env } from '../config/env';
-import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, type InterpretationFailureSignalInputDto, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
+import { InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 
 type JsonRecord = Record<string, unknown>;
@@ -180,12 +180,15 @@ export class WebhooksService {
     const senderPhone = this.phoneDigits(selectedJid);
     const externalMessageId = this.string(key.id);
     if (!this.isValidPhone(senderPhone) || !externalMessageId || externalMessageId.length > 250) return null;
-    const messageContent = this.record(data.message);
+    const messageContent = this.unwrapEvolutionMessage(this.record(data.message));
     const rawMessageType = this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent);
     const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
     const bodyText = this.extractEvolutionText(messageContent)?.slice(0, 16000) ?? null;
+    const mediaType = this.asMediaType(rawMessageType);
+    const mediaContent = mediaType ? this.record(messageContent[`${mediaType}Message`]) : {};
+    const media = mediaType ? this.createMedia(channelId, organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), mediaContent) : null;
     const occurredAt = this.toDate(data.messageTimestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash);
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
   }
 
   private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
@@ -198,7 +201,31 @@ export class WebhooksService {
     const profile = this.record(contact?.profile);
     const occurredAt = this.toDate(message.timestamp);
     const bodyText = this.extractCloudText(message, messageType)?.slice(0, 16000) ?? null;
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(profile.name), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash);
+    const mediaType = this.asMediaType(messageType);
+    const mediaContent = mediaType ? this.record(message[mediaType]) : {};
+    const mediaId = this.string(mediaContent.id);
+    const media = mediaType && mediaId ? this.createMedia(channelId, organizationId, mediaType, mediaId, JSON.stringify({ mediaId }), mediaContent) : null;
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(profile.name), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
+  }
+
+  private createMedia(channelId: string, organizationId: string, mediaType: InboundMediaType, sourceMediaId: string | null, sourcePayload: string, mediaContent: JsonRecord): InboundMediaDto {
+    const encrypted = this.credentialCrypto.encryptPayload(organizationId, channelId, sourcePayload);
+    const rawSize = mediaContent.file_size ?? mediaContent.fileLength;
+    const parsedSize = typeof rawSize === 'number' ? rawSize : typeof rawSize === 'string' ? Number(rawSize) : NaN;
+    const sizeBytes = Number.isSafeInteger(parsedSize) && parsedSize >= 0 && parsedSize <= 1_073_741_824 ? parsedSize : null;
+    const rawHash = this.string(mediaContent.sha256) ?? this.string(mediaContent.fileSha256);
+    const rawMimeType = this.string(mediaContent.mime_type) ?? this.string(mediaContent.mimetype);
+    const rawFileName = this.string(mediaContent.filename) ?? this.string(mediaContent.fileName);
+    return new InboundMediaDto(mediaType, sourceMediaId, encrypted.ciphertext, encrypted.iv, encrypted.authTag,
+      rawMimeType && rawMimeType.length <= 120 && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(rawMimeType) ? rawMimeType : null,
+      rawFileName ? rawFileName.replace(/[\\/\r\n\u0000-\u001f]/g, '_').slice(0, 255) : null,
+      sizeBytes, rawHash?.slice(0, 128) ?? null);
+  }
+
+  private asMediaType(value: string): InboundMediaType | null {
+    const normalized = value.toLowerCase().replace(/message$/, '');
+    if (normalized === 'image' || normalized === 'video' || normalized === 'audio' || normalized === 'document' || normalized === 'sticker') return normalized;
+    return null;
   }
 
   private classifyCloserSignal(bodyText: string | null): 'human_requested' | 'buying_intent' | 'question' | null {
@@ -256,9 +283,19 @@ export class WebhooksService {
   }
 
   private inferEvolutionMessageType(message: JsonRecord): string {
-    if (typeof message.conversation === 'string' || typeof message.extendedTextMessage === 'object') return 'text';
-    const type = Object.keys(message).find((key) => key.endsWith('Message'));
+    const content = this.unwrapEvolutionMessage(message);
+    if (typeof content.conversation === 'string' || typeof content.extendedTextMessage === 'object') return 'text';
+    const type = Object.keys(content).find((key) => key.endsWith('Message'));
     return type?.replace(/Message$/, '').toLowerCase() ?? 'unknown';
+  }
+
+  private unwrapEvolutionMessage(message: JsonRecord): JsonRecord {
+    for (const key of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage']) {
+      const nested = this.record(message[key]);
+      const unwrapped = this.record(nested.message);
+      if (Object.keys(unwrapped).length > 0) return this.unwrapEvolutionMessage(unwrapped);
+    }
+    return message;
   }
 
   private toDate(value: unknown): Date {

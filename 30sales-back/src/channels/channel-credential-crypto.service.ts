@@ -23,6 +23,21 @@ export class ChannelCredentialCryptoService {
     return JSON.parse(plaintext) as ChannelCredentialsDto;
   }
 
+  encryptPayload(organizationId: string, channelId: string, plaintext: string): EncryptedChannelCredentials {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv('aes-256-gcm', this.encryptionKey(), iv);
+    cipher.setAAD(Buffer.from(`${organizationId}:${channelId}`));
+    const ciphertext = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+    return { ciphertext: ciphertext.toString('base64'), iv: iv.toString('base64'), authTag: cipher.getAuthTag().toString('base64') };
+  }
+
+  decryptPayload(organizationId: string, channelId: string, encrypted: EncryptedChannelCredentials): string {
+    const decipher = createDecipheriv('aes-256-gcm', this.encryptionKey(), Buffer.from(encrypted.iv, 'base64'));
+    decipher.setAAD(Buffer.from(`${organizationId}:${channelId}`));
+    decipher.setAuthTag(Buffer.from(encrypted.authTag, 'base64'));
+    return Buffer.concat([decipher.update(Buffer.from(encrypted.ciphertext, 'base64')), decipher.final()]).toString('utf8');
+  }
+
   private encryptionKey(): Buffer {
     const encoded = env.CHANNEL_CREDENTIALS_ENCRYPTION_KEY;
     if (!encoded) throw new ServiceUnavailableException({ code: 'CHANNEL_CREDENTIALS_KEY_MISSING', message: 'Channel credentials encryption is not configured.' });

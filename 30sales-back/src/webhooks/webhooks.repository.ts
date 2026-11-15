@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
+import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -108,6 +108,21 @@ export class WebhooksRepository {
       const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (message) {
+        if (input.media) await transaction.insert(messageAttachments).values({
+          organizationId: input.organizationId,
+          messageId: message.id,
+          channelId: input.channelId,
+          provider: input.provider,
+          mediaType: input.media.mediaType,
+          sourceMediaId: input.media.sourceMediaId,
+          sourceCiphertext: input.media.sourceCiphertext,
+          sourceIv: input.media.sourceIv,
+          sourceAuthTag: input.media.sourceAuthTag,
+          mimeType: input.media.mimeType,
+          fileName: input.media.fileName,
+          sizeBytes: input.media.sizeBytes,
+          sha256: input.media.sha256,
+        });
         await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId, occurredAt: input.occurredAt.toISOString() })})`);

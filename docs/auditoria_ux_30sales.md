@@ -7,6 +7,8 @@ Escopo: leitura da aplicação React, estilos e fluxos do backend existentes. A 
 
 A aplicação já reúne fluxos comerciais com contexto útil — tarefas, Inbox, carteira do closer, pipeline e relatórios — mas a navegação ainda depende de estado interno do componente principal. Isso dificulta orientação, acesso por link e uso em tela pequena. Sinais operacionais também ficam fragmentados: alertas de SLA são exibidos apenas dentro da carteira do closer, sem um ponto global. A primeira melhoria implementada foi expor esses alertas no cabeçalho, com contagem de não lidas, atualização periódica e abertura da conversa relacionada.
 
+O item P0 de navegação móvel foi corrigido em `feature/mobile-navigation`: até 640px, o botão abre todas as áreas disponíveis, marca a página atual e fecha o menu após seleção ou Escape. A validação visual em navegador continua pendente.
+
 ## Achados priorizados
 
 | Prioridade | Achado | Efeito para a pessoa usuária | Direção recomendada |

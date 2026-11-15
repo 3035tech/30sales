@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot } from 'lucide-react'
+import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { api, type CloserSlaNotificationDto, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
@@ -34,10 +34,18 @@ export default function App() {
   const [notifications, setNotifications] = useState<CloserSlaNotificationDto[]>([])
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMobileMenuOpen(false) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [mobileMenuOpen])
 
   useEffect(() => {
     if (!current?.activeOrganizationId) return
@@ -79,22 +87,27 @@ export default function App() {
   return <main className="shell">
     <aside className="rail">
       <div className="brand"><img className="brand-wordmark" src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
-      <div className="rail-caption">{t('common.workspace')}</div>
-      <button className={`nav ${page === 'home' ? 'active' : ''}`} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
-      <button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} onClick={() => setPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</button>
-      <button className={`nav ${page === 'closerSla' ? 'active' : ''}`} onClick={() => setPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</button>
-      <button className={`nav ${page === 'inbox' ? 'active' : ''}`} onClick={() => { setInboxSearchSeed(''); setInboxConversationSeed(''); setPage('inbox') }}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
-      <button className={`nav ${page === 'leads' ? 'active' : ''}`} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
-      <button className={`nav ${page === 'accounts' ? 'active' : ''}`} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
-      <button className={`nav ${page === 'channels' ? 'active' : ''}`} onClick={() => setPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
-      <button className={`nav ${page === 'assistant' ? 'active' : ''}`} onClick={() => setPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</button>
-      <button className={`nav ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
-      <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
-      <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
-      <button className={`nav ${page === 'reports' ? 'active' : ''}`} onClick={() => setPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</button>
-      <button className={`nav ${page === 'audit' ? 'active' : ''}`} onClick={() => setPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</button>
-      <button className={`nav ${page === 'imports' ? 'active' : ''}`} onClick={() => setPage('imports')}><Database size={18} />{t('common.importsNav')}</button>
-      <button className={`nav ${page === 'team' ? 'active' : ''}`} onClick={() => setPage('team')}><Users size={18} />{t('common.teamNav')}</button>
+      <button className="mobile-nav-toggle" type="button" aria-label={t(mobileMenuOpen ? 'common.closeNavigation' : 'common.openNavigation')} aria-controls="primary-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}>
+        {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+      </button>
+      <nav id="primary-navigation" className={`nav-items ${mobileMenuOpen ? 'open' : ''}`} aria-label={t('common.workspace')} onClick={() => setMobileMenuOpen(false)}>
+        <div className="rail-caption">{t('common.workspace')}</div>
+        <button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => setPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
+        <button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => setPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</button>
+        <button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => setPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</button>
+        <button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => { setInboxSearchSeed(''); setInboxConversationSeed(''); setPage('inbox') }}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
+        <button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => { setLeadSearchSeed(''); setPage('leads') }}><Users size={18} />{t('common.leadsNav')}</button>
+        <button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => setPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
+        <button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => setPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
+        <button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => setPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</button>
+        <button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => setPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
+        <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => setPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
+        <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => setPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
+        <button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => setPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</button>
+        <button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => setPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</button>
+        <button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => setPage('imports')}><Database size={18} />{t('common.importsNav')}</button>
+        <button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => setPage('team')}><Users size={18} />{t('common.teamNav')}</button>
+      </nav>
       <div className="rail-bottom">
         <span className="avatar">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         <div><strong>{current?.user.name ?? t('common.account')}</strong><small>{current?.user.email ?? t('common.secureAccess')}</small></div>

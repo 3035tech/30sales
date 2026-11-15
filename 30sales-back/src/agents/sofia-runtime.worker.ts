@@ -4,7 +4,8 @@ import { ChannelCredentialCryptoService } from '../channels/channel-credential-c
 import { WhatsappTextProviderService } from '../inbox/whatsapp-text-provider.service';
 import { SofiaLanguageModelService, SofiaRuntimeModelError } from './sofia-language-model.service';
 import { SofiaRuntimeRepository } from './sofia-runtime.repository';
-import type { SofiaQueueEventDto } from './sofia-runtime.dto';
+import { sofiaInboundEventSchema, type SofiaQueueEventDto } from './sofia-runtime.dto';
+import { WebhooksService } from '../webhooks/webhooks.service';
 
 @Injectable()
 export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
@@ -12,7 +13,7 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: SofiaRuntimeRepository, private readonly model: SofiaLanguageModelService, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService) {}
+  constructor(private readonly repository: SofiaRuntimeRepository, private readonly model: SofiaLanguageModelService, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
 
   onModuleInit(): void {
     if (!env.ANTHROPIC_API_KEY) {
@@ -63,8 +64,21 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
       const code = error instanceof SofiaRuntimeModelError ? error.code : 'SOFIA_RUNTIME_PROCESSING_FAILED';
       const retryable = error instanceof SofiaRuntimeModelError ? error.retryable : true;
       try {
-        const terminal = await this.repository.retryOrFail(queueEvent, code, retryable);
-        this.logger.error(`Sofia event ${queueEvent.id} failed with ${code}${terminal ? ' and was sent to human review' : ' and will be retried'}.`);
+        const terminal = !retryable || queueEvent.attempts >= 5;
+        if (terminal && error instanceof SofiaRuntimeModelError && ['SOFIA_MODEL_RESPONSE_INVALID', 'SOFIA_MODEL_REFUSED'].includes(error.code)) {
+          const parsedEvent = sofiaInboundEventSchema.safeParse(queueEvent.payload);
+          const payload = parsedEvent.success && parsedEvent.data.organizationId === queueEvent.organizationId ? parsedEvent.data : null;
+          if (payload) await this.webhooks.recordRuntimeInterpretationFailure({
+            organizationId: payload.organizationId,
+            channelId: payload.channelId,
+            provider: payload.provider,
+            externalConversationId: payload.externalConversationId,
+            externalMessageId: payload.externalMessageId,
+            reason: `Sofia could not interpret this message (${code}).`,
+          });
+        }
+        const failed = await this.repository.retryOrFail(queueEvent, code, retryable);
+        this.logger.error(`Sofia event ${queueEvent.id} failed with ${code}${failed ? ' and was sent to human review' : ' and will be retried'}.`);
       } catch (retryError) {
         this.logger.error(`Sofia event ${queueEvent.id} could not be rescheduled: ${retryError instanceof Error ? retryError.message : 'unknown error'}`);
       }

@@ -6,9 +6,10 @@
 - A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
 - Fatia integrada em `develop` no merge `9fe6c26` a partir de `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
 - Fatia integrada em `develop` no merge `85609b5` (feature `91e4492`): alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
-- Fatia integrada em `develop` no merge `c63d3b8` (feature `101c846`): Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs em diretório privado fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. `MEDIA_STORAGE_DIR` deve apontar em produção para volume durável compartilhado.
+- Fatia integrada em `develop` no merge `c63d3b8` (feature `101c846`): Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. Atualização solicitada nesta retomada troca o disco local por bucket S3 privado.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
+- Fatia em andamento na branch `feature/media-s3-storage`: anexos passam a usar bucket S3 privado em vez de disco local, com SSE-S3 ao gravar e leitura pelo backend autenticado. Bucket e região vêm de `MEDIA_S3_BUCKET`/`AWS_REGION`; credenciais usam a cadeia padrão AWS, preferindo IAM role. Ainda não integrada em `develop`; sem build/testes por preferência do usuário.
 
 Atualizado em 15/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
 
@@ -81,7 +82,7 @@ Evento do closer: quando uma mensagem inbound é persistida em oportunidade com 
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar `MEDIA_STORAGE_DIR` em volume durável compartilhado; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada após integrar S3: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar bucket privado/role IAM; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
 
 Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspondência; revisar canais externos de notificação quando houver requisito explícito.
 

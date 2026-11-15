@@ -23,6 +23,7 @@
     "auth:generate": "auth generate --yes --config ./src/auth/auth.ts --output ./src/db/auth-schema.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1169.0",
     "@better-auth/drizzle-adapter": "1.7.23",
     "@nestjs/common": "^11.0.1",
     "@nestjs/core": "^11.0.1",

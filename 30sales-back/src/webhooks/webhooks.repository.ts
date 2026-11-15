@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
+import { agentSettings, auditEvents, closerEvents, conversations, handoffs, inboxEvents, leads, messages, messagingChannels, opportunities, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -94,7 +94,8 @@ export class WebhooksRepository {
       let conversationId = conversation?.id;
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       if (!conversationId) {
-        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
+        const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
+        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'sofia' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id });
         conversationId = createdConversation.id;
         opportunityId = lead?.opportunityId ?? null;
       }
@@ -111,6 +112,7 @@ export class WebhooksRepository {
           aggregateType: 'conversation',
           aggregateId: conversationId,
           idempotencyKey: `agent-inbound:${message.id}`,
+          availableAt: new Date(Date.now() + 5000),
           payload: {
             organizationId: input.organizationId,
             channelId: input.channelId,
@@ -120,7 +122,6 @@ export class WebhooksRepository {
             externalConversationId: input.externalConversationId,
             externalMessageId: input.externalMessageId,
             messageType: input.messageType,
-            bodyText: input.bodyText,
             occurredAt: input.occurredAt.toISOString(),
           },
         }).onConflictDoNothing({ target: [outboxEvents.organizationId, outboxEvents.idempotencyKey] });

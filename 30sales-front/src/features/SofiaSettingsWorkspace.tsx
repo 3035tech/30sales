@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type SofiaSettingsDto } from '../lib/api/client'
+import { ApiError, api, type SofiaSettingsDto } from '../lib/api/client'
 import './SofiaSettingsWorkspace.css'
 
 export function SofiaSettingsWorkspace() {
@@ -35,8 +35,8 @@ export function SofiaSettingsWorkspace() {
       const result = await api.agents.saveSofiaSettings({ enabled, systemPrompt })
       setSettings(result)
       setSaved(true)
-    } catch {
-      setError(enabled && systemPrompt.trim().length < 100 ? t('sofiaSettings.promptRequired') : t('sofiaSettings.saveFailed'))
+    } catch (requestError) {
+      setError(enabled && systemPrompt.trim().length < 100 ? t('sofiaSettings.promptRequired') : requestError instanceof ApiError && requestError.code === 'SOFIA_RUNTIME_NOT_CONFIGURED' ? t('sofiaSettings.runtimeMissing') : t('sofiaSettings.saveFailed'))
     } finally { setSaving(false) }
   }
 
@@ -48,7 +48,7 @@ export function SofiaSettingsWorkspace() {
       <label className="sofia-settings-prompt"><span><strong>{t('sofiaSettings.prompt')}</strong><small>{t('sofiaSettings.promptHint')}</small></span><textarea value={systemPrompt} onChange={(event) => { setSystemPrompt(event.target.value); setSaved(false) }} maxLength={30000} rows={16} /></label>
       <div className="sofia-settings-footer"><span>{t('sofiaSettings.characters', { count: systemPrompt.length })}</span><button className="primary" type="submit" disabled={saving}>{saving ? t('sofiaSettings.saving') : <><Save size={15} />{t('sofiaSettings.save')}</>}</button></div>
       {error && <p className="error" role="alert">{error}</p>}{saved && <p className="success-message" role="status">{t('sofiaSettings.saved')}</p>}
-      <p className="sofia-settings-runtime">{t('sofiaSettings.runtimePending')}</p>
+      <p className="sofia-settings-runtime">{t(settings?.runtimeAvailable ? 'sofiaSettings.runtimeReady' : 'sofiaSettings.runtimeMissing')}</p>
     </form>}
   </section>
 }

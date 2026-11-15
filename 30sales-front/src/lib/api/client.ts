@@ -28,6 +28,7 @@ const activitySchema = z.object({ id: z.string().uuid(), type: activityType, sub
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
+const channelHealthCheckSchema = z.object({ status: z.enum(['not_configured', 'connected', 'connecting', 'disconnected', 'reachable', 'credentials_invalid', 'configuration_error', 'unavailable', 'unknown']), checkedAt: z.string() });
 const assistantSettingsSchema = z.object({ enabled: z.boolean(), model: z.string(), systemPrompt: z.string(), updatedAt: z.string().nullable(), runtimeAvailable: z.boolean() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['assistant','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema), assistantQualification: z.object({ intent: z.string(), summary: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), updatedAt: z.string() }).nullable() });
@@ -65,6 +66,7 @@ export type ActivityDto = z.infer<typeof activitySchema>;
 export type ConversationDto = z.infer<typeof conversationSchema>;
 export type ConversationPageDto = z.infer<typeof conversationPageSchema>;
 export type ChannelDto = z.infer<typeof channelSchema>;
+export type ChannelHealthCheckDto = z.infer<typeof channelHealthCheckSchema>;
 export type AssistantSettingsDto = z.infer<typeof assistantSettingsSchema>;
 export type CreateChannelInput = { provider: ChannelDto['provider']; displayName: string; phoneNumber: string; providerChannelId: string; providerAccountId?: string };
 export type MessageDto = z.infer<typeof messageSchema>;
@@ -185,6 +187,7 @@ export const api = {
     create: (input: CreateChannelInput) => request('/api/v1/channels', channelSchema, { method: 'POST', body: JSON.stringify(input) }),
     update: (id: string, input: { displayName?: string; isActive?: boolean }) => request(`/api/v1/channels/${encodeURIComponent(id)}`, channelSchema, { method: 'PATCH', body: JSON.stringify(input) }),
     setCredentials: (id: string, input: { provider: 'evolution'; baseUrl: string; apiKey: string; webhookSecret: string } | { provider: 'whatsapp_cloud_api'; accessToken: string; signalSecret: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
+    healthCheck: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/health-check`, channelHealthCheckSchema, { method: 'POST' }),
   },
   audit: {
     list: (params: { action?: string; entityType?: string; from?: string; to?: string; limit?: number; offset?: number } = {}) => {

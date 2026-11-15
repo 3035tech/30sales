@@ -1,20 +1,22 @@
 import { betterAuth } from 'better-auth';
 import { APIError } from 'better-auth/api';
+import { Logger } from '@nestjs/common';
 import { and, eq, gt } from 'drizzle-orm';
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
 import { organization } from 'better-auth/plugins';
 import * as authTables from '../db/auth-schema';
 import { database } from '../db';
 import { access, roles } from './permissions';
-import { sendInvitationEmail, sendVerificationEmail } from '../email/templates';
+import { sendInvitationEmail, sendPasswordResetEmail, sendVerificationEmail } from '../email/templates';
 import { AuditRepository } from '../audit/audit.repository';
 import { requestContext } from '../common/request-context';
 const auditRepository = new AuditRepository();
+const authLogger = new Logger('Auth');
 export const auth = betterAuth({
  database: drizzleAdapter(database, { provider: 'pg', schema: { user: authTables.user, session: authTables.session, account: authTables.account, verification: authTables.verification, organization: authTables.organization, member: authTables.member, invitation: authTables.invitation }, schemaName: 'auth' }),
  secret: process.env.BETTER_AUTH_SECRET, baseURL: process.env.BETTER_AUTH_URL,
  trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:5173'],
- emailAndPassword: { enabled: true, autoSignIn: false, requireEmailVerification: true },
+ emailAndPassword: { enabled: true, autoSignIn: false, requireEmailVerification: true, revokeSessionsOnPasswordReset: true, sendResetPassword: async ({ user, url }) => { void sendPasswordResetEmail({ user, url }).catch(() => authLogger.error('Password reset email delivery failed')); } },
  emailVerification: { sendVerificationEmail: async ({ user, url }) => sendVerificationEmail({ user, url }), sendOnSignUp: true, autoSignInAfterVerification: true },
  plugins: [organization({ allowUserToCreateOrganization: false, ac: access, roles, requireEmailVerificationOnInvitation: true, async sendInvitationEmail(data) { await sendInvitationEmail(data); }, organizationHooks: {
   afterCreateInvitation: async ({ invitation, inviter, organization }) => auditRepository.record({ organizationId: organization.id, actorUserId: inviter.id, action: 'invitation.created', entityType: 'invitation', entityId: invitation.id, correlationId: requestContext.getStore()?.correlationId ?? null, afterState: { role: invitation.role, status: invitation.status } }),

@@ -334,7 +334,15 @@ export const api = {
   },
   auth: {
     setActiveOrganization: (organizationId: string) => authClient.organization.setActive({ organizationId }),
-    signInEmail: (input: { email: string; password: string; callbackURL?: string }) => authClient.signIn.email(input),
+    signInEmail: (input: { email: string; password: string; rememberMe?: boolean; callbackURL?: string }) => authClient.signIn.email(input),
+    async requestPasswordReset(input: { email: string; redirectTo: string }): Promise<{ error: { message: string } | null }> {
+      const result = await authClient.requestPasswordReset(input);
+      return { error: authError(result) };
+    },
+    async resetPassword(input: { newPassword: string; token: string }): Promise<{ error: { message: string } | null }> {
+      const result = await authClient.resetPassword(input);
+      return { error: authError(result) };
+    },
     signUpEmail: (input: { name: string; email: string; password: string; callbackURL?: string }) => authClient.signUp.email(input),
     getSession: () => authClient.getSession(),
     async getInvitation(id: string): Promise<{ data: InvitationDto | null; error: { message: string } | null }> {

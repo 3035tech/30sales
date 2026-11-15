@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
+import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
 import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
@@ -11,6 +11,12 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
+  async isSofiaEnabled(organizationId: string): Promise<boolean> {
+    const [settings] = await database.select({ enabled: agentSettings.enabled }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.agentKey, 'sofia'))).limit(1);
+    return settings?.enabled ?? false;
+  }
+
   async listAssignees(organizationId: string): Promise<ConversationAssigneeDto[]> {
     const rows = await database.select({ id: authUser.id, name: authUser.name, role: authMember.role }).from(authMember)
       .innerJoin(authUser, eq(authUser.id, authMember.userId)).where(and(eq(authMember.organizationId, organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY['owner','admin','manager','bdr','sdr','closer']::text[]`)).orderBy(asc(authUser.name));

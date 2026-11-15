@@ -9,7 +9,7 @@ export const sofiaSettingsInputSchema = z.object({
 export type SofiaSettingsInputDto = z.infer<typeof sofiaSettingsInputSchema>;
 
 export class SofiaSettingsDto {
-  constructor(readonly enabled: boolean, readonly model: string, readonly systemPrompt: string, readonly updatedAt: string | null) {}
+  constructor(readonly enabled: boolean, readonly model: string, readonly systemPrompt: string, readonly updatedAt: string | null, readonly runtimeAvailable = false) {}
 }
 
 export class SofiaSettingsRepositoryDto {

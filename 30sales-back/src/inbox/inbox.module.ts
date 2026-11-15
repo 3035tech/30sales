@@ -6,5 +6,5 @@ import { InboxService } from './inbox.service';
 import { ChannelsModule } from '../channels/channels.module';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
-@Module({ imports: [ChannelsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, TenantAccessService, WhatsappTextProviderService, InboxRealtimeService] })
+@Module({ imports: [ChannelsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, TenantAccessService, WhatsappTextProviderService, InboxRealtimeService], exports: [WhatsappTextProviderService] })
 export class InboxModule {}

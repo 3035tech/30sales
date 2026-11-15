@@ -69,6 +69,7 @@ export class InboxService {
   }
   async setAutomationMode(request: ApiRequestDto, conversationId: string, mode: ConversationAutomationMode) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    if (mode === 'sofia' && !await this.repository.isSofiaEnabled(context.organizationId)) throw new ConflictException({ code: 'SOFIA_AGENT_DISABLED', message: 'Enable Sofia in workspace settings before returning this conversation to automated handling.' });
     const result = await this.repository.setAutomationMode(new ConversationAutomationUpdateDto(context.organizationId, conversationId, context.userId, mode, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can change this conversation automation mode.' });

@@ -10,3 +10,4 @@ export class UserNotificationDto {
 }
 export class UserNotificationsPageDto { constructor(readonly data: UserNotificationDto[], readonly unreadCount: number) {} }
 export class MarkUserNotificationReadDto { constructor(readonly id: string, readonly organizationId: string, readonly userId: string) {} }
+export class MarkAllUserNotificationsReadDto { constructor(readonly organizationId: string, readonly userId: string) {} }

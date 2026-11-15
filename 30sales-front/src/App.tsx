@@ -52,8 +52,11 @@ export default function App() {
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
+  const [notificationsActionError, setNotificationsActionError] = useState(false)
   const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false)
   const notificationsLoadedRef = useRef(false)
+  const notificationRefreshRevision = useRef(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [changingOrganization, setChangingOrganization] = useState(false)
   const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
@@ -86,10 +89,11 @@ export default function App() {
     let active = true
     const refresh = () => {
       if (document.visibilityState !== 'visible') return
+      const revision = ++notificationRefreshRevision.current
       if (!notificationsLoadedRef.current) setNotificationsLoading(true)
       api.notifications.list().then((page) => {
-        if (active) { setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true }
-      }).catch(() => { if (active) setNotificationsError(true) }).finally(() => { if (active) setNotificationsLoading(false) })
+        if (active && revision === notificationRefreshRevision.current) { setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true }
+      }).catch(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsError(true) }).finally(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsLoading(false) })
     }
     refresh()
     const interval = window.setInterval(refresh, 30_000)
@@ -107,6 +111,8 @@ export default function App() {
       setCurrent((previous) => previous ? { ...previous, activeOrganizationId: organizationId } : previous)
       setNotifications([])
       setUnreadNotificationCount(0)
+      setNotificationsActionError(false)
+      notificationRefreshRevision.current += 1
       notificationsLoadedRef.current = false
       navigateToPage('home', {}, { replace: true })
       setMobileMenuOpen(false)
@@ -119,9 +125,24 @@ export default function App() {
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId)
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
+  const markAllNotificationsRead = async () => {
+    if (markingNotificationsRead || unreadNotificationCount === 0) return
+    setMarkingNotificationsRead(true)
+    setNotificationsActionError(false)
+    try {
+      await api.notifications.markAllRead()
+      notificationRefreshRevision.current += 1
+      setNotifications([])
+      setUnreadNotificationCount(0)
+      setNotificationsError(false)
+      notificationsLoadedRef.current = true
+    } catch { setNotificationsActionError(true) }
+    finally { setMarkingNotificationsRead(false) }
+  }
   const openNotification = async (notification: UserNotificationDto) => {
     try {
       await api.notifications.markRead(notification.id)
+      notificationRefreshRevision.current += 1
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
       setUnreadNotificationCount((count) => Math.max(0, count - 1))
       setNotificationsOpen(false)
@@ -178,7 +199,8 @@ export default function App() {
               <Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-count">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}
             </button>
             {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
-              <div className="notification-panel-heading"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>
+              <div className="notification-panel-heading"><div className="notification-heading-copy"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>{unreadNotificationCount > 0 && <button className="notification-mark-all" type="button" disabled={markingNotificationsRead} onClick={() => void markAllNotificationsRead()}>{markingNotificationsRead ? t('systemNotifications.markingAllRead') : t('systemNotifications.markAllRead')}</button>}</div>
+              {notificationsActionError && <WorkspaceState kind="error" compact message={t('systemNotifications.markAllFailed')} />}
               {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
               {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
                 <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : notification.notificationType === 'task_overdue' ? t('systemNotifications.taskOverdue') : notification.notificationType === 'handoff_accepted' ? t('systemNotifications.handoffAccepted') : notification.notificationType === 'handoff_returned' ? t('systemNotifications.handoffReturned') : notification.notificationType === 'conversation_assigned' ? t('systemNotifications.conversationAssigned') : notification.notificationType === 'opportunity_assigned' ? t('systemNotifications.opportunityAssigned') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>

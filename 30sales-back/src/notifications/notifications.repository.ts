@@ -3,7 +3,7 @@ import { and, asc, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, closerEvents, conversations, handoffs, leads, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
-import { MarkUserNotificationReadDto, UserNotificationDto, UserNotificationsListDto, UserNotificationsPageDto, userNotificationTypeValues } from './notifications.dto';
+import { MarkAllUserNotificationsReadDto, MarkUserNotificationReadDto, UserNotificationDto, UserNotificationsListDto, UserNotificationsPageDto, userNotificationTypeValues } from './notifications.dto';
 
 @Injectable()
 export class NotificationsRepository {
@@ -83,5 +83,13 @@ export class NotificationsRepository {
       eq(userNotifications.id, input.id), eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId),
     )).limit(1);
     return Boolean(existing);
+  }
+
+  async markAllRead(input: MarkAllUserNotificationsReadDto): Promise<void> {
+    await database.update(userNotifications).set({ readAt: new Date() }).where(and(
+      eq(userNotifications.organizationId, input.organizationId),
+      eq(userNotifications.recipientUserId, input.userId),
+      isNull(userNotifications.readAt),
+    ));
   }
 }

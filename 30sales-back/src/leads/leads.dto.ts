@@ -39,7 +39,7 @@ export const completeTaskSchema = z.object({ result: z.enum(['completed', 'conta
   if (input.result !== 'follow_up' && input.followUp) context.addIssue({ code: 'custom', path: ['followUp'], message: 'A follow-up task is only allowed for the follow-up result.' });
 }).default({ result: 'completed' });
 export type CompleteTaskDto = z.infer<typeof completeTaskSchema>;
-export const listTasksSchema = z.object({ from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), assignedToUserId: z.string().uuid().optional(), status: z.enum(['open', 'completed', 'cancelled']).default('open'), limit: z.coerce.number().int().min(1).max(100).default(100) }).strict();
+export const listTasksSchema = z.object({ taskId: z.string().uuid().optional(), from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), assignedToUserId: z.string().uuid().optional(), status: z.enum(['open', 'completed', 'cancelled']).optional(), limit: z.coerce.number().int().min(1).max(100).default(100) }).strict();
 export type ListTasksQueryDto = z.infer<typeof listTasksSchema>;
 export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string, readonly completionResult: 'completed' | 'contacted' | 'no_response' | 'follow_up' | null, readonly completionNote: string | null) {} }
 export class TaskRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListTasksQueryDto) {} }

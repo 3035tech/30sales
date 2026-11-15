@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Check, CircleAlert, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { api, type LeadDto, type TaskDto } from '../lib/api/client'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './TasksWorkspace.css'
@@ -11,7 +12,9 @@ function addDays(date: Date, days: number) { const value = new Date(date); value
 
 export function TasksWorkspace() {
   const { t, i18n } = useTranslation()
-  const [view, setView] = useState<TaskView>('today')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const taskId = searchParams.get('taskId') ?? undefined
+  const [view, setView] = useState<TaskView>(() => taskId ? 'overdue' : 'today')
   const [tasks, setTasks] = useState<TaskDto[]>([])
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [loading, setLoading] = useState(true)
@@ -36,10 +39,11 @@ export function TasksWorkspace() {
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
-    try { setTasks(await api.tasks.list({ ...range, status: 'open' })) }
+    try { setTasks(await api.tasks.list(taskId ? { taskId } : { ...range, status: 'open' })) }
     catch { setError(t('errors.loadTasks')) }
     finally { setLoading(false) }
-  }, [range, t])
+  }, [range, t, taskId])
+  useEffect(() => { if (taskId) setView('overdue') }, [taskId])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { api.leads.list({ limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [])
 
@@ -67,7 +71,7 @@ export function TasksWorkspace() {
       <button className="refresh" onClick={() => void refresh()} aria-label={t('tasks.refresh')}><RefreshCw size={16} /></button>
     </header>
     <div className="task-views" role="tablist" aria-label={t('tasks.views')}>
-      {(['overdue', 'today', 'upcoming'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => setView(item)}>{t(`tasks.${item}`)}</button>)}
+      {(['overdue', 'today', 'upcoming'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => { setView(item); if (taskId) { const next = new URLSearchParams(searchParams); next.delete('taskId'); setSearchParams(next, { replace: true }) } }}>{t(`tasks.${item}`)}</button>)}
     </div>
     <form className="task-form" onSubmit={createTask}>
       <div className="lead-form-title"><Plus size={18} /><div><strong>{t('tasks.newTask')}</strong><small>{t('tasks.newTaskHint')}</small></div></div>
@@ -80,11 +84,11 @@ export function TasksWorkspace() {
     </form>
     {error && tasks.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="lead-list-panel task-list">
-      <div className="lead-list-toolbar"><div><h3>{t(`tasks.${view}`)}</h3><p>{t('tasks.count', { count: tasks.length })}</p></div><CalendarClock size={18} /></div>
+      <div className="lead-list-toolbar"><div><h3>{t(`tasks.${view}`)}</h3><p>{taskId ? t('tasks.selectedTask') : t('tasks.count', { count: tasks.length })}</p></div><CalendarClock size={18} /></div>
       {loading && tasks.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
-      {loading && tasks.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : tasks.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={t(`tasks.empty.${view}`)} detail={t('tasks.emptyHint')} /> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' ? 'overdue' : ''}>
-        <div className="task-time">{view === 'overdue' && <CircleAlert size={15} />}{dateLabel(task.dueAt)}</div><div className="task-copy"><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div>
-        {completionTaskId !== task.id && <button className="task-complete" onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</button>}
+      {loading && tasks.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : tasks.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={t(`tasks.empty.${view}`)} detail={t('tasks.emptyHint')} /> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' && task.status === 'open' ? 'overdue' : ''}>
+        <div className="task-time">{view === 'overdue' && task.status === 'open' && <CircleAlert size={15} />}{dateLabel(task.dueAt)}</div><div className="task-copy"><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div>
+        {task.status !== 'open' ? <span className={`task-status-label is-${task.status}`}>{t(`tasks.status.${task.status}`)}</span> : completionTaskId !== task.id && <button className="task-complete" onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</button>}
         {completionTaskId === task.id && <form className="task-completion-form" onSubmit={(event) => void complete(event, task)}>
           <label>{t('taskCompletion.result')}<select value={completionResult} onChange={(event) => setCompletionResult(event.target.value as typeof completionResult)}><option value="completed">{t('taskCompletion.results.completed')}</option><option value="contacted">{t('taskCompletion.results.contacted')}</option><option value="no_response">{t('taskCompletion.results.no_response')}</option><option value="follow_up">{t('taskCompletion.results.follow_up')}</option></select></label>
           <label>{t('taskCompletion.resultNote')}<textarea value={completionNote} onChange={(event) => setCompletionNote(event.target.value)} maxLength={2000} /></label>

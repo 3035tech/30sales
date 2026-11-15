@@ -1,0 +1,1 @@
+ALTER TABLE "user_notifications" ADD CONSTRAINT "user_notifications_task_tenant_fk" FOREIGN KEY ("task_id","organization_id") REFERENCES "public"."tasks"("id","organization_id") ON DELETE cascade ON UPDATE no action;

@@ -1,7 +1,7 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CreateHandoffDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, ListHandoffsQueryDto, ReturnHandoffDto } from './handoffs.dto';
+import { CreateHandoffDto, HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, ListHandoffsQueryDto, ReturnHandoffDto } from './handoffs.dto';
 import { HandoffsRepository } from './handoffs.repository';
 
 @Injectable()
@@ -10,6 +10,10 @@ export class HandoffsService {
   async list(request: ApiRequestDto, query: ListHandoffsQueryDto): Promise<HandoffRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.list(new HandoffRepositoryListDto(context.organizationId, query));
+  }
+  async listPage(request: ApiRequestDto, query: ListHandoffsQueryDto): Promise<HandoffPageDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    return this.repository.listPage(new HandoffRepositoryListDto(context.organizationId, query));
   }
   async create(request: ApiRequestDto, dto: CreateHandoffDto): Promise<HandoffRecordDto> {
     const context = await this.tenantAccess.require(request, 'create', 'pipeline');

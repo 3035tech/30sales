@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user } from '../db/auth-schema';
-import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
+import { HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
 
 const requester = alias(user, 'handoff_requester');
 const closer = alias(user, 'handoff_closer');
@@ -42,6 +43,17 @@ const handoffRecordSelection = {
   acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt,
 };
 
+function handoffConditions(input: HandoffRepositoryListDto): SQL[] {
+  const conditions: SQL[] = [eq(handoffs.organizationId, input.organizationId)];
+  if (input.query.handoffId) conditions.push(eq(handoffs.id, input.query.handoffId));
+  else conditions.push(eq(handoffs.status, input.query.status));
+  if (input.query.search) {
+    const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
+    conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(opportunities.name, pattern), ilike(handoffs.reason, pattern), ilike(handoffs.nextStep, pattern))!);
+  }
+  return conditions;
+}
+
 @Injectable()
 export class HandoffsRepository {
   private async getRecord(organizationId: string, handoffId: string): Promise<HandoffRecordDto | null> {
@@ -56,14 +68,35 @@ export class HandoffsRepository {
   }
 
   async list(input: HandoffRepositoryListDto): Promise<HandoffRecordDto[]> {
+    return this.findRows(input);
+  }
+
+  async listPage(input: HandoffRepositoryListDto): Promise<HandoffPageDto> {
+    const conditions = handoffConditions(input);
+    const [data, [result]] = await Promise.all([
+      this.findRows(input),
+      database.select({ total: count() }).from(handoffs)
+        .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .where(and(...conditions)),
+    ]);
+    const total = result?.total ?? 0;
+    return new HandoffPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
+  }
+
+  private async findRows(input: HandoffRepositoryListDto): Promise<HandoffRecordDto[]> {
+    const sortColumn = input.query.sortBy === 'accountName' ? accounts.name : input.query.sortBy === 'contactName' ? people.name : input.query.sortBy === 'nextStepAt' ? handoffs.nextStepAt : handoffs.requestedAt;
+    const primaryOrder = input.query.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
+    const tieOrder = input.query.sortDirection === 'asc' ? asc(handoffs.id) : desc(handoffs.id);
     const rows = await database.select(handoffRecordSelection)
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
-      .where(and(eq(handoffs.organizationId, input.organizationId), input.query.handoffId ? eq(handoffs.id, input.query.handoffId) : eq(handoffs.status, input.query.status)))
-      .orderBy(desc(handoffs.requestedAt), desc(handoffs.id)).limit(input.query.limit).offset(input.query.offset);
+      .where(and(...handoffConditions(input)))
+      .orderBy(primaryOrder, tieOrder).limit(input.query.limit).offset(input.query.offset);
     return rows.map((row) => mapHandoff(row as HandoffRow));
   }
 

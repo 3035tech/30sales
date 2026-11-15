@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { ArrowDownLeft, ArrowRight, Check, RefreshCw, Send } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto } from '../lib/api/client'
@@ -22,6 +22,15 @@ export function HandoffsWorkspace() {
     return statuses.includes(requestedStatus as HandoffStatus) ? requestedStatus as HandoffStatus : handoffId ? 'accepted' : 'requested'
   })
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
+  const [total, setTotal] = useState(0)
+  const [offset, setOffset] = useState(0)
+  const [pageSize, setPageSize] = useState(25)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'requestedAt' | 'accountName' | 'contactName' | 'nextStepAt'>('requestedAt')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
+  const [hasNextPage, setHasNextPage] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -38,14 +47,23 @@ export function HandoffsWorkspace() {
   const [returnReason, setReturnReason] = useState('')
   const [returnNextStep, setReturnNextStep] = useState('')
   const [returnDueAt, setReturnDueAt] = useState('')
+  const requestRevision = useRef(0)
 
   const refresh = useCallback(async () => {
+    const revision = ++requestRevision.current
     setLoading(true); setError('')
-    try { setHandoffs(await api.handoffs.list(status, { handoffId })) }
-    catch { setError(t('errors.loadHandoffs')) }
-    finally { setLoading(false) }
-  }, [handoffId, status, t])
+    try {
+      const page = await api.handoffs.listPage(status, { handoffId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset })
+      if (revision === requestRevision.current) { setHandoffs(page.data); setTotal(page.pagination.total); setHasNextPage(page.pagination.hasNextPage) }
+    }
+    catch { if (revision === requestRevision.current) setError(t('errors.loadHandoffs')) }
+    finally { if (revision === requestRevision.current) setLoading(false) }
+  }, [debouncedSearch, handoffId, offset, pageSize, refreshTick, sortBy, sortDirection, status, t])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0) }, 250)
+    return () => window.clearTimeout(timeout)
+  }, [search])
   useEffect(() => { api.leads.list({ status: 'responded', limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [])
 
   const create = async (event: React.FormEvent) => {
@@ -54,20 +72,20 @@ export function HandoffsWorkspace() {
       const confirmedReadiness = readinessFields.filter((field) => readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${readiness[field].trim()}`)
       const missingReadiness = readinessFields.filter((field) => !readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${t('handoffReadiness.notConfirmed')}`)
       await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
-      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); await refresh()
+      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); if (handoffId) setSearchParams({})
     } catch { setError(t('errors.createHandoff')) }
     finally { setSaving(false) }
   }
   const accept = async (handoff: HandoffDto) => {
     setError('')
-    try { const updated = await api.handoffs.accept(handoff.id); setHandoffs((items) => items.filter((item) => item.id !== updated.id)) }
+    try { await api.handoffs.accept(handoff.id); setRefreshTick((tick) => tick + 1) }
     catch { setError(t('errors.acceptHandoff')) }
   }
   const returnHandoff = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      const updated = await api.handoffs.returnToSdr(returningId, { reason: returnReason.trim(), nextStep: returnNextStep.trim(), dueAt: new Date(returnDueAt).toISOString() })
-      setHandoffs((items) => items.filter((item) => item.id !== updated.id)); setReturningId(''); setReturnReason(''); setReturnNextStep(''); setReturnDueAt('')
+      await api.handoffs.returnToSdr(returningId, { reason: returnReason.trim(), nextStep: returnNextStep.trim(), dueAt: new Date(returnDueAt).toISOString() })
+      setReturningId(''); setReturnReason(''); setReturnNextStep(''); setReturnDueAt(''); setRefreshTick((tick) => tick + 1)
     } catch { setError(t('errors.returnHandoff')) }
     finally { setSaving(false) }
   }
@@ -99,11 +117,16 @@ export function HandoffsWorkspace() {
     </form>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
-      {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</button>)}
+      {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</button>)}
+    </div>
+    <div className="handoff-list-controls">
+      <label>{t('handoffs.search')}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>
+      <label>{t('handoffs.sortBy')}<select value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setOffset(0) }}><option value="requestedAt">{t('handoffs.sort.requestedAt')}</option><option value="accountName">{t('handoffs.sort.accountName')}</option><option value="contactName">{t('handoffs.sort.contactName')}</option><option value="nextStepAt">{t('handoffs.sort.nextStepAt')}</option></select></label>
+      <button className="handoff-sort-direction" type="button" aria-label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}{t(sortDirection === 'asc' ? 'handoffs.ascending' : 'handoffs.descending')}</button>
     </div>
     <div className="handoff-list">
       {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
-      {loading && handoffs.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : handoffs.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={t('handoffs.empty')} detail={t('handoffs.emptyHint')} /> : handoffs.map((handoff) => <article className="handoff-card" key={handoff.id}>
+      {loading && handoffs.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : handoffs.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={debouncedSearch ? t('handoffs.noSearchResults') : t('handoffs.empty')} detail={debouncedSearch ? t('handoffs.noSearchResultsHint') : t('handoffs.emptyHint')} /> : handoffs.map((handoff) => <article className="handoff-card" key={handoff.id}>
         <div className="handoff-card-head"><div><span className="eyebrow">{handoff.accountName} · {handoff.contactName}</span><h3>{handoff.opportunityName}</h3></div><span className={`handoff-badge handoff-${handoff.status}`}>{t(`handoffs.status.${handoff.status}`)}</span></div>
         <div className="handoff-brief"><div><strong>{t('handoffs.reason')}</strong><p>{handoff.reason}</p></div><div><strong>{t('handoffs.evidence')}</strong><p>{handoff.evidence}</p></div>
           <div><strong>{t('handoffs.confirmedFacts')}</strong>{handoff.confirmedFacts.length ? <ul>{handoff.confirmedFacts.map((fact) => <li key={fact}>{fact}</li>)}</ul> : <p>{t('handoffs.noneRecorded')}</p>}</div>
@@ -124,5 +147,6 @@ export function HandoffsWorkspace() {
         </form>}
       </article>)}
     </div>
+    <footer className="handoff-pagination"><span>{t('table.range', { from: total ? offset + 1 : 0, to: Math.min(offset + pageSize, total), total })}</span><label>{t('table.rowsPerPage')}<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label><div><button type="button" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={loading || offset === 0}>{t('table.previous')}</button><button type="button" onClick={() => setOffset(offset + pageSize)} disabled={loading || !hasNextPage}>{t('table.next')}</button></div></footer>
   </section>
 }

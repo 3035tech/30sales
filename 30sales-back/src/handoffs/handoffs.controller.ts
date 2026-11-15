@@ -11,6 +11,10 @@ const handoffIdSchema = z.string().uuid();
 @Controller('api/v1/handoffs')
 export class HandoffsController {
   constructor(private readonly handoffsService: HandoffsService) {}
+  @Get('page')
+  listPage(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listHandoffsSchema)) query: ListHandoffsQueryDto) {
+    return this.handoffsService.listPage(request, query);
+  }
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listHandoffsSchema)) query: ListHandoffsQueryDto) {
     return this.handoffsService.list(request, query);

@@ -14,6 +14,7 @@ const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uui
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), conversationId: z.string().uuid().nullable(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string(), acceptedAt: z.string().nullable(), firstActivityAt: z.string().nullable() });
+const handoffPageSchema = z.object({ data: z.array(handoffSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(), priority: z.string(), status: z.string(), conversationId: z.string().uuid(), opportunityId: z.string().uuid(), assignedToUserId: z.string().uuid(), accountName: z.string(), contactName: z.string(), summary: z.string(), evidence: z.string().nullable(), occurredAt: z.string(), dueAt: z.string().nullable(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable() });
 const closerEventsPageSchema = z.object({ data: z.array(closerEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eventType: z.enum(['qualified_handoff', 'human_requested', 'buying_intent', 'closer_question', 'lead_replied_after_handoff', 'interpretation_failure']), targetMinutes: z.number().int().nullable(), escalateToManagers: z.boolean() })), canManage: z.boolean() });
@@ -261,6 +262,12 @@ export const api = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       if (params.handoffId) search.set('handoffId', params.handoffId);
       return request(`/api/v1/handoffs?${search.toString()}`, z.array(handoffSchema));
+    },
+    listPage: (status: HandoffDto['status'], params: { limit: number; offset: number; handoffId?: string; search?: string; sortBy: 'requestedAt' | 'accountName' | 'contactName' | 'nextStepAt'; sortDirection: 'asc' | 'desc' }) => {
+      const search = new URLSearchParams({ status, limit: String(params.limit), offset: String(params.offset), sortBy: params.sortBy, sortDirection: params.sortDirection });
+      if (params.handoffId) search.set('handoffId', params.handoffId);
+      if (params.search) search.set('search', params.search);
+      return request(`/api/v1/handoffs/page?${search.toString()}`, handoffPageSchema);
     },
     create: (input: { leadId: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: string }) => request('/api/v1/handoffs', handoffSchema, { method: 'POST', body: JSON.stringify(input) }),
     accept: (id: string) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/accept`, handoffSchema, { method: 'PATCH' }),

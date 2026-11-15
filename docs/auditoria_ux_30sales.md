@@ -1,7 +1,19 @@
 # Auditoria geral de UX — 30Sales
 
 Data: 15/11/2026  
-Escopo: leitura da aplicação React, estilos e fluxos do backend existentes. A interface em execução não estava disponível para inspeção visual; os achados abaixo são baseados no código e precisam de uma passada visual em navegador antes de fechar detalhes de espaçamento e comportamento.
+Escopo: inspeção em runtime no Chrome, no desktop e em viewport responsivo de 390×844, com tenant e dados fictícios isolados. Login, navegação, listas, filtros, contagens e notificações foram percorridos manualmente.
+
+## Inspeção visual e funcional em runtime
+
+- Login e seleção da organização funcionaram. Hoje, Tarefas, Leads, Contas, Pipeline, Passagens para closer e Relatórios carregaram dados. Inbox exibiu o estado vazio esperado porque não há canal WhatsApp configurado no ambiente local.
+- A notificação de tarefa vencida apareceu na central global; “Marcar todas como lidas” atualizou a contagem para zero. Nenhuma mensagem foi enviada a provedores externos.
+- Em 390×844, a navegação móvel abre e fecha, e o conteúdo principal se adapta à largura. O cabeçalho global ainda repete o título da página dentro do conteúdo, consumindo espaço vertical e criando hierarquia duplicada.
+- Antes dos ajustes, a barra global colocava título e controles lado a lado em largura estreita, truncando o seletor de organização. A caixa vazia do Inbox também deixava um vão vertical grande. Agora o cabeçalho empilha título e controles, o Inbox reduz a área vazia no mobile, e o layout interno de cabeçalhos não herda mais estilos do cabeçalho do shell.
+- Hoje mostrava cada palavra da descrição com inicial maiúscula, incluindo preposições. Removida a capitalização CSS; datas permanecem localizadas pelo formatador.
+- Pipeline tem sete etapas e uma faixa horizontal própria no board. Métricas e cartões agora têm estilos e quebras responsivas; filtros e ordenação carregaram sem overflow horizontal da página.
+- Foram corrigidos dois erros funcionais encontrados no backend: a formatação de atividade agregada em Contas e uma consulta de eventos do closer que gerava referência ambígua em SQL. As duas telas carregaram após as correções.
+- A compilação Nest passou. A compilação TypeScript/Vite passou; o bundle principal ficou em aproximadamente 691 kB e emitiu aviso acima do limite de 500 kB. Não rodei a suíte automatizada.
+- A configuração local não tem provedor WhatsApp nem `ANTHROPIC_API_KEY`; envio real no Inbox e execução do assistente não puderam ser exercitados. O Chrome permaneceu aberto na central do closer.
 
 ## Resumo
 
@@ -38,6 +50,9 @@ Os estados de carregamento, erro, vazio, falha parcial e atualização foram pad
 - Estados vazio, carregando, erro, sucesso e atualização parcial são localizados em pt-BR e inglês.
 - Todo dado sensível permanece limitado à organização ativa e ao usuário autorizado; a API continua como autoridade.
 
-## Limite desta revisão
+## Limites e próximos passos
 
-Não houve inspeção de runtime porque não havia navegador disponível nesta sessão. A avaliação visual de contraste, densidade, alinhamento, comportamento de foco e fluxo real precisa ser feita quando a aplicação puder ser aberta. Não foram executados build ou testes, conforme preferência registrada no contexto do projeto.
+- A amostra em runtime cobriu os principais caminhos, mas não todas as telas administrativas nem leitor de tela/teclado completo.
+- Revisar o título duplicado no shell e nas áreas, mantendo um único título visual por página.
+- Avaliar divisão do bundle com carregamento sob demanda antes de adicionar mais áreas ao frontend.
+- Conectar um canal de teste fictício para validar o thread do Inbox e os estados de envio sem atingir um número real.

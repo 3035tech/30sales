@@ -37,7 +37,8 @@ export class NotificationsRepository {
       .where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId), isNull(userNotifications.readAt)));
     const data = rows.flatMap((row) => {
       const notificationType = userNotificationTypeValues.find((value) => value === row.notificationType);
-      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, row.dueAt?.toISOString() ?? null, row.createdAt.toISOString())] : [];
+      const dueAt = row.dueAt ? new Date(row.dueAt.toString()).toISOString() : null;
+      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, dueAt, row.createdAt.toISOString())] : [];
     });
     return new UserNotificationsPageDto(data, count?.total ?? 0);
   }

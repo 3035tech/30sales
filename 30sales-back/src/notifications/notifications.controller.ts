@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { listNotificationsSchema, ListNotificationsQueryDto } from './notifications.dto';
+import { listNotificationsSchema } from './notifications.dto';
+import type { ListNotificationsQueryDto } from './notifications.dto';
 import { NotificationsService } from './notifications.service';
 
 @Controller('api/v1/notifications')

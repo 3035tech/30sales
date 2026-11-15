@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const channelProviderSchema = z.enum(['evolution', 'whatsapp_cloud_api']);
+export type ChannelProvider = z.infer<typeof channelProviderSchema>;
 export const createChannelSchema = z.object({
   provider: channelProviderSchema,
   displayName: z.string().trim().min(2).max(120),
@@ -28,7 +29,7 @@ export class ChannelHealthCheckDto {
   constructor(readonly status: ChannelHealthStatus, readonly checkedAt: string) {}
 }
 export class ChannelRecordDto {
-  constructor(readonly id: string, readonly provider: (typeof channelProviderSchema.enumValues)[number], readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false) {}
+  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false) {}
 }
 export class ChannelRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateChannelDto, readonly correlationId: string | null = null) {} }
 export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }

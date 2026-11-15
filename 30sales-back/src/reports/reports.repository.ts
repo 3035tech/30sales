@@ -1,13 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, eq, gte, inArray, isNull, lt, min, notInArray, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/pg-core';
+import { and, count, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { activities, handoffs, leads, opportunities } from '../db/schema';
+import { handoffs, leads, opportunities } from '../db/schema';
 import { FunnelReportDto, FunnelReportRepositoryQueryDto, FunnelReportStageDto } from './reports.dto';
 
 const terminalStages = ['won', 'lost'] as const;
-const responseActivity = alias(activities, 'handoff_first_response_activity');
-
 @Injectable()
 export class ReportsRepository {
   async funnel(input: FunnelReportRepositoryQueryDto): Promise<FunnelReportDto> {
@@ -16,8 +13,23 @@ export class ReportsRepository {
     toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
     const tenant = eq(opportunities.organizationId, input.organizationId);
     const open = and(tenant, notInArray(opportunities.stage, [...terminalStages]));
-    const firstActivityQuery = database.select({ occurredAt: min(responseActivity.occurredAt) }).from(responseActivity)
-      .where(and(eq(responseActivity.organizationId, handoffs.organizationId), eq(responseActivity.opportunityId, handoffs.opportunityId), inArray(responseActivity.type, ['call', 'meeting', 'email', 'message']), gte(responseActivity.occurredAt, handoffs.acceptedAt))).as('first_handoff_activity');
+    const firstActivityAt = sql<Date | null>`(
+      select min(first_activity.occurred_at) from (
+        select activity.occurred_at from activities activity
+        where activity.organization_id = ${handoffs.organizationId}
+          and activity.opportunity_id = ${handoffs.opportunityId}
+          and activity.type in ('call', 'meeting', 'email', 'message')
+          and activity.occurred_at >= ${handoffs.acceptedAt}
+        union all
+        select message.occurred_at from messages message
+        inner join conversations conversation on conversation.id = message.conversation_id and conversation.organization_id = message.organization_id
+        where conversation.organization_id = ${handoffs.organizationId}
+          and conversation.opportunity_id = ${handoffs.opportunityId}
+          and message.direction = 'outbound' and message.actor_type = 'user'
+          and message.delivery_state in ('accepted', 'delivered', 'read')
+          and message.occurred_at >= ${handoffs.acceptedAt}
+      ) first_activity
+    )`;
     const [stageRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows] = await Promise.all([
       database.select({ stage: opportunities.stage, count: count() }).from(opportunities).where(open).groupBy(opportunities.stage),
       database.select({ count: count() }).from(opportunities).where(open),
@@ -26,8 +38,8 @@ export class ReportsRepository {
       database.select({ count: count() }).from(opportunities).where(and(tenant, gte(opportunities.createdAt, from), lt(opportunities.createdAt, toExclusive))),
       database.select({ stage: opportunities.stage, count: count() }).from(opportunities).where(and(tenant, gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), inArray(opportunities.stage, [...terminalStages]))).groupBy(opportunities.stage),
       database.select({ currency: opportunities.currency, amount: sql<string>`coalesce(sum(${opportunities.amount}), 0)::text` }).from(opportunities).where(and(tenant, eq(opportunities.stage, 'won'), gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), sql`${opportunities.currency} is not null`)).groupBy(opportunities.currency),
-      database.select({ acceptedCount: count(), firstActivityCount: count(firstActivityQuery.occurredAt), averageMinutes: sql<number | null>`avg(extract(epoch from (${firstActivityQuery.occurredAt} - ${handoffs.acceptedAt})) / 60)::float8` })
-        .from(handoffs).leftJoinLateral(firstActivityQuery, sql`true`)
+      database.select({ acceptedCount: count(), firstActivityCount: sql<number>`count(${firstActivityAt})::int`, averageMinutes: sql<number | null>`avg(extract(epoch from (${firstActivityAt} - ${handoffs.acceptedAt})) / 60)::float8` })
+        .from(handoffs)
         .where(and(eq(handoffs.organizationId, input.organizationId), gte(handoffs.acceptedAt, from), lt(handoffs.acceptedAt, toExclusive))),
       database.select({ status: leads.status, count: count() }).from(leads).where(eq(leads.organizationId, input.organizationId)).groupBy(leads.status),
       database.select({ count: count() }).from(leads).where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive))),

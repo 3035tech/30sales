@@ -305,17 +305,29 @@ export const api = {
     },
     assignees: () => request('/api/v1/opportunities/assignees', z.array(opportunityAssigneeSchema)),
     assignOwner: (id: string, ownerUserId: string | null) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/owner`, opportunitySchema, { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
-    list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; opportunityId?: string; limit?: number; offset?: number } = {}) => {
+    list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string; opportunityId?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.view) search.set('view', params.view);
       if (params.stage) search.set('stage', params.stage);
+      if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
+      if (params.dueAfter) search.set('dueAfter', params.dueAfter);
+      if (params.dueBefore) search.set('dueBefore', params.dueBefore);
+      if (params.noNextAction) search.set('noNextAction', 'true');
+      if (params.search) search.set('search', params.search);
       if (params.opportunityId) search.set('opportunityId', params.opportunityId);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/opportunities?${search.toString()}`, z.array(opportunitySchema));
     },
-    listPage: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; opportunityId?: string; search?: string; sortBy: 'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
+    listPage: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; opportunityId?: string; search?: string; sortBy: 'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt' | 'opportunityName' | 'stage' | 'ownerName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
       const search = new URLSearchParams({ view: params.view ?? 'mine', sortBy: params.sortBy, sortDirection: params.sortDirection, limit: String(params.limit), offset: String(params.offset) });
+      if (params.stage) search.set('stage', params.stage);
+      if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
+      if (params.dueAfter) search.set('dueAfter', params.dueAfter);
+      if (params.dueBefore) search.set('dueBefore', params.dueBefore);
+      if (params.noNextAction) search.set('noNextAction', 'true');
       if (params.opportunityId) search.set('opportunityId', params.opportunityId);
       if (params.search) search.set('search', params.search);
       return request(`/api/v1/opportunities/page?${search.toString()}`, opportunityPageSchema);

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, isNull, lt, notInArray, or, SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, isNull, lt, notInArray, or, SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people, pipelineStages, userNotifications } from '../db/schema';
@@ -9,6 +9,7 @@ import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto
 const owner = alias(user, 'opportunity_owner');
 const historyActor = alias(user, 'opportunity_history_actor');
 const customStage = alias(pipelineStages, 'opportunity_custom_stage');
+const pipelineOrderStage = alias(pipelineStages, 'opportunity_order_stage');
 const fromCustomStage = alias(pipelineStages, 'history_from_custom_stage');
 const toCustomStage = alias(pipelineStages, 'history_to_custom_stage');
 type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date };
@@ -23,6 +24,12 @@ export class OpportunitiesRepository {
     if (input.query.opportunityId) conditions.push(eq(opportunities.id, input.query.opportunityId));
     if (input.query.view !== 'all') conditions.push(notInArray(opportunities.stage, ['won', 'lost']));
     if (input.query.stage) conditions.push(eq(opportunities.stage, input.query.stage));
+    if (input.query.pipelineStageKey) conditions.push(eq(opportunities.pipelineStageKey, input.query.pipelineStageKey));
+    if (input.query.assignedToUserId === 'unassigned') conditions.push(isNull(opportunities.ownerUserId));
+    else if (input.query.assignedToUserId) conditions.push(eq(opportunities.ownerUserId, input.query.assignedToUserId));
+    if (input.query.noNextAction) conditions.push(isNull(opportunities.nextActionAt));
+    if (input.query.dueAfter) conditions.push(gte(opportunities.nextActionAt, new Date(input.query.dueAfter)));
+    if (input.query.dueBefore) conditions.push(lt(opportunities.nextActionAt, new Date(input.query.dueBefore)));
     if (input.query.view === 'mine') conditions.push(eq(opportunities.ownerUserId, input.userId));
     if (input.query.view === 'unassigned') conditions.push(isNull(opportunities.ownerUserId));
     if (input.query.view === 'no_next_action') conditions.push(isNull(opportunities.nextActionAt));
@@ -30,19 +37,26 @@ export class OpportunitiesRepository {
     if (input.query.view === 'stale') conditions.push(lt(opportunities.stageChangedAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)), isNull(opportunities.closedAt));
     if (input.query.search) {
       const pattern = `%${input.query.search}%`;
-      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(opportunities.name, pattern), ilike(opportunities.nextAction, pattern))!);
+      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.email, pattern), ilike(people.phone, pattern), ilike(opportunities.name, pattern), ilike(opportunities.nextAction, pattern), ilike(owner.name, pattern))!);
     }
     return conditions;
   }
 
   private async selectRows(input: OpportunityRepositoryListDto, conditions: SQL[]) {
-    const sortColumn = input.query.sortBy === 'accountName' ? accounts.name : input.query.sortBy === 'contactName' ? people.name : input.query.sortBy === 'stageChangedAt' ? opportunities.stageChangedAt : opportunities.nextActionAt;
+    const sortColumn = input.query.sortBy === 'accountName' ? accounts.name
+      : input.query.sortBy === 'contactName' ? people.name
+        : input.query.sortBy === 'stageChangedAt' ? opportunities.stageChangedAt
+          : input.query.sortBy === 'opportunityName' ? opportunities.name
+          : input.query.sortBy === 'stage' ? pipelineOrderStage.position
+              : input.query.sortBy === 'ownerName' ? owner.name
+                : opportunities.nextActionAt;
     const direction = input.query.sortDirection === 'desc' ? desc : asc;
     return database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .leftJoin(customStage, and(eq(customStage.organizationId, opportunities.organizationId), eq(customStage.key, opportunities.pipelineStageKey)))
+      .leftJoin(pipelineOrderStage, and(eq(pipelineOrderStage.organizationId, opportunities.organizationId), eq(pipelineOrderStage.key, sql<string>`case when ${opportunities.stage} = 'custom' then ${opportunities.pipelineStageKey} else ${opportunities.stage}::text end`)))
       .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions))
       .orderBy(direction(sortColumn), asc(opportunities.id)).limit(input.query.limit).offset(input.query.offset);
   }

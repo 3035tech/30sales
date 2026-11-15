@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CloserEventActionInputDto, CloserEventMutationDto, CloserEventsListDto, CloserEventsPageDto, CloserEventSlaPoliciesInputDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserEventSlaSettingsDto, closerEventTypeValues, ListCloserEventsQueryDto } from './closer-events.dto';
+import { CloserEventActionInputDto, CloserEventMutationDto, CloserEventsListDto, CloserEventsPageDto, CloserEventSlaPoliciesInputDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserEventSlaSettingsDto, closerEventTypeValues, CloserSlaNotificationsListDto, CloserSlaNotificationReadDto, ListCloserEventsQueryDto, ListCloserSlaNotificationsQueryDto } from './closer-events.dto';
 import { CloserEventsRepository } from './closer-events.repository';
 
 @Injectable()
@@ -18,9 +18,12 @@ export class CloserEventsService {
   async getSlaPolicies(request: ApiRequestDto): Promise<CloserEventSlaSettingsDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     const configured = await this.repository.getSlaPolicies(context.organizationId);
-    const byType = new Map(configured.map((policy) => [policy.eventType, policy.targetMinutes]));
+    const byType = new Map(configured.map((policy) => [policy.eventType, policy]));
     const canManage = context.role.split(',').map((role) => role.trim()).some((role) => ['owner', 'admin', 'manager'].includes(role));
-    return new CloserEventSlaSettingsDto(closerEventTypeValues.map((eventType) => new CloserEventSlaPolicyDto(eventType, byType.get(eventType) ?? null)), canManage);
+    return new CloserEventSlaSettingsDto(closerEventTypeValues.map((eventType) => {
+      const policy = byType.get(eventType);
+      return new CloserEventSlaPolicyDto(eventType, policy?.targetMinutes ?? null, policy?.escalateToManagers ?? false);
+    }), canManage);
   }
   async saveSlaPolicies(request: ApiRequestDto, input: CloserEventSlaPoliciesInputDto): Promise<CloserEventSlaSettingsDto> {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');
@@ -43,5 +46,15 @@ export class CloserEventsService {
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CLOSER_EVENT_NOT_ASSIGNED', message: 'Only the assigned closer or a sales manager can manage this event.' });
     if (result === 'invalid_assignee') throw new BadRequestException({ code: 'INVALID_CLOSER_ASSIGNEE', message: 'The selected user must be an active closer in this organization.' });
     return result;
+  }
+  async listSlaNotifications(request: ApiRequestDto, query: ListCloserSlaNotificationsQueryDto) {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    return this.repository.listSlaNotifications(new CloserSlaNotificationsListDto(context.organizationId, context.userId, query.limit));
+  }
+  async markSlaNotificationRead(request: ApiRequestDto, notificationId: string) {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    const updated = await this.repository.markSlaNotificationRead(new CloserSlaNotificationReadDto(notificationId, context.organizationId, context.userId));
+    if (!updated) throw new NotFoundException({ code: 'CLOSER_SLA_NOTIFICATION_NOT_FOUND', message: 'An unread SLA notification in the current organization was not found.' });
+    return { id: notificationId, read: true };
   }
 }

@@ -183,6 +183,27 @@
       "when": 1794740151036,
       "tag": "0025_jazzy_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794741049091,
+      "tag": "0026_silly_obadiah_stane",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794741062102,
+      "tag": "0027_burly_naoko",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794741181706,
+      "tag": "0028_legal_psynapse",
+      "breakpoints": true
     }
   ]
 }

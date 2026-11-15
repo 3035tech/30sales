@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, closerEventSlaPolicies, closerEvents } from '../db/schema';
+import { accounts, auditEvents, closerEventSlaPolicies, closerEvents, conversations, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto } from './closer-events.dto';
+import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserSlaNotificationsListDto, CloserSlaNotificationDto, CloserSlaNotificationReadDto } from './closer-events.dto';
 
 @Injectable()
 export class CloserEventsRepository {
@@ -18,32 +18,129 @@ export class CloserEventsRepository {
   }
 
   async getSlaPolicies(organizationId: string): Promise<CloserEventSlaPolicyDto[]> {
-    const rows = await database.select({ eventType: closerEventSlaPolicies.eventType, targetMinutes: closerEventSlaPolicies.targetMinutes })
+    const rows = await database.select({ eventType: closerEventSlaPolicies.eventType, targetMinutes: closerEventSlaPolicies.targetMinutes, escalateToManagers: closerEventSlaPolicies.escalateToManagers })
       .from(closerEventSlaPolicies).where(eq(closerEventSlaPolicies.organizationId, organizationId));
-    return rows.map((row) => new CloserEventSlaPolicyDto(row.eventType, row.targetMinutes));
+    return rows.map((row) => new CloserEventSlaPolicyDto(row.eventType, row.targetMinutes, row.escalateToManagers));
   }
 
   async saveSlaPolicies(input: CloserEventSlaPoliciesSaveDto): Promise<CloserEventSlaPolicyDto[]> {
     return database.transaction(async (transaction) => {
       const saved: CloserEventSlaPolicyDto[] = [];
       for (const policy of input.input.policies) {
-        const [current] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes }).from(closerEventSlaPolicies)
+        const [current] = await transaction.select({ targetMinutes: closerEventSlaPolicies.targetMinutes, escalateToManagers: closerEventSlaPolicies.escalateToManagers }).from(closerEventSlaPolicies)
           .where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, policy.eventType))).for('update').limit(1);
-        if (current?.targetMinutes === policy.targetMinutes || (!current && policy.targetMinutes === null)) {
-          saved.push(new CloserEventSlaPolicyDto(policy.eventType, current?.targetMinutes ?? null));
+        if (current?.targetMinutes === policy.targetMinutes && current.escalateToManagers === policy.escalateToManagers || (!current && policy.targetMinutes === null)) {
+          saved.push(new CloserEventSlaPolicyDto(policy.eventType, current?.targetMinutes ?? null, current?.escalateToManagers ?? false));
           continue;
         }
         if (policy.targetMinutes === null) {
           await transaction.delete(closerEventSlaPolicies).where(and(eq(closerEventSlaPolicies.organizationId, input.organizationId), eq(closerEventSlaPolicies.eventType, policy.eventType)));
         } else {
-          await transaction.insert(closerEventSlaPolicies).values({ organizationId: input.organizationId, eventType: policy.eventType, targetMinutes: policy.targetMinutes, updatedByUserId: input.userId })
-            .onConflictDoUpdate({ target: [closerEventSlaPolicies.organizationId, closerEventSlaPolicies.eventType], set: { targetMinutes: policy.targetMinutes, updatedByUserId: input.userId, updatedAt: new Date() } });
+          await transaction.insert(closerEventSlaPolicies).values({ organizationId: input.organizationId, eventType: policy.eventType, targetMinutes: policy.targetMinutes, escalateToManagers: policy.escalateToManagers, updatedByUserId: input.userId })
+            .onConflictDoUpdate({ target: [closerEventSlaPolicies.organizationId, closerEventSlaPolicies.eventType], set: { targetMinutes: policy.targetMinutes, escalateToManagers: policy.escalateToManagers, updatedByUserId: input.userId, updatedAt: new Date() } });
         }
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'closer_event.sla_policy_updated', entityType: 'closer_event_sla_policy', entityId: null, correlationId: input.correlationId, beforeState: { eventType: policy.eventType, targetMinutes: current?.targetMinutes ?? null }, afterState: { eventType: policy.eventType, targetMinutes: policy.targetMinutes } });
-        saved.push(new CloserEventSlaPolicyDto(policy.eventType, policy.targetMinutes));
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'closer_event.sla_policy_updated', entityType: 'closer_event_sla_policy', entityId: null, correlationId: input.correlationId, beforeState: { eventType: policy.eventType, targetMinutes: current?.targetMinutes ?? null, escalateToManagers: current?.escalateToManagers ?? false }, afterState: { eventType: policy.eventType, targetMinutes: policy.targetMinutes, escalateToManagers: policy.escalateToManagers } });
+        saved.push(new CloserEventSlaPolicyDto(policy.eventType, policy.targetMinutes, policy.escalateToManagers));
       }
       return saved;
     });
+  }
+
+  async processOverdueSlaNotifications(limit = 100): Promise<number> {
+    return database.transaction(async (transaction) => {
+      const now = new Date();
+      const overdueEvents = await transaction.select({
+        id: closerEvents.id,
+        organizationId: closerEvents.organizationId,
+        eventType: closerEvents.eventType,
+        assignedToUserId: closerEvents.assignedToUserId,
+        conversationId: closerEvents.conversationId,
+        dueAt: closerEvents.dueAt,
+        summary: closerEvents.summary,
+        escalateToManagers: closerEvents.slaEscalateToManagers,
+      }).from(closerEvents).where(and(
+        inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed']),
+        isNotNull(closerEvents.dueAt),
+        lte(closerEvents.dueAt, now),
+        isNull(closerEvents.slaNotifiedAt),
+      )).orderBy(asc(closerEvents.dueAt), asc(closerEvents.id)).limit(limit).for('update', { of: closerEvents, skipLocked: true });
+
+      for (const event of overdueEvents) {
+        const [ownerMembership] = await transaction.select({ userId: authMember.userId }).from(authMember)
+          .where(and(eq(authMember.organizationId, event.organizationId), eq(authMember.userId, event.assignedToUserId))).limit(1);
+        if (ownerMembership) {
+          await transaction.insert(userNotifications).values({
+            organizationId: event.organizationId,
+            recipientUserId: event.assignedToUserId,
+            closerEventId: event.id,
+            notificationType: 'closer_event_sla_overdue',
+            idempotencyKey: `closer-event-sla-overdue:${event.id}:${event.assignedToUserId}`,
+          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+        }
+
+        let managerCount = 0;
+        if (event.escalateToManagers) {
+          const managers = await transaction.select({ userId: authMember.userId }).from(authMember)
+            .where(and(
+              eq(authMember.organizationId, event.organizationId),
+              sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY['owner','admin','manager']::text[]`,
+              event.assignedToUserId ? sql`${authMember.userId} <> ${event.assignedToUserId}` : sql`true`,
+            ));
+          for (const manager of managers) {
+            const [created] = await transaction.insert(userNotifications).values({
+              organizationId: event.organizationId,
+              recipientUserId: manager.userId,
+              closerEventId: event.id,
+              notificationType: 'closer_event_sla_escalated',
+              idempotencyKey: `closer-event-sla-escalated:${event.id}:${manager.userId}`,
+            }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] }).returning({ id: userNotifications.id });
+            if (created) managerCount += 1;
+          }
+        }
+
+        await transaction.update(closerEvents).set({ slaNotifiedAt: now, updatedAt: now })
+          .where(and(eq(closerEvents.id, event.id), eq(closerEvents.organizationId, event.organizationId), isNull(closerEvents.slaNotifiedAt)));
+        await transaction.insert(auditEvents).values({
+          organizationId: event.organizationId,
+          actorType: 'system',
+          action: event.escalateToManagers ? 'closer_event.sla_escalated' : 'closer_event.sla_overdue',
+          entityType: 'closer_event',
+          entityId: event.id,
+          afterState: { dueAt: event.dueAt?.toISOString() ?? null, ownerNotified: Boolean(ownerMembership), managerNotificationCount: managerCount },
+        });
+      }
+      return overdueEvents.length;
+    });
+  }
+
+  async listSlaNotifications(input: CloserSlaNotificationsListDto): Promise<CloserSlaNotificationDto[]> {
+    const rows = await database.select({
+      id: userNotifications.id,
+      closerEventId: closerEvents.id,
+      conversationId: closerEvents.conversationId,
+      notificationType: userNotifications.notificationType,
+      eventType: closerEvents.eventType,
+      summary: closerEvents.summary,
+      accountName: accounts.name,
+      dueAt: closerEvents.dueAt,
+      createdAt: userNotifications.createdAt,
+    }).from(userNotifications)
+      .innerJoin(closerEvents, and(eq(closerEvents.id, userNotifications.closerEventId), eq(closerEvents.organizationId, userNotifications.organizationId)))
+      .innerJoin(conversations, and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, closerEvents.organizationId)))
+      .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
+      .where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId), isNull(userNotifications.readAt)))
+      .orderBy(desc(userNotifications.createdAt), desc(userNotifications.id)).limit(input.limit);
+    return rows.flatMap((row) => row.dueAt ? [new CloserSlaNotificationDto(row.id, row.closerEventId, row.conversationId, row.notificationType, row.eventType, row.summary, row.accountName, row.dueAt.toISOString(), row.createdAt.toISOString())] : []);
+  }
+
+  async markSlaNotificationRead(input: CloserSlaNotificationReadDto): Promise<boolean> {
+    const [updated] = await database.update(userNotifications).set({ readAt: new Date() }).where(and(
+      eq(userNotifications.id, input.id),
+      eq(userNotifications.organizationId, input.organizationId),
+      eq(userNotifications.recipientUserId, input.userId),
+      isNull(userNotifications.readAt),
+    )).returning({ id: userNotifications.id });
+    return Boolean(updated);
   }
 
   async listAssignees(organizationId: string): Promise<CloserEventAssigneeDto[]> {

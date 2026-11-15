@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Clock3, MessageCircle, RefreshCw, Search, ShieldAlert, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
-import { api, type CloserEventDto, type HandoffDto, type OpportunityDto } from '../lib/api/client'
+import { api, type CloserEventDto, type CloserSlaNotificationDto, type HandoffDto, type OpportunityDto } from '../lib/api/client'
 import i18n from '../lib/i18n'
 import './CloserQueueWorkspace.css'
 import './CloserEventActions.css'
+import './CloserSlaNotifications.css'
 
 type WorkKind = 'handoff' | 'awaiting_first_activity' | 'lead_reply' | 'overdue' | 'no_action'
 type SortKey = 'priority' | 'account' | 'event' | 'deadline'
@@ -48,6 +49,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
   const [acceptedHandoffs, setAcceptedHandoffs] = useState<HandoffDto[]>([])
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
   const [closerEvents, setCloserEvents] = useState<CloserEventDto[]>([])
+  const [slaNotifications, setSlaNotifications] = useState<CloserSlaNotificationDto[]>([])
   const [eventAssignees, setEventAssignees] = useState<Array<{ id: string; name: string }>>([])
   const [query, setQuery] = useState('')
   const [kindFilter, setKindFilter] = useState<WorkKind | ''>('')
@@ -100,15 +102,16 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
     queueLoadInProgressRef.current = true
     if (!hasLoadedQueueRef.current) setLoading(true)
     setError(''); setPartial(false)
-    Promise.allSettled([listAllHandoffs('requested'), listAllHandoffs('accepted'), listAllOwnedOpportunities(), listAllCloserEvents(), api.closerEvents.assignees()]).then(([handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult]) => {
+    Promise.allSettled([listAllHandoffs('requested'), listAllHandoffs('accepted'), listAllOwnedOpportunities(), listAllCloserEvents(), api.closerEvents.assignees(), api.closerEvents.slaNotifications()]).then(([handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult, notificationResult]) => {
       if (!active) return
       if (handoffResult.status === 'fulfilled') setHandoffs(handoffResult.value)
       if (acceptedResult.status === 'fulfilled') setAcceptedHandoffs(acceptedResult.value)
       if (opportunityResult.status === 'fulfilled') setOpportunities(opportunityResult.value)
       if (eventResult.status === 'fulfilled') setCloserEvents(eventResult.value)
       if (assigneeResult.status === 'fulfilled') setEventAssignees(assigneeResult.value)
-      const failed = [handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult].filter((result) => result.status === 'rejected').length
-      setPartial(failed > 0 && failed < 5); setError(failed === 5 ? t('closerQueue.loadFailed') : '')
+      if (notificationResult.status === 'fulfilled') setSlaNotifications(notificationResult.value)
+      const failed = [handoffResult, acceptedResult, opportunityResult, eventResult, assigneeResult, notificationResult].filter((result) => result.status === 'rejected').length
+      setPartial(failed > 0 && failed < 6); setError(failed === 6 ? t('closerQueue.loadFailed') : '')
     }).finally(() => {
       queueLoadInProgressRef.current = false
       if (active) {
@@ -146,6 +149,15 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
     try {
       await api.closerEvents.act(event.id, input)
       setEventAssignTarget(''); setEventAssignId(''); requestRefresh()
+    } catch { setError(t('closerQueue.eventActionFailed')) }
+    finally { setAcceptingId('') }
+  }
+  const openSlaNotification = async (notification: CloserSlaNotificationDto) => {
+    setAcceptingId(notification.id); setError('')
+    try {
+      await api.closerEvents.readSlaNotification(notification.id)
+      setSlaNotifications((current) => current.filter((item) => item.id !== notification.id))
+      onOpenInbox(notification.conversationId)
     } catch { setError(t('closerQueue.eventActionFailed')) }
     finally { setAcceptingId('') }
   }
@@ -203,6 +215,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
 
   return <section className="closer-queue-page">
     <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><button className="refresh" type="button" onClick={requestRefresh} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></button></header>
+    {slaNotifications.length > 0 && <section className="closer-sla-notifications" aria-label={t('closerSlaSettings.notifications.title')}><h3>{t('closerSlaSettings.notifications.title')}</h3>{slaNotifications.map((notification) => <article key={notification.id}><div><strong>{t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</strong><span>{notification.accountName ?? notification.summary}</span><small>{t(`closerEventTypes.${notification.eventType}`)} · {dateLabel(notification.dueAt)}</small></div><button type="button" disabled={Boolean(acceptingId)} onClick={() => void openSlaNotification(notification)}>{t('closerQueue.openConversation')}<ArrowRight size={13} /></button></article>)}</section>}
     <div className="closer-queue-summary"><article className="summary-handoffs"><span><UserRoundCheck size={15} />{t('closerQueue.summary.handoffs')}</span><strong>{handoffCount}</strong></article><article className="summary-replies"><span><MessageCircle size={15} />{t('closerEventActions.eventsSummary')}</span><strong>{replyCount}</strong></article><article className="summary-overdue"><span><Clock3 size={15} />{t('closerQueue.summary.overdue')}</span><strong>{overdueCount}</strong></article><article className="summary-waiting"><span><Clock3 size={15} />{t('closerQueue.summary.waitingFirstActivity')}</span><strong>{waitingFirstActivityCount}</strong></article><article><span><ShieldAlert size={15} />{t('closerQueue.summary.noAction')}</span><strong>{noActionCount}</strong></article></div>
     {partial && <p className="closer-queue-partial">{t('closerQueue.partial')}</p>}
     <DataTable rows={pageRows} columns={columns} getRowId={(item) => item.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: items.length, hasNextPage: offset + limit < items.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={emptyState} filters={<>

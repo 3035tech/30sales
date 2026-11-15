@@ -371,6 +371,8 @@ export const closerEvents = pgTable('closer_events', {
   evidence: text('evidence'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
   dueAt: timestamp('due_at', { withTimezone: true }),
+  slaNotifiedAt: timestamp('sla_notified_at', { withTimezone: true }),
+  slaEscalateToManagers: boolean('sla_escalate_to_managers').default(false).notNull(),
   acknowledgedAt: timestamp('acknowledged_at', { withTimezone: true }),
   snoozedUntil: timestamp('snoozed_until', { withTimezone: true }),
   resolvedAt: timestamp('resolved_at', { withTimezone: true }),
@@ -380,6 +382,7 @@ export const closerEvents = pgTable('closer_events', {
   foreignKey({ name: 'closer_events_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'closer_events_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'closer_events_message_tenant_fk', columns: [table.sourceMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  unique('closer_events_id_organization_unique').on(table.id, table.organizationId),
   unique('closer_events_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
   index('closer_events_org_assignee_status_time_idx').on(table.organizationId, table.assignedToUserId, table.status, table.occurredAt),
   index('closer_events_org_assignee_status_due_idx').on(table.organizationId, table.assignedToUserId, table.status, table.dueAt),
@@ -390,6 +393,7 @@ export const closerEventSlaPolicies = pgTable('closer_event_sla_policies', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   eventType: text('event_type').notNull(),
   targetMinutes: integer('target_minutes').notNull(),
+  escalateToManagers: boolean('escalate_to_managers').default(false).notNull(),
   updatedByUserId: uuid('updated_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -399,6 +403,21 @@ export const closerEventSlaPolicies = pgTable('closer_event_sla_policies', {
   check('closer_event_sla_policies_target_minutes_check', sql`${table.targetMinutes} between 1 and 10080`),
 ]);
 
+export const userNotifications = pgTable('user_notifications', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  recipientUserId: uuid('recipient_user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
+  closerEventId: uuid('closer_event_id').notNull(),
+  notificationType: text('notification_type').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(),
+  readAt: timestamp('read_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'user_notifications_event_tenant_fk', columns: [table.closerEventId, table.organizationId], foreignColumns: [closerEvents.id, closerEvents.organizationId] }).onDelete('cascade'),
+  unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
+  index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated')`),
+]);
 
 export const inboxEvents = pgTable('inbox_events', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),

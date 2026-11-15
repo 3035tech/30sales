@@ -5,6 +5,7 @@
 - `develop` recebeu a integração de falhas permanentes do modelo à central do closer no merge `db8cf23`.
 - A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
 - Fatia integrada em `develop` no merge `9fe6c26` a partir de `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
+- Fatia atual `feature/closer-sla-notifications`: alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
 
@@ -31,7 +32,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `develop`; polling automático da central integrado.
+- No início da retomada, `develop` tinha polling automático da central integrado; branch atual desta fatia: `feature/closer-sla-notifications`.
 - Último commit de funcionalidade em `develop`: `8ee33dd feat(closer): auto refresh work queue`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
@@ -45,10 +46,10 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - ações do evento (reconhecer, adiar por uma hora, redistribuir para closer ativo e concluir) integradas em `develop` (`ad89b03`); migration `0021_silent_brood.sql` criada e ainda sem aplicação.
 - 5739e02: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration.
 - 1c4a900: identifica intenção concreta de avançar (reunião/demo, proposta/orçamento e início de contratação/teste) como buying_intent alta; pedido humano mantém prioridade urgente. Considera negação por frase e mantém idempotência/roteamento existentes. Sem migration. Build/testes não executados por orientação.
-- 8849abc: recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica com segredo próprio de canal, correlaciona mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime Sofia ainda pendente.
+- 8849abc: recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica com segredo próprio de canal, correlaciona mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime do assistente foi feita em fatia posterior.
 - 8ee33dd: adiciona polling da central a cada 30 segundos quando visível e ao retornar à aba, sem limpar os itens durante a atualização. Sem migration.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
-- Migrations versionadas até `0021_silent_brood.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
+- Migrations geradas até `0028_legal_psynapse.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.
 
 ## Comportamento inbound entregue no código
@@ -79,9 +80,9 @@ Evento do closer: quando uma mensagem inbound é persistida em oportunidade com 
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada: conectar o runtime da Sofia ao 30Sales com correlação confiável de mensagem e controle de modo/ownership; depois, SLA configurável. Anexos inbound seguem pendentes até escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada após integrar as notificações de SLA: anexos inbound, depois health check/cadastro de conexão. Para anexos, escolher contrato de armazenamento persistente para Dublin/local e estratégia comum de mídia Evolution/Cloud API. Worker/outbox e reconciliação de callbacks que chegam sem ID externo local também permanecem prioritários.
 
-Depois: anexos inbound, health check/cadastro de conexão, eventos/notificações para closer, worker/outbox/retry e reconciliação de timeout/callback sem correspondência; por fim, integrar o runtime da Sofia para respeitar modo/ownership e suportar sugestão sem envio versus retomada explícita.
+Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspondência; revisar canais externos de notificação quando houver requisito explícito.
 
 ## Limites e forma de retomar
 

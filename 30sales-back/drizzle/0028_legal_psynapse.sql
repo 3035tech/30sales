@@ -1,0 +1,1 @@
+ALTER TABLE "closer_events" ADD COLUMN "sla_escalate_to_managers" boolean DEFAULT false NOT NULL;

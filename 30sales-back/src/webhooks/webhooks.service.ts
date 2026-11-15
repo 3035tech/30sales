@@ -163,7 +163,8 @@ export class WebhooksService {
     const externalMessageId = this.string(key.id);
     if (!this.isValidPhone(senderPhone) || !externalMessageId || externalMessageId.length > 250) return null;
     const messageContent = this.record(data.message);
-    const messageType = (this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent)).slice(0, 80);
+    const rawMessageType = this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent);
+    const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
     const bodyText = this.extractEvolutionText(messageContent)?.slice(0, 16000) ?? null;
     const occurredAt = this.toDate(data.messageTimestamp);
     return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash);
@@ -237,6 +238,7 @@ export class WebhooksService {
   }
 
   private inferEvolutionMessageType(message: JsonRecord): string {
+    if (typeof message.conversation === 'string' || typeof message.extendedTextMessage === 'object') return 'text';
     const type = Object.keys(message).find((key) => key.endsWith('Message'));
     return type?.replace(/Message$/, '').toLowerCase() ?? 'unknown';
   }

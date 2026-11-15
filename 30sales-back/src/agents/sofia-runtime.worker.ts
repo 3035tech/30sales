@@ -40,6 +40,10 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         await this.repository.completeEvent(queueEvent.id);
         return;
       }
+      if (context.event.messageType.toLowerCase() !== 'text' || context.messages.at(-1)?.role !== 'user') {
+        await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
+        return;
+      }
       const replyText = await this.model.generateReply({ model: context.model, systemPrompt: context.systemPrompt, messages: context.messages });
       await this.repository.sendIfStillAutomated({
         queueEventId: queueEvent.id,

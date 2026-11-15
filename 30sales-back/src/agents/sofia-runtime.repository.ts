@@ -53,14 +53,12 @@ export class SofiaRuntimeRepository {
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(30);
     const historyMessages = history.reverse().flatMap((message) => message.bodyText ? [{ role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content: message.bodyText }] : []);
     const firstUserMessage = historyMessages.findIndex((message) => message.role === 'user');
-    if (firstUserMessage < 0) return null;
-    const recentMessages = historyMessages.slice(firstUserMessage).reduce<typeof historyMessages>((combined, message) => {
+    const recentMessages = historyMessages.slice(Math.max(firstUserMessage, 0)).reduce<typeof historyMessages>((combined, message) => {
       const previous = combined.at(-1);
       if (previous?.role === message.role) previous.content = `${previous.content}\n${message.content}`;
       else combined.push({ ...message });
       return combined;
     }, []);
-    if (recentMessages.at(-1)?.role !== 'user') return null;
     return {
       event, enabled: context.enabled, model: context.model, systemPrompt: context.systemPrompt, automationMode: context.automationMode, ownerUserId: context.ownerUserId,
       recipientPhone: (context.personPhone ?? '').replace(/\D/g, ''), messages: recentMessages,
@@ -104,6 +102,34 @@ export class SofiaRuntimeRepository {
 
   async completeEvent(eventId: string): Promise<void> {
     await pool.query("UPDATE outbox_events SET status = 'published', published_at = now(), last_error_code = null WHERE id = $1 AND status = 'pending'", [eventId]);
+  }
+
+  async escalateUnsupportedMessage(queueEvent: SofiaQueueEventDto, event: SofiaInboundEventDto): Promise<void> {
+    if (event.organizationId !== queueEvent.organizationId) return;
+    await database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
+        .from(conversations).where(and(eq(conversations.id, event.conversationId), eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, event.channelId))).for('update').limit(1);
+      if (!conversation || conversation.automationMode !== 'sofia' || conversation.ownerUserId) {
+        await transaction.update(outboxEvents).set({ status: 'published', publishedAt: new Date(), lastErrorCode: null }).where(and(eq(outboxEvents.id, queueEvent.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, 'pending')));
+        return;
+      }
+      const [latestInbound] = await transaction.select({ id: messages.id }).from(messages)
+        .where(and(eq(messages.organizationId, event.organizationId), eq(messages.conversationId, event.conversationId), eq(messages.direction, 'inbound')))
+        .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(1);
+      if (latestInbound?.id !== event.messageId) {
+        await transaction.update(outboxEvents).set({ status: 'published', publishedAt: new Date(), lastErrorCode: null }).where(and(eq(outboxEvents.id, queueEvent.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, 'pending')));
+        return;
+      }
+
+      const [notice] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: event.conversationId, direction: 'internal', actorType: 'system', bodyText: 'Sofia could not interpret this message type. Automation was paused so a teammate can review and reply.', deliveryState: 'unknown', idempotencyKey: `sofia-unsupported:${event.messageId}`, occurredAt: new Date() })
+        .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
+      await transaction.update(conversations).set({ automationMode: 'human', updatedAt: new Date() }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, event.organizationId)));
+      if (notice) {
+        await transaction.insert(auditEvents).values({ organizationId: event.organizationId, actorType: 'system', action: 'conversation.sofia_unsupported_message', entityType: 'conversation', entityId: event.conversationId, afterState: { messageId: notice.id, sourceMessageId: event.messageId, messageType: event.messageType, automationMode: 'human' } });
+        await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: event.organizationId, conversationId: event.conversationId, occurredAt: new Date().toISOString() })})`);
+      }
+      await transaction.update(outboxEvents).set({ status: 'published', publishedAt: new Date(), lastErrorCode: null }).where(and(eq(outboxEvents.id, queueEvent.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, 'pending')));
+    });
   }
 
   async retryOrFail(queueEvent: SofiaQueueEventDto, errorCode: string, retryable: boolean): Promise<boolean> {

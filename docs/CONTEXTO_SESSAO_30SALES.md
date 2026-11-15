@@ -120,11 +120,11 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Controles do Pipeline integrados em `develop` no merge `a77b15d` (feature `4e40fe8`): endpoint server-side com busca por empresa/contato/negócio/próxima ação, ordenação por prazo/empresa/contato/última mudança, contagem real e seletor de lotes de 10/25/50/100 mantendo o board com “carregar mais”. Os indicadores identificam quando representam apenas oportunidades carregadas. Sem migration.
 - O host do navegador/automação ficou indisponível nesta retomada, então a inspeção visual em runtime não ocorreu. Próxima etapa: seguir a auditoria pelas demais listas operacionais, revisar cobertura de busca/ordenação/paginação e retomar inspeção visual quando o app estiver acessível.
 
-## Login independente e recuperação de senha — em andamento
+## Login independente e recuperação de senha — concluído
 
-- Branch atual: `feature/standalone-auth-screen` (derivada de `develop` em `78ab61e`). Alterações ainda não integradas.
+- Branch de trabalho `feature/standalone-auth-screen`, commit `2664b2a`, integrada em `develop` no merge `940a254`.
 - Carregamento de sessão, login e seleção de organização passam a renderizar sem menu lateral. O Chrome anônimo mostrou o login standalone, com textos do idioma do navegador.
 - Login adiciona opção “Lembrar de mim” (ativa inicialmente). Recuperação usa Better Auth com e-mail pelo SMTP existente, rota de nova senha, confirmação, token inválido/expirado e revogação de sessões após redefinição. Mensagem de pedido é neutra quanto à existência da conta.
 - Ícones sem rótulo visível recomendados somente em ações frequentes/unívocas e já nomeadas para tecnologias assistivas (menu móvel, notificações, atualizar, baixar anexo identificado). Manter rótulos visíveis em ações primárias e de contexto.
 - Pendências UX preservadas para as próximas fatias: título duplicado do shell/conteúdo; configurar canal fictício para exercitar thread completa do Inbox; avaliar divisão do bundle acima do aviso de 500 kB.
-- Login sem sessão visto no Chrome. Não houve envio de e-mail/reset real. Por preferência persistente, sem build ou testes automatizados nesta fatia.
+- Login sem sessão, estado de solicitação de recuperação e rota sem token vistos no Chrome. Não houve envio de e-mail/reset real. Por preferência persistente, sem build ou testes automatizados nesta fatia; `git diff --check` passou.

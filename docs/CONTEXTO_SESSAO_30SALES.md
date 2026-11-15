@@ -1,6 +1,13 @@
 # Contexto de continuidade — 30Sales
 
-Atualizado em 14/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
+## Retomada em 15/11/2026
+
+- O estado real do Git superou o resumo anterior: `develop` já contém o runtime da Sofia ligado ao outbox (`SofiaRuntimeWorker`), com checagem tenant-scoped da mensagem inbound mais recente, modo de automação, ownership e estado do canal antes do envio. `30sales-back/docs/sofia-runtime.md` descreve os fluxos atuais.
+- Próxima lacuna identificada no backlog: integrar falhas permanentes de interpretação do modelo ao sinal tenant-scoped já implementado em `WebhooksService`/`WebhooksRepository`.
+- Trabalho atual em `feature/sofia-runtime-interpretation-signals`: quando recusa do modelo ou resposta estruturada inválida encerra o job, o runtime chama o serviço interno de sinais com IDs externos já carregados no evento. O serviço correlaciona a mensagem persistida e cria/eleva evento urgente idempotente quando existe oportunidade elegível atribuída a closer. O aviso interno de falha existente segue como fallback. Alterações ainda não integradas em `develop`; nenhuma migration necessária.
+- Por preferência persistente, não rodar build/testes nem migrations sem pedido explícito. `git diff --check` foi executado sem erro nesta retomada.
+
+Atualizado em 15/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
 
 ## Objetivo do produto
 

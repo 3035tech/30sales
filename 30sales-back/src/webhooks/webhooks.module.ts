@@ -4,5 +4,5 @@ import { WebhooksController } from './webhooks.controller';
 import { WebhooksRepository } from './webhooks.repository';
 import { WebhooksService } from './webhooks.service';
 
-@Module({ imports: [ChannelsModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository] })
+@Module({ imports: [ChannelsModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository], exports: [WebhooksService] })
 export class WebhooksModule {}

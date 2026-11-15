@@ -52,6 +52,24 @@ export class WebhooksService {
     return { accepted: true, outcome };
   }
 
+  async recordRuntimeInterpretationFailure(input: {
+    organizationId: string;
+    channelId: string;
+    provider: 'evolution' | 'whatsapp_cloud_api';
+    externalConversationId: string;
+    externalMessageId: string;
+    reason: string;
+  }): Promise<void> {
+    const payloadHash = createHash('sha256').update(`${input.organizationId}:${input.channelId}:${input.externalMessageId}:${input.reason}`).digest('hex');
+    await this.repository.recordInterpretationFailure(new InterpretationFailureSignalDto(
+      input.organizationId,
+      input.channelId,
+      input.provider,
+      { externalConversationId: input.externalConversationId, externalMessageId: input.externalMessageId, reason: input.reason },
+      payloadHash,
+    ));
+  }
+
   async ingestCloud(signature: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {
     this.assertCloudSignature(signature, rawBody);
     const root = this.record(payload);

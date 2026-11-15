@@ -6,7 +6,7 @@
 - A implementação do runtime, seus estados de automação, configurações, interfaces e mensagens usam agora nomes genéricos de assistente; não há referência ao nome pessoal no código-fonte.
 - Fatia integrada em `develop` no merge `9fe6c26` a partir de `feature/closer-event-sla-deadlines`: gestores configuram prazo em minutos por tipo de evento; o prazo tenant-scoped é persistido no evento, exibido na fila e não tem valor padrão. Migration gerada `0025_jazzy_bedlam.sql`, ainda não aplicada. O relógio é de horas corridas; notificações e escalonamento automático ficam para outra fatia.
 - Fatia integrada em `develop` no merge `85609b5` (feature `91e4492`): alertas in-app idempotentes ao closer quando o evento vence e escalonamento opcional para owner/admin/manager, conforme snapshot salvo no evento; a central abre a conversa e marca o alerta como lido. Migrations `0026_silly_obadiah_stane.sql`, `0027_burly_naoko.sql` e `0028_legal_psynapse.sql` foram geradas e não aplicadas.
-- Fatia em andamento `feature/inbound-media-attachments`: Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs em diretório privado fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. `MEDIA_STORAGE_DIR` deve apontar em produção para volume durável compartilhado.
+- Fatia integrada em `develop` no merge `c63d3b8` (feature `101c846`): Evolution/Cloud normalizam metadados de anexos, um worker durável baixa até 25 MiB com retry limitado e guarda os blobs em diretório privado fora do banco; a timeline oferece download autenticado e auditado. Migration `0029_thin_plazm.sql` gerada, ainda não aplicada. `MEDIA_STORAGE_DIR` deve apontar em produção para volume durável compartilhado.
 - As migrations anteriores foram ajustadas para usar `assistant` nos modos e chaves, pois o histórico registrado indica que nenhuma foi aplicada. Nenhuma migration foi aplicada nesta retomada.
 - Por preferência persistente, não rodar build/testes nem aplicar migrations sem pedido explícito.
 
@@ -33,7 +33,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Base desta fatia: `develop` com polling automático da central e notificações de SLA; branch atual `feature/inbound-media-attachments`.
+- Branch atual: `develop`; polling automático da central, notificações de SLA e anexos inbound integrados.
 - Último commit de funcionalidade em `develop`: `8ee33dd feat(closer): auto refresh work queue`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
@@ -81,7 +81,7 @@ Evento do closer: quando uma mensagem inbound é persistida em oportunidade com 
 
 ## Próximo passo recomendado
 
-Próxima fatia recomendada após integrar anexos: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar `MEDIA_STORAGE_DIR` em volume durável compartilhado; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
+Próxima fatia recomendada: health check/cadastro de conexão. Antes de produção, definir retenção/expurgo de mídia e provisionar `MEDIA_STORAGE_DIR` em volume durável compartilhado; worker/outbox e reconciliação de callbacks sem ID externo local também permanecem prioritários.
 
 Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspondência; revisar canais externos de notificação quando houver requisito explícito.
 

@@ -1,3 +1,4 @@
+import { Button, TextField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
 import { ArrowRight, Check, Command } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -65,11 +66,11 @@ export function AcceptInvitation() {
     {invite ? <p className="muted">{t('invitation.description', { role: roleName ? t(`roles.${roleName}`) : invite.role, email: invite.email })}</p> : <p className="muted">{message}</p>}
     {message && invite && <p className="invite-status">{message}</p>}
     {invite && !hasSession && !message && <form className="login-form" onSubmit={submit}>
-      {!loginMode && <label>{t('invitation.yourName')}<input autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required /></label>}
-      <label>{t('invitation.invitedEmail')}<input type="email" value={invite.email} readOnly /></label>
-      <label>{t('invitation.password')}<input type="password" autoComplete={loginMode ? 'current-password' : 'new-password'} minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-      <button className="primary" disabled={busy}>{busy ? t('invitation.signingIn') : loginMode ? t('invitation.signInAccept') : t('invitation.createAccount')}<ArrowRight size={16} /></button>
-      <button type="button" className="text-button" onClick={() => { setLoginMode(!loginMode); setError('') }}>{loginMode ? t('invitation.newAccount') : t('invitation.existingAccount')}</button>
+      {!loginMode && <label>{t('invitation.yourName')}<TextField autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required /></label>}
+      <label>{t('invitation.invitedEmail')}<TextField type="email" normalize="email" value={invite.email} readOnly /></label>
+      <label>{t('invitation.password')}<TextField type="password" autoComplete={loginMode ? 'current-password' : 'new-password'} minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+      <Button className="primary" disabled={busy}>{busy ? t('invitation.signingIn') : loginMode ? t('invitation.signInAccept') : t('invitation.createAccount')}<ArrowRight size={16} /></Button>
+      <Button type="button" className="text-button" onClick={() => { setLoginMode(!loginMode); setError('') }}>{loginMode ? t('invitation.newAccount') : t('invitation.existingAccount')}</Button>
     </form>}
     {hasSession && verified && !error && <span className="invite-status"><Check size={15} />{t('invitation.accessConfirmed')}</span>}
     {error && <p className="error">{error}</p>}

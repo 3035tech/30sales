@@ -1,3 +1,4 @@
+import { Button, CalendarField, SelectField, TextField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useState } from 'react'
 import { RefreshCw, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -37,12 +38,12 @@ export function AuditWorkspace() {
   }
 
   return <section className="leads-page audit-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p className="muted">{t('audit.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('audit.refresh')}><RefreshCw size={16} /></button></header>
+    <header className="leads-heading"><div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p className="muted">{t('audit.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('audit.refresh')}><RefreshCw size={16} /></Button></header>
     <div className="audit-filters">
-      <label>{t('audit.action')}<input value={action} onChange={(event) => { setAction(event.target.value); setOffset(0) }} placeholder={t('audit.actionPlaceholder')} /></label>
-      <label>{t('audit.entityType')}<select value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation','messaging_channel'].map((value) => <option key={value} value={value}>{entityLabel(value)}</option>)}</select></label>
-      <label>{t('audit.from')}<input type="datetime-local" value={from} onChange={(event) => { setFrom(event.target.value); setOffset(0) }} /></label>
-      <label>{t('audit.to')}<input type="datetime-local" value={to} onChange={(event) => { setTo(event.target.value); setOffset(0) }} /></label>
+      <label>{t('audit.action')}<TextField value={action} onChange={(event) => { setAction(event.target.value); setOffset(0) }} placeholder={t('audit.actionPlaceholder')} /></label>
+      <label>{t('audit.entityType')}<SelectField value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation','messaging_channel'].map((value) => <option key={value} value={value}>{entityLabel(value)}</option>)}</SelectField></label>
+      <label>{t('audit.from')}<CalendarField mode="datetime-local" value={from} onValueChange={(value) => { setFrom(value); setOffset(0) }} /></label>
+      <label>{t('audit.to')}<CalendarField mode="datetime-local" value={to} onValueChange={(value) => { setTo(value); setOffset(0) }} /></label>
     </div>
     {error && page?.data.length ? <WorkspaceState kind="error" compact message={t('audit.loadFailed')} detail={t('table.resultsRetained')} /> : null}
     <div className="lead-list-panel">
@@ -55,7 +56,7 @@ export function AuditWorkspace() {
           {event.reason && <p className="audit-reason">{event.reason}</p>}{event.correlationId && <p className="audit-correlation"><span>{t('audit.correlationId')}</span><code>{event.correlationId}</code></p>}{stateLabel(event)}
         </div>
       </article>)}</div> : <WorkspaceState kind={error ? 'error' : 'empty'} message={error ? t('audit.loadFailed') : t('audit.empty')} detail={error ? undefined : t('audit.emptyHint')} />}
-      <footer className="audit-pagination"><span>{t('table.range', { from: page?.pagination.total ? offset + 1 : 0, to: Math.min(offset + limit, page?.pagination.total ?? 0), total: page?.pagination.total ?? 0 })}</span><label>{t('table.rowsPerPage')}<select value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0) }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</select></label><div><button type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>{t('table.previous')}</button><button type="button" onClick={() => setOffset(offset + limit)} disabled={!page?.pagination.hasNextPage}>{t('table.next')}</button></div></footer>
+      <footer className="audit-pagination"><span>{t('table.range', { from: page?.pagination.total ? offset + 1 : 0, to: Math.min(offset + limit, page?.pagination.total ?? 0), total: page?.pagination.total ?? 0 })}</span><label>{t('table.rowsPerPage')}<SelectField value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0) }}>{pageSizes.map((size) => <option key={size} value={size}>{size}</option>)}</SelectField></label><div><Button type="button" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>{t('table.previous')}</Button><Button type="button" onClick={() => setOffset(offset + limit)} disabled={!page?.pagination.hasNextPage}>{t('table.next')}</Button></div></footer>
     </div>
   </section>
 }

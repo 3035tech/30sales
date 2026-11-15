@@ -77,3 +77,12 @@ Os estados de carregamento, erro, vazio, falha parcial e atualização foram pad
 - Revisar o título duplicado no shell e nas áreas, mantendo um único título visual por página.
 - Avaliar divisão do bundle com carregamento sob demanda antes de adicionar mais áreas ao frontend.
 - Conectar um canal de teste fictício para validar o thread do Inbox e os estados de envio sem atingir um número real.
+
+## Padronização de controles, validação e tipografia — concluída
+
+- Controles interativos das telas foram migrados para wrappers compartilhados do 30Sales: `Button`, `TextField`, `SelectField`, `TextareaField`, `CheckboxField`, `FileField`, `NumericField`, `CurrencyField`, `PhoneField` e `CalendarField`. Elementos semânticos HTML permanecem encapsulados na camada de UI; features não declaram controles nativos diretamente.
+- Selects têm altura, borda, seta e foco consistentes. O calendário próprio inclui navegação mensal e por setas do teclado; campos de data e data/hora usam o mesmo controle localizado.
+- Validação de obrigatório, formato, comprimento, intervalo e datas inválidas mostra mensagens locais em pt-BR/en e associa erros ao controle com `aria-invalid` e `aria-describedby`.
+- Inteiros usam `number | null` no estado e aceitam apenas dígitos; decimais retornam números e aceitam separador local. Valores monetários usam máscara pela moeda selecionada. E-mails são normalizados para minúsculas e telefones mantêm valor canônico, com máscara brasileira quando aplicável e validação E.164 na configuração de canal.
+- A tipografia usa a escala definida nos tokens da marca; Inter segue como fonte de interface e Manrope para títulos.
+- `git diff --check` passou e nenhuma feature declara diretamente controles HTML nativos. Não rodei build/testes nem fiz inspeção visual em navegador nesta fatia, conforme a preferência persistente.

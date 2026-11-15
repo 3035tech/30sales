@@ -1,3 +1,4 @@
+import { Button, SelectField } from './FormControls'
 import type { ReactNode } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -45,7 +46,7 @@ export function DataTable<T, SortKey extends string>({ rows, columns, getRowId, 
         const active = sort.key === column.id
         const ariaSort = active ? sort.direction === 'asc' ? 'ascending' : 'descending' : 'none'
         const SortIcon = active ? sort.direction === 'asc' ? ArrowUp : ArrowDown : ArrowUpDown
-        return <th key={column.id} scope="col" aria-sort={ariaSort}><button className="data-table-sort" type="button" disabled={loading} onClick={() => changeSort(column.id)} aria-label={t('table.sortBy', { column: column.label, direction: t(`table.${sort.direction}`) })}>{column.label}<SortIcon size={14} aria-hidden="true" /></button></th>
+        return <th key={column.id} scope="col" aria-sort={ariaSort}><Button className="data-table-sort" type="button" disabled={loading} onClick={() => changeSort(column.id)} aria-label={t('table.sortBy', { column: column.label, direction: t(`table.${sort.direction}`) })}>{column.label}<SortIcon size={14} aria-hidden="true" /></Button></th>
       })}</tr></thead>
       <tbody>
         {loading && rows.length === 0 ? <tr><td colSpan={columns.length} className="data-table-state"><WorkspaceState kind="loading" compact message={t('common.loading')} /></td></tr> : rows.length === 0 ? <tr><td colSpan={columns.length} className="data-table-state"><WorkspaceState kind={emptyStateKind} showIcon={false} compact>{emptyState}</WorkspaceState></td></tr> : rows.map((row) => <tr key={getRowId(row)}>{columns.map((column) => <td key={column.id}>{column.render(row)}</td>)}</tr>)}
@@ -53,13 +54,13 @@ export function DataTable<T, SortKey extends string>({ rows, columns, getRowId, 
     </table></div>
     <footer className="data-table-footer">
       <span className="data-table-range">{t('table.range', { from: firstItem, to: lastItem, total: pagination.total })}</span>
-      <label className="data-table-page-size">{t('table.rowsPerPage')}<select value={pagination.limit} disabled={loading} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={t('table.rowsPerPage')}>
+      <label className="data-table-page-size">{t('table.rowsPerPage')}<SelectField value={pagination.limit} disabled={loading} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={t('table.rowsPerPage')}>
         {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
-      </select></label>
+      </SelectField></label>
       <span className="data-table-page-label">{t('table.page', { page: page + 1, pages: pageCount })}</span>
       <div className="data-table-page-controls">
-        <button type="button" onClick={() => onPageChange(Math.max(0, pagination.offset - pagination.limit))} disabled={loading || pagination.offset === 0} aria-label={t('table.previous')}><ChevronLeft size={16} /></button>
-        <button type="button" onClick={() => onPageChange(pagination.offset + pagination.limit)} disabled={loading || !pagination.hasNextPage} aria-label={t('table.next')}><ChevronRight size={16} /></button>
+        <Button type="button" onClick={() => onPageChange(Math.max(0, pagination.offset - pagination.limit))} disabled={loading || pagination.offset === 0} aria-label={t('table.previous')}><ChevronLeft size={16} /></Button>
+        <Button type="button" onClick={() => onPageChange(pagination.offset + pagination.limit)} disabled={loading || !pagination.hasNextPage} aria-label={t('table.next')}><ChevronRight size={16} /></Button>
       </div>
     </footer>
   </div>

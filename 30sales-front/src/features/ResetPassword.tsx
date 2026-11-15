@@ -1,3 +1,4 @@
+import { Button, TextField } from '../components/ui/FormControls'
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -46,9 +47,9 @@ export function ResetPassword() {
         <p>{t('auth.invalidResetLink')}</p>
         <a className="text-button" href="/">{t('auth.backToSignIn')}</a>
       </div> : <form className="login-form" onSubmit={submit}>
-        <label>{t('auth.newPassword')}<input type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-        <label>{t('auth.confirmPassword')}<input type="password" autoComplete="new-password" minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>
-        <button className="primary" disabled={busy}>{busy ? t('auth.resettingPassword') : t('auth.resetPassword')}<ArrowRight size={16} /></button>
+        <label>{t('auth.newPassword')}<TextField type="password" autoComplete="new-password" minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+        <label>{t('auth.confirmPassword')}<TextField type="password" autoComplete="new-password" minLength={8} value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required /></label>
+        <Button className="primary" disabled={busy}>{busy ? t('auth.resettingPassword') : t('auth.resetPassword')}<ArrowRight size={16} /></Button>
         {error && <p className="access-error" role="alert">{error}</p>}
       </form>}
     </section>

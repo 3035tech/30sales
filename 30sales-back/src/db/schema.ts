@@ -1,11 +1,11 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, text, timestamp, unique, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
-export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost']);
+export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost', 'custom']);
 export const handoffStatus = pgEnum('handoff_status', ['requested', 'accepted', 'returned', 'cancelled']);
 export const handoffEventType = pgEnum('handoff_event_type', ['requested', 'accepted', 'returned']);
 export const activityType = pgEnum('activity_type', ['call', 'meeting', 'email', 'message', 'task', 'note', 'research']);
@@ -96,6 +96,24 @@ export const tasks = pgTable('tasks', {
   index('tasks_org_assignee_status_due_idx').on(table.organizationId, table.assignedToUserId, table.status, table.dueAt),
 ]);
 
+export const pipelineStages = pgTable('pipeline_stages', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),
+  name: text('name'),
+  position: integer('position').notNull(),
+  isSystem: boolean('is_system').default(false).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'pipeline_stages_org_key_pk', columns: [table.organizationId, table.key] }),
+  check('pipeline_stages_name_check', sql`${table.isSystem} or (${table.name} is not null and length(trim(${table.name})) between 2 and 64)`),
+  check('pipeline_stages_system_key_check', sql`not ${table.isSystem} or ${table.key} in ('qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost')`),
+  uniqueIndex('pipeline_stages_org_active_name_unique').on(table.organizationId, sql`lower(${table.name})`).where(sql`${table.isSystem} = false and ${table.isActive} = true`),
+  index('pipeline_stages_org_active_position_idx').on(table.organizationId, table.isActive, table.position),
+]);
+
 export const opportunities = pgTable('opportunities', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -104,6 +122,7 @@ export const opportunities = pgTable('opportunities', {
   primaryPersonId: uuid('primary_person_id').notNull(),
   name: text('name').notNull(),
   stage: opportunityStage('stage').default('qualification').notNull(),
+  pipelineStageKey: text('pipeline_stage_key'),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   amount: numeric('amount', { precision: 14, scale: 2 }),
@@ -121,6 +140,8 @@ export const opportunities = pgTable('opportunities', {
   foreignKey({ name: 'opportunities_person_tenant_fk', columns: [table.primaryPersonId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
   unique('opportunities_id_organization_unique').on(table.id, table.organizationId),
   unique('opportunities_org_lead_unique').on(table.organizationId, table.leadId),
+  foreignKey({ name: 'opportunities_pipeline_stage_tenant_fk', columns: [table.organizationId, table.pipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
+  check('opportunities_custom_stage_check', sql`(${table.stage} = 'custom' and ${table.pipelineStageKey} is not null) or (${table.stage} <> 'custom' and ${table.pipelineStageKey} is null)`),
   index('opportunities_org_stage_updated_idx').on(table.organizationId, table.stage, table.updatedAt),
   index('opportunities_org_owner_stage_idx').on(table.organizationId, table.ownerUserId, table.stage),
   index('opportunities_org_next_action_idx').on(table.organizationId, table.nextActionAt),
@@ -131,12 +152,18 @@ export const opportunityStageHistory = pgTable('opportunity_stage_history', {
   organizationId: uuid('organization_id').notNull(),
   opportunityId: uuid('opportunity_id').notNull(),
   fromStage: opportunityStage('from_stage'),
+  fromPipelineStageKey: text('from_pipeline_stage_key'),
   toStage: opportunityStage('to_stage').notNull(),
+  toPipelineStageKey: text('to_pipeline_stage_key'),
   actorUserId: uuid('actor_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   reason: text('reason'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'opportunity_stage_history_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'opportunity_stage_history_from_pipeline_stage_tenant_fk', columns: [table.organizationId, table.fromPipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
+  foreignKey({ name: 'opportunity_stage_history_to_pipeline_stage_tenant_fk', columns: [table.organizationId, table.toPipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
+  check('opportunity_stage_history_from_custom_stage_check', sql`(${table.fromStage} is null and ${table.fromPipelineStageKey} is null) or (${table.fromStage} = 'custom' and ${table.fromPipelineStageKey} is not null) or (${table.fromStage} is not null and ${table.fromStage} <> 'custom' and ${table.fromPipelineStageKey} is null)`),
+  check('opportunity_stage_history_to_custom_stage_check', sql`(${table.toStage} = 'custom' and ${table.toPipelineStageKey} is not null) or (${table.toStage} <> 'custom' and ${table.toPipelineStageKey} is null)`),
   index('opportunity_stage_history_org_opportunity_idx').on(table.organizationId, table.opportunityId, table.occurredAt),
 ]);
 

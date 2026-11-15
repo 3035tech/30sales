@@ -8,7 +8,9 @@ export type ListOpportunitiesQueryDto = z.infer<typeof listOpportunitiesSchema>;
 
 export const transitionOpportunitySchema = z.object({
   expectedStage: stageSchema,
+  expectedPipelineStageKey: z.string().uuid().optional(),
   stage: stageSchema,
+  pipelineStageKey: z.string().uuid().optional(),
   reason: z.string().trim().max(1000).optional(),
   nextAction: z.string().trim().min(3).max(500).optional(),
   nextActionAt: z.string().datetime({ offset: true }).optional(),
@@ -17,6 +19,10 @@ export const transitionOpportunitySchema = z.object({
   closedAt: z.string().datetime({ offset: true }).optional(),
   lossReason: z.string().trim().min(3).max(1000).optional(),
 }).strict().superRefine((input, context) => {
+  if (input.expectedStage === 'custom' && !input.expectedPipelineStageKey) context.addIssue({ code: 'custom', message: 'The current custom pipeline stage is required.', path: ['expectedPipelineStageKey'] });
+  if (input.expectedStage !== 'custom' && input.expectedPipelineStageKey) context.addIssue({ code: 'custom', message: 'A custom pipeline stage can only accompany a custom stage.', path: ['expectedPipelineStageKey'] });
+  if (input.stage === 'custom' && !input.pipelineStageKey) context.addIssue({ code: 'custom', message: 'A custom pipeline stage is required.', path: ['pipelineStageKey'] });
+  if (input.stage !== 'custom' && input.pipelineStageKey) context.addIssue({ code: 'custom', message: 'A custom pipeline stage can only accompany a custom stage.', path: ['pipelineStageKey'] });
   if (input.stage === input.expectedStage && input.stage !== 'won' && input.stage !== 'lost' && (!input.reason || input.reason.length < 3)) context.addIssue({ code: 'custom', message: 'Add a note when updating an opportunity without changing its stage.', path: ['reason'] });
   if (input.stage !== 'won' && input.stage !== 'lost' && (!input.nextAction || !input.nextActionAt)) context.addIssue({ code: 'custom', message: 'Open opportunities require a next action and due date.', path: ['nextAction'] });
   if (input.stage === 'won' && (!input.amount || !input.currency || !input.closedAt)) context.addIssue({ code: 'custom', message: 'Won opportunities require amount, currency, and actual close date.', path: ['amount'] });
@@ -40,6 +46,8 @@ export class OpportunityRecordDto {
     readonly contactEmail: string | null,
     readonly contactPhone: string | null,
     readonly stage: OpportunityStage,
+    readonly pipelineStageKey: string | null,
+    readonly pipelineStageName: string | null,
     readonly stageChangedAt: string,
     readonly ownerUserId: string | null,
     readonly ownerName: string | null,
@@ -55,9 +63,21 @@ export class OpportunityRecordDto {
   ) {}
 }
 export class OpportunityPageDto { constructor(readonly data: OpportunityRecordDto[], readonly pagination: { limit: number; offset: number; total: number; hasNextPage: boolean }) {} }
-export class OpportunityHistoryRecordDto { constructor(readonly id: string, readonly fromStage: OpportunityStage | null, readonly toStage: OpportunityStage, readonly actorName: string, readonly reason: string | null, readonly occurredAt: string) {} }
+export class OpportunityHistoryRecordDto { constructor(readonly id: string, readonly fromStage: OpportunityStage | null, readonly fromPipelineStageKey: string | null, readonly fromPipelineStageName: string | null, readonly toStage: OpportunityStage, readonly toPipelineStageKey: string | null, readonly toPipelineStageName: string | null, readonly actorName: string, readonly reason: string | null, readonly occurredAt: string) {} }
 export class OpportunityRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly canEditOwned: boolean, readonly query: ListOpportunitiesQueryDto) {} }
 export class OpportunityRepositoryTransitionDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: TransitionOpportunityDto, readonly correlationId: string | null = null) {} }
 export class OpportunityAssigneeDto { constructor(readonly id: string, readonly name: string) {} }
 export class OpportunityRepositoryAssignOwnerDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly ownerUserId: string | null, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
 export class OpportunityRepositoryHistoryDto { constructor(readonly organizationId: string, readonly opportunityId: string) {} }
+export const createPipelineStageSchema = z.object({ name: z.string().trim().min(2).max(64), afterStageKey: z.string().min(1).max(64) }).strict();
+export type CreatePipelineStageDto = z.infer<typeof createPipelineStageSchema>;
+export const updatePipelineStageSchema = z.object({ name: z.string().trim().min(2).max(64) }).strict();
+export type UpdatePipelineStageDto = z.infer<typeof updatePipelineStageSchema>;
+export const reorderPipelineStagesSchema = z.object({ stageKeys: z.array(z.string().min(1).max(64)).min(10).max(100) }).strict();
+export type ReorderPipelineStagesDto = z.infer<typeof reorderPipelineStagesSchema>;
+export class PipelineStageRecordDto { constructor(readonly key: string, readonly stage: OpportunityStage, readonly name: string | null, readonly isSystem: boolean, readonly isActive: boolean, readonly position: number) {} }
+export class PipelineStagesDto { constructor(readonly stages: PipelineStageRecordDto[], readonly canManage: boolean) {} }
+export class PipelineStageRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly name: string, readonly afterStageKey: string, readonly correlationId: string | null) {} }
+export class PipelineStageRepositoryUpdateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly key: string, readonly name: string, readonly correlationId: string | null) {} }
+export class PipelineStageRepositoryReorderDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly stageKeys: string[], readonly correlationId: string | null) {} }
+export class PipelineStageRepositoryArchiveDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly key: string, readonly correlationId: string | null) {} }

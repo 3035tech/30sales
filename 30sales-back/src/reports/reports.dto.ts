@@ -6,7 +6,7 @@ export const funnelReportQuerySchema = z.object({
 }).strict().refine((query) => query.from <= query.to, { message: 'The start date must be before or equal to the end date.', path: ['from'] });
 export type FunnelReportQueryDto = z.infer<typeof funnelReportQuerySchema>;
 
-export class FunnelReportStageDto { constructor(readonly stage: string, readonly count: number) {} }
+export class FunnelReportStageDto { constructor(readonly stage: string, readonly pipelineStageKey: string | null, readonly count: number) {} }
 export class FunnelReportDto {
   constructor(
     readonly from: string,

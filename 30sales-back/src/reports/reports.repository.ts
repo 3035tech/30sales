@@ -31,7 +31,7 @@ export class ReportsRepository {
       ) first_activity
     )`;
     const [stageRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows] = await Promise.all([
-      database.select({ stage: opportunities.stage, count: count() }).from(opportunities).where(open).groupBy(opportunities.stage),
+      database.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, count: count() }).from(opportunities).where(open).groupBy(opportunities.stage, opportunities.pipelineStageKey),
       database.select({ count: count() }).from(opportunities).where(open),
       database.select({ count: count() }).from(opportunities).where(and(open, isNull(opportunities.nextActionAt))),
       database.select({ count: count() }).from(opportunities).where(and(open, lt(opportunities.nextActionAt, new Date()))),
@@ -51,7 +51,7 @@ export class ReportsRepository {
       Number(openRows[0]?.count ?? 0),
       Number(withoutNextActionRows[0]?.count ?? 0),
       Number(overdueRows[0]?.count ?? 0),
-      stageRows.map((row) => new FunnelReportStageDto(row.stage, Number(row.count))),
+      stageRows.map((row) => new FunnelReportStageDto(row.stage, row.pipelineStageKey, Number(row.count))),
       Number(createdRows[0]?.count ?? 0),
       closedCount('won'),
       closedCount('lost'),

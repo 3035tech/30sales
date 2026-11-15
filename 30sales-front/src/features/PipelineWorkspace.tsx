@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage } from '../lib/api/client'
+import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityStage, type PipelineStageDto } from '../lib/api/client'
 import './Pipeline.css'
 import './ActivityTimeline.css'
 
 type PipelineView = 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'
-const stages: OpportunityStage[] = ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost']
 const transitions: Record<OpportunityStage, OpportunityStage[]> = {
   qualification: ['closer_contact_pending', 'lost'], closer_contact_pending: ['discovery_scheduled', 'lost'], discovery_scheduled: ['discovery_done', 'closer_contact_pending', 'lost'],
   discovery_done: ['solution_confirmed', 'proposal_preparing', 'lost'], solution_confirmed: ['proposal_preparing', 'lost'], proposal_preparing: ['proposal_sent', 'lost'],
@@ -24,6 +23,7 @@ function localDateTime(value?: string) {
 
 export function PipelineWorkspace() {
   const { t, i18n } = useTranslation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const opportunityId = searchParams.get('opportunityId') ?? undefined
   const [view, setView] = useState<PipelineView>('mine')
@@ -35,6 +35,7 @@ export function PipelineWorkspace() {
   const [sortBy, setSortBy] = useState<'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt'>('nextActionAt')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [assignableClosers, setAssignableClosers] = useState<OpportunityAssigneeDto[] | null>(null)
+  const [stageSettings, setStageSettings] = useState<{ stages: PipelineStageDto[]; canManage: boolean }>({ stages: [], canManage: false })
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -44,7 +45,7 @@ export function PipelineWorkspace() {
   const refresh = useCallback(async () => {
     const revision = ++requestRevision.current
     setLoading(true); setLoadingMore(false); setError('')
-    try { const page = await api.opportunities.listPage({ view, opportunityId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset: 0 }); if (revision === requestRevision.current) { setOpportunities(page.data); setTotal(page.pagination.total); setHasMore(page.pagination.hasNextPage) } }
+    try { const [page, settings] = await Promise.all([api.opportunities.listPage({ view, opportunityId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset: 0 }), api.opportunities.pipelineStages.list()]); if (revision === requestRevision.current) { setOpportunities(page.data); setTotal(page.pagination.total); setHasMore(page.pagination.hasNextPage); setStageSettings(settings) } }
     catch { if (revision === requestRevision.current) setError(t('errors.loadPipeline')) }
     finally { if (revision === requestRevision.current) setLoading(false) }
   }, [debouncedSearch, opportunityId, pageSize, sortBy, sortDirection, view, t])
@@ -61,10 +62,10 @@ export function PipelineWorkspace() {
   const valueByCurrency = active.reduce<Record<string, number>>((totals, item) => { if (item.amount && item.currency) totals[item.currency] = (totals[item.currency] ?? 0) + Number(item.amount); return totals }, {})
   const exposedValue = Object.entries(valueByCurrency).map(([currency, amount]) => new Intl.NumberFormat(i18n.language, { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)).join(' · ') || '—'
   const atRisk = active.filter((item) => !item.nextActionAt || new Date(item.nextActionAt).getTime() < Date.now() || Date.now() - new Date(item.stageChangedAt).getTime() > 7 * 86400000).length
-  const stageCounts = useMemo(() => Object.fromEntries(stages.map((stage) => [stage, opportunities.filter((item) => item.stage === stage).length])) as Record<OpportunityStage, number>, [opportunities])
+  const stageCounts = useMemo(() => Object.fromEntries(stageSettings.stages.map((stage) => [stage.key, opportunities.filter((item) => stage.isSystem ? item.stage === stage.stage : item.stage === 'custom' && item.pipelineStageKey === stage.key).length])), [opportunities, stageSettings.stages])
 
   return <section className="leads-page pipeline-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('pipeline.eyebrow')}</p><h2>{t('pipeline.title')}</h2><p className="muted">{t('pipeline.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('pipeline.refresh')}><RefreshCw size={16} /></button></header>
+    <header className="leads-heading"><div><p className="eyebrow">{t('pipeline.eyebrow')}</p><h2>{t('pipeline.title')}</h2><p className="muted">{t('pipeline.description')}</p></div><div className="pipeline-header-actions">{stageSettings.canManage && <button type="button" onClick={() => navigate('/settings/pipeline')}>{t('pipelineStageSettings.openSettings')}</button>}<button className="refresh" onClick={() => void refresh()} aria-label={t('pipeline.refresh')}><RefreshCw size={16} /></button></div></header>
     <div className="pipeline-metrics"><article><span><TrendingUp size={16} />{t('pipeline.openDeals')}</span><strong>{active.length}</strong></article><article><span><CalendarClock size={16} />{t('pipeline.openValue')}</span><strong>{exposedValue}</strong></article><article className={atRisk ? 'risk' : ''}><span><AlertTriangle size={16} />{t('pipeline.atRisk')}</span><strong>{atRisk}</strong></article></div>
     <div className="pipeline-views" role="tablist" aria-label={t('pipeline.views')}>
       {(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => { setView(item); if (opportunityId) setSearchParams({}) }}>{t(`pipeline.viewsList.${item}`)}</button>)}
@@ -73,10 +74,10 @@ export function PipelineWorkspace() {
     {error && opportunities.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && opportunities.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
     {loading && opportunities.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : opportunities.length === 0 ? <WorkspaceState kind={error ? 'error' : 'empty'} message={error || (debouncedSearch ? t('pipeline.emptySearch') : t('pipeline.empty'))} detail={error ? undefined : debouncedSearch ? undefined : t('pipeline.emptyHint')} /> : <div className="pipeline-board">
-      {stages.filter((stage) => stageCounts[stage] > 0 || !terminal(stage)).map((stage) => <section className="pipeline-column" key={stage}>
-        <header><h3>{t(`opportunityStages.${stage}`)}</h3><span>{stageCounts[stage]}</span></header>
-        {opportunities.filter((item) => item.stage === stage).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} assignableClosers={assignableClosers} onUpdated={() => void refresh()} />)}
-        {stageCounts[stage] === 0 && <p className="pipeline-column-empty">{t('pipeline.noDeals')}</p>}
+      {stageSettings.stages.filter((stage) => stage.isActive && (stageCounts[stage.key] > 0 || (stage.stage !== 'won' && stage.stage !== 'lost'))).map((stage) => <section className="pipeline-column" key={stage.key}>
+        <header><h3>{stage.isSystem ? t(`opportunityStages.${stage.stage}`) : stage.name}</h3><span>{stageCounts[stage.key] ?? 0}</span></header>
+        {opportunities.filter((item) => stage.isSystem ? item.stage === stage.stage : item.stage === 'custom' && item.pipelineStageKey === stage.key).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} stages={stageSettings.stages.filter((item) => item.isActive)} assignableClosers={assignableClosers} onUpdated={() => void refresh()} />)}
+        {(stageCounts[stage.key] ?? 0) === 0 && <p className="pipeline-column-empty">{t('pipeline.noDeals')}</p>}
       </section>)}
     </div>}
     {hasMore && <button className="pipeline-load-more" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? t('common.loading') : t('pipeline.loadMore')}</button>}
@@ -84,10 +85,13 @@ export function PipelineWorkspace() {
   </section>
 }
 
-function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opportunity: OpportunityDto; assignableClosers: OpportunityAssigneeDto[] | null; onUpdated: () => void }) {
+function OpportunityCard({ opportunity, stages: availableStages, assignableClosers, onUpdated }: { opportunity: OpportunityDto; stages: PipelineStageDto[]; assignableClosers: OpportunityAssigneeDto[] | null; onUpdated: () => void }) {
   const { t, i18n } = useTranslation()
   const [editing, setEditing] = useState(false)
-  const [targetStage, setTargetStage] = useState<OpportunityStage>(transitions[opportunity.stage][0] ?? opportunity.stage)
+  const currentKey = opportunity.stage === 'custom' ? opportunity.pipelineStageKey ?? '' : opportunity.stage
+  const [targetKey, setTargetKey] = useState(currentKey)
+  const selectedStage = availableStages.find((item) => item.key === targetKey)
+  const targetStage = selectedStage?.stage ?? opportunity.stage
   const [nextAction, setNextAction] = useState(opportunity.nextAction ?? '')
   const [nextActionAt, setNextActionAt] = useState(localDateTime(opportunity.nextActionAt ?? undefined))
   const [amount, setAmount] = useState(opportunity.amount ?? '')
@@ -106,7 +110,8 @@ function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opport
   const [activityOccurredAt, setActivityOccurredAt] = useState(localDateTime())
   const [activitySaving, setActivitySaving] = useState(false)
   const [ownerSaving, setOwnerSaving] = useState(false)
-  const canMove = transitions[opportunity.stage].length > 0 && opportunity.canUpdate
+  const allowedStages = availableStages.filter((item) => item.key === currentKey || opportunity.stage === 'custom' || item.stage === 'custom' || transitions[opportunity.stage].includes(item.stage))
+  const canMove = (opportunity.stage === 'custom' || transitions[opportunity.stage].length > 0) && opportunity.canUpdate
   const dueAt = opportunity.nextActionAt ? new Date(opportunity.nextActionAt) : null
   const overdue = Boolean(dueAt && dueAt.getTime() < Date.now() && !terminal(opportunity.stage))
   const stale = Date.now() - new Date(opportunity.stageChangedAt).getTime() > 7 * 86400000 && !terminal(opportunity.stage)
@@ -116,7 +121,7 @@ function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opport
     event.preventDefault(); setSaving(true); setError('')
     try {
       await api.opportunities.transition(opportunity.id, {
-        expectedStage: opportunity.stage, stage: targetStage, reason: reason.trim() || undefined,
+        expectedStage: opportunity.stage, expectedPipelineStageKey: opportunity.stage === 'custom' ? opportunity.pipelineStageKey ?? undefined : undefined, stage: targetStage, pipelineStageKey: targetStage === 'custom' ? selectedStage?.key : undefined, reason: reason.trim() || undefined,
         nextAction: terminal(targetStage) ? undefined : nextAction.trim(), nextActionAt: terminal(targetStage) ? undefined : new Date(nextActionAt).toISOString(),
         amount: targetStage === 'won' ? amount : !terminal(targetStage) && amount ? amount : undefined, currency: targetStage === 'won' || (!terminal(targetStage) && amount) ? currency : undefined,
         closedAt: targetStage === 'won' ? new Date(closedAt).toISOString() : undefined,
@@ -162,9 +167,9 @@ function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opport
     </div>
     {opportunity.amount && <p className="opportunity-value">{new Intl.NumberFormat(i18n.language, { style: 'currency', currency: opportunity.currency ?? 'BRL' }).format(Number(opportunity.amount))}</p>}
     {opportunity.lossReason && <p className="opportunity-loss">{t('pipeline.lossReason')}: {opportunity.lossReason}</p>}
-    {canMove && <button className="opportunity-edit" onClick={() => { setTargetStage(opportunity.stage); setEditing((value) => !value) }}><TrendingUp size={14} />{t('pipeline.advance')}</button>}
+    {canMove && <button className="opportunity-edit" onClick={() => { setTargetKey(currentKey); setEditing((value) => !value) }}><TrendingUp size={14} />{t('pipeline.advance')}</button>}
     {editing && <form className="opportunity-transition" onSubmit={submit}>
-      <label>{t('pipeline.nextStage')}<select value={targetStage} onChange={(event) => setTargetStage(event.target.value as OpportunityStage)}><option value={opportunity.stage}>{t(`pipeline.keepStage`)} · {t(`opportunityStages.${opportunity.stage}`)}</option>{transitions[opportunity.stage].map((stage) => <option key={stage} value={stage}>{t(`opportunityStages.${stage}`)}</option>)}</select></label>
+      <label>{t('pipeline.nextStage')}<select value={targetKey} onChange={(event) => setTargetKey(event.target.value)}>{allowedStages.map((stage) => <option key={stage.key} value={stage.key}>{stage.key === currentKey ? t('pipeline.keepStage') + ' · ' : ''}{stage.isSystem ? t(`opportunityStages.${stage.stage}`) : stage.name}</option>)}</select></label>
       {targetStage === 'won' ? <div className="pipeline-conditional"><label>{t('pipeline.amount')}<input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} required /></label><label>{t('pipeline.currency')}<input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} minLength={3} maxLength={3} required /></label><label>{t('pipeline.closedAt')}<input type="datetime-local" value={closedAt} onChange={(event) => setClosedAt(event.target.value)} required /></label></div> : targetStage === 'lost' ? <label>{t('pipeline.lossReason')}<textarea value={lossReason} onChange={(event) => setLossReason(event.target.value)} minLength={3} maxLength={1000} required /></label> : <><div className="pipeline-conditional"><label>{t('pipeline.nextAction')}<input value={nextAction} onChange={(event) => setNextAction(event.target.value)} minLength={3} maxLength={500} required /></label><label>{t('pipeline.nextActionAt')}<input type="datetime-local" value={nextActionAt} onChange={(event) => setNextActionAt(event.target.value)} required /></label></div><div className="pipeline-conditional"><label>{t('pipeline.estimatedAmount')}<input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.target.value)} /></label><label>{t('pipeline.currency')}<input value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} minLength={3} maxLength={3} /></label></div></>}
       <label>{targetStage === opportunity.stage ? t('pipeline.updateReason') : t('pipeline.transitionNote')}<textarea value={reason} onChange={(event) => setReason(event.target.value)} minLength={targetStage === opportunity.stage ? 3 : undefined} maxLength={1000} required={targetStage === opportunity.stage} /></label>
       {error && <p className="error">{error}</p>}<button className="primary" disabled={saving}>{saving ? t('common.saving') : t('pipeline.saveTransition')}<Save size={14} /></button>
@@ -177,7 +182,7 @@ function OpportunityCard({ opportunity, assignableClosers, onUpdated }: { opport
         {error && <p className="error">{error}</p>}<button className="primary" disabled={activitySaving}>{activitySaving ? t('common.saving') : t('pipeline.saveActivity')}</button>
       </form>}
       {timeline.length === 0 ? <p className="activity-empty">{t('pipeline.noTimeline')}</p> : <ol className="opportunity-history">{timeline.map((item) => {
-        const title = item.kind === 'stage' ? item.fromStage ? `${t(`opportunityStages.${item.fromStage}`)} → ${t(`opportunityStages.${item.toStage}`)}` : t('pipeline.opportunityCreated') : `${t(`activityTypes.${item.type}`)} · ${item.subject}`
+        const title = item.kind === 'stage' ? item.fromStage ? `${item.fromStage === 'custom' ? item.fromPipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${item.fromStage}`)} → ${item.toStage === 'custom' ? item.toPipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${item.toStage}`)}` : t('pipeline.opportunityCreated') : `${t(`activityTypes.${item.type}`)} · ${item.subject}`
         const details = item.kind === 'stage' ? item.reason : item.details
         return <li key={`${item.kind}-${item.id}`}><span>{title}</span><small>{item.actorName} · {formatDate(item.timestamp)}</small>{details && <p>{details}</p>}{item.kind === 'activity' && item.result && <p><strong>{t('pipeline.activityResult')}:</strong> {item.result}</p>}</li>
       })}</ol>}

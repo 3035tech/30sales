@@ -188,7 +188,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox }: { 
       const due = opportunity.nextActionAt ? new Date(opportunity.nextActionAt).getTime() : null
       if (due !== null && due > Date.now()) continue
       const kind: WorkKind = due === null ? 'no_action' : 'overdue'
-      work.push({ id: `opportunity:${opportunity.id}`, kind, accountName: opportunity.accountName, contactName: opportunity.contactName, title: opportunity.nextAction ?? t(`opportunityStages.${opportunity.stage}`), context: `${opportunity.name} · ${kind === 'overdue' ? t('closerQueue.overdueContext', { date: dateLabel(opportunity.nextActionAt!) }) : t('closerQueue.noActionContext')}`, occurredAt: opportunity.updatedAt, deadline: opportunity.nextActionAt ?? null })
+      work.push({ id: `opportunity:${opportunity.id}`, kind, accountName: opportunity.accountName, contactName: opportunity.contactName, title: opportunity.nextAction ?? (opportunity.stage === 'custom' ? opportunity.pipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${opportunity.stage}`)), context: `${opportunity.name} · ${kind === 'overdue' ? t('closerQueue.overdueContext', { date: dateLabel(opportunity.nextActionAt!) }) : t('closerQueue.noActionContext')}`, occurredAt: opportunity.updatedAt, deadline: opportunity.nextActionAt ?? null })
     }
     const normalizedQuery = query.trim().toLocaleLowerCase()
     const filtered = work.filter((item) => (!kindFilter || item.kind === kindFilter) && (!normalizedQuery || `${item.accountName} ${item.contactName} ${item.title} ${item.context}`.toLocaleLowerCase().includes(normalizedQuery)))

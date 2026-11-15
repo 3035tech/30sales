@@ -13,6 +13,12 @@ Escopo: inspeção em runtime no Chrome, no desktop e em viewport responsivo de 
 
 ## Perspectiva de closer: Pipeline e carteiras grandes
 
+### Atualização: gestão de etapas
+
+- A branch `feature/pipeline-stage-management` implementa o acesso “Configurar etapas” no Pipeline e uma tela tenant-scoped para gestores criarem, renomearem, reordenarem e arquivarem etapas abertas customizadas. Etapas padrão mantêm as transições atuais; “Ganha” e “Perdida” seguem terminais.
+- A alteração também cobre autorização no backend, histórico, handoffs, fila do closer e snapshot do relatório por etapa. A migration está dividida em `0035` (novo valor do enum) e `0036` (tabelas/constraints), ambas geradas e não aplicadas.
+- A visão compacta, filtros adicionais e métricas agregadas para toda a busca continuam como próximas melhorias para carteiras grandes.
+
 - **Etapas não são configuráveis.** A interface não tem entrada “Configurar etapas”. As dez etapas e a regra de transição estão fixas em constantes/types no frontend e no enum PostgreSQL; relatórios, criação de oportunidades por handoff/assistente e validação do backend também dependem desses valores. Não é uma opção escondida: hoje não há como criar uma etapa personalizada.
 - **O board é difícil de percorrer com carteira grande.** A tela abre na visão “Minha carteira”, em quadro horizontal com oito etapas abertas. Carrega 25 oportunidades por padrão, permite até 100 por lote e depois exige “Carregar mais”. O endpoint pagina no servidor e a lista continua tenant-scoped, então os dados não são carregados todos de uma vez; ainda assim, localizar e comparar centenas de negócios exige muitas rolagens horizontais e lotes sucessivos.
 - **Falta uma visão compacta de trabalho.** Não há alternância para tabela/lista densa, nem navegação direta a uma página. A paginação atual é por `offset`; para volumes muito altos, um cursor estável reduziria o custo de saltos a posições distantes e o risco de repetição/omissão quando registros mudam entre lotes.

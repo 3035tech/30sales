@@ -22,12 +22,14 @@ const closerEventSlaSettingsSchema = z.object({ policies: z.array(z.object({ eve
 const closerSlaNotificationSchema = z.object({ id: z.string().uuid(), closerEventId: z.string().uuid(), conversationId: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated']), eventType: z.string(), summary: z.string(), accountName: z.string().nullable(), dueAt: z.string(), createdAt: z.string() });
 const userNotificationSchema = z.object({ id: z.string().uuid(), notificationType: z.enum(['closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned']), conversationId: z.string().uuid().nullable(), taskId: z.string().uuid().nullable(), handoffId: z.string().uuid().nullable(), opportunityId: z.string().uuid().nullable(), taskTitle: z.string().nullable(), eventType: z.string().nullable(), summary: z.string(), accountName: z.string().nullable(), contactName: z.string().nullable(), dueAt: z.string().nullable(), createdAt: z.string() });
 const userNotificationsPageSchema = z.object({ data: z.array(userNotificationSchema), unreadCount: z.number().int().nonnegative() });
-const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
-const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost','custom']);
+const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, pipelineStageKey: z.string().nullable(), pipelineStageName: z.string().nullable(), stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const pipelineStageSchema = z.object({ key: z.string(), stage: opportunityStage, name: z.string().nullable(), isSystem: z.boolean(), isActive: z.boolean(), position: z.number() });
+const pipelineStagesSchema = z.object({ stages: z.array(pipelineStageSchema), canManage: z.boolean() });
 const opportunityPageSchema = z.object({ data: z.array(opportunitySchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
-const funnelReportSchema = z.object({ from: z.string(), to: z.string(), currentOpenCount: z.number(), openWithoutNextActionCount: z.number(), overdueNextActionCount: z.number(), currentStages: z.array(z.object({ stage: opportunityStage, count: z.number() })), createdInPeriodCount: z.number(), wonInPeriodCount: z.number(), lostInPeriodCount: z.number(), wonAmountByCurrency: z.array(z.object({ currency: z.string(), amount: z.string() })), acceptedHandoffsInPeriodCount: z.number(), firstActivityCount: z.number(), pendingFirstActivityCount: z.number(), averageMinutesToFirstActivity: z.number().nullable(), leadCountsByStatus: z.array(z.object({ status: leadStatus, count: z.number() })), leadsCreatedInPeriodCount: z.number(), generatedAt: z.string() });
-const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), toStage: opportunityStage, actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
+const funnelReportSchema = z.object({ from: z.string(), to: z.string(), currentOpenCount: z.number(), openWithoutNextActionCount: z.number(), overdueNextActionCount: z.number(), currentStages: z.array(z.object({ stage: opportunityStage, pipelineStageKey: z.string().nullable(), count: z.number() })), createdInPeriodCount: z.number(), wonInPeriodCount: z.number(), lostInPeriodCount: z.number(), wonAmountByCurrency: z.array(z.object({ currency: z.string(), amount: z.string() })), acceptedHandoffsInPeriodCount: z.number(), firstActivityCount: z.number(), pendingFirstActivityCount: z.number(), averageMinutesToFirstActivity: z.number().nullable(), leadCountsByStatus: z.array(z.object({ status: leadStatus, count: z.number() })), leadsCreatedInPeriodCount: z.number(), generatedAt: z.string() });
+const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), fromPipelineStageKey: z.string().nullable(), fromPipelineStageName: z.string().nullable(), toStage: opportunityStage, toPipelineStageKey: z.string().nullable(), toPipelineStageName: z.string().nullable(), actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
 const activityType = z.enum(['call','meeting','email','message','task','note','research']);
 const activitySchema = z.object({ id: z.string().uuid(), type: activityType, subject: z.string(), details: z.string().nullable(), result: z.string().nullable(), occurredAt: z.string(), actorName: z.string(), createdAt: z.string() });
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
@@ -63,6 +65,8 @@ export type CloserEventSlaSettingsDto = z.infer<typeof closerEventSlaSettingsSch
 export type CloserSlaNotificationDto = z.infer<typeof closerSlaNotificationSchema>;
 export type UserNotificationDto = z.infer<typeof userNotificationSchema>;
 export type OpportunityStage = z.infer<typeof opportunityStage>;
+export type PipelineStageDto = z.infer<typeof pipelineStageSchema>;
+export type PipelineStagesDto = z.infer<typeof pipelineStagesSchema>;
 export type OpportunityDto = z.infer<typeof opportunitySchema>;
 export type OpportunityAssigneeDto = z.infer<typeof opportunityAssigneeSchema>;
 export type FunnelReportDto = z.infer<typeof funnelReportSchema>;
@@ -292,6 +296,13 @@ export const api = {
     returnToSdr: (id: string, input: { reason: string; nextStep: string; dueAt: string }) => request(`/api/v1/handoffs/${encodeURIComponent(id)}/return`, handoffSchema, { method: 'PATCH', body: JSON.stringify(input) }),
   },
   opportunities: {
+    pipelineStages: {
+      list: () => request('/api/v1/opportunities/pipeline-stages', pipelineStagesSchema),
+      create: (input: { name: string; afterStageKey: string }) => request('/api/v1/opportunities/pipeline-stages', pipelineStagesSchema, { method: 'POST', body: JSON.stringify(input) }),
+      update: (key: string, input: { name: string }) => request(`/api/v1/opportunities/pipeline-stages/${encodeURIComponent(key)}`, pipelineStagesSchema, { method: 'PATCH', body: JSON.stringify(input) }),
+      reorder: (stageKeys: string[]) => request('/api/v1/opportunities/pipeline-stages/order', pipelineStagesSchema, { method: 'PATCH', body: JSON.stringify({ stageKeys }) }),
+      archive: (key: string) => request(`/api/v1/opportunities/pipeline-stages/${encodeURIComponent(key)}`, pipelineStagesSchema, { method: 'DELETE' }),
+    },
     assignees: () => request('/api/v1/opportunities/assignees', z.array(opportunityAssigneeSchema)),
     assignOwner: (id: string, ownerUserId: string | null) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/owner`, opportunitySchema, { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
     list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; opportunityId?: string; limit?: number; offset?: number } = {}) => {
@@ -309,7 +320,7 @@ export const api = {
       if (params.search) search.set('search', params.search);
       return request(`/api/v1/opportunities/page?${search.toString()}`, opportunityPageSchema);
     },
-    transition: (id: string, input: { expectedStage: OpportunityStage; stage: OpportunityStage; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
+    transition: (id: string, input: { expectedStage: OpportunityStage; expectedPipelineStageKey?: string; stage: OpportunityStage; pipelineStageKey?: string; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
     history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),
     activities: {
       list: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, z.array(activitySchema)),

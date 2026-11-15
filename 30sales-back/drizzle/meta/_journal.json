@@ -246,6 +246,20 @@
       "when": 1794760754549,
       "tag": "0034_ambiguous_may_parker",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1794768853093,
+      "tag": "0035_curvy_tattoo",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794768860446,
+      "tag": "0036_sparkling_vengeance",
+      "breakpoints": true
     }
   ]
 }

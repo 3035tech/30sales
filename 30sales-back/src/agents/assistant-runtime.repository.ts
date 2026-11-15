@@ -140,7 +140,7 @@ export class AssistantRuntimeRepository {
               const initialStage = requestsHuman ? 'closer_contact_pending' : 'qualification';
               const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
               opportunityId = createdOpportunity.id;
-              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, toStage: initialStage, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
+              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: initialStage, toPipelineStageKey: null, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
               await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, source: requestsHuman ? 'assistant_human_request' : 'assistant_handoff' } });
             }
 

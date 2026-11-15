@@ -1,0 +1,1 @@
+ALTER TYPE "public"."opportunity_stage" ADD VALUE 'custom';

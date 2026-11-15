@@ -20,18 +20,19 @@ import { CloserQueueWorkspace } from './features/CloserQueueWorkspace'
 import { ChannelsWorkspace } from './features/ChannelsWorkspace'
 import { AssistantSettingsWorkspace } from './features/AssistantSettingsWorkspace'
 import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspace'
+import { PipelineStagesWorkspace } from './features/PipelineStagesWorkspace'
 import './App.css'
 
-type Page = 'home' | 'closerQueue' | 'closerSla' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
+type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 const pagePaths: Record<Page, string> = {
-  home: '/today', closerQueue: '/closer', closerSla: '/settings/closer-sla', inbox: '/inbox', leads: '/leads',
+  home: '/today', closerQueue: '/closer', closerSla: '/settings/closer-sla', pipelineStages: '/settings/pipeline', inbox: '/inbox', leads: '/leads',
   accounts: '/accounts', channels: '/settings/channels', assistant: '/settings/assistant', tasks: '/tasks',
   handoffs: '/handoffs', pipeline: '/pipeline', reports: '/reports/funnel', audit: '/settings/audit',
   imports: '/settings/imports', team: '/settings/team',
 }
 const pagesByPath = Object.fromEntries(Object.entries(pagePaths).map(([page, path]) => [path, page])) as Record<string, Page>
 const pageTranslationKeys: Record<Page, string> = {
-  home: 'today', closerQueue: 'closerQueue', closerSla: 'closerSlaSettings', inbox: 'inbox', leads: 'leads',
+  home: 'today', closerQueue: 'closerQueue', closerSla: 'closerSlaSettings', pipelineStages: 'pipelineStageSettings', inbox: 'inbox', leads: 'leads',
   accounts: 'accounts', channels: 'channels', assistant: 'assistantSettings', tasks: 'tasks', handoffs: 'handoffs',
   pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team',
 }
@@ -250,6 +251,7 @@ export default function App() {
       </header>
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
+          : page === 'pipelineStages' ? <PipelineStagesWorkspace onBack={() => navigateToPage('pipeline')} />
           : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
           : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} />
           : page === 'channels' ? <ChannelsWorkspace />

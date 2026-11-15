@@ -9,6 +9,8 @@ A aplicação já reúne fluxos comerciais com contexto útil — tarefas, Inbox
 
 O item P0 de navegação móvel foi corrigido em `feature/mobile-navigation`: até 640px, o botão abre todas as áreas disponíveis, marca a página atual e fecha o menu após seleção ou Escape. A validação visual em navegador continua pendente.
 
+Os achados P1 de contexto também foram corrigidos: o cabeçalho agora usa título e seção localizados da área ativa; o seletor de organização permite trocar entre memberships já retornados pela sessão. Ao trocar, a aplicação volta para Hoje e remonta o conteúdo com a nova organização, limpa estado local de busca/notificações e comunica falhas sem deslogar. A validação visual ainda depende de navegador.
+
 ## Achados priorizados
 
 | Prioridade | Achado | Efeito para a pessoa usuária | Direção recomendada |

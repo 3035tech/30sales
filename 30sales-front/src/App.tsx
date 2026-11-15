@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, BarChart3, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot } from 'lucide-react'
+import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type SessionDto } from './lib/api/client'
+import { api, type CloserSlaNotificationDto, type SessionDto } from './lib/api/client'
 import i18n from './lib/i18n'
 import { TeamSettings } from './features/TeamSettings'
 import { LeadsWorkspace } from './features/LeadsWorkspace'
@@ -31,10 +31,28 @@ export default function App() {
   const [leadSearchSeed, setLeadSearchSeed] = useState('')
   const [inboxSearchSeed, setInboxSearchSeed] = useState('')
   const [inboxConversationSeed, setInboxConversationSeed] = useState('')
+  const [notifications, setNotifications] = useState<CloserSlaNotificationDto[]>([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationsError, setNotificationsError] = useState(false)
 
   useEffect(() => {
     api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!current?.activeOrganizationId) return
+    let active = true
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
+      api.closerEvents.slaNotifications().then((items) => {
+        if (active) { setNotifications(items); setNotificationsError(false) }
+      }).catch(() => { if (active) setNotificationsError(true) })
+    }
+    refresh()
+    const interval = window.setInterval(refresh, 30_000)
+    document.addEventListener('visibilitychange', refresh)
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh) }
+  }, [current?.activeOrganizationId])
 
   const chooseOrganization = async (organizationId: string) => {
     const result = await api.auth.setActiveOrganization(organizationId)
@@ -47,6 +65,16 @@ export default function App() {
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId)
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
+  const openNotification = async (notification: CloserSlaNotificationDto) => {
+    try {
+      await api.closerEvents.readSlaNotification(notification.id)
+      setNotifications((items) => items.filter((item) => item.id !== notification.id))
+      setInboxConversationSeed(notification.conversationId)
+      setInboxSearchSeed('')
+      setNotificationsOpen(false)
+      setPage('inbox')
+    } catch { setNotificationsError(true) }
+  }
 
   return <main className="shell">
     <aside className="rail">
@@ -77,6 +105,21 @@ export default function App() {
         <div><span className="eyebrow">{t('home.eyebrow')}</span><h1>{t('home.headline')}</h1></div>
         <div className="account">
           <button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</button>
+          {current?.activeOrganizationId && <div className="notification-menu">
+            <button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: notifications.length })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
+              <Bell size={18} />{notifications.length > 0 && <span className="notification-count">{notifications.length > 99 ? '99+' : notifications.length}</span>}
+            </button>
+            {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
+              <div className="notification-panel-heading"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: notifications.length })}</span></div>
+              {notificationsError && <p className="notification-message" role="alert">{t('systemNotifications.loadFailed')}</p>}
+              {notifications.length === 0 ? <p className="notification-message">{t('systemNotifications.empty')}</p> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
+                <span className="notification-item-title">{t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
+                <span>{notification.accountName ?? notification.summary}</span>
+                <small>{t(`closerEventTypes.${notification.eventType}`)} · {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt))}</small>
+                <span className="notification-open">{t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
+              </button>)}
+            </section>}
+          </div>}
           {activeOrganization && <button className="workspace"><Building2 size={16} />{activeOrganization.name}<ChevronDown size={15} /></button>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>

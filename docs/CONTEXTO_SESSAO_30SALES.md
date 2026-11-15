@@ -92,3 +92,9 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - O próximo passo acima é uma recomendação de continuidade, não prova de que o callback já foi implementado.
 - Ao começar a próxima sessão, verificar `git status`, `git log`, ler este documento, `AGENTS.md` e as seções pertinentes de `docs/arquitetura_tecnica.md` e `docs/sofia_produto/06_backlog_aceite_entrega.md`. O estado do repositório prevalece sobre este resumo se houve alterações posteriores.
 - Não presumir que migrations foram aplicadas, integrações configuradas em produção ou callbacks recebidos só porque o código/documentação existem.
+
+## Auditoria UX e notificações globais — em andamento
+
+- Auditoria geral registrada em [`auditoria_ux_30sales.md`](auditoria_ux_30sales.md). Achados prioritários: navegação desaparece em viewport estreito, título do shell não acompanha a página, seletor de organização é inerte e a navegação é plana/sem rotas próprias.
+- Primeira fatia na branch `feature/global-notifications`: central no cabeçalho usa o endpoint já existente de alertas de SLA, mostra contagem de não lidas, atualiza a cada 30 segundos, permite abrir a conversa e marca o alerta como lido. Mantém escopo org/user do endpoint existente; nenhuma migration necessária.
+- Ainda não integrada em `develop`. Nenhum build/teste executado por preferência. Inspeção visual ficou pendente porque não havia navegador disponível.

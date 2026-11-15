@@ -3,7 +3,7 @@ import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.const
 
 const stageSchema = z.enum(OPPORTUNITY_STAGES);
 
-export const listOpportunitiesSchema = z.object({ stage: stageSchema.optional(), opportunityId: z.string().uuid().optional(), view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listOpportunitiesSchema = z.object({ stage: stageSchema.optional(), opportunityId: z.string().uuid().optional(), view: z.enum(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale']).default('mine'), search: z.string().trim().max(200).optional(), sortBy: z.enum(['nextActionAt', 'accountName', 'contactName', 'stageChangedAt']).default('nextActionAt'), sortDirection: z.enum(['asc', 'desc']).default('asc'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListOpportunitiesQueryDto = z.infer<typeof listOpportunitiesSchema>;
 
 export const transitionOpportunitySchema = z.object({
@@ -54,6 +54,7 @@ export class OpportunityRecordDto {
     readonly updatedAt: string,
   ) {}
 }
+export class OpportunityPageDto { constructor(readonly data: OpportunityRecordDto[], readonly pagination: { limit: number; offset: number; total: number; hasNextPage: boolean }) {} }
 export class OpportunityHistoryRecordDto { constructor(readonly id: string, readonly fromStage: OpportunityStage | null, readonly toStage: OpportunityStage, readonly actorName: string, readonly reason: string | null, readonly occurredAt: string) {} }
 export class OpportunityRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly canEditOwned: boolean, readonly query: ListOpportunitiesQueryDto) {} }
 export class OpportunityRepositoryTransitionDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: TransitionOpportunityDto, readonly correlationId: string | null = null) {} }

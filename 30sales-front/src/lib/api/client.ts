@@ -24,6 +24,7 @@ const userNotificationSchema = z.object({ id: z.string().uuid(), notificationTyp
 const userNotificationsPageSchema = z.object({ data: z.array(userNotificationSchema), unreadCount: z.number().int().nonnegative() });
 const opportunityStage = z.enum(['qualification','closer_contact_pending','discovery_scheduled','discovery_done','solution_confirmed','proposal_preparing','proposal_sent','negotiation','won','lost']);
 const opportunitySchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), name: z.string(), accountName: z.string(), contactName: z.string(), contactEmail: z.string().nullable(), contactPhone: z.string().nullable(), stage: opportunityStage, stageChangedAt: z.string(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), canUpdate: z.boolean(), amount: z.string().nullable(), currency: z.string().nullable(), closedAt: z.string().nullable(), lossReason: z.string().nullable(), nextAction: z.string().nullable(), nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string() });
+const opportunityPageSchema = z.object({ data: z.array(opportunitySchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const opportunityAssigneeSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const funnelReportSchema = z.object({ from: z.string(), to: z.string(), currentOpenCount: z.number(), openWithoutNextActionCount: z.number(), overdueNextActionCount: z.number(), currentStages: z.array(z.object({ stage: opportunityStage, count: z.number() })), createdInPeriodCount: z.number(), wonInPeriodCount: z.number(), lostInPeriodCount: z.number(), wonAmountByCurrency: z.array(z.object({ currency: z.string(), amount: z.string() })), acceptedHandoffsInPeriodCount: z.number(), firstActivityCount: z.number(), pendingFirstActivityCount: z.number(), averageMinutesToFirstActivity: z.number().nullable(), leadCountsByStatus: z.array(z.object({ status: leadStatus, count: z.number() })), leadsCreatedInPeriodCount: z.number(), generatedAt: z.string() });
 const opportunityHistorySchema = z.object({ id: z.string().uuid(), fromStage: opportunityStage.nullable(), toStage: opportunityStage, actorName: z.string(), reason: z.string().nullable(), occurredAt: z.string() });
@@ -301,6 +302,12 @@ export const api = {
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/opportunities?${search.toString()}`, z.array(opportunitySchema));
+    },
+    listPage: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; opportunityId?: string; search?: string; sortBy: 'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
+      const search = new URLSearchParams({ view: params.view ?? 'mine', sortBy: params.sortBy, sortDirection: params.sortDirection, limit: String(params.limit), offset: String(params.offset) });
+      if (params.opportunityId) search.set('opportunityId', params.opportunityId);
+      if (params.search) search.set('search', params.search);
+      return request(`/api/v1/opportunities/page?${search.toString()}`, opportunityPageSchema);
     },
     transition: (id: string, input: { expectedStage: OpportunityStage; stage: OpportunityStage; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
     history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),

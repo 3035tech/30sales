@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable } from '@nestjs/commo
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
-import { AssignOpportunityOwnerDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, TransitionOpportunityDto } from './opportunities.dto';
+import { AssignOpportunityOwnerDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, TransitionOpportunityDto } from './opportunities.dto';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto, CreateActivityDto } from './activities.dto';
 import { OpportunityActivitiesRepository } from './activities.repository';
@@ -29,6 +29,10 @@ export class OpportunitiesService {
   async list(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.repository.list(new OpportunityRepositoryListDto(context.organizationId, context.userId, MANAGER_ROLES.includes(context.role), context.role === 'closer', query));
+  }
+  async page(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityPageDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    return this.repository.page(new OpportunityRepositoryListDto(context.organizationId, context.userId, MANAGER_ROLES.includes(context.role), context.role === 'closer', query));
   }
   async transition(request: ApiRequestDto, opportunityId: string, dto: TransitionOpportunityDto): Promise<OpportunityRecordDto> {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');

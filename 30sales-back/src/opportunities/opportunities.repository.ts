@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, isNull, lt, notInArray, SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, isNull, lt, notInArray, or, SQL, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
-import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
+import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 
 const owner = alias(user, 'opportunity_owner');
 const historyActor = alias(user, 'opportunity_history_actor');
@@ -15,7 +15,7 @@ function mapOpportunity(row: OpportunityRow, canUpdate = false) {
 
 @Injectable()
 export class OpportunitiesRepository {
-  async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {
+  private conditions(input: OpportunityRepositoryListDto): SQL[] {
     const conditions: SQL[] = [eq(opportunities.organizationId, input.organizationId)];
     if (input.query.opportunityId) conditions.push(eq(opportunities.id, input.query.opportunityId));
     if (input.query.view !== 'all') conditions.push(notInArray(opportunities.stage, ['won', 'lost']));
@@ -25,13 +25,42 @@ export class OpportunitiesRepository {
     if (input.query.view === 'no_next_action') conditions.push(isNull(opportunities.nextActionAt));
     if (input.query.view === 'overdue') conditions.push(lt(opportunities.nextActionAt, new Date()), isNull(opportunities.closedAt));
     if (input.query.view === 'stale') conditions.push(lt(opportunities.stageChangedAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)), isNull(opportunities.closedAt));
-    const rows = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, stage: opportunities.stage, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
+    if (input.query.search) {
+      const pattern = `%${input.query.search}%`;
+      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(opportunities.name, pattern), ilike(opportunities.nextAction, pattern))!);
+    }
+    return conditions;
+  }
+
+  private async selectRows(input: OpportunityRepositoryListDto, conditions: SQL[]) {
+    const sortColumn = input.query.sortBy === 'accountName' ? accounts.name : input.query.sortBy === 'contactName' ? people.name : input.query.sortBy === 'stageChangedAt' ? opportunities.stageChangedAt : opportunities.nextActionAt;
+    const direction = input.query.sortDirection === 'desc' ? desc : asc;
+    return database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, stage: opportunities.stage, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions))
-      .orderBy(asc(opportunities.nextActionAt), desc(opportunities.stageChangedAt)).limit(input.query.limit).offset(input.query.offset);
+      .orderBy(direction(sortColumn), asc(opportunities.id)).limit(input.query.limit).offset(input.query.offset);
+  }
+
+  async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {
+    const rows = await this.selectRows(input, this.conditions(input));
     return rows.map((row) => mapOpportunity(row as OpportunityRow, input.canManageAll || (input.canEditOwned && row.ownerUserId === input.userId)));
+  }
+
+  async page(input: OpportunityRepositoryListDto): Promise<OpportunityPageDto> {
+    const conditions = this.conditions(input);
+    const [rows, totalRows] = await Promise.all([
+      this.selectRows(input, conditions),
+      database.select({ total: count() }).from(opportunities)
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions)),
+    ]);
+    const total = totalRows[0]?.total ?? 0;
+    const data = rows.map((row) => mapOpportunity(row as OpportunityRow, input.canManageAll || (input.canEditOwned && row.ownerUserId === input.userId)));
+    return new OpportunityPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
   async listAssignees(organizationId: string): Promise<OpportunityAssigneeDto[]> {

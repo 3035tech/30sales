@@ -13,6 +13,10 @@ const opportunityIdSchema = z.string().uuid();
 @Controller('api/v1/opportunities')
 export class OpportunitiesController {
   constructor(private readonly opportunitiesService: OpportunitiesService) {}
+  @Get('page')
+  page(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listOpportunitiesSchema)) query: ListOpportunitiesQueryDto) {
+    return this.opportunitiesService.page(request, query);
+  }
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listOpportunitiesSchema)) query: ListOpportunitiesQueryDto) {
     return this.opportunitiesService.list(request, query);

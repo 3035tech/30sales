@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, Clock3, History, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -28,24 +28,34 @@ export function PipelineWorkspace() {
   const opportunityId = searchParams.get('opportunityId') ?? undefined
   const [view, setView] = useState<PipelineView>('mine')
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
+  const [total, setTotal] = useState(0)
+  const [pageSize, setPageSize] = useState(25)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [sortBy, setSortBy] = useState<'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt'>('nextActionAt')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [assignableClosers, setAssignableClosers] = useState<OpportunityAssigneeDto[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState('')
+  const requestRevision = useRef(0)
+  useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250); return () => window.clearTimeout(timer) }, [search])
   const refresh = useCallback(async () => {
-    setLoading(true); setError('')
-    try { const page = await api.opportunities.list({ view, opportunityId, limit: 100 }); setOpportunities(page); setHasMore(!opportunityId && page.length === 100) }
-    catch { setError(t('errors.loadPipeline')) }
-    finally { setLoading(false) }
-  }, [opportunityId, view, t])
+    const revision = ++requestRevision.current
+    setLoading(true); setLoadingMore(false); setError('')
+    try { const page = await api.opportunities.listPage({ view, opportunityId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset: 0 }); if (revision === requestRevision.current) { setOpportunities(page.data); setTotal(page.pagination.total); setHasMore(page.pagination.hasNextPage) } }
+    catch { if (revision === requestRevision.current) setError(t('errors.loadPipeline')) }
+    finally { if (revision === requestRevision.current) setLoading(false) }
+  }, [debouncedSearch, opportunityId, pageSize, sortBy, sortDirection, view, t])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { api.opportunities.assignees().then(setAssignableClosers).catch(() => setAssignableClosers(null)) }, [])
   const loadMore = async () => {
+    const revision = requestRevision.current
     setLoadingMore(true); setError('')
-    try { const page = await api.opportunities.list({ view, opportunityId, limit: 100, offset: opportunities.length }); setOpportunities((current) => [...current, ...page]); setHasMore(!opportunityId && page.length === 100) }
-    catch { setError(t('errors.loadPipeline')) }
-    finally { setLoadingMore(false) }
+    try { const page = await api.opportunities.listPage({ view, opportunityId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset: opportunities.length }); if (revision === requestRevision.current) { setOpportunities((current) => [...current, ...page.data]); setHasMore(page.pagination.hasNextPage) } }
+    catch { if (revision === requestRevision.current) setError(t('errors.loadPipeline')) }
+    finally { if (revision === requestRevision.current) setLoadingMore(false) }
   }
   const active = opportunities.filter((item) => !terminal(item.stage))
   const valueByCurrency = active.reduce<Record<string, number>>((totals, item) => { if (item.amount && item.currency) totals[item.currency] = (totals[item.currency] ?? 0) + Number(item.amount); return totals }, {})
@@ -59,9 +69,10 @@ export function PipelineWorkspace() {
     <div className="pipeline-views" role="tablist" aria-label={t('pipeline.views')}>
       {(['mine', 'all', 'unassigned', 'no_next_action', 'overdue', 'stale'] as const).map((item) => <button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => { setView(item); if (opportunityId) setSearchParams({}) }}>{t(`pipeline.viewsList.${item}`)}</button>)}
     </div>
+    <div className="pipeline-list-controls"><label>{t('pipeline.search')}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); if (opportunityId) setSearchParams({}) }} placeholder={t('pipeline.searchHint')} /></label><label>{t('pipeline.sortBy')}<select value={sortBy} onChange={(event) => setSortBy(event.target.value as typeof sortBy)}><option value="nextActionAt">{t('pipeline.sort.nextActionAt')}</option><option value="accountName">{t('pipeline.sort.accountName')}</option><option value="contactName">{t('pipeline.sort.contactName')}</option><option value="stageChangedAt">{t('pipeline.sort.stageChangedAt')}</option></select></label><button type="button" aria-label={t(sortDirection === 'asc' ? 'pipeline.sortDescending' : 'pipeline.sortAscending')} onClick={() => setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc')}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}{t(sortDirection === 'asc' ? 'pipeline.ascending' : 'pipeline.descending')}</button><span className="pipeline-result-range">{t('table.range', { from: total ? 1 : 0, to: opportunities.length, total })}</span><label>{t('table.rowsPerPage')}<select value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label></div>
     {error && opportunities.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && opportunities.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
-    {loading && opportunities.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : opportunities.length === 0 ? <WorkspaceState kind={error ? 'error' : 'empty'} message={error || t('pipeline.empty')} detail={error ? undefined : t('pipeline.emptyHint')} /> : <div className="pipeline-board">
+    {loading && opportunities.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : opportunities.length === 0 ? <WorkspaceState kind={error ? 'error' : 'empty'} message={error || (debouncedSearch ? t('pipeline.emptySearch') : t('pipeline.empty'))} detail={error ? undefined : debouncedSearch ? undefined : t('pipeline.emptyHint')} /> : <div className="pipeline-board">
       {stages.filter((stage) => stageCounts[stage] > 0 || !terminal(stage)).map((stage) => <section className="pipeline-column" key={stage}>
         <header><h3>{t(`opportunityStages.${stage}`)}</h3><span>{stageCounts[stage]}</span></header>
         {opportunities.filter((item) => item.stage === stage).map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} assignableClosers={assignableClosers} onUpdated={() => void refresh()} />)}

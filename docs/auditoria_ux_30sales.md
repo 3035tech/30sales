@@ -74,7 +74,8 @@ Os estados de carregamento, erro, vazio, falha parcial e atualização foram pad
 ## Limites e próximos passos
 
 - A amostra em runtime cobriu os principais caminhos, mas não todas as telas administrativas nem leitor de tela/teclado completo.
-- Revisar o título duplicado no shell e nas áreas, mantendo um único título visual por página.
+- **Título repetido corrigido em `feature/ui-heading-hierarchy`:** o título do shell ficou oculto visualmente, mas segue como `h1` acessível; o título da área é o único exibido. Cabeçalho superior reduzido para os controles de workspace/notificações.
+- **Menu lateral corrigido após inspeção no Chrome:** ícones e rótulos estavam centralizados na linha porque `.ui-button` aplicava `justify-content:center`; agora os itens de navegação alinham à esquerda.
 - Avaliar divisão do bundle com carregamento sob demanda antes de adicionar mais áreas ao frontend.
 - Conectar um canal de teste fictício para validar o thread do Inbox e os estados de envio sem atingir um número real.
 
@@ -92,4 +93,4 @@ Os estados de carregamento, erro, vazio, falha parcial e atualização foram pad
 - Causa encontrada na cascata: os seletores de base de input, select e textarea tinham duas classes e superavam CSS de tela que definia alturas compactas para filtros, paginação e composição de mensagens. O resultado era controle maior que o espaço reservado e desalinhamento entre rótulos, campos e ações.
 - Correção preparada em `fix/ui-control-layout-cascade`: reduzir especificidade dos três seletores-base, mantendo os estilos compartilhados e permitindo que regras específicas do layout definam dimensões e espaçamentos.
 - A busca confirmou que os controles nativos seguem encapsulados em `FormControls`; não há JSX bruto de botão/campo nas features nem no shell.
-- Acesso ao Chrome falhou pelo host de navegador e Playwright não está instalado no projeto. A conclusão desta auditoria visual ainda depende de inspeção em runtime, principalmente nos filtros/paginação do Inbox e Pipeline e nos formulários responsivos.
+- A captura desktop do Chrome mostrou o alinhamento centralizado no menu; a regra foi ajustada. Não consegui conferir visualmente o pós-ajuste nem o mobile: o host CUA não lista abas, JavaScript via Apple Events está desativado e Playwright não está instalado no projeto. Permanecem pendentes os filtros/paginação do Inbox e Pipeline e formulários responsivos.

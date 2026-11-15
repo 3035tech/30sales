@@ -165,3 +165,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Na branch `fix/ui-control-layout-cascade`, os seletores base foram reduzidos para `.ui-text-field`, `.ui-select` e `.ui-textarea`. Regras de layout de cada tela agora podem ajustar o componente sem perder os estilos compartilhados de identidade visual.
 - Busca estática confirma que features e `App.tsx` não declaram controles nativos fora da camada compartilhada. `git diff --check` passou.
 - Inspeção visual em navegador não foi possível nesta retomada: o host de acesso ao Chrome estava indisponível e Playwright não está instalado no workspace. Front e API locais estão rodando; portanto, ainda falta confirmar em runtime os alinhamentos em desktop/mobile e percorrer os fluxos após esta correção.
+
+## Hierarquia de título do workspace — implementação em andamento
+
+- Branch `feature/ui-heading-hierarchy`: removida a duplicação visual entre o cabeçalho do shell e o título da área. O `h1` contextual permanece na árvore acessível, e o título interno da área é a única versão visível.
+- Faixa superior reduzida a 72px em desktop para organização/notificações e preservada em altura automática no mobile.
+- Uma captura desktop do Chrome confirmou o desalinhamento do menu: ícones e rótulos ficavam centralizados na área clicável. `.nav` agora define `justify-content:flex-start`, preservando a largura clicável e o estado ativo.
+- A confirmação visual após a correção ainda está pendente: o host CUA não lista abas e o Chrome bloqueia JavaScript via Apple Events. Não usei credenciais nem alterei dados.

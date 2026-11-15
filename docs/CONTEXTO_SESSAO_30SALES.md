@@ -158,3 +158,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - A escala de fontes foi aplicada aos CSS existentes e centralizada em `public/brand-kit/branding/tokens.css`. Sem mudança de API ou banco.
 - `git diff --check` passou. A busca confirmou que features e `App.tsx` não declaram controles HTML nativos diretamente. Build/testes e inspeção visual não foram executados por preferência persistente.
 - Implementação registrada na branch `feature/ui-control-standardization`; conferir o histórico do Git para o commit e a integração em `develop`.
+
+## Auditoria de desalinhamento dos controles — em correção
+
+- O relato de desalinhamento após a padronização levou a uma revisão transversal da cascata CSS dos controles. A causa encontrada: seletores base `.ui-field-control.ui-text-field`, `.ui-field-control.ui-select` e `.ui-field-control.ui-textarea` tinham especificidade maior do que regras de tela como `.inbox-list-pagination select` e `.inbox-composer textarea`, impedindo alturas e espaçamentos compactos.
+- Na branch `fix/ui-control-layout-cascade`, os seletores base foram reduzidos para `.ui-text-field`, `.ui-select` e `.ui-textarea`. Regras de layout de cada tela agora podem ajustar o componente sem perder os estilos compartilhados de identidade visual.
+- Busca estática confirma que features e `App.tsx` não declaram controles nativos fora da camada compartilhada. `git diff --check` passou.
+- Inspeção visual em navegador não foi possível nesta retomada: o host de acesso ao Chrome estava indisponível e Playwright não está instalado no workspace. Front e API locais estão rodando; portanto, ainda falta confirmar em runtime os alinhamentos em desktop/mobile e percorrer os fluxos após esta correção.

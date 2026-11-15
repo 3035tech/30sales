@@ -6,8 +6,8 @@ import { AttachmentsRepository } from './attachments.repository';
 import { AttachmentsService } from './attachments.service';
 import { MediaAttachmentWorker } from './media-attachment.worker';
 import { MediaDownloadProvider } from './media-download.provider';
-import { MediaStorageService } from './media-storage.service';
+import { S3MediaStorageService } from './s3-media-storage.service';
 import { MEDIA_STORAGE } from './media-storage';
 
-@Module({ imports: [ChannelsModule], controllers: [AttachmentsController], providers: [AttachmentsService, AttachmentsRepository, MediaAttachmentWorker, MediaDownloadProvider, MediaStorageService, { provide: MEDIA_STORAGE, useExisting: MediaStorageService }, TenantAccessService] })
+@Module({ imports: [ChannelsModule], controllers: [AttachmentsController], providers: [AttachmentsService, AttachmentsRepository, MediaAttachmentWorker, MediaDownloadProvider, S3MediaStorageService, { provide: MEDIA_STORAGE, useExisting: S3MediaStorageService }, TenantAccessService] })
 export class AttachmentsModule {}

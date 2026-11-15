@@ -23,8 +23,8 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `feature/context-sync`; detecção de intenção concreta de avançar integrada em develop.
-- Último commit em `develop`: `1c4a900 feat(closer): detect buying intent`.
+- Branch atual: `develop`; detecção de intenção concreta de avançar integrada.
+- Último commit de funcionalidade em `develop`: `1c4a900 feat(closer): detect buying intent`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);

@@ -3,7 +3,7 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, type ConversationStatusUpdateInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
@@ -73,6 +73,13 @@ export class InboxService {
     const result = await this.repository.setAutomationMode(new ConversationAutomationUpdateDto(context.organizationId, conversationId, context.userId, mode, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can change this conversation automation mode.' });
+    return result;
+  }
+  async setStatus(request: ApiRequestDto, conversationId: string, input: ConversationStatusUpdateInputDto) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.setStatus(new ConversationStatusUpdateDto(context.organizationId, conversationId, context.userId, input.status, request.correlationId));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the current conversation owner can change its status.' });
     return result;
   }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {

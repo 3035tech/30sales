@@ -26,6 +26,8 @@ The event is consumed by the in-process 30Sales Sofia runtime. Before generating
 
 The authenticated inbox SSE endpoint streams tenant-scoped conversation update identifiers. PostgreSQL `NOTIFY` is issued in the same transaction as inbound message persistence and inbox ownership, mode, note, and delivery changes, so each backend instance listening on the shared database receives committed updates. The stream sends no message body; the browser reloads authorized conversation data through the existing inbox API. A `ready` event makes the client refresh after initial connection and automatic EventSource reconnection. Heartbeats keep long-lived connections active through common proxies.
 
+Conversation owners can resolve a thread or reopen a resolved thread from the inbox. Status changes require current ownership, are tenant-scoped, audited, and broadcast over the same SSE stream. A new inbound message automatically reopens the conversation.
+
 ## Current boundary
 
 Sofia consumes inbound outbox events within 30Sales. It only responds when the tenant setting is enabled, the conversation is in `sofia` mode, the channel is active, and no human owns the conversation. The final mode and latest-message check is performed while locking the conversation row; a closer taking ownership waits for an in-flight send and prevents later automated replies. Model failures retry with backoff, then create an internal review note. Non-text messages pause automation for that conversation and create an internal notice for a teammate to review; audio transcription and structured CRM actions remain future work. The inbox SSE stream publishes conversation updates without exposing message bodies.

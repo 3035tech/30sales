@@ -5,6 +5,8 @@ export const listConversationsSchema = z.object({ conversationId: z.string().uui
 export type ListConversationsQueryDto = z.infer<typeof listConversationsSchema>;
 export const conversationAutomationModeSchema = z.enum(['sofia', 'human', 'paused']);
 export type ConversationAutomationMode = z.infer<typeof conversationAutomationModeSchema>;
+export const conversationStatusUpdateSchema = z.object({ status: z.enum(['open', 'resolved']) }).strict();
+export type ConversationStatusUpdateInputDto = z.infer<typeof conversationStatusUpdateSchema>;
 export const assignConversationSchema = z.object({ ownerUserId: z.string().uuid() }).strict();
 export type AssignConversationDto = z.infer<typeof assignConversationSchema>;
 export const markConversationReadSchema = z.object({ lastInboundMessageId: z.string().uuid().nullable() }).strict();
@@ -21,6 +23,7 @@ export class ConversationListItemDto {
 export class ConversationPageDto { constructor(readonly data: ConversationListItemDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class ConversationControlDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
 export class ConversationAutomationUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly mode: ConversationAutomationMode, readonly correlationId: string | null = null) {} }
+export class ConversationStatusUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly status: 'open' | 'resolved', readonly correlationId: string | null = null) {} }
 export class ConversationControlResultDto { constructor(readonly id: string, readonly ownerUserId: string | null, readonly automationMode: ConversationAutomationMode) {} }
 export class ConversationAssignDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly ownerUserId: string, readonly correlationId: string | null = null) {} }
 export class ConversationAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }

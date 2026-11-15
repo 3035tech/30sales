@@ -4,7 +4,7 @@ import { database } from '../db';
 import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, messages, messagingChannels, people } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto } from './inbox.dto';
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing';
@@ -157,6 +157,22 @@ export class InboxRepository {
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: input.mode === 'sofia' ? 'conversation.sofia_resumed' : input.mode === 'paused' ? 'conversation.sofia_paused' : 'conversation.human_mode_set', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { ownerUserId: current.ownerUserId, automationMode: current.automationMode }, afterState: { ownerUserId: updated.ownerUserId, automationMode: updated.automationMode } });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: updated.id, occurredAt: new Date().toISOString() })})`);
       return new ConversationControlResultDto(updated.id, updated.ownerUserId, updated.automationMode as ConversationControlResultDto['automationMode']);
+    });
+  }
+
+  async setStatus(input: ConversationStatusUpdateDto): Promise<{ id: string; status: 'open' | 'resolved' } | 'not_owner' | 'not_found'> {
+    return database.transaction(async (transaction) => {
+      const [current] = await transaction.select({ id: conversations.id, status: conversations.status, ownerUserId: conversations.ownerUserId })
+        .from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!current) return 'not_found';
+      if (current.ownerUserId !== input.actorUserId) return 'not_owner';
+      if (current.status === input.status) return { id: current.id, status: input.status };
+      const [updated] = await transaction.update(conversations).set({ status: input.status, updatedAt: new Date() })
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId)))
+        .returning({ id: conversations.id, status: conversations.status });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: input.status === 'resolved' ? 'conversation.resolved' : 'conversation.reopened', entityType: 'conversation', entityId: updated.id, correlationId: input.correlationId, beforeState: { status: current.status }, afterState: { status: updated.status } });
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: updated.id, occurredAt: new Date().toISOString() })})`);
+      return { id: updated.id, status: updated.status as 'open' | 'resolved' };
     });
   }
 

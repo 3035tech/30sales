@@ -4,7 +4,7 @@ import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, auditEvents, leadStatusHistory, leads, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { LeadAssigneeDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
+import { LeadAssigneeDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
 
 type DuplicateRow = { leadId: string; accountName: string; contactName: string; email: string | null; phone: string | null; status: LeadRecordDto['status']; source: string };
 function duplicateMatch(input: LeadDuplicateCheckDto): SQL | undefined {
@@ -49,18 +49,47 @@ export class LeadsRepository {
     return rows.map((row) => new LeadAssigneeDto(row.id, row.name, row.role));
   }
   async listTasks(input: TaskRepositoryListDto): Promise<TaskRecordDto[]> {
-    const conditions = [eq(tasks.organizationId, input.organizationId)];
+    return this.findTaskRows(input);
+  }
+
+  async listTasksPage(input: TaskRepositoryListDto): Promise<TaskPageDto> {
+    const conditions = this.taskConditions(input);
+    const [data, [result]] = await Promise.all([
+      this.findTaskRows(input),
+      database.select({ total: count() }).from(tasks)
+        .innerJoin(leads, and(eq(leads.id, tasks.leadId), eq(leads.organizationId, tasks.organizationId)))
+        .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+        .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+        .where(and(...conditions)),
+    ]);
+    const total = result?.total ?? 0;
+    return new TaskPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
+  }
+
+  private taskConditions(input: TaskRepositoryListDto): SQL[] {
+    const conditions: SQL[] = [eq(tasks.organizationId, input.organizationId)];
     if (input.query.taskId) conditions.push(eq(tasks.id, input.query.taskId));
     if (input.query.status) conditions.push(eq(tasks.status, input.query.status));
     else if (!input.query.taskId) conditions.push(eq(tasks.status, 'open'));
     if (input.query.from) conditions.push(gte(tasks.dueAt, new Date(input.query.from)));
     if (input.query.to) conditions.push(lt(tasks.dueAt, new Date(input.query.to)));
     if (input.query.assignedToUserId) conditions.push(eq(tasks.assignedToUserId, input.query.assignedToUserId));
+    if (input.query.search) {
+      const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
+      conditions.push(or(ilike(tasks.title, pattern), ilike(accounts.name, pattern), ilike(people.name, pattern))!);
+    }
+    return conditions;
+  }
+
+  private async findTaskRows(input: TaskRepositoryListDto): Promise<TaskRecordDto[]> {
+    const sortColumn = input.query.sortBy === 'title' ? tasks.title : input.query.sortBy === 'accountName' ? accounts.name : input.query.sortBy === 'contactName' ? people.name : tasks.dueAt;
+    const primaryOrder = input.query.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
+    const tieOrder = input.query.sortDirection === 'asc' ? asc(tasks.id) : desc(tasks.id);
     const rows = await database.select({ id: tasks.id, leadId: tasks.leadId, title: tasks.title, dueAt: tasks.dueAt, status: tasks.status, completedAt: tasks.completedAt, completionResult: tasks.completionResult, completionNote: tasks.completionNote, accountName: accounts.name, contactName: people.name }).from(tasks)
       .innerJoin(leads, and(eq(leads.id, tasks.leadId), eq(leads.organizationId, tasks.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
       .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-      .where(and(...conditions)).orderBy(asc(tasks.dueAt)).limit(input.query.limit);
+      .where(and(...this.taskConditions(input))).orderBy(primaryOrder, tieOrder).limit(input.query.limit).offset(input.query.offset);
     return rows.map((row) => new TaskRecordDto(row.id, row.leadId, row.title, row.dueAt.toISOString(), row.status, row.completedAt?.toISOString() ?? null, row.accountName, row.contactName, row.completionResult as TaskRecordDto['completionResult'], row.completionNote));
   }
   async findPossibleDuplicates(input: LeadRepositoryDuplicateCheckDto): Promise<LeadDuplicateCheckResponseDto> {

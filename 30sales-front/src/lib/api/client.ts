@@ -13,6 +13,7 @@ const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.objec
 const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uuid(), name: z.string(), contactCount: z.number(), leadCount: z.number(), respondedCount: z.number(), opportunityCount: z.number(), latestActivityAt: z.string().nullable() })), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
+const taskPageSchema = z.object({ data: z.array(taskSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const handoffSchema = z.object({ id: z.string().uuid(), opportunityId: z.string().uuid(), conversationId: z.string().uuid().nullable(), leadId: z.string().uuid(), opportunityName: z.string(), accountName: z.string(), contactName: z.string(), status: z.enum(['requested', 'accepted', 'returned']), reason: z.string(), evidence: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), nextStepAt: z.string(), requestedByName: z.string(), closerName: z.string().nullable(), returnReason: z.string().nullable(), requestedAt: z.string(), acceptedAt: z.string().nullable(), firstActivityAt: z.string().nullable() });
 const handoffPageSchema = z.object({ data: z.array(handoffSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 const closerEventSchema = z.object({ id: z.string().uuid(), eventType: z.string(), priority: z.string(), status: z.string(), conversationId: z.string().uuid(), opportunityId: z.string().uuid(), assignedToUserId: z.string().uuid(), accountName: z.string(), contactName: z.string(), summary: z.string(), evidence: z.string().nullable(), occurredAt: z.string(), dueAt: z.string().nullable(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable() });
@@ -243,15 +244,31 @@ export const api = {
     },
   },
   tasks: {
-    list: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; limit?: number } = {}) => {
+    list: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy?: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.taskId) search.set('taskId', params.taskId);
       if (params.from) search.set('from', params.from);
       if (params.to) search.set('to', params.to);
       if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
       if (params.status) search.set('status', params.status);
+      if (params.search) search.set('search', params.search);
+      if (params.sortBy) search.set('sortBy', params.sortBy);
+      if (params.sortDirection) search.set('sortDirection', params.sortDirection);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/leads/tasks?${search.toString()}`, z.array(taskSchema));
+    },
+    listPage: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
+      const search = new URLSearchParams();
+      if (params.taskId) search.set('taskId', params.taskId);
+      if (params.from) search.set('from', params.from);
+      if (params.to) search.set('to', params.to);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
+      if (params.status) search.set('status', params.status);
+      if (params.search) search.set('search', params.search);
+      search.set('sortBy', params.sortBy); search.set('sortDirection', params.sortDirection);
+      search.set('limit', String(params.limit)); search.set('offset', String(params.offset));
+      return request(`/api/v1/leads/tasks/page?${search.toString()}`, taskPageSchema);
     },
     create: (leadId: string, input: { title: string; dueAt: string }) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/tasks`, taskSchema, { method: 'POST', body: JSON.stringify(input) }),
     complete: (id: string, input: { result: z.infer<typeof taskResult>; resultNote?: string; followUp?: { title: string; dueAt: string } }) => request(`/api/v1/leads/tasks/${encodeURIComponent(id)}/complete`, taskSchema, { method: 'PATCH', body: JSON.stringify(input) }),

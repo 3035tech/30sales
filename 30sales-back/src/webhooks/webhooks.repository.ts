@@ -104,6 +104,7 @@ export class WebhooksRepository {
       if (message) {
         await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
+        await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId, occurredAt: input.occurredAt.toISOString() })})`);
         await transaction.insert(outboxEvents).values({
           organizationId: input.organizationId,
           eventType: 'agent.inbound_message_received',
@@ -173,6 +174,7 @@ export class WebhooksRepository {
       if (!next) return 'unchanged';
       await transaction.update(messages).set({ deliveryState: next })
         .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: message.conversationId, occurredAt: input.occurredAt.toISOString() })})`);
       return 'updated';
     });
   }

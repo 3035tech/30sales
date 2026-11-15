@@ -20,6 +20,10 @@ The event is a durable handoff point for the in-process 30Sales Sofia runtime. I
 - Changes to `sofia`, `human`, or `paused` mode must be checked immediately before send to avoid replying after a closer takes over.
 - Provider and model failures must remain visible as conversation events for a human operator; they must not silently mark a lead as handled.
 
+## Inbox real-time updates
+
+The authenticated inbox SSE endpoint streams tenant-scoped conversation update identifiers. PostgreSQL `NOTIFY` is issued in the same transaction as inbound message persistence and inbox ownership, mode, note, and delivery changes, so each backend instance listening on the shared database receives committed updates. The stream sends no message body; the browser reloads authorized conversation data through the existing inbox API. A `ready` event makes the client refresh after initial connection and automatic EventSource reconnection. Heartbeats keep long-lived connections active through common proxies.
+
 ## Current boundary
 
-This change creates the transactional inbound event only. It does not call an external orchestration service, model, CRM, or support inbox, and it does not send an automated reply yet.
+The internal runtime queue still has no consumer. This implementation does not call an external orchestration service, model, CRM, or support inbox, and it does not send an automated Sofia reply yet. The SSE stream currently publishes provider-ingested inbound message updates; other conversation mutations will be added as they are moved onto the internal event flow.

@@ -117,6 +117,7 @@ export const api = {
     act: (eventId: string, input: { action: 'acknowledge' | 'snooze' | 'reassign' | 'resolve'; snoozedUntil?: string; assignedToUserId?: string }) => request(`/api/v1/closer-events/${encodeURIComponent(eventId)}/actions`, z.object({ id: z.string().uuid(), status: z.string(), assignedToUserId: z.string().uuid(), acknowledgedAt: z.string().nullable(), snoozedUntil: z.string().nullable(), resolvedAt: z.string().nullable() }), { method: 'PATCH', body: JSON.stringify(input) }),
   },
   inbox: {
+    subscribe: () => new EventSource(`${import.meta.env.VITE_API_URL ?? ''}/api/v1/conversations/events`, { withCredentials: true }),
     conversations: (params: { conversationId?: string; status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.conversationId) search.set('conversationId', params.conversationId);

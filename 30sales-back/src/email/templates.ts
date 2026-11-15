@@ -9,3 +9,6 @@ export async function sendInvitationEmail(data: { id: string; email: string; inv
 export async function sendVerificationEmail(data: { user: { email: string; name: string }; url: string }) {
  await sendProductEmail({ to: data.user.email, subject: 'Confirme seu e-mail do 30Sales', text: `Olá ${data.user.name}. Confirme seu e-mail: ${data.url}`, html: `<p>Olá ${escapeHtml(data.user.name)}.</p><p><a href="${data.url}">Confirmar e-mail</a></p>` });
 }
+export async function sendPasswordResetEmail(data: { user: { email: string; name: string }; url: string }) {
+ await sendProductEmail({ to: data.user.email, subject: 'Redefina sua senha do 30Sales', text: `Olá ${data.user.name}. Para redefinir sua senha, acesse: ${data.url}. Se você não solicitou esta alteração, ignore esta mensagem.`, html: `<p>Olá ${escapeHtml(data.user.name)}.</p><p><a href="${data.url}">Redefinir senha</a></p><p>Se você não solicitou esta alteração, ignore esta mensagem.</p>` });
+}

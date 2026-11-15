@@ -3,6 +3,14 @@
 Data: 15/11/2026  
 Escopo: inspeção em runtime no Chrome, no desktop e em viewport responsivo de 390×844, com tenant e dados fictícios isolados. Login, navegação, listas, filtros, contagens e notificações foram percorridos manualmente.
 
+## Continuação: acesso e controles de ação
+
+- Login, carregamento de sessão e seleção de organização ficam fora do shell autenticado. Em sessão anônima no Chrome, a tela apresentou somente a marca e o cartão de acesso, sem menu lateral ou cabeçalho de workspace.
+- O login agora inclui “Lembrar de mim” (marcado inicialmente) e “Esqueci minha senha”. A recuperação usa o fluxo nativo do Better Auth, entrega o link pelo SMTP já configurado no backend, valida token e senha nova numa rota independente e revoga sessões anteriores após a troca. A resposta de solicitação não revela se o e-mail existe.
+- O fluxo visual de login sem sessão foi inspecionado no Chrome. Não foi enviado pedido de recuperação por e-mail nem exercitada a troca de senha; o ambiente SMTP local e uma caixa de teste não foram usados nesta inspeção.
+- Ícone sem texto visível cabe em ações frequentes e inequívocas, com nome acessível e foco visível: abrir/fechar navegação móvel, abrir notificações, atualizar uma lista e baixar um anexo identificado. Navegação lateral, editar oportunidade, responder, salvar, atribuir e resolver devem preservar texto visível; são ações primárias ou cujo significado depende do contexto.
+- Pendências registradas para a próxima rodada: remover o título duplicado entre cabeçalho global e conteúdo; configurar um canal fictício para percorrer uma conversa completa no Inbox; avaliar divisão do bundle frontend que ultrapassou o aviso de 500 kB.
+
 ## Inspeção visual e funcional em runtime
 
 - Login e seleção da organização funcionaram. Hoje, Tarefas, Leads, Contas, Pipeline, Passagens para closer e Relatórios carregaram dados. Inbox exibiu o estado vazio esperado porque não há canal WhatsApp configurado no ambiente local.

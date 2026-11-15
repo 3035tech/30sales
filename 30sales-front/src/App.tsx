@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, Command, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
+import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { api, type SessionDto, type UserNotificationDto } from './lib/api/client'
@@ -153,6 +153,35 @@ export default function App() {
     } catch { setNotificationsError(true) }
   }
 
+  if (loading) return <main className="access-shell">
+    <section className="access-card access-loading" aria-label={t('common.workspace')}>
+      <div className="access-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
+      <WorkspaceState kind="loading" compact message={t('common.loading')} />
+    </section>
+  </main>
+
+  if (error || !current) return <main className="access-shell">
+    <section className="access-card" aria-labelledby="access-title">
+      <div className="access-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
+      <p className="eyebrow">{t('home.accessEyebrow')}</p>
+      <Login onError={setError} />
+      {error !== 'authRequired' && error && <p className="access-error" role="alert">{error}</p>}
+    </section>
+  </main>
+
+  if (!current.activeOrganizationId) return <main className="access-shell">
+    <section className="access-card" aria-labelledby="access-title">
+      <div className="access-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
+      <p className="eyebrow">{t('home.chooseEyebrow')}</p>
+      <h1 id="access-title">{t('home.chooseTitle')}</h1>
+      <p className="muted">{t('home.chooseHint')}</p>
+      <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)} disabled={changingOrganization}>
+        <Building2 size={18} aria-hidden="true" /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} aria-hidden="true" />
+      </button>)}</div>
+      {organizationSwitchError && <p className="access-error" role="alert">{t('errors.requestFailed')}</p>}
+    </section>
+  </main>
+
   return <main className="shell">
     <aside className="rail">
       <div className="brand"><img className="brand-wordmark" src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
@@ -220,27 +249,21 @@ export default function App() {
         </div>
       </header>
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
-        {loading ? <div className="notice">{t('common.loading')}</div> : error ? <section className="welcome">
-          <span className="welcome-icon"><Command size={24} /></span><p className="eyebrow">{t('home.accessEyebrow')}</p><h2>{t('home.signInTitle')}</h2>
-          <p className="muted">{t('home.signInHint')}</p><Login onError={setError} />{error !== 'authRequired' && <p className="error">{error}</p>}
-        </section> : current && !current.activeOrganizationId ? <section className="welcome">
-          <span className="welcome-icon"><Building2 size={24} /></span><p className="eyebrow">{t('home.chooseEyebrow')}</p><h2>{t('home.chooseTitle')}</h2><p className="muted">{t('home.chooseHint')}</p>
-          <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)}><Building2 size={18} /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} /></button>)}</div>
-        </section> : page === 'closerSla' && current?.activeOrganizationId ? <CloserSlaSettingsWorkspace />
+        {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
           : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
-          : page === 'closerQueue' && current?.activeOrganizationId ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} />
-          : page === 'channels' && current?.activeOrganizationId ? <ChannelsWorkspace />
-          : page === 'assistant' && current?.activeOrganizationId ? <AssistantSettingsWorkspace />
-          : page === 'inbox' && current?.activeOrganizationId ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
-          : page === 'leads' && current?.activeOrganizationId ? <LeadsWorkspace initialSearch={leadSearchSeed} />
-          : page === 'accounts' && current?.activeOrganizationId ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} />
-            : page === 'tasks' && current?.activeOrganizationId ? <TasksWorkspace />
-            : page === 'handoffs' && current?.activeOrganizationId ? <HandoffsWorkspace />
-              : page === 'pipeline' && current?.activeOrganizationId ? <PipelineWorkspace />
-              : page === 'reports' && current?.activeOrganizationId ? <FunnelReportWorkspace />
-                : page === 'audit' && current?.activeOrganizationId ? <AuditWorkspace />
-                  : page === 'imports' && current?.activeOrganizationId ? <ImportsWorkspace />
-            : <TodayWorkspace userId={current?.user.id ?? ''} navigate={navigateToPage} />}
+          : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} />
+          : page === 'channels' ? <ChannelsWorkspace />
+          : page === 'assistant' ? <AssistantSettingsWorkspace />
+          : page === 'inbox' ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
+          : page === 'leads' ? <LeadsWorkspace initialSearch={leadSearchSeed} />
+          : page === 'accounts' ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} />
+            : page === 'tasks' ? <TasksWorkspace />
+            : page === 'handoffs' ? <HandoffsWorkspace />
+              : page === 'pipeline' ? <PipelineWorkspace />
+              : page === 'reports' ? <FunnelReportWorkspace />
+                : page === 'audit' ? <AuditWorkspace />
+                  : page === 'imports' ? <ImportsWorkspace />
+            : <TodayWorkspace userId={current.user.id} navigate={navigateToPage} />}
       </div>
     </section>
   </main>
@@ -250,19 +273,45 @@ function Login({ onError }: { onError: (message: string) => void }) {
   const { t } = useTranslation()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(true)
   const [busy, setBusy] = useState(false)
+  const [requestingReset, setRequestingReset] = useState(false)
+  const [resetRequested, setResetRequested] = useState(false)
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     setBusy(true)
     onError('')
-    const result = await api.auth.signInEmail({ email, password })
-    setBusy(false)
-    if (result.error) onError(t('auth.failedSignIn'))
-    else window.location.reload()
+    try {
+      if (requestingReset) {
+        const result = await api.auth.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` })
+        if (result.error) onError(t('auth.resetRequestFailed'))
+        else setResetRequested(true)
+        return
+      }
+      const result = await api.auth.signInEmail({ email, password, rememberMe })
+      if (result.error) onError(t('auth.failedSignIn'))
+      else window.location.reload()
+    } catch {
+      onError(requestingReset ? t('auth.resetRequestFailed') : t('auth.failedSignIn'))
+    } finally {
+      setBusy(false)
+    }
   }
-  return <form className="login-form" onSubmit={submit}>
-    <label>{t('common.email')}<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-    <label>{t('auth.password')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-    <button className="primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}<ArrowRight size={16} /></button>
-  </form>
+  return <>
+    <h1 id="access-title">{requestingReset ? t('auth.resetRequestTitle') : t('home.signInTitle')}</h1>
+    <p className="muted">{requestingReset ? t('auth.resetRequestHint') : t('home.signInHint')}</p>
+    {requestingReset ? resetRequested ? <div className="auth-reset-confirmation" role="status">
+      <p>{t('auth.resetRequestSent')}</p>
+      <button type="button" className="text-button" onClick={() => { setRequestingReset(false); setResetRequested(false); onError('') }}>{t('auth.backToSignIn')}</button>
+    </div> : <form className="login-form" onSubmit={submit}>
+      <label>{t('common.email')}<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <button className="primary" disabled={busy}>{busy ? t('auth.sendingResetLink') : t('auth.sendResetLink')}<ArrowRight size={16} /></button>
+      <button type="button" className="text-button" onClick={() => { setRequestingReset(false); onError('') }}>{t('auth.backToSignIn')}</button>
+    </form> : <form className="login-form" onSubmit={submit}>
+      <label>{t('common.email')}<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <label>{t('auth.password')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+      <div className="login-options"><label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />{t('auth.rememberMe')}</label><button type="button" className="text-button" onClick={() => { setRequestingReset(true); onError('') }}>{t('auth.forgotPassword')}</button></div>
+      <button className="primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}<ArrowRight size={16} /></button>
+    </form>}
+  </>
 }

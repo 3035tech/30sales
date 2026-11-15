@@ -23,8 +23,8 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 
 ## Estado registrado nesta retomada
 
-- Branch atual: `feature/closer-interpretation-failure`; contrato explícito de falha/baixa confiança está em implementação.
-- Último commit de funcionalidade em `develop`: `1c4a900 feat(closer): detect buying intent`.
+- Branch atual: `feature/context-sync`; endpoint de falha de interpretação integrado em develop, runtime Sofia pendente.
+- Último commit de funcionalidade em `develop`: `8849abc feat(closer): ingest interpretation failures`.
 - Fatias recentes já integradas em `develop`:
   - envio de respostas humanas pelos adapters Evolution/Cloud API, com credenciais cifradas e idempotência (`7c156db`);
   - notas internas na timeline com autor/auditoria (`35cd4df`);
@@ -37,7 +37,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - ações do evento (reconhecer, adiar por uma hora, redistribuir para closer ativo e concluir) integradas em `develop` (`ad89b03`); migration `0021_silent_brood.sql` criada e ainda sem aplicação.
 - 5739e02: classifica mensagens inbound como human_requested (urgente) e closer_question (alta), com uma ocorrência idempotente por mensagem, prioridade visual e rótulos pt-BR/en na central. Sem migration.
 - 1c4a900: identifica intenção concreta de avançar (reunião/demo, proposta/orçamento e início de contratação/teste) como buying_intent alta; pedido humano mantém prioridade urgente. Considera negação por frase e mantém idempotência/roteamento existentes. Sem migration. Build/testes não executados por orientação.
-- Nova feature recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica, correlaciona a mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime Sofia ainda pendente.
+- 8849abc: recebe sinal explícito de falha de interpretação por canal (Evolution ou Cloud), autentica com segredo próprio de canal, correlaciona mensagem armazenada, cria/eleva uma única ocorrência urgente e exibe motivo na central. Sem migration; integração do runtime Sofia ainda pendente.
 - Antes dessas, já estavam implementados ownership/atribuição de conversas e controles de modo de automação (`dc60b74`, `880920e`).
 - Migrations versionadas até `0021_silent_brood.sql`. As migrations continuam **não aplicadas** em qualquer banco/ambiente nesta sessão.
 - Não houve deploy, envio real de mensagem ou aplicação de migration.

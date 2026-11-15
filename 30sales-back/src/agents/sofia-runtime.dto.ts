@@ -15,6 +15,16 @@ export const sofiaInboundEventSchema = z.object({
 export type SofiaInboundEventDto = z.infer<typeof sofiaInboundEventSchema>;
 
 export type SofiaRuntimeMessageDto = { role: 'user' | 'assistant'; content: string };
+export const sofiaAgentResponseSchema = z.object({
+  replyText: z.string().trim().min(1).max(4096),
+  intent: z.enum(['qualification', 'information_request', 'explicit_human_request', 'meeting_request', 'proposal_request', 'not_interested', 'unclear']),
+  summary: z.string().trim().min(1).max(1000),
+  confirmedFacts: z.array(z.string().trim().min(1).max(300)).max(12),
+  unknowns: z.array(z.string().trim().min(1).max(300)).max(12),
+  nextStep: z.string().trim().min(1).max(500),
+}).strict();
+export type SofiaAgentResponseDto = z.infer<typeof sofiaAgentResponseSchema>;
+
 export type SofiaRuntimeContextDto = {
   event: SofiaInboundEventDto;
   enabled: boolean;

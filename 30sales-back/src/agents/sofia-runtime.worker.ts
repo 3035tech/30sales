@@ -44,14 +44,14 @@ export class SofiaRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
         return;
       }
-      const replyText = await this.model.generateReply({ model: context.model, systemPrompt: context.systemPrompt, messages: context.messages });
+      const result = await this.model.generateReply({ model: context.model, systemPrompt: context.systemPrompt, messages: context.messages });
       await this.repository.sendIfStillAutomated({
         queueEventId: queueEvent.id,
         context,
-        replyText,
+        result,
         send: async (channel) => {
           const credentials = this.credentialCrypto.decrypt(context.event.organizationId, channel.channelId, channel.credentials);
-          return this.textProvider.send({ provider: channel.provider, providerChannelId: channel.providerChannelId, recipientPhone: channel.recipientPhone, bodyText: replyText, credentials });
+          return this.textProvider.send({ provider: channel.provider, providerChannelId: channel.providerChannelId, recipientPhone: channel.recipientPhone, bodyText: result.replyText, credentials });
         },
       });
       await this.repository.completeEvent(queueEvent.id);

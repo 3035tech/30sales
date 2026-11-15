@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, auditEvents, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks } from '../db/schema';
+import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks } from '../db/schema';
 import { user } from '../db/auth-schema';
 import { HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
 
@@ -20,11 +20,21 @@ const firstCustomerActivityAt = sql<Date | null>`(
     and a.type in ('call', 'meeting', 'email', 'message')
     and a.occurred_at >= ${handoffs.acceptedAt}
 )`;
+const handoffRecordSelection = {
+  id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId,
+  opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name,
+  status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence,
+  confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep,
+  nextStepAt: handoffs.nextStepAt,
+  requestedByName: sql<string>`case when ${handoffs.requestedByAgent} then 'Sofia' else ${requester.name} end`,
+  closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt,
+  acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt,
+};
 
 @Injectable()
 export class HandoffsRepository {
   private async getRecord(organizationId: string, handoffId: string): Promise<HandoffRecordDto | null> {
-    const [row] = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
+    const [row] = await database.select(handoffRecordSelection)
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
@@ -35,7 +45,7 @@ export class HandoffsRepository {
   }
 
   async list(input: HandoffRepositoryListDto): Promise<HandoffRecordDto[]> {
-    const rows = await database.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
+    const rows = await database.select(handoffRecordSelection)
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
@@ -73,7 +83,7 @@ export class HandoffsRepository {
         await transaction.update(leads).set({ status: 'converted_to_sdr', updatedAt: new Date() }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, input.organizationId), eq(leads.status, 'responded')));
         await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: input.actorUserId });
       }
-      const [row] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, opportunityName: opportunities.name, accountName: accounts.name, contactName: people.name, status: handoffs.status, reason: handoffs.reason, evidence: handoffs.evidence, confirmedFacts: handoffs.confirmedFacts, unknowns: handoffs.unknowns, nextStep: handoffs.nextStep, nextStepAt: handoffs.nextStepAt, requestedByName: requester.name, closerName: closer.name, returnReason: handoffs.returnReason, requestedAt: handoffs.requestedAt, acceptedAt: handoffs.acceptedAt, firstActivityAt: firstCustomerActivityAt })
+      const [row] = await transaction.select(handoffRecordSelection)
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(eq(handoffs.id, handoff.id)).limit(1);
       return row ? mapHandoff(row as HandoffRow) : null;
     });
@@ -89,6 +99,11 @@ export class HandoffsRepository {
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: handoff.opportunityId, fromStage: opportunity?.stage ?? null, toStage: 'closer_contact_pending', actorUserId: input.actorUserId, reason: 'Closer accepted the handoff.' });
       await transaction.insert(handoffHistory).values({ organizationId: input.organizationId, handoffId: handoff.id, event: 'accepted', actorUserId: input.actorUserId });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'handoff.accepted', entityType: 'handoff', entityId: handoff.id, correlationId: input.correlationId, beforeState: { status: 'requested' }, afterState: { status: 'accepted', opportunityId: handoff.opportunityId } });
+      const [conversation] = await transaction.update(conversations).set({ ownerUserId: input.actorUserId, automationMode: 'human', status: 'open', updatedAt: acceptedAt })
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.opportunityId, handoff.opportunityId))).returning({ id: conversations.id });
+      if (conversation) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: acceptedAt.toISOString() })})`);
+      await transaction.update(closerEvents).set({ status: 'resolved', resolvedAt: acceptedAt, updatedAt: acceptedAt })
+        .where(and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.opportunityId, handoff.opportunityId), eq(closerEvents.eventType, 'qualified_handoff'), inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed'])));
       return handoff;
     });
     return updated ? this.getRecord(input.organizationId, updated.id) : null;

@@ -1,3 +1,4 @@
+import { Button, CalendarField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -42,8 +43,8 @@ export function FunnelReportWorkspace() {
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`))
 
   return <section className="leads-page funnel-report-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></button></header>
-    <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} required /></label><label>{t('funnelReport.to')}<input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} required /></label><button className="primary">{t('funnelReport.apply')}</button></form>
+    <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></Button></header>
+    <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<CalendarField mode="date" value={from} max={to} onValueChange={(value) => setFrom(value)} required /></label><label>{t('funnelReport.to')}<CalendarField mode="date" value={to} min={from} max={today} onValueChange={(value) => setTo(value)} required /></label><Button className="primary">{t('funnelReport.apply')}</Button></form>
     {error && report && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && report && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
     {loading && !report ? <WorkspaceState kind="loading" message={t('common.loading')} /> : report && <>

@@ -1,3 +1,4 @@
+import { Button, FileField, SelectField } from '../components/ui/FormControls'
 import { useMemo, useState } from 'react'
 import { AlertTriangle, FileUp, RefreshCw, SearchCheck, ShieldCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -70,15 +71,15 @@ export function ImportsWorkspace() {
   }
 
   return <section className="leads-page imports-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('imports.eyebrow')}</p><h2>{t('imports.title')}</h2><p className="muted">{t('imports.description')}</p></div><button className="refresh" onClick={() => { setResult(null); setRecords([]); setFileName(''); setParseError('') }} aria-label={t('imports.reset')}><RefreshCw size={16} /></button></header>
+    <header className="leads-heading"><div><p className="eyebrow">{t('imports.eyebrow')}</p><h2>{t('imports.title')}</h2><p className="muted">{t('imports.description')}</p></div><Button className="refresh" onClick={() => { setResult(null); setRecords([]); setFileName(''); setParseError('') }} aria-label={t('imports.reset')}><RefreshCw size={16} /></Button></header>
     <div className="imports-safety"><ShieldCheck size={18} /><span>{t('imports.readOnly')}</span></div>
     <section className="imports-upload">
-      <label>{t('imports.provider')}<select value={provider} onChange={(event) => { setProvider(event.target.value as Provider); setResult(null) }}><option value="twenty">Twenty</option><option value="chatwoot">Chatwoot</option><option value="legacy_postgres">Legacy PostgreSQL</option></select></label>
-      <label className="imports-file"><span>{t('imports.csvFile')}</span><input type="file" accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></label>
+      <label>{t('imports.provider')}<SelectField value={provider} onChange={(event) => { setProvider(event.target.value as Provider); setResult(null) }}><option value="twenty">Twenty</option><option value="chatwoot">Chatwoot</option><option value="legacy_postgres">Legacy PostgreSQL</option></SelectField></label>
+      <label className="imports-file"><span>{t('imports.csvFile')}</span><FileField accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></label>
       <p className="imports-format">{t('imports.format')}<code>{headers.join(', ')}</code></p>
       {parseError && <p className="error imports-error">{t(`imports.errors.${parseError}`, { defaultValue: t('imports.errors.invalidCsv') })}</p>}
       {requestError && <p className="error imports-error">{t('imports.requestFailed')}</p>}
-      <div className="imports-actions"><span>{t('imports.recordsLoaded', { count: records.length })}</span><button className="primary" disabled={!records.length || loading} onClick={() => void preview()}>{loading ? t('imports.analyzing') : t('imports.preview')}<SearchCheck size={16} /></button></div>
+      <div className="imports-actions"><span>{t('imports.recordsLoaded', { count: records.length })}</span><Button className="primary" disabled={!records.length || loading} onClick={() => void preview()}>{loading ? t('imports.analyzing') : t('imports.preview')}<SearchCheck size={16} /></Button></div>
     </section>
     {result && <section className="lead-list-panel imports-results">
       <div className="lead-list-toolbar"><div><h3>{t('imports.results')}</h3><p>{t('imports.resultsHint', { count: result.records.length })}</p></div><AlertTriangle size={18} /></div>

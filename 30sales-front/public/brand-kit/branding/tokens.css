@@ -5,4 +5,26 @@
   --brand-secondary: #64748B;
   --brand-display-font: 'Manrope', Inter, sans-serif;
   --brand-ui-font: Inter, sans-serif;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --font-size-md: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+  --ui-control-surface: #fff;
+  --ui-control-border: #cbd5e1;
+  --ui-control-divider: #e2e8f0;
+  --ui-control-text: #0f172a;
+  --ui-control-muted: #64748b;
+  --ui-control-placeholder: #94a3b8;
+  --ui-control-hover: #f8fafc;
+  --ui-control-disabled: #f1f5f9;
+  --ui-control-radius: 7px;
+  --ui-focus-ring: #2563eb;
+  --ui-primary-hover: #1d4ed8;
+  --ui-danger-border: #dc2626;
+  --ui-danger-surface: #fef2f2;
+  --ui-danger-text: #b91c1c;
 }

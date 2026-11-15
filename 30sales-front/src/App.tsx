@@ -1,3 +1,4 @@
+import { Button, CheckboxField, SelectField, TextField } from './components/ui/FormControls'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
@@ -176,9 +177,9 @@ export default function App() {
       <p className="eyebrow">{t('home.chooseEyebrow')}</p>
       <h1 id="access-title">{t('home.chooseTitle')}</h1>
       <p className="muted">{t('home.chooseHint')}</p>
-      <div className="org-list">{current.organizations.map((organization) => <button key={organization.id} onClick={() => void chooseOrganization(organization.id)} disabled={changingOrganization}>
+      <div className="org-list">{current.organizations.map((organization) => <Button key={organization.id} onClick={() => void chooseOrganization(organization.id)} disabled={changingOrganization}>
         <Building2 size={18} aria-hidden="true" /><span>{organization.name}<small>{organization.slug}</small></span><ArrowRight size={17} aria-hidden="true" />
-      </button>)}</div>
+      </Button>)}</div>
       {organizationSwitchError && <p className="access-error" role="alert">{t('errors.requestFailed')}</p>}
     </section>
   </main>
@@ -186,32 +187,32 @@ export default function App() {
   return <main className="shell">
     <aside className="rail">
       <div className="brand"><img className="brand-wordmark" src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
-      <button className="mobile-nav-toggle" type="button" aria-label={t(mobileMenuOpen ? 'common.closeNavigation' : 'common.openNavigation')} aria-controls="primary-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}>
+      <Button className="mobile-nav-toggle" type="button" aria-label={t(mobileMenuOpen ? 'common.closeNavigation' : 'common.openNavigation')} aria-controls="primary-navigation" aria-expanded={mobileMenuOpen} onClick={() => setMobileMenuOpen((open) => !open)}>
         {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-      </button>
+      </Button>
       <nav id="primary-navigation" className={`nav-items ${mobileMenuOpen ? 'open' : ''}`} aria-label={t('common.workspace')} onClick={() => setMobileMenuOpen(false)}>
         <div className="nav-group" role="group" aria-label={t('common.navGroups.daily')}><span className="nav-group-title">{t('common.navGroups.daily')}</span>
-          <button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigateToPage('home')}><CalendarClock size={18} />{t('common.home')}</button>
-          <button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</button>
+          <Button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigateToPage('home')}><CalendarClock size={18} />{t('common.home')}</Button>
+          <Button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</Button>
         </div>
         <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}><span className="nav-group-title">{t('common.navGroups.customers')}</span>
-          <button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</button>
-          <button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</button>
-          <button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</button>
+          <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</Button>
+          <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>
+          <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>
         </div>
         <div className="nav-group" role="group" aria-label={t('common.navGroups.sales')}><span className="nav-group-title">{t('common.navGroups.sales')}</span>
-          <button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => navigateToPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</button>
-          <button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</button>
-          <button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</button>
+          <Button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => navigateToPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</Button>
+          <Button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</Button>
+          <Button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</Button>
         </div>
         <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}><span className="nav-group-title">{t('common.navGroups.management')}</span>
-          <button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</button>
-          <button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</button>
-          <button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</button>
-          <button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => navigateToPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</button>
-          <button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</button>
-          <button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</button>
-          <button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</button>
+          <Button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</Button>
+          <Button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</Button>
+          <Button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</Button>
+          <Button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => navigateToPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</Button>
+          <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>
+          <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>
+          <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>
         </div>
       </nav>
       <div className="rail-bottom">
@@ -223,27 +224,27 @@ export default function App() {
       <header>
         <div><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">
-          <button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</button>
+          <Button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</Button>
           {current?.activeOrganizationId && <div className="notification-menu">
-            <button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: unreadNotificationCount })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
+            <Button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: unreadNotificationCount })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
               <Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-count">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}
-            </button>
+            </Button>
             {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
-              <div className="notification-panel-heading"><div className="notification-heading-copy"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>{unreadNotificationCount > 0 && <button className="notification-mark-all" type="button" disabled={markingNotificationsRead} onClick={() => void markAllNotificationsRead()}>{markingNotificationsRead ? t('systemNotifications.markingAllRead') : t('systemNotifications.markAllRead')}</button>}</div>
+              <div className="notification-panel-heading"><div className="notification-heading-copy"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>{unreadNotificationCount > 0 && <Button className="notification-mark-all" type="button" disabled={markingNotificationsRead} onClick={() => void markAllNotificationsRead()}>{markingNotificationsRead ? t('systemNotifications.markingAllRead') : t('systemNotifications.markAllRead')}</Button>}</div>
               {notificationsActionError && <WorkspaceState kind="error" compact message={t('systemNotifications.markAllFailed')} />}
               {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
-              {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
+              {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <Button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
                 <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : notification.notificationType === 'task_overdue' ? t('systemNotifications.taskOverdue') : notification.notificationType === 'handoff_accepted' ? t('systemNotifications.handoffAccepted') : notification.notificationType === 'handoff_returned' ? t('systemNotifications.handoffReturned') : notification.notificationType === 'conversation_assigned' ? t('systemNotifications.conversationAssigned') : notification.notificationType === 'opportunity_assigned' ? t('systemNotifications.opportunityAssigned') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
                 <span>{notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.notificationType === 'task_overdue' ? [notification.taskTitle, notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.handoffId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.opportunityId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.accountName ?? notification.summary}</span>
                 <small>{notification.eventType ? `${t(`closerEventTypes.${notification.eventType}`)} · ` : ''}{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt ?? notification.createdAt))}</small>
                 <span className="notification-open">{notification.taskId ? t('systemNotifications.openTask') : notification.handoffId ? t('systemNotifications.openHandoff') : notification.opportunityId ? t('systemNotifications.openOpportunity') : t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
-              </button>)}
+              </Button>)}
             </section>}
           </div>}
           {activeOrganization && <div className="workspace-selector-wrap">
-            <div className="workspace workspace-selector"><Building2 size={16} /><select aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || (current?.organizations.length ?? 0) < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+            <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || (current?.organizations.length ?? 0) < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
               {current?.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-            </select><ChevronDown size={15} aria-hidden="true" /></div>
+            </SelectField><ChevronDown size={15} aria-hidden="true" /></div>
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
@@ -304,16 +305,16 @@ function Login({ onError }: { onError: (message: string) => void }) {
     <p className="muted">{requestingReset ? t('auth.resetRequestHint') : t('home.signInHint')}</p>
     {requestingReset ? resetRequested ? <div className="auth-reset-confirmation" role="status">
       <p>{t('auth.resetRequestSent')}</p>
-      <button type="button" className="text-button" onClick={() => { setRequestingReset(false); setResetRequested(false); onError('') }}>{t('auth.backToSignIn')}</button>
+      <Button type="button" className="text-button" onClick={() => { setRequestingReset(false); setResetRequested(false); onError('') }}>{t('auth.backToSignIn')}</Button>
     </div> : <form className="login-form" onSubmit={submit}>
-      <label>{t('common.email')}<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-      <button className="primary" disabled={busy}>{busy ? t('auth.sendingResetLink') : t('auth.sendResetLink')}<ArrowRight size={16} /></button>
-      <button type="button" className="text-button" onClick={() => { setRequestingReset(false); onError('') }}>{t('auth.backToSignIn')}</button>
+      <label>{t('common.email')}<TextField type="email" normalize="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <Button className="primary" disabled={busy}>{busy ? t('auth.sendingResetLink') : t('auth.sendResetLink')}<ArrowRight size={16} /></Button>
+      <Button type="button" className="text-button" onClick={() => { setRequestingReset(false); onError('') }}>{t('auth.backToSignIn')}</Button>
     </form> : <form className="login-form" onSubmit={submit}>
-      <label>{t('common.email')}<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-      <label>{t('auth.password')}<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-      <div className="login-options"><label className="remember-option"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />{t('auth.rememberMe')}</label><button type="button" className="text-button" onClick={() => { setRequestingReset(true); onError('') }}>{t('auth.forgotPassword')}</button></div>
-      <button className="primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}<ArrowRight size={16} /></button>
+      <label>{t('common.email')}<TextField type="email" normalize="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
+      <label>{t('auth.password')}<TextField type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+      <div className="login-options"><label className="remember-option"><CheckboxField checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />{t('auth.rememberMe')}</label><Button type="button" className="text-button" onClick={() => { setRequestingReset(true); onError('') }}>{t('auth.forgotPassword')}</Button></div>
+      <Button className="primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}<ArrowRight size={16} /></Button>
     </form>}
   </>
 }

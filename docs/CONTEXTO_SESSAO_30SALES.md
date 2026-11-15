@@ -149,3 +149,12 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Branch atual: `feature/closer-compact-pipeline`.
 - A lista compacta inclui busca por empresa, contato, e-mail, telefone, negócio, próxima ação e responsável; filtros server-side por etapa, responsável e prazo; ordenação nas colunas; salto de página; expansão sob demanda dos controles completos da oportunidade.
 - Sem alteração de schema ou migration. Sem build/testes por preferência; revisar diff e executar `git diff --check` antes da integração.
+
+## Padronização de controles e tipografia — concluída
+
+- Branch atual: `feature/ui-control-standardization`.
+- Controles de ação e formulário foram migrados para wrappers da UI compartilhada. Só a camada `components/ui/FormControls.tsx` contém elementos HTML de botão/campo diretamente.
+- Select, data/data-hora, textos, telefone, moeda, inteiros, checkboxes, upload e áreas de texto têm wrappers e CSS próprios. Inteiros/decimais comunicam `number | null`; erros básicos de required, formato, comprimento, intervalo e datas estão localizados em pt-BR/en.
+- A escala de fontes foi aplicada aos CSS existentes e centralizada em `public/brand-kit/branding/tokens.css`. Sem mudança de API ou banco.
+- `git diff --check` passou. A busca confirmou que features e `App.tsx` não declaram controles HTML nativos diretamente. Build/testes e inspeção visual não foram executados por preferência persistente.
+- Implementação registrada na branch `feature/ui-control-standardization`; conferir o histórico do Git para o commit e a integração em `develop`.

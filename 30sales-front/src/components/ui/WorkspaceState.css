@@ -1,10 +1,10 @@
 .workspace-state{display:flex;align-items:flex-start;justify-content:center;gap:11px;min-width:0;padding:18px 20px;border:1px solid #e2e8f0;border-radius:10px;background:#fff;color:#334155;text-align:left}
 .workspace-state-icon{flex:none;display:grid;place-items:center;color:#64748b;padding-top:1px}
-.workspace-state-content{min-width:0;display:grid;gap:4px;font-size:12px;line-height:1.5}
-.workspace-state-content>strong{font-size:12px;font-weight:650;color:#334155}
+.workspace-state-content{min-width:0;display:grid;gap:4px;font-size:var(--font-size-sm);line-height:1.5}
+.workspace-state-content>strong{font-size:var(--font-size-sm);font-weight:650;color:#334155}
 .workspace-state-content>p{margin:0;color:#64748b}
 .workspace-state-content>div{display:grid;justify-items:center;gap:4px}
-.workspace-state-content>div>strong{font-size:12px;font-weight:650;color:#334155}
+.workspace-state-content>div>strong{font-size:var(--font-size-sm);font-weight:650;color:#334155}
 .workspace-state-content>div>p{margin:0;color:#64748b}
 .workspace-state-loading,.workspace-state-empty{background:#f8fafc;border-color:#e8edf3}
 .workspace-state-error{background:#fff7f7;border-color:#fecaca;color:#991b1b}

@@ -1,3 +1,4 @@
+import { Button, CalendarField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -100,29 +101,29 @@ export function HandoffsWorkspace() {
   }
 
   return <section className="leads-page handoffs-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><button className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></button></header>
+    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></header>
     <form className="handoff-form" onSubmit={create}>
       <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
       <div className="handoff-fields">
-        <label>{t('handoffs.lead')}<select value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName} — {lead.contactName}</option>)}</select></label>
-        <label>{t('handoffs.reason')}<input value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
-        <label>{t('handoffs.evidence')}<textarea value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
-        <label>{t('handoffs.confirmedFacts')}<textarea value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
-        <label>{t('handoffs.unknowns')}<textarea value={unknowns} onChange={(event) => setUnknowns(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
-        <div className="handoff-readiness"><div><strong>{t('handoffReadiness.title')}</strong><small>{t('handoffReadiness.hint')}</small></div>{readinessFields.map((field) => <label key={field}>{t(`handoffReadiness.fields.${field}`)}<input value={readiness[field]} onChange={(event) => setReadiness((current) => ({ ...current, [field]: event.target.value }))} maxLength={500} placeholder={t('handoffReadiness.placeholder')} /></label>)}</div>
-        <label>{t('handoffs.nextStep')}<input value={nextStep} onChange={(event) => setNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
-        <label>{t('handoffs.nextStepAt')}<input type="datetime-local" value={nextStepAt} onChange={(event) => setNextStepAt(event.target.value)} required /></label>
-        <button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</button>
+        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName} — {lead.contactName}</option>)}</SelectField></label>
+        <label>{t('handoffs.reason')}<TextField value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
+        <label>{t('handoffs.evidence')}<TextareaField value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
+        <label>{t('handoffs.confirmedFacts')}<TextareaField value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
+        <label>{t('handoffs.unknowns')}<TextareaField value={unknowns} onChange={(event) => setUnknowns(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
+        <div className="handoff-readiness"><div><strong>{t('handoffReadiness.title')}</strong><small>{t('handoffReadiness.hint')}</small></div>{readinessFields.map((field) => <label key={field}>{t(`handoffReadiness.fields.${field}`)}<TextField value={readiness[field]} onChange={(event) => setReadiness((current) => ({ ...current, [field]: event.target.value }))} maxLength={500} placeholder={t('handoffReadiness.placeholder')} /></label>)}</div>
+        <label>{t('handoffs.nextStep')}<TextField value={nextStep} onChange={(event) => setNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
+        <label>{t('handoffs.nextStepAt')}<CalendarField mode="datetime-local" value={nextStepAt} onValueChange={(value) => setNextStepAt(value)} required /></label>
+        <Button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</Button>
       </div>
     </form>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
-      {statuses.map((item) => <button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</button>)}
+      {statuses.map((item) => <Button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}
     </div>
     <div className="handoff-list-controls">
-      <label>{t('handoffs.search')}<input type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>
-      <label>{t('handoffs.sortBy')}<select value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setOffset(0) }}><option value="requestedAt">{t('handoffs.sort.requestedAt')}</option><option value="accountName">{t('handoffs.sort.accountName')}</option><option value="contactName">{t('handoffs.sort.contactName')}</option><option value="nextStepAt">{t('handoffs.sort.nextStepAt')}</option></select></label>
-      <button className="handoff-sort-direction" type="button" aria-label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}{t(sortDirection === 'asc' ? 'handoffs.ascending' : 'handoffs.descending')}</button>
+      <label>{t('handoffs.search')}<TextField type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>
+      <label>{t('handoffs.sortBy')}<SelectField value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setOffset(0) }}><option value="requestedAt">{t('handoffs.sort.requestedAt')}</option><option value="accountName">{t('handoffs.sort.accountName')}</option><option value="contactName">{t('handoffs.sort.contactName')}</option><option value="nextStepAt">{t('handoffs.sort.nextStepAt')}</option></SelectField></label>
+      <Button className="handoff-sort-direction" type="button" aria-label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}{t(sortDirection === 'asc' ? 'handoffs.ascending' : 'handoffs.descending')}</Button>
     </div>
     <div className="handoff-list">
       {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
@@ -135,18 +136,18 @@ export function HandoffsWorkspace() {
         </div>
         {handoff.acceptedAt && <div className="handoff-response-clock"><strong>{handoff.firstActivityAt ? t('handoffTiming.firstActivity') : t('handoffTiming.waitingForActivity')}</strong><span>{handoff.firstActivityAt ? t('handoffTiming.firstActivityElapsed', { duration: elapsed(handoff.acceptedAt, handoff.firstActivityAt) }) : t('handoffTiming.waitingElapsed', { duration: elapsed(handoff.acceptedAt) })}</span><small>{t('handoffTiming.acceptedAt', { date: dateLabel(handoff.acceptedAt) })}</small></div>}
         <div className="handoff-card-foot"><span>{t('handoffs.requestedBy', { name: handoff.requestedByName })}{handoff.closerName ? ` · ${t('handoffs.closer', { name: handoff.closerName })}` : ''}</span>
-          {handoff.status === 'requested' && <button className="primary handoff-action" onClick={() => void accept(handoff)}><Check size={15} />{t('handoffs.accept')}</button>}
-          {handoff.status === 'accepted' && <button className="handoff-return-trigger" onClick={() => setReturningId(returningId === handoff.id ? '' : handoff.id)}><ArrowDownLeft size={15} />{t('handoffs.return')}</button>}
+          {handoff.status === 'requested' && <Button className="primary handoff-action" onClick={() => void accept(handoff)}><Check size={15} />{t('handoffs.accept')}</Button>}
+          {handoff.status === 'accepted' && <Button className="handoff-return-trigger" onClick={() => setReturningId(returningId === handoff.id ? '' : handoff.id)}><ArrowDownLeft size={15} />{t('handoffs.return')}</Button>}
         </div>
         {handoff.returnReason && <p className="handoff-return-reason"><strong>{t('handoffs.returnReason')}</strong> {handoff.returnReason}</p>}
         {returningId === handoff.id && <form className="handoff-return-form" onSubmit={returnHandoff}>
-          <label>{t('handoffs.returnReason')}<textarea value={returnReason} onChange={(event) => setReturnReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
-          <label>{t('handoffs.returnAction')}<input value={returnNextStep} onChange={(event) => setReturnNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
-          <label>{t('handoffs.returnDueAt')}<input type="datetime-local" value={returnDueAt} onChange={(event) => setReturnDueAt(event.target.value)} required /></label>
-          <button className="primary" disabled={saving}>{saving ? t('common.saving') : t('handoffs.confirmReturn')}<ArrowRight size={15} /></button>
+          <label>{t('handoffs.returnReason')}<TextareaField value={returnReason} onChange={(event) => setReturnReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
+          <label>{t('handoffs.returnAction')}<TextField value={returnNextStep} onChange={(event) => setReturnNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
+          <label>{t('handoffs.returnDueAt')}<CalendarField mode="datetime-local" value={returnDueAt} onValueChange={(value) => setReturnDueAt(value)} required /></label>
+          <Button className="primary" disabled={saving}>{saving ? t('common.saving') : t('handoffs.confirmReturn')}<ArrowRight size={15} /></Button>
         </form>}
       </article>)}
     </div>
-    <footer className="handoff-pagination"><span>{t('table.range', { from: total ? offset + 1 : 0, to: Math.min(offset + pageSize, total), total })}</span><label>{t('table.rowsPerPage')}<select value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></select></label><div><button type="button" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={loading || offset === 0}>{t('table.previous')}</button><button type="button" onClick={() => setOffset(offset + pageSize)} disabled={loading || !hasNextPage}>{t('table.next')}</button></div></footer>
+    <footer className="handoff-pagination"><span>{t('table.range', { from: total ? offset + 1 : 0, to: Math.min(offset + pageSize, total), total })}</span><label>{t('table.rowsPerPage')}<SelectField value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></SelectField></label><div><Button type="button" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={loading || offset === 0}>{t('table.previous')}</Button><Button type="button" onClick={() => setOffset(offset + pageSize)} disabled={loading || !hasNextPage}>{t('table.next')}</Button></div></footer>
   </section>
 }

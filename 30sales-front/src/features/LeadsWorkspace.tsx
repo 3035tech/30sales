@@ -14,7 +14,7 @@ import './LeadDuplicateReview.css'
 import './LeadProfile.css'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
-const sourceOrder: NonNullable<CreateLeadInput['source']>[] = LEAD_SOURCE_VALUES
+const sourceOrder: NonNullable<CreateLeadInput['source']>[] = [...LEAD_SOURCE_VALUES]
 type SortDirection = 'asc' | 'desc'
 type OutreachDecision = (typeof CONTACT_OUTREACH_DECISION)[keyof typeof CONTACT_OUTREACH_DECISION]
 type OutreachBasis = (typeof CONTACT_OUTREACH_BASIS)[keyof typeof CONTACT_OUTREACH_BASIS]
@@ -332,7 +332,10 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   }
 
   const updateOutreachDraft = (contact: LeadContactDto, update: Partial<OutreachDraft>) => {
-    setOutreachDrafts((current) => ({ ...current, [contact.id]: { decision: contact.outreachDecision, basis: contact.outreachBasis ?? '', evidence: contact.outreachEvidence ?? '', ...current[contact.id], ...update } }))
+    setOutreachDrafts((current) => {
+      const previous = current[contact.id] ?? { decision: contact.outreachDecision, basis: contact.outreachBasis ?? '', evidence: contact.outreachEvidence ?? '' }
+      return { ...current, [contact.id]: { ...previous, ...update } }
+    })
   }
   const saveContactOutreachReview = async (contact: LeadContactDto) => {
     if (!contactsLead) return

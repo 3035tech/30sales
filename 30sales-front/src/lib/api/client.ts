@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { access, roles, type OrganizationRole } from '../permissions';
 import { PLATFORM_ORGANIZATION_API_PATH, PLATFORM_ROLE_NAMES } from '../authorizationConstants';
 import { ACCOUNT_MARKET_SEGMENTS } from '../accountConstants';
+import { IMPORT_PREVIEW_STATUS_VALUES, IMPORT_PROVIDERS, IMPORT_TARGET_TYPE, IMPORT_TARGET_TYPES, LEAD_IMPORT_RESULT_STATUS_VALUES } from '../importConstants';
 
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
 export const ACCOUNT_SEGMENT_FILTER = { unassigned: 'unassigned' } as const;
@@ -60,9 +61,10 @@ const attachmentSchema = z.object({ id: z.string().uuid(), mediaType: z.enum(['i
 const messageSchema = z.object({ id: z.string().uuid(), direction: z.enum(['inbound','outbound','internal']), actorType: z.enum(['contact','user','assistant','system']), bodyText: z.string().nullable(), transcriptText: z.string().nullable(), deliveryState: z.enum(['received','requested','accepted','delivered','read','failed','unknown']), occurredAt: z.string(), actorUserId: z.string().uuid().nullable().optional(), actorName: z.string().nullable().optional(), attachments: z.array(attachmentSchema) });
 const auditEventSchema = z.object({ id: z.string().uuid(), actorType: z.string(), actorName: z.string().nullable(), action: z.string(), entityType: z.string(), entityId: z.string().uuid().nullable(), reason: z.string().nullable(), beforeState: z.unknown().nullable(), afterState: z.unknown().nullable(), correlationId: z.string().nullable(), occurredAt: z.string() });
 const auditEventsPageSchema = z.object({ data: z.array(auditEventSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
-const importPreviewCandidateSchema = z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string(), label: z.string(), matchedBy: z.array(z.enum(['external_id','account_name','email','phone'])) });
-const importPreviewRecordSchema = z.object({ recordType: z.string(), externalId: z.string(), targetType: z.enum(['account','person','lead','opportunity']), sourceStatus: z.string().nullable(), status: z.enum(['already_linked','type_conflict','possible_match','ambiguous','no_match']), linkedTarget: z.object({ targetType: z.enum(['account','person','lead','opportunity']), targetId: z.string() }).nullable(), candidates: z.array(importPreviewCandidateSchema) });
-const importsPreviewSchema = z.object({ provider: z.enum(['twenty','chatwoot','legacy_postgres']), records: z.array(importPreviewRecordSchema) });
+const importPreviewCandidateSchema = z.object({ targetType: z.enum(IMPORT_TARGET_TYPES), targetId: z.string(), label: z.string(), matchedBy: z.array(z.enum(['external_id','account_name','email','phone'])) });
+const importPreviewRecordSchema = z.object({ recordType: z.string(), externalId: z.string(), targetType: z.enum(IMPORT_TARGET_TYPES), sourceStatus: z.string().nullable(), status: z.enum(IMPORT_PREVIEW_STATUS_VALUES), linkedTarget: z.object({ targetType: z.enum(IMPORT_TARGET_TYPES), targetId: z.string() }).nullable(), candidates: z.array(importPreviewCandidateSchema) });
+const importsPreviewSchema = z.object({ provider: z.enum(IMPORT_PROVIDERS), records: z.array(importPreviewRecordSchema) });
+const importsLeadsResultSchema = z.object({ provider: z.enum(IMPORT_PROVIDERS), records: z.array(z.object({ recordType: z.string(), externalId: z.string(), status: z.enum(LEAD_IMPORT_RESULT_STATUS_VALUES), leadId: z.string().uuid().nullable() })) });
 const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z.string(), email: z.string(), platformRole: z.enum(PLATFORM_ROLE_NAMES) }), activeOrganizationId: z.string().nullable(), activeOrganizationRole: z.string().nullable(), organizations: z.array(z.object({ id: z.string(), name: z.string(), slug: z.string() })) });
 const platformOrganizationSchema = z.object({ id: z.string().uuid(), name: z.string(), slug: z.string(), memberCount: z.number().int().nonnegative(), createdAt: z.string() });
 const platformOrganizationPageSchema = z.object({ data: z.array(platformOrganizationSchema), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
@@ -258,7 +260,8 @@ export const api = {
     },
   },
   imports: {
-    preview: (input: { provider: 'twenty' | 'chatwoot' | 'legacy_postgres'; records: Array<{ recordType: string; externalId: string; targetType: 'account' | 'person' | 'lead' | 'opportunity'; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/reconciliation-preview', importsPreviewSchema, { method: 'POST', body: JSON.stringify(input) }),
+    preview: (input: { provider: (typeof IMPORT_PROVIDERS)[number]; records: Array<{ recordType: string; externalId: string; targetType: (typeof IMPORT_TARGET_TYPES)[number]; accountName?: string; contactName?: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/reconciliation-preview', importsPreviewSchema, { method: 'POST', body: JSON.stringify(input) }),
+    importLeads: (input: { provider: (typeof IMPORT_PROVIDERS)[number]; records: Array<{ recordType: string; externalId: string; targetType: typeof IMPORT_TARGET_TYPE.lead; accountName: string; contactName: string; email?: string; phone?: string; sourceStatus?: string }> }) => request('/api/v1/imports/leads/commit', importsLeadsResultSchema, { method: 'POST', body: JSON.stringify(input) }),
   },
 
   leads: {

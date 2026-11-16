@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, externalRecords, leads, opportunities, people } from '../db/schema';
-import { CanonicalEntityType, ExternalIdentityCheckResultDto, ImportMatchField, ImportPreviewCandidateDto, ImportPreviewLinkDto, ImportPreviewRecordResultDto, ImportsPreviewDto, ImportRepositoryIdentityCheckDto, ImportRepositoryPreviewDto, PreviewImportRecordDto } from './imports.dto';
+import { accounts, auditEvents, externalRecords, leadContacts, leadStatusHistory, leads, opportunities, people } from '../db/schema';
+import { LEAD_SOURCE, LEAD_STATUS } from '../leads/constants';
+import { IMPORT_PREVIEW_STATUS, IMPORT_TARGET_TYPE, LEAD_IMPORT_AUDIT_ACTION, LEAD_IMPORT_RESULT_STATUS } from './imports.constants';
+import { CanonicalEntityType, ExternalIdentityCheckResultDto, ImportLeadsResultDto, ImportMatchField, ImportPreviewCandidateDto, ImportPreviewLinkDto, ImportPreviewRecordResultDto, ImportRepositoryIdentityCheckDto, ImportRepositoryLeadsDto, ImportRepositoryPreviewDto, LeadImportRecordResultDto, PreviewImportRecordDto } from './imports.dto';
 
 function normalizedName(value: string | undefined): string { return (value ?? '').trim().toLocaleLowerCase('en-US'); }
 function normalizedEmail(value: string | undefined): string { return (value ?? '').trim().toLocaleLowerCase('en-US'); }
@@ -11,6 +14,124 @@ function unique<T extends string>(values: T[]): T[] { return [...new Set(values.
 
 @Injectable()
 export class ImportsRepository {
+  async importLeads(input: ImportRepositoryLeadsDto): Promise<ImportLeadsResultDto> {
+    const records = await database.transaction(async (transaction) => {
+      const results: LeadImportRecordResultDto[] = [];
+      const accountCache = new Map<string, { id: string; ambiguous: boolean }>();
+      const leadCache = new Map<string, { id: string; primaryPersonId: string | null }>();
+      const personCache = new Map<string, string>();
+      const seenContacts = new Set<string>();
+
+      for (const record of input.input.records) {
+        const [external] = await transaction.select({ accountId: externalRecords.accountId, personId: externalRecords.personId, leadId: externalRecords.leadId, opportunityId: externalRecords.opportunityId })
+          .from(externalRecords).where(and(eq(externalRecords.organizationId, input.organizationId), eq(externalRecords.provider, input.input.provider), eq(externalRecords.recordType, record.recordType), eq(externalRecords.externalId, record.externalId))).limit(1);
+        if (external) {
+          const linkedLeadId = external.leadId;
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, linkedLeadId ? LEAD_IMPORT_RESULT_STATUS.alreadyLinked : LEAD_IMPORT_RESULT_STATUS.typeConflict, linkedLeadId));
+          continue;
+        }
+
+        const email = normalizedEmail(record.email);
+        const phone = normalizedPhone(record.phone);
+        const contactKeys = [email && `email:${email}`, phone && `phone:${phone}`].filter((value): value is string => Boolean(value));
+        if (contactKeys.some((key) => seenContacts.has(key))) {
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+          continue;
+        }
+        const existingLeads = await transaction.select({ id: leads.id }).from(leads)
+          .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.organizationId, input.organizationId), or(
+            ...(email ? [sql<boolean>`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
+            ...(phone ? [sql<boolean>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone}`] : []),
+          ))).limit(1);
+        if (existingLeads.length) {
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+          continue;
+        }
+
+        const accountKey = normalizedName(record.accountName);
+        let account = accountCache.get(accountKey);
+        if (!account) {
+          const matches = await transaction.select({ id: accounts.id }).from(accounts)
+            .where(and(eq(accounts.organizationId, input.organizationId), sql<boolean>`lower(trim(${accounts.name})) = ${accountKey}`)).limit(2);
+          account = matches.length > 1 ? { id: '', ambiguous: true } : matches.length === 1 ? { id: matches[0].id, ambiguous: false } : undefined;
+          if (account) accountCache.set(accountKey, account);
+        }
+        if (account?.ambiguous) {
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+          continue;
+        }
+
+        let leadRef = leadCache.get(accountKey);
+        if (!leadRef && account) {
+          const companyLeads = await transaction.select({ id: leads.id, personId: leads.personId }).from(leads)
+            .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, account.id))).limit(2);
+          if (companyLeads.length > 1) {
+            results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+            continue;
+          }
+          const companyLead = companyLeads[0];
+          if (companyLead) {
+            leadRef = { id: companyLead.id, primaryPersonId: companyLead.personId };
+            leadCache.set(accountKey, leadRef);
+          }
+        }
+
+        const cachedPersonIds = [...new Set(contactKeys.map((key) => personCache.get(key)).filter((value): value is string => Boolean(value)))];
+        if (cachedPersonIds.length > 1) {
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+          continue;
+        }
+        const personMatches = await transaction.select({ id: people.id }).from(people).where(and(eq(people.organizationId, input.organizationId), or(
+          ...(email ? [sql<boolean>`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
+          ...(phone ? [sql<boolean>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone}`] : []),
+        ))).limit(2);
+        const matchedIds = [...new Set([...cachedPersonIds, ...personMatches.map((person) => person.id)])];
+        if (matchedIds.length > 1) {
+          results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+          continue;
+        }
+        let personId = matchedIds[0];
+        if (!personId) {
+          const [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: record.contactName, email: record.email ?? null, phone: record.phone ?? null }).returning({ id: people.id });
+          personId = person.id;
+        }
+        for (const key of contactKeys) personCache.set(key, personId);
+
+        if (!account) {
+          const [createdAccount] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: record.accountName }).returning({ id: accounts.id });
+          account = { id: createdAccount.id, ambiguous: false };
+          accountCache.set(accountKey, account);
+        }
+
+        const isNewLead = !leadRef;
+        if (!leadRef) {
+          const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, accountId: account.id, personId, createdByUserId: input.userId, source: LEAD_SOURCE.import, status: LEAD_STATUS.new }).returning({ id: leads.id });
+          leadRef = { id: lead.id, primaryPersonId: personId };
+          leadCache.set(accountKey, leadRef);
+          await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: leadRef.id, fromStatus: null, toStatus: LEAD_STATUS.new, changedByUserId: input.userId });
+        }
+        const contactLink = await transaction.select({ id: leadContacts.id }).from(leadContacts)
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leadRef.id), eq(leadContacts.personId, personId))).limit(1);
+        const [primaryContact] = await transaction.select({ id: leadContacts.id }).from(leadContacts)
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leadRef.id), eq(leadContacts.isPrimary, true))).limit(1);
+        const isPrimary = isNewLead || (!primaryContact && !leadRef.primaryPersonId);
+        if (!contactLink.length) await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: leadRef.id, personId, isPrimary, isInterested: false, createdByUserId: input.userId });
+        else if (isPrimary) await transaction.update(leadContacts).set({ isPrimary: true, updatedAt: new Date() }).where(and(eq(leadContacts.id, contactLink[0].id), eq(leadContacts.organizationId, input.organizationId)));
+        if (isPrimary && !isNewLead) {
+          await transaction.update(leads).set({ personId, updatedAt: new Date() }).where(and(eq(leads.id, leadRef.id), eq(leads.organizationId, input.organizationId)));
+          leadRef.primaryPersonId = personId;
+        }
+        await transaction.insert(externalRecords).values({ organizationId: input.organizationId, provider: input.input.provider, recordType: record.recordType, externalId: record.externalId, leadId: leadRef.id, payloadHash: createHash('sha256').update(JSON.stringify(record)).digest('hex') });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: isNewLead ? LEAD_IMPORT_AUDIT_ACTION.leadCreated : LEAD_IMPORT_AUDIT_ACTION.contactAdded, entityType: 'lead', entityId: leadRef.id, correlationId: input.correlationId, afterState: { provider: input.input.provider, recordType: record.recordType, source: LEAD_SOURCE.import, contactLinked: !contactLink.length } });
+        for (const key of contactKeys) seenContacts.add(key);
+        results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.imported, leadRef.id));
+      }
+      return results;
+    });
+    return new ImportLeadsResultDto(input.input.provider, records);
+  }
+
   async preview(input: ImportRepositoryPreviewDto): Promise<ImportsPreviewDto> {
     const recordTypes = unique(input.input.records.map((record) => record.recordType));
     const externalIds = unique(input.input.records.map((record) => record.externalId));
@@ -54,7 +175,7 @@ export class ImportsRepository {
   }
 
   private async findPeople(input: ImportRepositoryPreviewDto) {
-    const records = input.input.records.filter((record) => record.targetType === 'person' || record.targetType === 'lead');
+    const records = input.input.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.person || record.targetType === IMPORT_TARGET_TYPE.lead);
     const emails = unique(records.map((record) => normalizedEmail(record.email)));
     const phones = unique(records.map((record) => normalizedPhone(record.phone)));
     const matches = [];
@@ -66,7 +187,7 @@ export class ImportsRepository {
   }
 
   private async findLeads(input: ImportRepositoryPreviewDto) {
-    const records = input.input.records.filter((record) => record.targetType === 'lead');
+    const records = input.input.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.lead);
     const emails = unique(records.map((record) => normalizedEmail(record.email)));
     const phones = unique(records.map((record) => normalizedPhone(record.phone)));
     const matches = [];
@@ -98,7 +219,7 @@ export class ImportsRepository {
   ): ImportPreviewRecordResultDto {
     const existing = externalMap.get(`${record.recordType}\u0000${record.externalId}`);
     if (existing) {
-      const status = existing.targetType === record.targetType ? 'already_linked' : 'type_conflict';
+      const status = existing.targetType === record.targetType ? IMPORT_PREVIEW_STATUS.alreadyLinked : IMPORT_PREVIEW_STATUS.typeConflict;
       return new ImportPreviewRecordResultDto(record.recordType, record.externalId, record.targetType, record.sourceStatus ?? null, status, new ImportPreviewLinkDto(existing.targetType, existing.targetId), []);
     }
     const candidates = new Map<string, ImportPreviewCandidateDto>();
@@ -111,10 +232,10 @@ export class ImportsRepository {
     const accountName = normalizedName(record.accountName);
     const email = normalizedEmail(record.email);
     const phone = normalizedPhone(record.phone);
-    if (record.targetType === 'account') {
+    if (record.targetType === IMPORT_TARGET_TYPE.account) {
       for (const account of accountRows) if (account.normalizedName === accountName) addCandidate('account', account.id, account.name, ['account_name']);
     }
-    if (record.targetType === 'person') {
+    if (record.targetType === IMPORT_TARGET_TYPE.person) {
       for (const person of personRows) {
         const matchedBy: ImportMatchField[] = [];
         if (email && person.normalizedEmail === email) matchedBy.push('email');
@@ -122,7 +243,7 @@ export class ImportsRepository {
         if (matchedBy.length) addCandidate('person', person.id, person.name, matchedBy);
       }
     }
-    if (record.targetType === 'lead') {
+    if (record.targetType === IMPORT_TARGET_TYPE.lead) {
       for (const lead of leadRows) {
         const matchedBy: ImportMatchField[] = [];
         if (email && lead.normalizedEmail === email) matchedBy.push('email');
@@ -130,11 +251,11 @@ export class ImportsRepository {
         if (matchedBy.length) addCandidate('lead', lead.id, `${lead.accountName} — ${lead.contactName}`, matchedBy);
       }
     }
-    if (record.targetType === 'opportunity') {
+    if (record.targetType === IMPORT_TARGET_TYPE.opportunity) {
       for (const opportunity of opportunityRows) if (opportunity.normalizedName === accountName) addCandidate('opportunity', opportunity.id, `${opportunity.accountName} — ${opportunity.name}`, ['account_name']);
     }
     const candidateList = [...candidates.values()];
-    const status = candidateList.length > 1 ? 'ambiguous' : candidateList.length === 1 ? 'possible_match' : 'no_match';
+    const status = candidateList.length > 1 ? IMPORT_PREVIEW_STATUS.ambiguous : candidateList.length === 1 ? IMPORT_PREVIEW_STATUS.possibleMatch : IMPORT_PREVIEW_STATUS.noMatch;
     return new ImportPreviewRecordResultDto(record.recordType, record.externalId, record.targetType, record.sourceStatus ?? null, status, null, candidateList);
   }
 }

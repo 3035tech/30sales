@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CheckExternalIdentitiesInputDto, ExternalIdentityCheckDto, ImportRepositoryIdentityCheckDto, ImportRepositoryPreviewDto, ImportsPreviewDto, PreviewImportsInputDto } from './imports.dto';
+import { CheckExternalIdentitiesInputDto, ExternalIdentityCheckDto, ImportLeadsInputDto, ImportLeadsResultDto, ImportRepositoryIdentityCheckDto, ImportRepositoryLeadsDto, ImportRepositoryPreviewDto, ImportsPreviewDto, PreviewImportsInputDto } from './imports.dto';
 import { ImportsRepository } from './imports.repository';
 
 @Injectable()
@@ -15,5 +15,9 @@ export class ImportsService {
   async preview(request: ApiRequestDto, input: PreviewImportsInputDto): Promise<ImportsPreviewDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
     return this.repository.preview(new ImportRepositoryPreviewDto(context.organizationId, input));
+  }
+  async importLeads(request: ApiRequestDto, input: ImportLeadsInputDto): Promise<ImportLeadsResultDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    return this.repository.importLeads(new ImportRepositoryLeadsDto(context.organizationId, context.userId, request.correlationId, input));
   }
 }

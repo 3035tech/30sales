@@ -318,3 +318,11 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Limite 16 MiB é uma política inicial comum aos dois provedores, não o máximo anunciado por eles. Validar os formatos/encoders com contas de teste de cada provedor antes de habilitar em produção.
 - Documentação primária consultada: Evolution `sendWhatsAppAudio` recebe URL ou base64 e retorna chave externa; a documentação Meta identifica PTT/voice na Cloud API via `audio.voice=true`. O fluxo síncrono e estados ambíguos foram mantidos sem retry automático.
 - Sem build/testes por preferência persistente. Próximo passo: revisão visual/funcional autenticada do composer e teste controlado de envio em canais sandbox dos dois provedores; depois, fluxo de convites de reunião integrado ao Inbox/Pipeline.
+
+## Importação inicial de leads LDR — 16/11/2026
+
+- A tela Importações passa de prévia somente leitura a fluxo de CSV normalizado de até 100 leads: comparar IDs externos, email e telefone; confirmar somente leads “sem correspondência”. O usuário mantém revisão manual de possíveis duplicatas/conflitos.
+- Endpoint autenticado com `integrations.manage` revalida no momento da escrita. Transação agrupa contatos de mesma empresa no mesmo lead, cria lead com `source=import`, status `new`, marca o contato principal, registra `lead_status_history`, alias por registro em `external_records`, hash do payload e auditoria. Contas/contatos existentes são reutilizados se a correspondência for inequívoca; empresas com mais de um lead e múltiplos matches não são mesclados.
+- Repetir o mesmo ID externo devolve `already_linked`; colisões de contato detectadas na mesma importação ou dados ambíguos retornam para revisão. A escrita usa schema existente, sem migration; CSV é lido no navegador e nenhum arquivo completo fica armazenado.
+- O status livre da fonte não é convertido para o status interno sem mapeamento; ainda não há histórico de lotes nem enfileiramento automático do SDR. Elegibilidade, opt-out e canal seguem obrigatórios antes de qualquer abordagem automatizada.
+- Revisão estática e `git diff --check` concluídos. Sem build/testes por preferência persistente. Próximo passo: revisão autenticada da tela e integrar esta importação ao processo de elegibilidade/fila SDR sem iniciar envios externos.

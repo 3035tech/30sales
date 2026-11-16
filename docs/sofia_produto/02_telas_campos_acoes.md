@@ -46,6 +46,8 @@ Composer: prévia de destinatário e número, bloqueio visível, enviar; opção
 
 **Jornada da base:** a importação (LDR) valida e deduplica a origem; o SDR IA aborda apenas leads elegíveis e registra mensagens/respostas no Inbox; BDR/closer assume exceções ou handoffs e conduz a oportunidade no pipeline. Cada mudança mantém origem, ator, histórico e próxima ação.
 
+**Primeiro corte de importação entregue no código:** CSV normalizado de até 100 leads, prévia de identidade externa, e-mail e telefone; confirmação cria apenas registros sem correspondência, reutiliza conta/contato quando a correspondência é inequívoca e cria o vínculo externo para impedir duplicação ao repetir. Linhas com a mesma empresa viram um lead com vários contatos. Uma empresa existente com um único lead pode receber novos contatos; empresas com múltiplos leads ou dados ambíguos ficam para revisão. Cada lead novo começa em `new` com origem `import`, contato principal e auditoria. Ação exige `integrations.manage`; o arquivo é processado no navegador e não é armazenado. Mapeamento de status livre da origem, histórico do lote e ativação/enfileiramento automático do SDR continuam pendentes.
+
 ## 2.3 Contas — lista e detalhe
 
 ### Lista

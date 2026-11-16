@@ -2,9 +2,10 @@ export const LEAD_STATUSES = [
   'new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr',
   'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact',
 ] as const;
-export const LEAD_STATUS = { responded: 'responded', convertedToSdr: 'converted_to_sdr' } as const;
+export const LEAD_STATUS = { new: 'new', responded: 'responded', convertedToSdr: 'converted_to_sdr' } as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 export const LEAD_SOURCES = ['manual', 'import', 'whatsapp', 'referral'] as const;
+export const LEAD_SOURCE = { import: 'import' } as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 export const UNASSIGNED_SEGMENT_FILTER = 'unassigned';
 export const LEAD_TRANSITIONS: Record<LeadStatus, readonly LeadStatus[]> = {

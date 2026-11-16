@@ -6,5 +6,6 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { auth } from './auth/auth';
 import { env } from './config/env';
-async function bootstrap() { const app = await NestFactory.create(AppModule, { bodyParser: false }); app.enableCors({ origin: env.FRONTEND_URL, credentials: true }); app.use((request: Request, _response: Response, next: NextFunction) => { requestContext.run({ correlationId: readCorrelationId(request.headers) }, next); }); app.use('/api/auth', toNodeHandler(auth)); app.use(express.json({ verify: (request, _response, buffer) => { (request as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } })); await app.listen(env.PORT, '0.0.0.0'); }
+const JSON_BODY_SIZE_LIMIT = '256kb';
+async function bootstrap() { const app = await NestFactory.create(AppModule, { bodyParser: false }); app.enableCors({ origin: env.FRONTEND_URL, credentials: true }); app.use((request: Request, _response: Response, next: NextFunction) => { requestContext.run({ correlationId: readCorrelationId(request.headers) }, next); }); app.use('/api/auth', toNodeHandler(auth)); app.use(express.json({ limit: JSON_BODY_SIZE_LIMIT, verify: (request, _response, buffer) => { (request as Request & { rawBody?: Buffer }).rawBody = Buffer.from(buffer); } })); await app.listen(env.PORT, '0.0.0.0'); }
 void bootstrap();

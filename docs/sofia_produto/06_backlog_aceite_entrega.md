@@ -22,7 +22,7 @@
 - Assistência no modo humano: perguntar à Sofia sobre o lead, resumir o histórico e sugerir/rascunhar respostas sem enviar em nome do closer.
 - Caixa de saída idempotente com estados de envio/entrega/falha e adaptadores diretos Evolution e WhatsApp Cloud API.
 - Composer do Inbox para envio humano de imagem, vídeo, PDF e áudio, com S3 privado, validação de conteúdo/tamanho e histórico/status na thread. Primeira fatia entregue no código: um arquivo por mensagem até 16 MiB; áudio sem legenda; anexos seguem pendentes de validação com contas reais de teste dos provedores.
-- Importação como entrada da base (“LDR”), sem papel de usuário separado; leads importados elegíveis seguem para abordagem/qualificação do SDR IA e depois para revisão/handoff humano.
+- Importação como entrada da base (“LDR”), sem papel de usuário separado; primeiro corte CSV de até 100 leads implementado com prévia, agrupamento de contatos por empresa, dedupe conservador, criação transacional e vínculo idempotente por external ID. Lotes históricos, mapeamento de status da origem e encaminhamento dos leads elegíveis à fila do SDR IA ainda pendentes.
 - Convites de reunião criados a partir do contexto do Inbox/oportunidade, com participantes, fuso, link/local e estados de convite sincronizados à timeline.
 - Ciclo de responsabilidade explícito: agente qualifica, closer aceita/devolve, agente retoma apenas com instrução.
 - Alteração manual de fatos/status com evidência e auditoria.

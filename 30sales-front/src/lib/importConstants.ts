@@ -1,0 +1,9 @@
+export const IMPORT_PROVIDERS = ['twenty', 'chatwoot', 'legacy_postgres'] as const
+export const IMPORT_TARGET_TYPES = ['account', 'person', 'lead', 'opportunity'] as const
+export const IMPORT_TARGET_TYPE = { lead: 'lead' } as const
+export const IMPORT_PREVIEW_STATUS_VALUES = ['already_linked', 'type_conflict', 'possible_match', 'ambiguous', 'no_match'] as const
+export const LEAD_IMPORT_RESULT_STATUS_VALUES = ['imported', 'already_linked', 'review_required', 'type_conflict'] as const
+export const IMPORT_PREVIEW_STATUS = { alreadyLinked: 'already_linked', typeConflict: 'type_conflict', possibleMatch: 'possible_match', ambiguous: 'ambiguous', noMatch: 'no_match' } as const
+export const LEAD_IMPORT_RESULT_STATUS = { imported: 'imported', alreadyLinked: 'already_linked', reviewRequired: 'review_required', typeConflict: 'type_conflict' } as const
+export const IMPORT_CSV_HEADERS = ['recordType', 'externalId', 'targetType', 'accountName', 'contactName', 'email', 'phone', 'sourceStatus'] as const
+export const IMPORT_CSV_MAX_BYTES = 512 * 1024

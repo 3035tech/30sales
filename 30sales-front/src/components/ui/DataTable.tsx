@@ -53,14 +53,18 @@ export function DataTable<T, SortKey extends string>({ rows, columns, getRowId, 
       </tbody>
     </table></div>
     <footer className="data-table-footer">
-      <span className="data-table-range">{t('table.range', { from: firstItem, to: lastItem, total: pagination.total })}</span>
-      <label className="data-table-page-size">{t('table.rowsPerPage')}<SelectField value={pagination.limit} disabled={loading} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={t('table.rowsPerPage')}>
-        {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
-      </SelectField></label>
-      <span className="data-table-page-label">{t('table.page', { page: page + 1, pages: pageCount })}</span>
-      <div className="data-table-page-controls">
-        <Button type="button" onClick={() => onPageChange(Math.max(0, pagination.offset - pagination.limit))} disabled={loading || pagination.offset === 0} aria-label={t('table.previous')}><ChevronLeft size={16} /></Button>
-        <Button type="button" onClick={() => onPageChange(pagination.offset + pagination.limit)} disabled={loading || !pagination.hasNextPage} aria-label={t('table.next')}><ChevronRight size={16} /></Button>
+      <div className="data-table-footer-summary">
+        <span className="data-table-range">{t('table.range', { from: firstItem, to: lastItem, total: pagination.total })}</span>
+        <label className="data-table-page-size">{t('table.rowsPerPage')}<SelectField value={pagination.limit} disabled={loading} onChange={(event) => onPageSizeChange(Number(event.target.value))} aria-label={t('table.rowsPerPage')}>
+          {[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+        </SelectField></label>
+      </div>
+      <div className="data-table-footer-pagination">
+        <span className="data-table-page-label">{t('table.page', { page: page + 1, pages: pageCount })}</span>
+        <div className="data-table-page-controls">
+          <Button type="button" onClick={() => onPageChange(Math.max(0, pagination.offset - pagination.limit))} disabled={loading || pagination.offset === 0} aria-label={t('table.previous')}><ChevronLeft size={16} /></Button>
+          <Button type="button" onClick={() => onPageChange(pagination.offset + pagination.limit)} disabled={loading || !pagination.hasNextPage} aria-label={t('table.next')}><ChevronRight size={16} /></Button>
+        </div>
       </div>
     </footer>
   </div>

@@ -4,8 +4,10 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
+import { Breadcrumbs } from './components/ui/Breadcrumbs'
 import { api, type SessionDto, type UserNotificationDto } from './lib/api/client'
 import i18n from './lib/i18n'
+import { getOrganizationRoles, ORGANIZATION_PROFILE_UPDATE_ROLES, ORGANIZATION_ROLE, ORGANIZATION_SEGMENT_MANAGEMENT_ROLES, PLATFORM_ROLE } from './lib/authorizationConstants'
 import { TeamSettings } from './features/TeamSettings'
 import { LeadsWorkspace } from './features/LeadsWorkspace'
 import { TasksWorkspace } from './features/TasksWorkspace'
@@ -22,6 +24,7 @@ import { ChannelsWorkspace } from './features/ChannelsWorkspace'
 import { AssistantSettingsWorkspace } from './features/AssistantSettingsWorkspace'
 import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspace'
 import { PipelineStagesWorkspace } from './features/PipelineStagesWorkspace'
+import { PlatformWorkspace } from './features/PlatformWorkspace'
 import './App.css'
 
 type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
@@ -31,11 +34,31 @@ const pagePaths: Record<Page, string> = {
   handoffs: '/handoffs', pipeline: '/pipeline', reports: '/reports/funnel', audit: '/settings/audit',
   imports: '/settings/imports', team: '/settings/team',
 }
+const rolePages: Record<string, readonly Page[]> = {
+  [ORGANIZATION_ROLE.owner]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
+  [ORGANIZATION_ROLE.admin]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
+  [ORGANIZATION_ROLE.manager]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
+  [ORGANIZATION_ROLE.closer]: ['closerQueue', 'tasks', 'inbox', 'handoffs', 'pipeline'],
+  [ORGANIZATION_ROLE.bdr]: ['home', 'tasks', 'leads', 'accounts'],
+  [ORGANIZATION_ROLE.sdr]: ['home', 'tasks', 'inbox', 'leads', 'handoffs'],
+  [ORGANIZATION_ROLE.operations]: ['home', 'channels', 'assistant', 'closerSla', 'audit', 'imports'],
+  [ORGANIZATION_ROLE.analyst]: ['home', 'reports'],
+}
+const roleDefaultPages: Record<string, Page> = {
+  [ORGANIZATION_ROLE.owner]: 'home', [ORGANIZATION_ROLE.admin]: 'home', [ORGANIZATION_ROLE.manager]: 'home',
+  [ORGANIZATION_ROLE.closer]: 'closerQueue', [ORGANIZATION_ROLE.bdr]: 'leads', [ORGANIZATION_ROLE.sdr]: 'inbox',
+  [ORGANIZATION_ROLE.operations]: 'channels', [ORGANIZATION_ROLE.analyst]: 'reports',
+}
 const pagesByPath = Object.fromEntries(Object.entries(pagePaths).map(([page, path]) => [path, page])) as Record<string, Page>
 const pageTranslationKeys: Record<Page, string> = {
   home: 'today', closerQueue: 'closerQueue', closerSla: 'closerSlaSettings', pipelineStages: 'pipelineStageSettings', inbox: 'inbox', leads: 'leads',
   accounts: 'accounts', channels: 'channels', assistant: 'assistantSettings', tasks: 'tasks', handoffs: 'handoffs',
   pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team',
+}
+const breadcrumbGroupKeys: Partial<Record<Page, string>> = {
+  home: 'common.navGroups.daily', tasks: 'common.navGroups.daily', inbox: 'common.navGroups.customers', leads: 'common.navGroups.customers', accounts: 'common.navGroups.customers',
+  closerQueue: 'common.navGroups.sales', handoffs: 'common.navGroups.sales', pipeline: 'common.navGroups.sales', pipelineStages: 'common.navGroups.sales',
+  channels: 'common.navGroups.management', assistant: 'common.navGroups.management', closerSla: 'common.navGroups.management', reports: 'common.navGroups.management', audit: 'common.navGroups.management', imports: 'common.navGroups.management', team: 'common.navGroups.management',
 }
 
 export default function App() {
@@ -46,6 +69,20 @@ export default function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const page = pagesByPath[location.pathname] ?? 'home'
+  const activeRole = current?.activeOrganizationRole ?? ''
+  const activeRoles = getOrganizationRoles(activeRole)
+  const canManageSegments = activeRoles.some((role) => ORGANIZATION_SEGMENT_MANAGEMENT_ROLES.some((managementRole) => managementRole === role))
+  const canUpdateAccountProfile = activeRoles.some((role) => ORGANIZATION_PROFILE_UPDATE_ROLES.some((updateRole) => updateRole === role))
+  const activeDefaultPage = activeRoles.map((role) => roleDefaultPages[role]).find((defaultPage) => defaultPage !== undefined) ?? 'home'
+  const allowedPages = [...new Set(activeRoles.flatMap((role) => rolePages[role] ?? []))]
+  const canViewPage = (target: Page) => allowedPages.includes(target)
+  const breadcrumbItems = page === 'home'
+    ? []
+    : [
+      { label: t('common.breadcrumbRoot'), href: pagePaths[activeDefaultPage] },
+      { label: t(breadcrumbGroupKeys[page] ?? 'common.navGroups.daily') },
+      ...(page === 'pipelineStages' ? [{ label: t('common.pipelineNav'), href: pagePaths.pipeline }] : []),
+    ]
   const searchParams = new URLSearchParams(location.search)
   const leadSearchSeed = page === 'leads' ? searchParams.get('search') ?? '' : ''
   const inboxSearchSeed = page === 'inbox' ? searchParams.get('search') ?? '' : ''
@@ -76,8 +113,9 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!pagesByPath[location.pathname]) navigate(pagePaths.home, { replace: true })
-  }, [location.pathname, navigate])
+    if (!current) return
+    if (!pagesByPath[location.pathname] || !canViewPage(page)) navigate(pagePaths[activeDefaultPage], { replace: true })
+  }, [activeDefaultPage, current, location.pathname, navigate, page])
 
   useEffect(() => {
     if (!mobileMenuOpen) return
@@ -110,13 +148,16 @@ export default function App() {
     try {
       const result = await api.auth.setActiveOrganization(organizationId)
       if (result.error) throw new Error('Organization switch failed')
-      setCurrent((previous) => previous ? { ...previous, activeOrganizationId: organizationId } : previous)
+      const refreshedSession = await api.session.get()
+      setCurrent(refreshedSession)
       setNotifications([])
       setUnreadNotificationCount(0)
       setNotificationsActionError(false)
       notificationRefreshRevision.current += 1
       notificationsLoadedRef.current = false
-      navigateToPage('home', {}, { replace: true })
+      const defaultRoles = getOrganizationRoles(refreshedSession.activeOrganizationRole)
+      const defaultPage = defaultRoles.map((role) => roleDefaultPages[role]).find((candidate) => candidate !== undefined) ?? 'home'
+      navigateToPage(defaultPage, {}, { replace: true })
       setMobileMenuOpen(false)
     } catch {
       setOrganizationSwitchError(true)
@@ -171,6 +212,8 @@ export default function App() {
     </section>
   </main>
 
+  if (current.user.platformRole === PLATFORM_ROLE.superAdmin) return <PlatformWorkspace user={current.user} onSignOut={async () => { await api.auth.signOut(); window.location.reload() }} />
+
   if (!current.activeOrganizationId) return <main className="access-shell">
     <section className="access-card" aria-labelledby="access-title">
       <div className="access-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
@@ -191,29 +234,29 @@ export default function App() {
         {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
       </Button>
       <nav id="primary-navigation" className={`nav-items ${mobileMenuOpen ? 'open' : ''}`} aria-label={t('common.workspace')} onClick={() => setMobileMenuOpen(false)}>
-        <div className="nav-group" role="group" aria-label={t('common.navGroups.daily')}><span className="nav-group-title">{t('common.navGroups.daily')}</span>
-          <Button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigateToPage('home')}><CalendarClock size={18} />{t('common.home')}</Button>
-          <Button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</Button>
-        </div>
-        <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}><span className="nav-group-title">{t('common.navGroups.customers')}</span>
-          <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</Button>
-          <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>
-          <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>
-        </div>
-        <div className="nav-group" role="group" aria-label={t('common.navGroups.sales')}><span className="nav-group-title">{t('common.navGroups.sales')}</span>
-          <Button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => navigateToPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</Button>
-          <Button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</Button>
-          <Button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</Button>
-        </div>
-        <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}><span className="nav-group-title">{t('common.navGroups.management')}</span>
-          <Button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</Button>
-          <Button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</Button>
-          <Button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</Button>
-          <Button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => navigateToPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</Button>
-          <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>
-          <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>
-          <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>
-        </div>
+        {([ 'home', 'tasks' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.daily')}><span className="nav-group-title">{t('common.navGroups.daily')}</span>
+          {canViewPage('home') && <Button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigateToPage('home')}><CalendarClock size={18} />{t('common.home')}</Button>}
+          {canViewPage('tasks') && <Button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</Button>}
+        </div>}
+        {([ 'inbox', 'leads', 'accounts' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}><span className="nav-group-title">{t('common.navGroups.customers')}</span>
+          {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</Button>}
+          {canViewPage('leads') && <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>}
+          {canViewPage('accounts') && <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>}
+        </div>}
+        {([ 'closerQueue', 'handoffs', 'pipeline' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.sales')}><span className="nav-group-title">{t('common.navGroups.sales')}</span>
+          {canViewPage('closerQueue') && <Button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => navigateToPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</Button>}
+          {canViewPage('handoffs') && <Button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</Button>}
+          {canViewPage('pipeline') && <Button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</Button>}
+        </div>}
+        {([ 'channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}><span className="nav-group-title">{t('common.navGroups.management')}</span>
+          {canViewPage('channels') && <Button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</Button>}
+          {canViewPage('assistant') && <Button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</Button>}
+          {canViewPage('closerSla') && <Button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</Button>}
+          {canViewPage('reports') && <Button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => navigateToPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</Button>}
+          {canViewPage('audit') && <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>}
+          {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}
+          {canViewPage('team') && <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>}
+        </div>}
       </nav>
       <div className="rail-bottom">
         <span className="avatar">{current?.user.name.slice(0, 1) ?? 'S'}</span>
@@ -251,15 +294,16 @@ export default function App() {
         </div>
       </header>
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
+        <Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
           : page === 'pipelineStages' ? <PipelineStagesWorkspace onBack={() => navigateToPage('pipeline')} />
           : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
-          : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} />
+          : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} onOpenTask={(taskId) => navigateToPage('tasks', { taskId })} />
           : page === 'channels' ? <ChannelsWorkspace />
           : page === 'assistant' ? <AssistantSettingsWorkspace />
           : page === 'inbox' ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
           : page === 'leads' ? <LeadsWorkspace initialSearch={leadSearchSeed} />
-          : page === 'accounts' ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} />
+          : page === 'accounts' ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} canManageSegments={canManageSegments} canUpdateProfile={canUpdateAccountProfile} />
             : page === 'tasks' ? <TasksWorkspace />
             : page === 'handoffs' ? <HandoffsWorkspace />
               : page === 'pipeline' ? <PipelineWorkspace />

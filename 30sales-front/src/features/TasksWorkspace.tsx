@@ -1,4 +1,4 @@
-import { Button, CalendarField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { Button, CalendarField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, CalendarClock, Check, CircleAlert, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -95,7 +95,7 @@ export function TasksWorkspace() {
     <form className="task-form" onSubmit={createTask}>
       <div className="lead-form-title"><Plus size={18} /><div><strong>{t('tasks.newTask')}</strong><small>{t('tasks.newTaskHint')}</small></div></div>
       <div className="task-fields">
-        <label>{t('tasks.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('tasks.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName} — {lead.contactName}</option>)}</SelectField></label>
+        <label>{t('tasks.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('tasks.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField></label>
         <label>{t('tasks.action')}<TextField value={title} onChange={(event) => setTitle(event.target.value)} minLength={2} maxLength={240} placeholder={t('tasks.actionPlaceholder')} required /></label>
         <label>{t('tasks.dueAt')}<CalendarField mode="datetime-local" value={dueAt} onValueChange={(value) => setDueAt(value)} required /></label>
         <Button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('tasks.addTask')}</Button>
@@ -108,7 +108,7 @@ export function TasksWorkspace() {
       {loading && tasks.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
       {loading && tasks.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : tasks.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={debouncedSearch ? t('tasks.noSearchResults') : t(`tasks.empty.${view}`)} detail={debouncedSearch ? t('tasks.noSearchResultsHint') : t('tasks.emptyHint')} /> : <ul className="task-items">{tasks.map((task) => <li key={task.id} className={view === 'overdue' && task.status === 'open' ? 'overdue' : ''}>
         <div className="task-time">{view === 'overdue' && task.status === 'open' && <CircleAlert size={15} />}{dateLabel(task.dueAt)}</div><div className="task-copy"><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div>
-        {task.status !== 'open' ? <span className={`task-status-label is-${task.status}`}>{t(`tasks.status.${task.status}`)}</span> : completionTaskId !== task.id && <Button className="task-complete" onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }} aria-label={t('tasks.completeFor', { title: task.title })}><Check size={17} />{t('tasks.complete')}</Button>}
+        {task.status !== 'open' ? <span className={`task-status-label is-${task.status}`}>{t(`tasks.status.${task.status}`)}</span> : completionTaskId !== task.id && <IconButton className="task-complete" label={t('tasks.completeFor', { title: task.title })} onClick={() => { setCompletionTaskId(task.id); setCompletionResult('completed'); setCompletionNote('') }}><Check size={17} /></IconButton>}
         {completionTaskId === task.id && <form className="task-completion-form" onSubmit={(event) => void complete(event, task)}>
           <label>{t('taskCompletion.result')}<SelectField value={completionResult} onChange={(event) => setCompletionResult(event.target.value as typeof completionResult)}><option value="completed">{t('taskCompletion.results.completed')}</option><option value="contacted">{t('taskCompletion.results.contacted')}</option><option value="no_response">{t('taskCompletion.results.no_response')}</option><option value="follow_up">{t('taskCompletion.results.follow_up')}</option></SelectField></label>
           <label>{t('taskCompletion.resultNote')}<TextareaField value={completionNote} onChange={(event) => setCompletionNote(event.target.value)} maxLength={2000} /></label>

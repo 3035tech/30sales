@@ -8,17 +8,20 @@ import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
+import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 
 @Injectable()
 export class InboxService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly realtime: InboxRealtimeService) {}
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    return this.realtime.stream(context.organizationId);
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    return this.realtime.stream(context.organizationId, context.userId, canManageAll);
   }
   async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    return this.repository.list(new ConversationRepositoryListDto(context.organizationId, context.userId, query));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    return this.repository.list(new ConversationRepositoryListDto(context.organizationId, context.userId, canManageAll, query));
   }
   async channels(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -34,13 +37,15 @@ export class InboxService {
   }
   async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, query.limit, query.offset));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, canManageAll, query.limit, query.offset));
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
   }
   async markRead(request: ApiRequestDto, conversationId: string, input: MarkConversationReadInputDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, input.lastInboundMessageId, request.correlationId));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, canManageAll, input.lastInboundMessageId, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'invalid_message') throw new BadRequestException({ code: 'INVALID_READ_CURSOR', message: 'The read cursor must reference an inbound message in this conversation.' });
     return result;

@@ -1,0 +1,2 @@
+ALTER TABLE "opportunity_stage_history" ADD CONSTRAINT "opportunity_stage_history_from_pipeline_tenant_fk" FOREIGN KEY ("organization_id","from_pipeline_id") REFERENCES "public"."pipelines"("organization_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "opportunity_stage_history" ADD CONSTRAINT "opportunity_stage_history_to_pipeline_tenant_fk" FOREIGN KEY ("organization_id","to_pipeline_id") REFERENCES "public"."pipelines"("organization_id","id") ON DELETE no action ON UPDATE no action;

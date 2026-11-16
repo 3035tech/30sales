@@ -1,4 +1,5 @@
 import { relations, sql } from "drizzle-orm";
+import { PLATFORM_ROLE, PLATFORM_ROLE_NAMES } from '../auth/authorization.constants';
 import {
   pgSchema,
   text,
@@ -9,6 +10,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const authSchema = pgSchema("auth");
+export const platformRole = authSchema.enum("platform_role", PLATFORM_ROLE_NAMES);
 
 export const user = authSchema.table("user", {
   id: uuid("id")
@@ -18,6 +20,7 @@ export const user = authSchema.table("user", {
   email: text("email").notNull().unique(),
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
+  platformRole: platformRole("platform_role").default(PLATFORM_ROLE.user).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at")
     .defaultNow()

@@ -15,11 +15,15 @@
   transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .ui-button:hover:not(:disabled) { background: var(--ui-control-hover); }
+.ui-button.primary { border-color: var(--brand-action); background: var(--brand-action); color: #fff; }
+.ui-button.primary:hover:not(:disabled) { border-color: var(--brand-action-hover); background: var(--brand-action-hover); color: #fff; }
+.ui-button.primary:focus-visible { outline: 2px solid var(--ui-focus-ring); outline-offset: 2px; }
 .ui-button-primary { border-color: var(--brand-primary); background: var(--brand-primary); color: #fff; }
 .ui-button-primary:hover:not(:disabled) { border-color: var(--ui-primary-hover); background: var(--ui-primary-hover); }
 .ui-button-danger { border-color: var(--ui-danger-border); background: var(--ui-danger-surface); color: var(--ui-danger-text); }
 .ui-button-quiet { border-color: transparent; background: transparent; }
 .ui-button:disabled { opacity: .55; cursor: not-allowed; }
+.ui-icon-button { width: 34px; min-width: 34px; height: 34px; min-height: 34px; padding: 6px; }
 
 .ui-field-control {
   min-width: 0;
@@ -47,8 +51,8 @@
 .ui-field-control:disabled { background-color: var(--ui-control-disabled); color: var(--ui-control-muted); cursor: not-allowed; }
 .ui-checkbox { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--brand-primary); cursor: pointer; }
 .ui-checkbox:disabled { cursor: not-allowed; }
-.ui-file-field { max-width: 100%; color: var(--ui-control-text); font: 400 var(--font-size-sm)/1.4 var(--brand-ui-font); }
-.ui-file-field::file-selector-button { min-height: 34px; margin-right: 10px; padding: 6px 10px; border: 1px solid var(--ui-control-border); border-radius: 6px; background: #fff; color: var(--ui-control-text); font: 600 var(--font-size-sm) var(--brand-ui-font); cursor: pointer; }
+.ui-file-field { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.ui-file-select { width: max-content; max-width: 100%; }
 .ui-form-field { display: grid; align-content: start; gap: 6px; color: var(--ui-control-text); font-size: var(--font-size-sm); font-weight: 550; }
 .ui-form-field-label { line-height: 1.35; }
 .ui-required-mark { padding-left: 3px; color: var(--ui-danger-text); }
@@ -57,7 +61,7 @@
 .ui-field-error { color: var(--ui-danger-text); }
 
 .ui-calendar-field { position: relative; display: grid; min-width: 0; gap: 5px; }
-.ui-calendar-trigger { width: 100%; justify-content: flex-start; text-align: left; cursor: pointer; }
+.ui-calendar-trigger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 11px; line-height: 1.4; justify-content: flex-start; text-align: left; cursor: pointer; }
 .ui-calendar-trigger svg { flex: 0 0 auto; color: var(--ui-control-muted); }
 .ui-calendar-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui-calendar-popover { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: min(304px, calc(100vw - 32px)); padding: 12px; border: 1px solid var(--ui-control-border); border-radius: 10px; background: #fff; box-shadow: 0 12px 28px #0f172a1c; }
@@ -81,3 +85,6 @@
 
 @media (prefers-reduced-motion: reduce) { .ui-button, .ui-field-control { transition: none; } }
 @media (max-width: 600px) { .closer-sla-control .ui-numeric-field { width: 130px; } }
+
+/* Validation text grows inside its own field; it must not change the field's top alignment in form grids. */
+form label:has(.ui-field-control), form label:has(.ui-calendar-field), form .ui-form-field { align-self: start; min-width: 0; }

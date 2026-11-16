@@ -1,4 +1,6 @@
-.closer-event-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}.closer-event-actions button,.closer-event-actions select{min-height:27px;border:1px solid #dbe4ee;border-radius:5px;background:#fff;padding:3px 7px;color:#475569;font-size:var(--font-size-xs);cursor:pointer}.closer-event-actions button:hover{border-color:#94a3b8;background:#f8fafc}.closer-event-actions button:disabled,.closer-event-actions select:disabled{cursor:wait;opacity:.6}
+.closer-event-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}.closer-event-actions button,.closer-event-actions select{min-height:27px;border:1px solid #dbe4ee;border-radius:5px;background:#fff;padding:3px 7px;color:#475569;font-size:var(--font-size-xs);cursor:pointer}.closer-event-actions button:hover{border-color:#94a3b8;background:#ffffff}.closer-event-actions button:disabled,.closer-event-actions select:disabled{cursor:wait;opacity:.6}
 .closer-priority-urgent{color:#b42318}.closer-priority-high{color:#a44416}
 
 .closer-interpretation-reason{display:block;color:#a52e35;font-weight:650}
+.closer-event-actions .ui-icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 6px; }
+.closer-item-action.ui-icon-button { width: 34px; min-width: 34px; height: 34px; min-height: 34px; margin: 4px 0 0 auto; padding: 6px; border: 1px solid #dbe4ee; border-radius: 7px; background: #fff; }

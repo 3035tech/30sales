@@ -8,23 +8,44 @@ O produto mantém um registro contínuo e auditável de cada conta, pessoa, conv
 
 Sucesso do desenho: um usuário abre uma oportunidade e encontra a conversa, origem, empresa correta, interlocutor, fatos confirmados, lacunas, objeções, acordos, responsável e próxima ação sem procurar em três aplicações.
 
-## Papéis e permissões funcionais
+## Papéis e visões do produto
+
+Há dois níveis de identidade e autorização. O **superadmin** pertence à plataforma 30Sales e atua sobre a carteira de empresas. Os demais papéis são memberships dentro de uma empresa/tenant; eles nunca concedem acesso a outra empresa. Uma identidade global pode ser membro de várias organizações e ter um papel diferente em cada uma.
+
+| Perfil | Escopo e visão principal | Ações centrais |
+| --- | --- | --- |
+| Superadmin da plataforma | Console global de empresas, estado da conta e onboarding; não recebe acesso cotidiano às conversas ou ao CRM de clientes | Cadastrar/ativar empresa e definir o responsável inicial. Acesso excepcional a dados de cliente, se necessário para suporte, deve ser explícito e auditado |
+| Responsável da empresa (`owner`) | Visão completa do próprio tenant, operação e resultados da equipe | Convidar usuários, atribuir papéis, configurar canais, políticas e pipelines; acompanhar closers e resultados |
+| Gestor (`manager`) | Visão operacional agregada da empresa/equipe | Distribuir carteira, acompanhar filas e métricas, apoiar a equipe conforme as permissões concedidas |
+| Closer (`closer`) | Cockpit pessoal: conversas e oportunidades atribuídas, handoffs, tarefas e próximos passos | Atender, registrar atividades e atualizar as próprias oportunidades. A visão padrão é da carteira atribuída; dados de outros closers aparecem somente por compartilhamento/permissão da empresa |
+| BDR (`bdr`) | Pesquisa e preparação de contas/leads da carteira ou fila autorizada | Enriquecer empresas/contatos, registrar tentativas e encaminhar leads |
+| SDR (`sdr`) | Conversas e qualificação atribuídas | Atender, qualificar e encaminhar oportunidades |
+| Operações (`operations`) | Saúde de canais, jobs, importações e auditoria operacional do tenant | Configurar e recuperar integrações sem acessar segredos em texto claro |
+| Analista (`analyst`) | Indicadores autorizados em modo de leitura | Consultar relatórios sem executar ações comerciais |
+
+Uma empresa pode ter vários usuários `closer`. O papel define capacidades e visão inicial; atribuição/ownership define quais registros comerciais entram na carteira individual. O responsável da empresa continua vendo o conjunto autorizado do tenant. A mesma pessoa pode ser `owner` em uma empresa e `closer` em outra.
+
+O perfil controla a experiência do dia a dia, não apenas o menu: início/cockpit, navegação, ações e filtros padrão mudam por papel. Exemplos: closer inicia em **Minha central**; responsável inicia em **Visão da equipe**; superadmin entra no console de empresas sem precisar selecionar um tenant. URLs protegidas e chamadas diretas continuam sendo autorizadas no backend.
+
+## Permissões funcionais
 
 | Papel | Pode ver | Pode alterar | Não pode por padrão |
 | --- | --- | --- | --- |
 | BDR | Contas atribuídas/fila de pesquisa, campanhas e atividades próprias/equipe | Enriquecer conta/contato, preparar listas, lançar tentativa/resultado, solicitar abordagem | Marcar ganho, editar política global, remover opt-out |
 | SDR humano | Inbox e qualificações atribuídas, ficha do lead | Conversar, qualificar, agendar retorno, criar/atualizar handoff | Marcar ganho sem papel comercial autorizado; alterar limites de canal |
 | Sofia (ator de sistema) | Contexto permitido da conversa e conhecimento publicado | Propor/solicitar ações autorizadas; registrar decisão e execução | Ignorar bloqueios, remover opt-out, assumir conversa humana, confirmar reunião sem agenda/resposta |
-| Closer | Oportunidades atribuídas, conversas e brief | Diagnóstico, atividade, etapa, proposta, resultado, motivo de perda | Editar origem original/consentimento sem revisão; alterar execução técnica |
-| Gestor | Dados da equipe e relatórios agregados | Atribuição, prioridade, metas, roteamento e permissões permitidas | Alterar histórico auditado ou apagar evidência |
+| Closer | Oportunidades atribuídas, conversas e brief | Diagnóstico, atividade, etapa, proposta, resultado, motivo de perda | Editar origem original/consentimento sem revisão; alterar execução técnica ou consultar automaticamente a carteira de colegas |
+| Responsável/gestor | Dados da empresa e visões da equipe autorizadas | Atribuição, prioridade, metas, roteamento e permissões permitidas | Alterar histórico auditado ou apagar evidência |
 | Admin de operação | Integrações, filas, configurações e logs operacionais | Credenciais, canais, políticas, publicação e recuperação | Acessar/mostrar segredo em texto claro; reprocessar efeitos externos sem idempotência |
 | Auditor | Histórico, configurações e evidências | Anotações de auditoria | Enviar mensagem ou mudar etapa |
+
+O papel global `superadmin` não é um papel de organização e não deve ser incluído no seletor de convites da empresa. A criação de empresa deve gerar um tenant isolado e convidar/definir o primeiro responsável como `owner`; closers e demais usuários entram por memberships e convites desse tenant. A interface pode esconder módulos indisponíveis, mas cada endpoint e cada consulta de dados também deve validar papel, tenant e escopo de ownership no servidor.
 
 As permissões se combinam com escopo: organização, equipe, proprietário ou registro atribuído. Todas as mudanças registram ator humano/sistema, escopo e timestamp.
 
 ## Navegação e shell
 
-Menu lateral:
+Menu lateral contextual ao papel:
 
 1. **Hoje** — fila pessoal e alertas.
 2. **Inbox** — conversas e handoffs.
@@ -38,7 +59,7 @@ Menu lateral:
 10. **Operação** — integrações, saúde, execuções e auditoria (admin).
 11. **Configurações** — usuários, equipes, calendários e políticas.
 
-Shell persistente: seletor de organização/equipe, busca global, botão de criar, notificações, ajuda, usuário/fuso horário. Busca global procura contas, pessoas, telefone/e-mail, conversa, tarefa e oportunidade respeitando permissões.
+Shell persistente: seletor de organização/equipe, busca global, botão de criar, notificações, ajuda, usuário/fuso horário. Para superadmin, o shell mostra o console global e não exige organização ativa. Para membros, módulos e destino inicial seguem o membership da organização ativa. Busca global procura contas, pessoas, telefone/e-mail, conversa, tarefa e oportunidade respeitando tenant, papel e ownership.
 
 ## Objetos e relações
 

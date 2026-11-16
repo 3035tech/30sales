@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignLeadSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
-import type { AssignLeadDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
+import { assignLeadSchema, createLeadContactSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, updateLeadContactSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadContactDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, UpdateLeadContactDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -30,6 +30,22 @@ export class LeadsController {
   @Post()
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createLeadSchema)) dto: CreateLeadDto) {
     return this.leadsService.create(request, dto);
+  }
+  @Get(':id/contacts')
+  listContacts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string) {
+    return this.leadsService.listContacts(request, leadId);
+  }
+  @Post(':id/contacts')
+  createContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(createLeadContactSchema)) dto: CreateLeadContactDto) {
+    return this.leadsService.createContact(request, leadId, dto);
+  }
+  @Patch(':id/contacts/:contactId')
+  updateContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Param('contactId', new ZodValidationPipe(leadIdSchema)) contactId: string, @Body(new ZodValidationPipe(updateLeadContactSchema)) dto: UpdateLeadContactDto) {
+    return this.leadsService.updateContact(request, leadId, contactId, dto);
+  }
+  @Patch(':id/contacts/:contactId/primary')
+  setPrimaryContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Param('contactId', new ZodValidationPipe(leadIdSchema)) contactId: string) {
+    return this.leadsService.setPrimaryContact(request, leadId, contactId);
   }
   @Patch(':id/status')
   updateStatus(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(updateLeadStatusSchema)) dto: UpdateLeadStatusDto) {

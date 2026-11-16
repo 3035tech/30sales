@@ -1,4 +1,4 @@
-import { Button, CalendarField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { Button, CalendarField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -105,7 +105,7 @@ export function HandoffsWorkspace() {
     <form className="handoff-form" onSubmit={create}>
       <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
       <div className="handoff-fields">
-        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName} — {lead.contactName}</option>)}</SelectField></label>
+        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField></label>
         <label>{t('handoffs.reason')}<TextField value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
         <label>{t('handoffs.evidence')}<TextareaField value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
         <label>{t('handoffs.confirmedFacts')}<TextareaField value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
@@ -136,8 +136,8 @@ export function HandoffsWorkspace() {
         </div>
         {handoff.acceptedAt && <div className="handoff-response-clock"><strong>{handoff.firstActivityAt ? t('handoffTiming.firstActivity') : t('handoffTiming.waitingForActivity')}</strong><span>{handoff.firstActivityAt ? t('handoffTiming.firstActivityElapsed', { duration: elapsed(handoff.acceptedAt, handoff.firstActivityAt) }) : t('handoffTiming.waitingElapsed', { duration: elapsed(handoff.acceptedAt) })}</span><small>{t('handoffTiming.acceptedAt', { date: dateLabel(handoff.acceptedAt) })}</small></div>}
         <div className="handoff-card-foot"><span>{t('handoffs.requestedBy', { name: handoff.requestedByName })}{handoff.closerName ? ` · ${t('handoffs.closer', { name: handoff.closerName })}` : ''}</span>
-          {handoff.status === 'requested' && <Button className="primary handoff-action" onClick={() => void accept(handoff)}><Check size={15} />{t('handoffs.accept')}</Button>}
-          {handoff.status === 'accepted' && <Button className="handoff-return-trigger" onClick={() => setReturningId(returningId === handoff.id ? '' : handoff.id)}><ArrowDownLeft size={15} />{t('handoffs.return')}</Button>}
+          {handoff.status === 'requested' && <IconButton className="handoff-action" label={t('handoffs.accept')} onClick={() => void accept(handoff)}><Check size={17} /></IconButton>}
+          {handoff.status === 'accepted' && <IconButton className="handoff-return-trigger" label={t('handoffs.return')} onClick={() => setReturningId(returningId === handoff.id ? '' : handoff.id)}><ArrowDownLeft size={17} /></IconButton>}
         </div>
         {handoff.returnReason && <p className="handoff-return-reason"><strong>{t('handoffs.returnReason')}</strong> {handoff.returnReason}</p>}
         {returningId === handoff.id && <form className="handoff-return-form" onSubmit={returnHandoff}>

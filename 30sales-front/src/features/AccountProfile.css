@@ -1,0 +1,10 @@
+.account-row-actions{display:flex;align-items:center;gap:8px;min-width:220px}
+.account-name-primary{display:grid;gap:3px;min-width:0}
+.account-name-primary>small{display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:var(--font-size-xs)}
+.account-profile-form{display:grid;gap:16px}
+.account-profile-form label{display:grid;gap:6px;color:#475569;font-size:var(--font-size-sm)}
+.account-profile-form label small{color:#64748b}
+.account-profile-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:8px}
+.account-size-filter{display:grid;gap:4px;min-width:135px;color:#64748b;font-size:var(--font-size-sm)}
+.account-size-filter .ui-numeric-field{min-height:34px;padding-inline:8px}
+.account-filter-error{align-self:center;color:#b42318}

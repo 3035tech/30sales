@@ -1,3 +1,4 @@
+import { ORGANIZATION_ROLE } from './authorizationConstants';
 import { createAccessControl } from 'better-auth/plugins/access';
 import { adminAc, defaultStatements, ownerAc } from 'better-auth/plugins/organization/access';
 const statement = { ...defaultStatements, inbox: ['read','assign'], leads: ['read','create','update','assign','export'], pipeline: ['read','create','update'], activities: ['read','create','update'], reports: ['read','export'], integrations: ['read','manage'], settings: ['read','manage'] } as const;
@@ -10,6 +11,6 @@ const sdr = access.newRole({ inbox: [...statement.inbox], leads: ['read','create
 const closer = access.newRole({ inbox: [...statement.inbox], leads: ['read','update'], pipeline: ['read','create','update'], activities: ['read','create','update'], reports: ['read'] });
 const operations = access.newRole({ inbox: [...statement.inbox], leads: ['read','update','export'], pipeline: ['read'], activities: ['read','create','update'], reports: ['read','export'], integrations: ['read','manage'], settings: ['read'] });
 const analyst = access.newRole({ leads: ['read'], pipeline: ['read'], activities: ['read'], reports: ['read','export'] });
-export const roles = { owner, admin, manager, bdr, sdr, closer, operations, analyst };
-export const roleNames = ['owner','admin','manager','bdr','sdr','closer','operations','analyst'] as const;
+export const roles = { [ORGANIZATION_ROLE.owner]: owner, [ORGANIZATION_ROLE.admin]: admin, [ORGANIZATION_ROLE.manager]: manager, [ORGANIZATION_ROLE.bdr]: bdr, [ORGANIZATION_ROLE.sdr]: sdr, [ORGANIZATION_ROLE.closer]: closer, [ORGANIZATION_ROLE.operations]: operations, [ORGANIZATION_ROLE.analyst]: analyst };
+export const roleNames = Object.values(ORGANIZATION_ROLE);
 export type OrganizationRole = typeof roleNames[number];

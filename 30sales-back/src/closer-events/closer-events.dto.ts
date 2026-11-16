@@ -16,7 +16,7 @@ export const closerEventActionSchema = z.object({ action: z.enum(['acknowledge',
   .refine((input) => input.action === 'snooze' ? Boolean(input.snoozedUntil) : input.snoozedUntil === undefined, { message: 'snoozedUntil is required only when snoozing.' })
   .refine((input) => input.action === 'reassign' ? Boolean(input.assignedToUserId) : input.assignedToUserId === undefined, { message: 'assignedToUserId is required only when reassigning.' });
 export type CloserEventActionInputDto = z.infer<typeof closerEventActionSchema>;
-export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly query: ListCloserEventsQueryDto) {} }
+export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListCloserEventsQueryDto) {} }
 export class CloserEventDto {
   constructor(readonly id: string, readonly eventType: string, readonly priority: string, readonly status: string, readonly conversationId: string, readonly opportunityId: string, readonly assignedToUserId: string, readonly accountName: string | null, readonly contactName: string | null, readonly summary: string, readonly evidence: string | null, readonly occurredAt: string, readonly dueAt: string | null, readonly acknowledgedAt: string | null, readonly snoozedUntil: string | null) {}
 }
@@ -27,6 +27,6 @@ export class CloserSlaNotificationsListDto { constructor(readonly organizationId
 export class CloserSlaNotificationDto { constructor(readonly id: string, readonly closerEventId: string, readonly conversationId: string, readonly notificationType: string, readonly eventType: string, readonly summary: string, readonly accountName: string | null, readonly dueAt: string, readonly createdAt: string) {} }
 export class CloserSlaNotificationReadDto { constructor(readonly id: string, readonly organizationId: string, readonly userId: string) {} }
 export class CloserEventsPageDto { constructor(readonly data: CloserEventDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
-export class CloserEventMutationDto { constructor(readonly organizationId: string, readonly eventId: string, readonly actorUserId: string, readonly actorRole: string, readonly input: CloserEventActionInputDto, readonly correlationId: string | null) {} }
+export class CloserEventMutationDto { constructor(readonly organizationId: string, readonly eventId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: CloserEventActionInputDto, readonly correlationId: string | null) {} }
 export class CloserEventStateDto { constructor(readonly id: string, readonly status: string, readonly assignedToUserId: string, readonly acknowledgedAt: string | null, readonly snoozedUntil: string | null, readonly resolvedAt: string | null) {} }
 export class CloserEventAssigneeDto { constructor(readonly id: string, readonly name: string) {} }

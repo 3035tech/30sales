@@ -47,6 +47,12 @@ function handoffConditions(input: HandoffRepositoryListDto): SQL[] {
   const conditions: SQL[] = [eq(handoffs.organizationId, input.organizationId)];
   if (input.query.handoffId) conditions.push(eq(handoffs.id, input.query.handoffId));
   else conditions.push(eq(handoffs.status, input.query.status));
+  if (!input.canManageAll) {
+    const allowedStatuses: SQL[] = [and(eq(handoffs.requestedByUserId, input.userId), eq(handoffs.status, 'requested'))!];
+    if (input.isCloser) allowedStatuses.push(eq(handoffs.status, 'requested'));
+    allowedStatuses.push(and(eq(handoffs.acceptedByUserId, input.userId), inArray(handoffs.status, ['accepted', 'returned']))!);
+    conditions.push(or(...allowedStatuses)!);
+  }
   if (input.query.search) {
     const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
     conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(opportunities.name, pattern), ilike(handoffs.reason, pattern), ilike(handoffs.nextStep, pattern))!);
@@ -105,7 +111,7 @@ export class HandoffsRepository {
       const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name })
         .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId))).for('update', { of: leads }).limit(1);
-      if (!lead || !['responded', 'converted_to_sdr'].includes(lead.status)) return null;
+      if (!lead || !lead.personId || !['responded', 'converted_to_sdr'].includes(lead.status)) return null;
       const [activeHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
         .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
         .where(and(eq(handoffs.organizationId, input.organizationId), eq(opportunities.leadId, lead.id), inArray(handoffs.status, ['requested', 'accepted']))).limit(1);
@@ -160,7 +166,7 @@ export class HandoffsRepository {
     const returnedId = await database.transaction(async (transaction) => {
       const [existing] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, requestedByUserId: handoffs.requestedByUserId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey })
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
-        .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'))).for('update', { of: handoffs }).limit(1);
+        .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'), input.canManageAll ? undefined : eq(handoffs.acceptedByUserId, input.actorUserId))).for('update', { of: handoffs }).limit(1);
       if (!existing) return null;
       await transaction.update(handoffs).set({ status: 'returned', returnReason: input.input.reason, nextStep: input.input.nextStep, nextStepAt: new Date(input.input.dueAt), updatedAt: returnedAt, returnedAt }).where(and(eq(handoffs.id, existing.id), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted')));
       await transaction.update(opportunities).set({ ownerUserId: null, stage: 'qualification', pipelineStageKey: null, stageChangedAt: returnedAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));

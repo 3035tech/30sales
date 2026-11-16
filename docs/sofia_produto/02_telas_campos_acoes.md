@@ -48,6 +48,8 @@ Composer: prévia de destinatário e número, bloqueio visível, enviar; opção
 
 Colunas configuráveis: conta, segmento, região, status BDR, proprietário, contato principal, última atividade, próxima ação, origem, campanha, última sincronização. Filtros salvos, importação CSV, exportação permitida, deduplicação/revisão, atribuição.
 
+**Segmentação inicial entregue no código:** categorias configuráveis por organização, uma por empresa; owner/admin/manager mantêm a lista e classificam contas na tela Contas. Leads podem filtrar pela categoria ou por “Sem segmento”. A classificação é tenant-scoped, auditada e não é inferida na importação. Segmentos dinâmicos multicritério e dimensões firmográficas ainda não estão incluídos.
+
 ### Cadastro de conta
 
 | Campo | Tipo | Obrigatório | Fonte/validação |
@@ -156,16 +158,32 @@ Evento de reunião inclui início/fim, fuso, participantes, local/link, calendá
 
 ## 2.10 Relatórios e dashboards
 
-Filtros globais: período/coorte, equipe, owner, origem, campanha, segmento e canal. Cada métrica tem tooltip de definição, denominador e timestamp de atualização.
+### Dashboard gerencial
 
-- Funil BDR → SDR → handoff → reunião → proposta → ganho.
-- Atividades e SLA por papel.
-- Campanha: elegíveis, envios solicitados/confirmados/falhos, resposta humana, opt-out e conversão.
-- Handoff: volume, tempo, aceite/devolução, completude de contexto.
-- Pipeline: valor por etapa, aging, próxima ação e perdas.
-- Saúde: fila técnica, conectores, modelo, canal e custo.
+Área de gestão para responder onde o funil trava, quem precisa de apoio e se o SDR IA está gerando oportunidades úteis. Deve oferecer período/coorte, pipeline, equipe, vendedor/owner, segmento, origem/campanha e canal como filtros apenas quando houver dados para o recorte. O escopo de tenant, equipe e carteira vem da autorização no servidor. Cada indicador informa período, definição, numerador/denominador quando aplicável, fuso e horário de atualização; gráficos têm alternativa tabular acessível.
 
-Exportação respeita escopo/permissão; export sensível é auditado.
+**Vendas e closers**
+- Entradas e saídas do pipeline no período; distribuição atual por etapa; valor aberto por etapa e moeda (sem somar moedas diferentes).
+- Ganhos, perdas e taxa de ganho calculada somente como ganhos ÷ (ganhos + perdas) fechados no mesmo período/coorte. Mostrar quantidade junto com valores.
+- Tempo entre handoff aceito, primeira atividade humana confirmada e fechamento; mediana e percentis devem acompanhar médias quando a distribuição for assimétrica.
+- Oportunidades sem próxima ação, ações vencidas, idade na etapa e oportunidades paradas; detalhamento abre a fila correspondente.
+- Comparação por vendedor: oportunidades recebidas/ativas, ganhos/perdas, valor fechado por moeda, taxa de ganho e tempo de resposta. Comparações de período usam coortes e denominadores equivalentes; metas e atingimento só aparecem quando configurados e versionados.
+- Conversões entre etapas usam histórico de transições e coorte de entrada, não um retrato atual do pipeline. Volume de atividade é indicador de esforço e nunca substitui resultado comercial.
+
+**BDR, SDR IA e handoff**
+- Leads elegíveis, tentativas de contato, respostas humanas, conversas qualificadas, handoffs solicitados/aceitos/devolvidos e oportunidades criadas; conversão entre etapas exibe contagem-base e janela de conversão.
+- Separar atuação iniciada pela IA, intervenção humana e conversa compartilhada. Medir mensagens geradas e confirmadas pelo canal, falhas, tempo até resposta humana, taxa de handoff aceito, devoluções e conversão posterior em oportunidade/ganho.
+- Qualidade da qualificação: completude dos fatos/campos exigidos, lacunas e motivo de devolução, sempre por amostra e com denominador explícito. Não inferir qualidade a partir de volume ou da decisão do próprio modelo.
+- Campanha/canal: público elegível, envios confirmados, falhas, respostas humanas, opt-out, custo e conversão. Respeitar pausa, consentimento e regras vigentes; opt-out é também métrica de proteção.
+
+**Operação e eficiência**
+- SLA por tipo de evento/papel, fila pendente e vencida, tempo de aceite e primeira ação humana; tarefas criadas/concluídas/vencidas e agenda confirmada/cancelada/no-show quando integração e estados existirem.
+- Saúde de canais, conectores e jobs: disponibilidade, fila, retry, falhas permanentes, latência, gasto de IA por provedor/modelo e custo por resultado. Indicadores técnicos ficam separados dos resultados comerciais.
+- Cobertura e qualidade dos dados: origem, segmento, contato principal/interessado, valores ausentes, vínculos empresa-contato e oportunidades sem owner/próxima ação. Mostrar como qualidade de cadastro, não como desempenho do vendedor.
+
+Gráficos priorizam séries temporais, funis/coortes, barras comparativas e distribuições de tempo. Tabelas de detalhe mantêm busca, filtros, ordenação e paginação no servidor. Exportação respeita escopo/permissão; export sensível é auditado. Nenhuma meta, conversão, custo, atribuição ou tendência pode ser estimada sem sua fonte e definição aprovadas.
+
+**Limite atual:** o relatório implementado é um primeiro agregado do funil e SLA de handoff; ainda não oferece comparativo por vendedor, tendências/coortes, campanhas ou painel de custo/qualidade da IA. A primeira instrumentação do assistente persiste tentativas do modelo Anthropic, tokens, latência, intenção, fingerprint do prompt efetivo e vínculo às mensagens/conversa. Ainda faltam custo com tabela de preços versionada, telemetria do Whisper, histórico de owner/equipe e eventos de campanha para KPIs de custo completo, comparação retroativa e ROI.
 
 ## 2.11 Conhecimento e console de operação
 

@@ -21,6 +21,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed:ux-demo": "ts-node scripts/seed-ux-demo.ts",
+    "db:seed:ux-demo-user": "ts-node scripts/seed-ux-demo-user.ts",
+    "platform:promote-admin": "ts-node scripts/promote-platform-admin.ts",
     "auth:generate": "auth generate --yes --config ./src/auth/auth.ts --output ./src/db/auth-schema.ts"
   },
   "dependencies": {

@@ -1,9 +1,12 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
+import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
+import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
+export const accountMarketSegment = pgEnum('account_market_segment', ACCOUNT_MARKET_SEGMENTS);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
 export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost', 'custom']);
 export const handoffStatus = pgEnum('handoff_status', ['requested', 'accepted', 'returned', 'cancelled']);
@@ -19,15 +22,42 @@ export const mediaAttachmentStatus = pgEnum('media_attachment_status', ['pending
 export const eventProcessingState = pgEnum('event_processing_state', ['pending', 'processing', 'processed', 'failed']);
 export const outboxState = pgEnum('outbox_state', ['pending', 'published', 'failed']);
 export const jobState = pgEnum('job_state', ['queued', 'running', 'completed', 'failed']);
+export const assistantRunStatus = pgEnum('assistant_run_status', ASSISTANT_RUN_STATUS_VALUES);
+export const assistantStopReason = pgEnum('assistant_stop_reason', ASSISTANT_STOP_REASON_VALUES);
+export const assistantIntent = pgEnum('assistant_intent', ASSISTANT_INTENT_VALUES);
+export const assistantRunProvider = pgEnum('assistant_run_provider', ASSISTANT_RUN_PROVIDER_VALUES);
+export const assistantRunOperation = pgEnum('assistant_run_operation', ASSISTANT_RUN_OPERATION_VALUES);
+export const assistantDeliveryOutcome = pgEnum('assistant_delivery_outcome', ASSISTANT_DELIVERY_OUTCOME_VALUES);
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export const accountSegments = pgTable('account_segments', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('account_segments_id_organization_unique').on(table.id, table.organizationId),
+  uniqueIndex('account_segments_org_name_unique').on(table.organizationId, sql`lower(trim(${table.name}))`),
+  check('account_segments_name_length_check', sql`length(trim(${table.name})) between 2 and 80`),
+]);
 
 export const accounts = pgTable('accounts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  segmentId: uuid('segment_id'),
+  marketSegment: accountMarketSegment('market_segment'),
+  studentCount: integer('student_count'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [unique('accounts_id_organization_unique').on(table.id, table.organizationId), index('accounts_org_name_idx').on(table.organizationId, table.name)]);
+}, (table) => [
+  foreignKey({ name: 'accounts_segment_tenant_fk', columns: [table.segmentId, table.organizationId], foreignColumns: [accountSegments.id, accountSegments.organizationId] }),
+  unique('accounts_id_organization_unique').on(table.id, table.organizationId),
+  check('accounts_student_count_check', sql`${table.studentCount} is null or ${table.studentCount} >= 0`),
+  index('accounts_org_name_idx').on(table.organizationId, table.name),
+  index('accounts_org_segment_idx').on(table.organizationId, table.segmentId),
+]);
 
 export const people = pgTable('people', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -43,7 +73,7 @@ export const leads = pgTable('leads', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   accountId: uuid('account_id').notNull(),
-  personId: uuid('person_id').notNull(),
+  personId: uuid('person_id'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   assignedToUserId: uuid('assigned_to_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   source: leadSource('source').default('manual').notNull(),
@@ -58,6 +88,31 @@ export const leads = pgTable('leads', {
   index('leads_org_status_next_action_idx').on(table.organizationId, table.status, table.nextActionAt),
   index('leads_org_created_idx').on(table.organizationId, table.createdAt),
   index('leads_org_assignee_status_idx').on(table.organizationId, table.assignedToUserId, table.status),
+]);
+
+export const leadContacts = pgTable('lead_contacts', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  leadId: uuid('lead_id').notNull(),
+  personId: uuid('person_id').notNull(),
+  jobTitle: text('job_title'),
+  isPrimary: boolean('is_primary').default(false).notNull(),
+  isInterested: boolean('is_interested').default(false).notNull(),
+  referralNote: text('referral_note'),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'lead_contacts_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'lead_contacts_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
+  unique('lead_contacts_id_organization_unique').on(table.id, table.organizationId),
+  unique('lead_contacts_lead_person_unique').on(table.leadId, table.personId),
+  uniqueIndex('lead_contacts_primary_unique').on(table.organizationId, table.leadId).where(sql`${table.isPrimary}`),
+  check('lead_contacts_job_title_length_check', sql`${table.jobTitle} is null or length(${table.jobTitle}) <= 120`),
+  check('lead_contacts_referral_note_length_check', sql`${table.referralNote} is null or length(${table.referralNote}) <= 500`),
+  check('lead_contacts_notes_length_check', sql`${table.notes} is null or length(${table.notes}) <= 2000`),
+  index('lead_contacts_org_lead_idx').on(table.organizationId, table.leadId),
 ]);
 
 export const leadStatusHistory = pgTable('lead_status_history', {
@@ -96,9 +151,27 @@ export const tasks = pgTable('tasks', {
   index('tasks_org_assignee_status_due_idx').on(table.organizationId, table.assignedToUserId, table.status, table.dueAt),
 ]);
 
+export const pipelines = pgTable('pipelines', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  isDefault: boolean('is_default').default(false).notNull(),
+  isActive: boolean('is_active').default(true).notNull(),
+  createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('pipelines_organization_id_unique').on(table.organizationId, table.id),
+  uniqueIndex('pipelines_org_active_name_unique').on(table.organizationId, sql`lower(${table.name})`).where(sql`${table.isActive} = true`),
+  uniqueIndex('pipelines_org_default_unique').on(table.organizationId).where(sql`${table.isDefault} = true`),
+  index('pipelines_org_active_idx').on(table.organizationId, table.isActive, table.name),
+]);
+
 export const pipelineStages = pgTable('pipeline_stages', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   key: text('key').notNull(),
+  pipelineId: uuid('pipeline_id'),
+  stage: opportunityStage('stage'),
   name: text('name'),
   position: integer('position').notNull(),
   isSystem: boolean('is_system').default(false).notNull(),
@@ -108,10 +181,11 @@ export const pipelineStages = pgTable('pipeline_stages', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   primaryKey({ name: 'pipeline_stages_org_key_pk', columns: [table.organizationId, table.key] }),
+  foreignKey({ name: 'pipeline_stages_pipeline_tenant_fk', columns: [table.organizationId, table.pipelineId], foreignColumns: [pipelines.organizationId, pipelines.id] }).onDelete('cascade'),
   check('pipeline_stages_name_check', sql`${table.isSystem} or (${table.name} is not null and length(trim(${table.name})) between 2 and 64)`),
-  check('pipeline_stages_system_key_check', sql`not ${table.isSystem} or ${table.key} in ('qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost')`),
-  uniqueIndex('pipeline_stages_org_active_name_unique').on(table.organizationId, sql`lower(${table.name})`).where(sql`${table.isSystem} = false and ${table.isActive} = true`),
-  index('pipeline_stages_org_active_position_idx').on(table.organizationId, table.isActive, table.position),
+  check('pipeline_stages_system_key_check', sql`not ${table.isSystem} or ${table.stage} in ('qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost')`),
+  uniqueIndex('pipeline_stages_pipeline_active_name_unique').on(table.organizationId, table.pipelineId, sql`lower(${table.name})`).where(sql`${table.isSystem} = false and ${table.isActive} = true`),
+  index('pipeline_stages_org_pipeline_active_position_idx').on(table.organizationId, table.pipelineId, table.isActive, table.position),
 ]);
 
 export const opportunities = pgTable('opportunities', {
@@ -121,6 +195,7 @@ export const opportunities = pgTable('opportunities', {
   accountId: uuid('account_id').notNull(),
   primaryPersonId: uuid('primary_person_id').notNull(),
   name: text('name').notNull(),
+  pipelineId: uuid('pipeline_id'),
   stage: opportunityStage('stage').default('qualification').notNull(),
   pipelineStageKey: text('pipeline_stage_key'),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
@@ -138,11 +213,13 @@ export const opportunities = pgTable('opportunities', {
   foreignKey({ name: 'opportunities_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'opportunities_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'opportunities_person_tenant_fk', columns: [table.primaryPersonId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'opportunities_pipeline_tenant_fk', columns: [table.organizationId, table.pipelineId], foreignColumns: [pipelines.organizationId, pipelines.id] }).onDelete('restrict'),
   unique('opportunities_id_organization_unique').on(table.id, table.organizationId),
   unique('opportunities_org_lead_unique').on(table.organizationId, table.leadId),
   foreignKey({ name: 'opportunities_pipeline_stage_tenant_fk', columns: [table.organizationId, table.pipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
   check('opportunities_custom_stage_check', sql`(${table.stage} = 'custom' and ${table.pipelineStageKey} is not null) or (${table.stage} <> 'custom' and ${table.pipelineStageKey} is null)`),
   index('opportunities_org_stage_updated_idx').on(table.organizationId, table.stage, table.updatedAt),
+  index('opportunities_org_pipeline_stage_updated_idx').on(table.organizationId, table.pipelineId, table.stage, table.updatedAt),
   index('opportunities_org_owner_stage_idx').on(table.organizationId, table.ownerUserId, table.stage),
   index('opportunities_org_next_action_idx').on(table.organizationId, table.nextActionAt),
 ]);
@@ -152,8 +229,10 @@ export const opportunityStageHistory = pgTable('opportunity_stage_history', {
   organizationId: uuid('organization_id').notNull(),
   opportunityId: uuid('opportunity_id').notNull(),
   fromStage: opportunityStage('from_stage'),
+  fromPipelineId: uuid('from_pipeline_id'),
   fromPipelineStageKey: text('from_pipeline_stage_key'),
   toStage: opportunityStage('to_stage').notNull(),
+  toPipelineId: uuid('to_pipeline_id'),
   toPipelineStageKey: text('to_pipeline_stage_key'),
   actorUserId: uuid('actor_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
   reason: text('reason'),
@@ -162,6 +241,8 @@ export const opportunityStageHistory = pgTable('opportunity_stage_history', {
   foreignKey({ name: 'opportunity_stage_history_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'opportunity_stage_history_from_pipeline_stage_tenant_fk', columns: [table.organizationId, table.fromPipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
   foreignKey({ name: 'opportunity_stage_history_to_pipeline_stage_tenant_fk', columns: [table.organizationId, table.toPipelineStageKey], foreignColumns: [pipelineStages.organizationId, pipelineStages.key] }),
+  foreignKey({ name: 'opportunity_stage_history_from_pipeline_tenant_fk', columns: [table.organizationId, table.fromPipelineId], foreignColumns: [pipelines.organizationId, pipelines.id] }),
+  foreignKey({ name: 'opportunity_stage_history_to_pipeline_tenant_fk', columns: [table.organizationId, table.toPipelineId], foreignColumns: [pipelines.organizationId, pipelines.id] }),
   check('opportunity_stage_history_from_custom_stage_check', sql`(${table.fromStage} is null and ${table.fromPipelineStageKey} is null) or (${table.fromStage} = 'custom' and ${table.fromPipelineStageKey} is not null) or (${table.fromStage} is not null and ${table.fromStage} <> 'custom' and ${table.fromPipelineStageKey} is null)`),
   check('opportunity_stage_history_to_custom_stage_check', sql`(${table.toStage} = 'custom' and ${table.toPipelineStageKey} is not null) or (${table.toStage} <> 'custom' and ${table.toPipelineStageKey} is null)`),
   index('opportunity_stage_history_org_opportunity_idx').on(table.organizationId, table.opportunityId, table.occurredAt),
@@ -254,6 +335,7 @@ export const agentSettings = pgTable('agent_settings', {
   agentKey: text('agent_key').notNull(),
   enabled: boolean('enabled').default(false).notNull(),
   model: text('model').default('claude-haiku-5-5').notNull(),
+  transcribeAudio: boolean('transcribe_audio').default(false).notNull(),
   systemPrompt: text('system_prompt').default('').notNull(),
   updatedByUserId: uuid('updated_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
@@ -261,7 +343,7 @@ export const agentSettings = pgTable('agent_settings', {
 }, (table) => [
   unique('agent_settings_org_agent_unique').on(table.organizationId, table.agentKey),
   check('agent_settings_agent_key_check', sql`${table.agentKey} in ('assistant')`),
-  check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5')`),
+  check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5')`),
   check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
   index('agent_settings_org_enabled_idx').on(table.organizationId, table.enabled),
 ]);
@@ -350,6 +432,7 @@ export const messages = pgTable('messages', {
   actorType: messageActorType('actor_type').notNull(),
   actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   bodyText: text('body_text'),
+  transcriptText: text('transcript_text'),
   deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),
   idempotencyKey: text('idempotency_key'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
@@ -525,9 +608,54 @@ export const outboxEvents = pgTable('outbox_events', {
   lastErrorCode: text('last_error_code'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
+  unique('outbox_events_id_organization_unique').on(table.id, table.organizationId),
   unique('outbox_events_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
   index('outbox_events_org_status_available_idx').on(table.organizationId, table.status, table.availableAt),
   index('outbox_events_org_aggregate_idx').on(table.organizationId, table.aggregateType, table.aggregateId),
+]);
+
+export const assistantRuns = pgTable('assistant_runs', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  inboundMessageId: uuid('inbound_message_id').notNull(),
+  outboundMessageId: uuid('outbound_message_id'),
+  queueEventId: uuid('queue_event_id').notNull(),
+  attempt: integer('attempt').notNull(),
+  provider: assistantRunProvider('provider').default(ASSISTANT_RUNTIME_PROVIDER).notNull(),
+  operation: assistantRunOperation('operation').default(ASSISTANT_RUN_OPERATIONS.replyGeneration).notNull(),
+  modelKey: text('model_key').notNull(),
+  promptHash: text('prompt_hash'),
+  status: assistantRunStatus('status').default('started').notNull(),
+  deliveryOutcome: assistantDeliveryOutcome('delivery_outcome').default('pending').notNull(),
+  intent: assistantIntent('intent'),
+  usageInputTokens: integer('usage_input_tokens'),
+  usageOutputTokens: integer('usage_output_tokens'),
+  latencyMs: integer('latency_ms'),
+  audioDurationMs: integer('audio_duration_ms'),
+  audioSizeBytes: integer('audio_size_bytes'),
+  pricingVersion: text('pricing_version').default(ASSISTANT_PRICING_VERSION).notNull(),
+  estimatedCostUsd: numeric('estimated_cost_usd', { precision: 18, scale: 10 }),
+  stopReason: assistantStopReason('stop_reason'),
+  deliveryState: messageDeliveryState('delivery_state'),
+  errorCode: text('error_code'),
+  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+}, (table) => [
+  foreignKey({ name: 'assistant_runs_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'assistant_runs_inbound_message_tenant_fk', columns: [table.inboundMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'assistant_runs_outbound_message_tenant_fk', columns: [table.outboundMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'assistant_runs_queue_event_tenant_fk', columns: [table.queueEventId, table.organizationId], foreignColumns: [outboxEvents.id, outboxEvents.organizationId] }).onDelete('cascade'),
+  unique('assistant_runs_id_organization_unique').on(table.id, table.organizationId),
+  unique('assistant_runs_org_event_attempt_operation_unique').on(table.organizationId, table.queueEventId, table.attempt, table.operation),
+  check('assistant_runs_attempt_check', sql`${table.attempt} > 0`),
+  check('assistant_runs_usage_check', sql`(${table.usageInputTokens} is null or ${table.usageInputTokens} >= 0) and (${table.usageOutputTokens} is null or ${table.usageOutputTokens} >= 0)`),
+  check('assistant_runs_latency_check', sql`${table.latencyMs} is null or ${table.latencyMs} >= 0`),
+  check('assistant_runs_prompt_hash_check', sql`${table.promptHash} is null or length(${table.promptHash}) = 64`),
+  check('assistant_runs_audio_metrics_check', sql`(${table.audioDurationMs} is null or ${table.audioDurationMs} > 0) and (${table.audioSizeBytes} is null or ${table.audioSizeBytes} > 0)`),
+  check('assistant_runs_estimated_cost_check', sql`${table.estimatedCostUsd} is null or ${table.estimatedCostUsd} >= 0`),
+  index('assistant_runs_org_started_idx').on(table.organizationId, table.startedAt),
+  index('assistant_runs_org_conversation_idx').on(table.organizationId, table.conversationId, table.startedAt),
 ]);
 
 export const jobs = pgTable('jobs', {

@@ -11,7 +11,7 @@ export class OpportunityActivitiesRepository {
     const rows = await database.select({ id: activities.id, type: activities.type, subject: activities.subject, details: activities.details, result: activities.result, occurredAt: activities.occurredAt, actorName: user.name, createdAt: activities.createdAt })
       .from(activities).innerJoin(opportunities, and(eq(opportunities.id, activities.opportunityId), eq(opportunities.organizationId, activities.organizationId)))
       .innerJoin(user, eq(user.id, activities.createdByUserId))
-      .where(and(eq(activities.organizationId, input.organizationId), eq(activities.opportunityId, input.opportunityId)))
+      .where(and(eq(activities.organizationId, input.organizationId), eq(activities.opportunityId, input.opportunityId), input.canManageAll ? undefined : eq(opportunities.ownerUserId, input.userId)))
       .orderBy(desc(activities.occurredAt), desc(activities.createdAt)).limit(100);
     return rows.map((row) => new ActivityRecordDto(row.id, row.type, row.subject, row.details, row.result, row.occurredAt.toISOString(), row.actorName, row.createdAt.toISOString()));
   }

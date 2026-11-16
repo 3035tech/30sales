@@ -43,6 +43,6 @@ export class HandoffRecordDto {
 }
 export class HandoffPageDto { constructor(readonly data: HandoffRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateHandoffDto, readonly correlationId: string | null = null) {} }
-export class HandoffRepositoryListDto { constructor(readonly organizationId: string, readonly query: ListHandoffsQueryDto) {} }
+export class HandoffRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly isCloser: boolean, readonly query: ListHandoffsQueryDto) {} }
 export class HandoffRepositoryAcceptDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
-export class HandoffRepositoryReturnDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly input: ReturnHandoffDto, readonly correlationId: string | null = null) {} }
+export class HandoffRepositoryReturnDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: ReturnHandoffDto, readonly correlationId: string | null = null) {} }

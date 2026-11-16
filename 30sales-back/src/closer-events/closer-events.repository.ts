@@ -4,11 +4,12 @@ import { database } from '../db';
 import { accounts, auditEvents, closerEventSlaPolicies, closerEvents, conversations, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserSlaNotificationsListDto, CloserSlaNotificationDto, CloserSlaNotificationReadDto } from './closer-events.dto';
+import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 
 @Injectable()
 export class CloserEventsRepository {
   async list(input: CloserEventsListDto): Promise<CloserEventsPageDto> {
-    const conditions = and(eq(closerEvents.organizationId, input.organizationId), eq(closerEvents.assignedToUserId, input.userId), sql`(${closerEvents.status} = 'new' or (${closerEvents.status} = 'snoozed' and (${closerEvents.snoozedUntil} is null or ${closerEvents.snoozedUntil} <= now())))`);
+    const conditions = and(eq(closerEvents.organizationId, input.organizationId), input.canManageAll ? undefined : eq(closerEvents.assignedToUserId, input.userId), sql`(${closerEvents.status} = 'new' or (${closerEvents.status} = 'snoozed' and (${closerEvents.snoozedUntil} is null or ${closerEvents.snoozedUntil} <= now())))`);
     const rows = await database.select({ id: closerEvents.id, eventType: closerEvents.eventType, priority: closerEvents.priority, status: closerEvents.status, conversationId: closerEvents.conversationId, opportunityId: closerEvents.opportunityId, assignedToUserId: closerEvents.assignedToUserId, accountName: accounts.name, contactName: people.name, summary: closerEvents.summary, evidence: closerEvents.evidence, occurredAt: closerEvents.occurredAt, dueAt: closerEvents.dueAt, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil })
       .from(closerEvents).leftJoin(conversations, and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, closerEvents.organizationId))).leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, closerEvents.organizationId))).leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, closerEvents.organizationId))).where(conditions).orderBy(desc(closerEvents.occurredAt), desc(closerEvents.id)).limit(input.query.limit).offset(input.query.offset);
     const [count] = await database.select({ total: sql<number>`count(*)::int` }).from(closerEvents).where(conditions);
@@ -83,7 +84,7 @@ export class CloserEventsRepository {
           const managers = await transaction.select({ userId: authMember.userId }).from(authMember)
             .where(and(
               eq(authMember.organizationId, event.organizationId),
-              sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY['owner','admin','manager']::text[]`,
+              sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY[${ORGANIZATION_MANAGEMENT_ROLES[0]}, ${ORGANIZATION_MANAGEMENT_ROLES[1]}, ${ORGANIZATION_MANAGEMENT_ROLES[2]}]::text[]`,
               event.assignedToUserId ? sql`${authMember.userId} <> ${event.assignedToUserId}` : sql`true`,
             ));
           for (const manager of managers) {
@@ -145,7 +146,7 @@ export class CloserEventsRepository {
 
   async listAssignees(organizationId: string): Promise<CloserEventAssigneeDto[]> {
     const rows = await database.select({ id: authUser.id, name: authUser.name }).from(authMember).innerJoin(authUser, eq(authUser.id, authMember.userId))
-      .where(and(eq(authMember.organizationId, organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`)).orderBy(authUser.name);
+      .where(and(eq(authMember.organizationId, organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).orderBy(authUser.name);
     return rows.map((row) => new CloserEventAssigneeDto(row.id, row.name));
   }
 
@@ -154,7 +155,7 @@ export class CloserEventsRepository {
       const [current] = await transaction.select({ id: closerEvents.id, status: closerEvents.status, assignedToUserId: closerEvents.assignedToUserId, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil, resolvedAt: closerEvents.resolvedAt })
         .from(closerEvents).where(and(eq(closerEvents.id, input.eventId), eq(closerEvents.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (current.assignedToUserId !== input.actorUserId && !['owner', 'admin', 'manager'].includes(input.actorRole)) return 'not_owner';
+      if (current.assignedToUserId !== input.actorUserId && !input.canManageAll) return 'not_owner';
 
       const now = new Date();
       let status = current.status;
@@ -174,7 +175,7 @@ export class CloserEventsRepository {
       } else {
         if (!['new', 'snoozed'].includes(current.status)) return 'not_found';
         const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
-          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId!), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`)).limit(1);
+          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId!), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
         if (!membership) return 'invalid_assignee';
         assignedToUserId = input.input.assignedToUserId!;
         status = 'new'; snoozedUntil = null;

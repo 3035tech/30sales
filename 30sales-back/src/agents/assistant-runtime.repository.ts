@@ -1,15 +1,59 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { database, pool } from '../db';
-import { accounts, agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people } from '../db/schema';
+import { accounts, agentSettings, assistantRuns, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
 import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
+import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
+import { ASSISTANT_DELIVERY_OUTCOMES, ASSISTANT_PRICING_VERSION, ASSISTANT_PROVIDER_DELIVERY_STATES, ASSISTANT_REPLY_IDEMPOTENCY_PREFIX, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_STATUSES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_TRANSCRIPTION_PROVIDER, ASSISTANT_UNKNOWN_DELIVERY_STATE, estimateAssistantTokenCostUsd, type AssistantProviderDeliveryState, type AssistantStopReason } from './assistant-runtime.constants';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
 @Injectable()
 export class AssistantRuntimeRepository {
+  async startAssistantRun(input: { organizationId: string; conversationId: string; inboundMessageId: string; queueEventId: string; attempt: number; modelKey: string; promptHash?: string; operation?: typeof ASSISTANT_RUN_OPERATIONS[keyof typeof ASSISTANT_RUN_OPERATIONS] }): Promise<string> {
+    const operation = input.operation ?? ASSISTANT_RUN_OPERATIONS.replyGeneration;
+    const provider = operation === ASSISTANT_RUN_OPERATIONS.audioTranscription ? ASSISTANT_TRANSCRIPTION_PROVIDER : ASSISTANT_RUNTIME_PROVIDER;
+    const [created] = await database.insert(assistantRuns).values({ ...input, provider, operation, pricingVersion: ASSISTANT_PRICING_VERSION, status: ASSISTANT_RUN_STATUSES.started, deliveryOutcome: ASSISTANT_DELIVERY_OUTCOMES.pending })
+      .onConflictDoNothing({ target: [assistantRuns.organizationId, assistantRuns.queueEventId, assistantRuns.attempt, assistantRuns.operation] }).returning({ id: assistantRuns.id });
+    if (created) return created.id;
+    const [existing] = await database.select({ id: assistantRuns.id }).from(assistantRuns)
+      .where(and(eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.queueEventId, input.queueEventId), eq(assistantRuns.attempt, input.attempt), eq(assistantRuns.operation, operation))).limit(1);
+    if (!existing) throw new Error('Assistant run could not be created or recovered.');
+    return existing.id;
+  }
+
+  async completeAssistantRun(input: { organizationId: string; runId: string; intent: AssistantAgentResponseDto['intent']; usageInputTokens: number | null; usageOutputTokens: number | null; latencyMs: number; stopReason: AssistantStopReason }): Promise<void> {
+    const estimatedCostUsd = input.usageInputTokens === null || input.usageOutputTokens === null ? null : estimateAssistantTokenCostUsd((await database.select({ modelKey: assistantRuns.modelKey }).from(assistantRuns).where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId))).limit(1))[0]?.modelKey ?? '', input.usageInputTokens, input.usageOutputTokens);
+    await database.update(assistantRuns).set({ status: ASSISTANT_RUN_STATUSES.completed, intent: input.intent, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens, latencyMs: input.latencyMs, stopReason: input.stopReason, estimatedCostUsd, pricingVersion: ASSISTANT_PRICING_VERSION, completedAt: new Date() })
+      .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.status, ASSISTANT_RUN_STATUSES.started)));
+  }
+
+  async completeAssistantTranscriptionRun(input: { organizationId: string; runId: string; durationSeconds: number | null; audioSizeBytes: number; latencyMs: number; estimatedCostUsd: string | null }): Promise<void> {
+    await database.update(assistantRuns).set({ status: ASSISTANT_RUN_STATUSES.completed, deliveryOutcome: ASSISTANT_DELIVERY_OUTCOMES.skipped, audioDurationMs: input.durationSeconds === null ? null : Math.max(1, Math.round(input.durationSeconds * 1000)), audioSizeBytes: input.audioSizeBytes, latencyMs: input.latencyMs, estimatedCostUsd: input.estimatedCostUsd, pricingVersion: ASSISTANT_PRICING_VERSION, completedAt: new Date() })
+      .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.operation, ASSISTANT_RUN_OPERATIONS.audioTranscription), eq(assistantRuns.status, ASSISTANT_RUN_STATUSES.started)));
+  }
+
+  async completeAssistantRunDelivery(input: { organizationId: string; runId: string; outboundMessageId: string | null; deliveryState: AssistantProviderDeliveryState | null; skipped: boolean }): Promise<void> {
+    await database.update(assistantRuns).set({ outboundMessageId: input.outboundMessageId, deliveryState: input.deliveryState, deliveryOutcome: input.skipped ? ASSISTANT_DELIVERY_OUTCOMES.skipped : ASSISTANT_DELIVERY_OUTCOMES.messageCreated })
+      .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.status, ASSISTANT_RUN_STATUSES.completed)));
+  }
+
+  async failAssistantRun(input: { organizationId: string; runId: string; errorCode: string; latencyMs: number | null; modelCompleted: boolean }): Promise<void> {
+    if (input.modelCompleted) {
+      const [run] = await database.select({ conversationId: assistantRuns.conversationId, inboundMessageId: assistantRuns.inboundMessageId }).from(assistantRuns)
+        .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId))).limit(1);
+      const [outbound] = run ? await database.select({ id: messages.id, deliveryState: messages.deliveryState }).from(messages)
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, run.conversationId), eq(messages.idempotencyKey, `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${run.inboundMessageId}`))).limit(1) : [];
+      await database.update(assistantRuns).set({ deliveryOutcome: ASSISTANT_DELIVERY_OUTCOMES.error, errorCode: input.errorCode, outboundMessageId: outbound?.id ?? null, deliveryState: outbound?.deliveryState ?? null })
+        .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.status, ASSISTANT_RUN_STATUSES.completed), eq(assistantRuns.deliveryOutcome, ASSISTANT_DELIVERY_OUTCOMES.pending)));
+      return;
+    }
+    await database.update(assistantRuns).set({ status: ASSISTANT_RUN_STATUSES.failed, deliveryOutcome: ASSISTANT_DELIVERY_OUTCOMES.error, errorCode: input.errorCode, latencyMs: input.latencyMs, completedAt: new Date() })
+      .where(and(eq(assistantRuns.id, input.runId), eq(assistantRuns.organizationId, input.organizationId), eq(assistantRuns.status, ASSISTANT_RUN_STATUSES.started)));
+  }
+
   async claimNextEvent(): Promise<AssistantQueueEventDto | null> {
     const result = await pool.query<{ id: string; organizationId: string; payload: unknown; attempts: number }>(`
       WITH next_event AS (
@@ -36,7 +80,7 @@ export class AssistantRuntimeRepository {
     const [context] = await database.select({
       conversationId: conversations.id, channelId: conversations.channelId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId,
       provider: conversations.provider, channelActive: messagingChannels.isActive, personPhone: people.phone,
-      enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt,
+      enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt,
     }).from(conversations)
       .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .innerJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
@@ -49,10 +93,13 @@ export class AssistantRuntimeRepository {
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(1);
     if (!latestInbound || latestInbound.id !== event.messageId) return null;
 
-    const history = await database.select({ direction: messages.direction, bodyText: messages.bodyText }).from(messages)
+    const history = await database.select({ direction: messages.direction, bodyText: messages.bodyText, transcriptText: messages.transcriptText }).from(messages)
       .where(and(eq(messages.organizationId, event.organizationId), eq(messages.conversationId, event.conversationId), sql`${messages.direction} in ('inbound', 'outbound')`))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(30);
-    const historyMessages = history.reverse().flatMap((message) => message.bodyText ? [{ role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content: message.bodyText }] : []);
+    const historyMessages = history.reverse().flatMap((message) => {
+      const content = [message.bodyText, message.transcriptText].filter(Boolean).join('\n');
+      return content ? [{ role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content }] : [];
+    });
     const firstUserMessage = historyMessages.findIndex((message) => message.role === 'user');
     const recentMessages = historyMessages.slice(Math.max(firstUserMessage, 0)).reduce<typeof historyMessages>((combined, message) => {
       const previous = combined.at(-1);
@@ -60,40 +107,57 @@ export class AssistantRuntimeRepository {
       else combined.push({ ...message });
       return combined;
     }, []);
+    const [audioAttachment] = event.messageType.toLowerCase() === 'audio' ? await database.select({ id: messageAttachments.id, status: messageAttachments.status, storageKey: messageAttachments.storageKey, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes }).from(messageAttachments)
+      .where(and(eq(messageAttachments.organizationId, event.organizationId), eq(messageAttachments.messageId, event.messageId), eq(messageAttachments.mediaType, 'audio'))).limit(1) : [];
+    const audioTranscript = event.messageType.toLowerCase() === 'audio' ? (await database.select({ transcriptText: messages.transcriptText }).from(messages)
+      .where(and(eq(messages.organizationId, event.organizationId), eq(messages.id, event.messageId))).limit(1))[0]?.transcriptText ?? null : null;
     return {
-      event, enabled: context.enabled, model: context.model, systemPrompt: context.systemPrompt, automationMode: context.automationMode, ownerUserId: context.ownerUserId,
+      event, enabled: context.enabled, model: context.model, transcribeAudio: context.transcribeAudio, systemPrompt: context.systemPrompt, automationMode: context.automationMode, ownerUserId: context.ownerUserId,
       recipientPhone: (context.personPhone ?? '').replace(/\D/g, ''), messages: recentMessages,
+      audioAttachment: audioAttachment ?? null,
+      audioTranscript,
     };
   }
 
-  async sendIfStillAutomated(input: { queueEventId: string; context: AssistantRuntimeContextDto; result: AssistantAgentResponseDto; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<'sent' | 'skipped'> {
+  async saveTranscript(organizationId: string, messageId: string, transcriptText: string): Promise<void> {
+    await database.update(messages).set({ transcriptText }).where(and(eq(messages.organizationId, organizationId), eq(messages.id, messageId), eq(messages.direction, 'inbound')));
+  }
+
+  async deferEvent(queueEvent: AssistantQueueEventDto): Promise<void> {
+    await pool.query("UPDATE outbox_events SET available_at = now() + interval '10 seconds', attempts = greatest(attempts - 1, 0), last_error_code = NULL WHERE id = $1 AND organization_id = $2 AND status = 'pending'", [queueEvent.id, queueEvent.organizationId]);
+  }
+
+  async sendIfStillAutomated(input: { queueEventId: string; context: AssistantRuntimeContextDto; result: AssistantAgentResponseDto; send: (channel: AgentSendChannel) => Promise<ProviderSendResult> }): Promise<{ skipped: true } | { skipped: false; outboundMessageId: string; deliveryState: AssistantProviderDeliveryState }> {
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, organizationId: conversations.organizationId, channelId: conversations.channelId, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.context.event.conversationId), eq(conversations.organizationId, input.context.event.organizationId))).for('update').limit(1);
-      if (!conversation || conversation.automationMode !== 'assistant' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return 'skipped';
+      if (!conversation || conversation.automationMode !== 'assistant' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return { skipped: true };
 
       const [agent] = await transaction.select({ enabled: agentSettings.enabled, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
         .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-      if (!agent?.enabled) return 'skipped';
+      if (!agent?.enabled) return { skipped: true };
 
       const [latestInbound] = await transaction.select({ id: messages.id }).from(messages)
         .where(and(eq(messages.organizationId, conversation.organizationId), eq(messages.conversationId, conversation.id), eq(messages.direction, 'inbound')))
         .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(1);
-      if (latestInbound?.id !== input.context.event.messageId) return 'skipped';
+      if (latestInbound?.id !== input.context.event.messageId) return { skipped: true };
 
       const [channel] = await transaction.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
         .from(messagingChannels).where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, conversation.organizationId))).limit(1);
-      if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || channel.provider !== input.context.event.provider) return 'skipped';
+      if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || channel.provider !== input.context.event.provider) return { skipped: true };
 
       const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone: input.context.recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();
-      const idempotencyKey = `assistant-reply:${input.context.event.messageId}`;
+      const idempotencyKey = `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
+      const outboundMessage = message ?? (await transaction.select({ id: messages.id, deliveryState: messages.deliveryState }).from(messages)
+        .where(and(eq(messages.organizationId, conversation.organizationId), eq(messages.conversationId, conversation.id), eq(messages.idempotencyKey, idempotencyKey))).limit(1))[0];
+      if (!outboundMessage) throw new Error('Assistant outbound message could not be recovered.');
       if (message) {
         await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${occurredAt}), ${occurredAt})`, updatedAt: occurredAt }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
-      const action = delivery.deliveryState === 'failed' ? 'conversation.assistant_reply_failed' : delivery.deliveryState === 'unknown' ? 'conversation.assistant_reply_delivery_unknown' : 'conversation.assistant_reply_sent';
-      await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action, entityType: 'conversation', entityId: conversation.id, afterState: { messageId: message.id, sourceMessageId: input.context.event.messageId, deliveryState: delivery.deliveryState } });
+        const action = delivery.deliveryState === 'failed' ? 'conversation.assistant_reply_failed' : delivery.deliveryState === 'unknown' ? 'conversation.assistant_reply_delivery_unknown' : 'conversation.assistant_reply_sent';
+        await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action, entityType: 'conversation', entityId: conversation.id, afterState: { messageId: message.id, sourceMessageId: input.context.event.messageId, deliveryState: delivery.deliveryState } });
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
       }
       await transaction.update(conversations).set({
@@ -112,8 +176,9 @@ export class AssistantRuntimeRepository {
       if ((requestsCloser || requestsHuman) && agent.updatedByUserId && conversation.personId) {
         const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name, personName: people.name })
           .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
-          .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-          .where(and(eq(leads.organizationId, conversation.organizationId), eq(leads.personId, conversation.personId), conversation.accountId ? eq(leads.accountId, conversation.accountId) : sql`true`))
+          .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId)))
+          .innerJoin(people, and(eq(people.id, conversation.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.organizationId, conversation.organizationId), or(eq(leads.personId, conversation.personId), eq(leadContacts.personId, conversation.personId)), conversation.accountId ? eq(leads.accountId, conversation.accountId) : sql`true`))
           .orderBy(desc(leads.createdAt), desc(leads.id)).for('update', { of: leads }).limit(1);
         const ineligibleLeadStatuses = ['invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact'];
         if (lead && !ineligibleLeadStatuses.includes(lead.status)) {
@@ -164,7 +229,7 @@ export class AssistantRuntimeRepository {
             const activeCloserLoad = transaction.select({ userId: closerEvents.assignedToUserId, workload: count() }).from(closerEvents)
               .where(and(eq(closerEvents.organizationId, conversation.organizationId), inArray(closerEvents.status, ['new', 'acknowledged', 'snoozed'])))
               .groupBy(closerEvents.assignedToUserId).as('active_closer_load');
-            const closerConditions = [eq(authMember.organizationId, conversation.organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`];
+            const closerConditions = [eq(authMember.organizationId, conversation.organizationId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`];
             if (opportunityOwnerUserId) closerConditions.push(eq(authMember.userId, opportunityOwnerUserId));
             const [closer] = await transaction.select({ userId: authMember.userId }).from(authMember).leftJoin(activeCloserLoad, eq(activeCloserLoad.userId, authMember.userId))
               .where(and(...closerConditions))
@@ -191,7 +256,8 @@ export class AssistantRuntimeRepository {
         if (notice) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: conversation.organizationId, conversationId: conversation.id, occurredAt: occurredAt.toISOString() })})`);
       }
       await transaction.update(outboxEvents).set({ status: 'published', publishedAt: occurredAt, lastErrorCode: null }).where(and(eq(outboxEvents.id, input.queueEventId), eq(outboxEvents.organizationId, conversation.organizationId), eq(outboxEvents.status, 'pending')));
-      return 'sent';
+      const deliveryState = ASSISTANT_PROVIDER_DELIVERY_STATES.find((state) => state === outboundMessage.deliveryState) ?? ASSISTANT_UNKNOWN_DELIVERY_STATE;
+      return { skipped: false, outboundMessageId: outboundMessage.id, deliveryState };
     });
   }
 

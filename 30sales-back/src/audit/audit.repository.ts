@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, desc, eq, gte, lte, SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, lte, SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { auditEvents } from '../db/schema';
@@ -22,10 +22,13 @@ export class AuditRepository {
     if (input.query.from) conditions.push(gte(auditEvents.occurredAt, new Date(input.query.from)));
     if (input.query.to) conditions.push(lte(auditEvents.occurredAt, new Date(input.query.to)));
     const where = and(...conditions);
+    const sortColumns = { occurredAt: auditEvents.occurredAt, action: auditEvents.action, actorName: auditActor.name, entityType: auditEvents.entityType, reason: auditEvents.reason };
+    const sortColumn = sortColumns[input.query.sortBy];
+    const sortOrder = input.query.sortDirection === 'asc' ? asc(sortColumn) : desc(sortColumn);
     const [rows, totals] = await Promise.all([
       database.select({ id: auditEvents.id, actorType: auditEvents.actorType, actorName: auditActor.name, action: auditEvents.action, entityType: auditEvents.entityType, entityId: auditEvents.entityId, reason: auditEvents.reason, beforeState: auditEvents.beforeState, afterState: auditEvents.afterState, correlationId: auditEvents.correlationId, occurredAt: auditEvents.occurredAt })
         .from(auditEvents).leftJoin(auditActor, eq(auditActor.id, auditEvents.actorUserId)).where(where)
-        .orderBy(desc(auditEvents.occurredAt), desc(auditEvents.id)).limit(input.query.limit).offset(input.query.offset),
+        .orderBy(sortOrder, desc(auditEvents.id)).limit(input.query.limit).offset(input.query.offset),
       database.select({ total: count() }).from(auditEvents).where(where),
     ]);
     const total = totals[0]?.total ?? 0;

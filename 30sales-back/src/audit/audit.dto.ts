@@ -7,6 +7,8 @@ export const listAuditEventsSchema = z.object({
   entityId: z.string().uuid().optional(),
   from: z.string().datetime({ offset: true }).optional(),
   to: z.string().datetime({ offset: true }).optional(),
+  sortBy: z.enum(['occurredAt', 'action', 'actorName', 'entityType', 'reason']).default('occurredAt'),
+  sortDirection: z.enum(['asc', 'desc']).default('desc'),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 }).strict();

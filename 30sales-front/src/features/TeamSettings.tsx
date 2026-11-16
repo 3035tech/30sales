@@ -5,12 +5,13 @@ import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type TeamMemberDto } from '../lib/api/client'
 import { roleNames, type OrganizationRole } from '../lib/permissions'
+import { ORGANIZATION_ROLE } from '../lib/authorizationConstants'
 
 export function TeamSettings({ organizationId }: { organizationId: string }) {
   const { t } = useTranslation()
   const [members, setMembers] = useState<TeamMemberDto[]>([])
   const [email, setEmail] = useState('')
-  const [role, setRole] = useState<OrganizationRole>('sdr')
+  const [role, setRole] = useState<OrganizationRole>(ORGANIZATION_ROLE.sdr)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -56,7 +57,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
       </section>
       <section className="team-panel invite-panel"><div className="panel-heading"><span className="card-icon"><Mail size={18} /></span><div><h3>{t('team.inviteTitle')}</h3><p>{t('team.inviteHint')}</p></div></div>
         <form className="invite-form" onSubmit={invite}><label>{t('common.email')}<TextField type="email" normalize="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('team.emailPlaceholder')} required /></label>
-          <label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== 'owner').map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label>
+          <label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== ORGANIZATION_ROLE.owner).map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label>
           <Button className="primary" disabled={busy}>{busy ? t('team.sending') : t('team.sendInvite')}<ArrowRight size={16} /></Button>
         </form>
         {message && <p className="success-message">{message}</p>}{error && !loadError && <WorkspaceState kind="error" compact message={error} />}

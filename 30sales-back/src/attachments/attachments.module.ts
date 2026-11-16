@@ -9,5 +9,5 @@ import { MediaDownloadProvider } from './media-download.provider';
 import { S3MediaStorageService } from './s3-media-storage.service';
 import { MEDIA_STORAGE } from './media-storage';
 
-@Module({ imports: [ChannelsModule], controllers: [AttachmentsController], providers: [AttachmentsService, AttachmentsRepository, MediaAttachmentWorker, MediaDownloadProvider, S3MediaStorageService, { provide: MEDIA_STORAGE, useExisting: S3MediaStorageService }, TenantAccessService] })
+@Module({ imports: [ChannelsModule], controllers: [AttachmentsController], providers: [AttachmentsService, AttachmentsRepository, MediaAttachmentWorker, MediaDownloadProvider, S3MediaStorageService, { provide: MEDIA_STORAGE, useExisting: S3MediaStorageService }, TenantAccessService], exports: [MEDIA_STORAGE] })
 export class AttachmentsModule {}

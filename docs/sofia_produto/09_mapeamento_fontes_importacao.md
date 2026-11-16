@@ -18,6 +18,58 @@ O Workflow C local consulta Twenty Companies e extrai `id`, `name`, telefone e `
 
 O schema base `01_schema.sql` é histórico e não descreve sozinho todas as evoluções. Usar os SQLs incrementais e workflows atuais como mapa complementar; não tratar esse arquivo isolado como schema vivo.
 
+## Inspeção ao vivo do Twenty — 16/11/2026
+
+Inspecionei em modo somente leitura o workspace `3035TECH`, nas telas Companies, People, Tasks e Notes e em fichas relacionadas. Os campos abaixo são os que estavam visíveis na configuração/tela observada; valores vazios não provam que o dado não exista em outro registro. A inspeção de uma tela não substitui export/API para contagens e tipos completos.
+
+| Objeto | Campos observados |
+|---|---|
+| Company — padrão | Name, Domain Name, Account Owner, Annual Revenue, Address, Linkedin, Creation date, Created by, Industry, Phones / Primary Phone Number |
+| Company — personalizados | Account Status, Client Type, MRR / Contract Value, School Segment, Instagram, Student Count, Status Abordagem, Chip, Data de abordagem, ID Sofia, Cnpj, Origem do lead, Primeira resposta Sofia em, Aceite comercial Sofia em, Motivo recusa Sofia, Negocios indicados, Primeira abordagem Sofia em, Conversa Sofia |
+| People | Name, Emails, Company, Phones, Job Title, Linkedin, Creation date, Created by |
+| Tasks | Title, Task Type, Status, Due Date, Assignee, Created by, Creation date, Body, Relations; também aparece o campo personalizado Prioridade Sofia |
+| Notes | Title, Body, Relations, Created by, Creation date. Notas de integração podem guardar um snapshot estruturado de handoff, indicação, lacunas de qualificação e trechos de conversa no corpo livre. |
+| Timeline de Company | Criação, alterações de campos com valores anterior/novo, relações com notas e tarefas, horário e detalhes expansíveis. |
+| Files e Emails | Existem como abas de relações na ficha. Nas fichas abertas durante esta inspeção não havia arquivos nem troca de email associados; os exemplos não permitem determinar o esquema completo dessas integrações. |
+
+### Tipos e opções configuradas no Twenty
+
+Conferência de **Data model → Companies** no workspace aberto, em 16/11/2026. É uma fotografia da configuração atual do tenant, não um contrato para fixar no código do 30Sales.
+
+| Campo Twenty | Tipo observado | Decisão de mapeamento |
+|---|---|---|
+| Account Status | Select | Catálogo configurável: Active, Expansion, At Risk, Renewed, Churned. Preservar valor/API value e label de origem. |
+| Client Type | Select | Catálogo configurável: Active Client, Prospect, Partner, Reseller. |
+| Industry | Select | Taxonomia extensa, com setores genéricos e subsegmentos de tecnologia; não copiar uma lista incompleta para enum global. |
+| School Segment | Select | Usado como taxonomia de segmento escolar/esportivo; opções abaixo. Separar de uma classificação livre de carteira. |
+| Status Abordagem | Select | Etapa operacional da abordagem; opções abaixo. Mapear para estado de lead/conversa com regra explícita, não para etapa de oportunidade. |
+| Origem do lead | Select | Catálogo de aquisição; opções abaixo. Guardar também código/label original e proveniência. |
+| Student Count | Number | Inteiro não negativo no modelo canônico, sujeito a validação contra valores reais antes de importar. |
+| Annual Revenue, MRR / Contract Value | Currency | Valor monetário decimal mais código de moeda; não converter para inteiro nem somar moedas distintas. |
+| Cnpj, Chip | Text | Normalizar CNPJ/telefone em colunas tipadas próprias; preservar valor de origem para reconciliação. |
+| Data de abordagem, Primeira abordagem Sofia em, Primeira resposta Sofia em, Aceite comercial Sofia em | Date and Time | Timestamp com timezone/fuso conhecido e proveniência. |
+| Motivo recusa Sofia | Text | Motivo narrativo; não usar diretamente como critério automático de segmento. |
+| Conversa Sofia | Links | Referência externa; importar como alias, nunca como ID primário. |
+
+Opções visíveis de **School Segment** (API value → label): `EARLY_CHILDHOOD_DAYCARE` → Early Childhood / Daycare; `ELEMENTARY_SCHOOL_FUNDAMENTAL` → Elementary School (Fundamental); `HIGH_SCHOOL_MEDIO` → High School (Médio); `HIGHER_EDUCATION_COLLEGE` → Higher Education / College; `TECHNICAL_VOCATIONAL` → Technical / Vocational; `LANGUAGE_SCHOOL` → Language School; `SCHOOL_NETWORK_GROUP` → School Network / Group; `MARTIAL_ARTS` → Martial Arts; `MUSIC_SCHOOL` → Music School; `BALLET_DANCE` → Ballet / Dance; `SWIMMING` → Swimming; `SPORTS_SCHOOL` → Sports School; `ARTS_THEATER` → Arts / Theater; `TUTORING_TEST_PREP` → Tutoring / Test Prep; `OTHER` → Other; `GYM` → Gym; `FOOTBALL` → Futebol; `FUTSAL` → Futsal; `TENNIS` → Tênis; `BEACH_TENNIS` → Beach Tennis; `VOLLEYBALL` → Vôlei; `FOOTVOLLEY` → Futevôlei; `BASKETBALL` → Basquete; `HANDBALL` → Handebol; `GYMNASTICS` → Ginástica; `PILATES` → Pilates; `YOGA` → Yoga; `MULTISPORT` → Várias modalidades.
+
+Opções visíveis de **Status Abordagem**: `NAO_ABORDADO` (Não abordado), `EM_CONVERSA` (Em conversa), `HANDOFF` (Handoff / quer reunião), `GANHO` (Ganho), `PERDIDO` (Perdido), `SEM_WHATSAPP` (Sem WhatsApp), `TELEFONE_INVALIDO` (Telefone inválido).
+
+Opções visíveis de **Origem do lead**: `OUTBOUND_SOFIA` (Outbound — Sofia), `OUTBOUND_SALES` (Outbound — vendedor), `REFERRAL` (Indicação), `INBOUND_SITE` (Inbound site), `ADS_GOOGLE` (Google Ads), `ADS_INSTAGRAM` (Instagram Ads), `OTHER` (Outra origem). A descrição do campo no Twenty diz para não inferir origem só pela existência de mensagens do agente; origem da oportunidade acompanha o negócio até o fechamento.
+
+Opções visíveis de **Account Status**: Active, Expansion, At Risk, Renewed, Churned. De **Client Type**: Active Client, Prospect, Partner, Reseller. Seus API values podem diferir dos labels e devem ser lidos do export/API antes da reconciliação.
+
+O modelo-alvo mantém taxonomias externas versionadas por tenant/provedor, com código original, label, origem e mapeamento canônico revisável. Valores não mapeados continuam visíveis como desconhecidos e não são descartados. Catálogos estáveis do domínio 30Sales podem usar enums/constantes; rótulos editáveis no CRM não devem virar enums globais de aplicação.
+
+### Consequências para o modelo do 30Sales
+
+- A primeira segmentação manual por categoria é insuficiente como modelo-alvo. O CRM usa atributos distintos de perfil da empresa, qualificação comercial, estado de abordagem, relacionamento e atividade.
+- Levar para campos tipados de Company, depois de confirmar tipo/opções em export: identificador CNPJ, endereço em partes normalizadas, domínio, indústria, segmento/subsegmento, quantidade de alunos, tipo/status de cliente, valor recorrente/contratual, origem e estado de abordagem, chip e marcos de abordagem/resposta/aceite/recusa. “Student Count” deve ser inteiro; datas devem ser timestamps; status e tipo precisam de catálogo centralizado e mapeamento de origem preservado.
+- People permanece uma entidade relacionada à Company, com email/telefone/cargo e papel comercial; flags de contato principal/interessado continuam no vínculo do lead/contato, não como atributo da empresa.
+- Tasks, Notes, Files, Emails e Timeline são objetos/atividades relacionados, não atributos achatados da empresa. Segmentos podem filtrar fatos tipados e sinais calculados (por exemplo, tarefa aberta ou atividade recente), mas não texto bruto de nota, email ou conversa. Fatos extraídos de narrativa exigem fonte, data, estado de confirmação e revisão antes de qualificar ou disparar campanha.
+- A timeline deve preservar eventos e mudanças, sem tentar sobrescrever esses registros com o estado atual. Notes e emails podem conter dados pessoais/conteúdo de conversa; importação precisa de escopo, redaction/retention e acesso auditado. Files devem importar metadados e vínculo; conteúdo binário só após decidir retenção e destino privado S3.
+- A aba Emails estava vazia nos exemplos consultados. Antes de implementar o adapter, inspecionar um registro com mensagem real e confirmar provedor, direção, participantes, timestamps, anexos e identidade externa. Da mesma forma, confirmar tipos e opções de todos os campos personalizados via export/API read-only.
+
 ## Identidade no 30Sales
 
 - `external_records` usa `(organization_id, provider, record_type, external_id)` para localizar um objeto externo. FKs compostas mantêm o vínculo no tenant correto.

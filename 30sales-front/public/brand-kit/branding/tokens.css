@@ -1,7 +1,10 @@
 :root {
   --brand-primary: #2563EB;
   --brand-accent: #10B981;
-  --brand-dark: #0F172A;
+  --brand-action: #177850;
+  --brand-action-hover: #146943;
+  --brand-dark: #334155;
+  --app-canvas: #f5f8fc;
   --brand-secondary: #64748B;
   --brand-display-font: 'Manrope', Inter, sans-serif;
   --brand-ui-font: Inter, sans-serif;
@@ -16,11 +19,11 @@
   --ui-control-surface: #fff;
   --ui-control-border: #cbd5e1;
   --ui-control-divider: #e2e8f0;
-  --ui-control-text: #0f172a;
+  --ui-control-text: #334155;
   --ui-control-muted: #64748b;
   --ui-control-placeholder: #94a3b8;
-  --ui-control-hover: #f8fafc;
-  --ui-control-disabled: #f1f5f9;
+  --ui-control-hover: #ffffff;
+  --ui-control-disabled: #f8fafc;
   --ui-control-radius: 7px;
   --ui-focus-ring: #2563eb;
   --ui-primary-hover: #1d4ed8;

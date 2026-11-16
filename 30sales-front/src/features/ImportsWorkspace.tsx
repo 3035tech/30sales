@@ -75,7 +75,7 @@ export function ImportsWorkspace() {
     <div className="imports-safety"><ShieldCheck size={18} /><span>{t('imports.readOnly')}</span></div>
     <section className="imports-upload">
       <label>{t('imports.provider')}<SelectField value={provider} onChange={(event) => { setProvider(event.target.value as Provider); setResult(null) }}><option value="twenty">Twenty</option><option value="chatwoot">Chatwoot</option><option value="legacy_postgres">Legacy PostgreSQL</option></SelectField></label>
-      <label className="imports-file"><span>{t('imports.csvFile')}</span><FileField accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></label>
+      <div className="imports-file"><span>{t('imports.csvFile')}</span><FileField accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></div>
       <p className="imports-format">{t('imports.format')}<code>{headers.join(', ')}</code></p>
       {parseError && <p className="error imports-error">{t(`imports.errors.${parseError}`, { defaultValue: t('imports.errors.invalidCsv') })}</p>}
       {requestError && <p className="error imports-error">{t('imports.requestFailed')}</p>}

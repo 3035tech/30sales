@@ -24,16 +24,26 @@ export const assistantAgentResponseSchema = z.object({
   nextStep: z.string().trim().min(1).max(500),
 }).strict();
 export type AssistantAgentResponseDto = z.infer<typeof assistantAgentResponseSchema>;
+export type AssistantModelExecutionDto = {
+  result: AssistantAgentResponseDto;
+  usageInputTokens: number | null;
+  usageOutputTokens: number | null;
+  stopReason: import('./assistant-runtime.constants').AssistantStopReason;
+  latencyMs: number;
+};
 
 export type AssistantRuntimeContextDto = {
   event: AssistantInboundEventDto;
   enabled: boolean;
   model: string;
+  transcribeAudio: boolean;
   systemPrompt: string;
   automationMode: string;
   ownerUserId: string | null;
   recipientPhone: string;
   messages: AssistantRuntimeMessageDto[];
+  audioAttachment: { id: string; status: string; storageKey: string | null; mimeType: string | null; fileName: string | null; sizeBytes: number | null } | null;
+  audioTranscript: string | null;
 };
 
 export type AssistantQueueEventDto = { id: string; organizationId: string; payload: unknown; attempts: number };

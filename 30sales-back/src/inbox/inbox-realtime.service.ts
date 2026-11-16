@@ -2,15 +2,18 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import type { MessageEvent } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { interval, map, merge, Observable, Subject, Subscription } from 'rxjs';
-import { pool } from '../db';
+import { database, pool } from '../db';
+import { conversations } from '../db/schema';
+import { and, eq } from 'drizzle-orm';
 
 const channelName = 'sales_inbox_updates';
 type InboxUpdate = { organizationId: string; conversationId: string; occurredAt: string };
+type InboxSubscriber = { readonly subject: Subject<MessageEvent>; readonly userId: string; readonly canManageAll: boolean };
 
 @Injectable()
 export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(InboxRealtimeService.name);
-  private readonly subscribers = new Map<string, Set<Subject<MessageEvent>>>();
+  private readonly subscribers = new Map<string, Set<InboxSubscriber>>();
   private listener: PoolClient | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connecting = false;
@@ -23,22 +26,23 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.listener?.release();
     this.listener = null;
-    for (const organizationSubscribers of this.subscribers.values()) for (const subscriber of organizationSubscribers) subscriber.complete();
+    for (const organizationSubscribers of this.subscribers.values()) for (const subscriber of organizationSubscribers) subscriber.subject.complete();
     this.subscribers.clear();
   }
 
-  stream(organizationId: string): Observable<MessageEvent> {
+  stream(organizationId: string, userId: string, canManageAll: boolean): Observable<MessageEvent> {
     return new Observable<MessageEvent>((observer) => {
       const subject = new Subject<MessageEvent>();
-      const organizationSubscribers = this.subscribers.get(organizationId) ?? new Set<Subject<MessageEvent>>();
-      organizationSubscribers.add(subject);
+      const organizationSubscribers = this.subscribers.get(organizationId) ?? new Set<InboxSubscriber>();
+      const subscriber = { subject, userId, canManageAll };
+      organizationSubscribers.add(subscriber);
       this.subscribers.set(organizationId, organizationSubscribers);
       const heartbeat = interval(20000).pipe(map(() => ({ type: 'heartbeat', data: { connected: true } })));
       const subscription: Subscription = merge(subject, heartbeat).subscribe(observer);
       observer.next({ type: 'ready', data: { connected: true } });
       return () => {
         subscription.unsubscribe();
-        organizationSubscribers.delete(subject);
+        organizationSubscribers.delete(subscriber);
         if (organizationSubscribers.size === 0) this.subscribers.delete(organizationId);
         subject.complete();
       };
@@ -87,6 +91,22 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
       if (typeof candidate.organizationId !== 'string' || typeof candidate.conversationId !== 'string' || typeof candidate.occurredAt !== 'string') return;
       update = candidate as InboxUpdate;
     } catch { return }
-    for (const subscriber of this.subscribers.get(update.organizationId) ?? []) subscriber.next({ type: 'conversation.updated', data: update });
+    void this.broadcastUpdate(update);
+  }
+
+  private async broadcastUpdate(update: InboxUpdate): Promise<void> {
+    try {
+      const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
+        .where(and(eq(conversations.organizationId, update.organizationId), eq(conversations.id, update.conversationId))).limit(1);
+      if (!conversation) return;
+      for (const subscriber of this.subscribers.get(update.organizationId) ?? []) {
+        const data = subscriber.canManageAll || subscriber.userId === conversation.ownerUserId
+          ? update
+          : { refreshRequired: true };
+        subscriber.subject.next({ type: 'conversation.updated', data });
+      }
+    } catch (error) {
+      this.logger.warn(`Could not route inbox update: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
   }
 }

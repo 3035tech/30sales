@@ -1,6 +1,6 @@
-import { Button, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
+import { Button, IconButton, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
 import { useEffect, useMemo, useState } from 'react'
-import { Check, Radio, RefreshCw, Search } from 'lucide-react'
+import { Check, Power, Radio, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -122,7 +122,7 @@ export function ChannelsWorkspace() {
       const health = healthChecks[channel.id]
       const checkedAt = health ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(health.checkedAt)) : ''
       const checking = checkingChannelIds.includes(channel.id)
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><Button type="button" onClick={() => openCredentialForm(channel.id)}>{t('channels.configureCredentials')}</Button><Button type="button" disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}>{updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')}</Button><Button type="button" disabled={checking} onClick={() => void checkConnection(channel.id)}>{checking ? t('channels.checkingConnection') : t('channels.checkProvider')}</Button>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">

@@ -13,4 +13,8 @@ export class ReportsController {
   funnel(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(funnelReportQuerySchema)) query: FunnelReportQueryDto) {
     return this.reportsService.funnel(request, query);
   }
+  @Get('ai-usage')
+  aiUsage(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(funnelReportQuerySchema)) query: FunnelReportQueryDto) {
+    return this.reportsService.aiUsage(request, query);
+  }
 }

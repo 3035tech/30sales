@@ -25,7 +25,31 @@ export class FunnelReportDto {
     readonly averageMinutesToFirstActivity: number | null,
     readonly leadCountsByStatus: Array<{ status: string; count: number }>,
     readonly leadsCreatedInPeriodCount: number,
+    readonly salesTrend: SalesTrendPointDto[],
+    readonly leadCohorts: LeadCohortPointDto[],
     readonly generatedAt: string,
   ) {}
 }
 export class FunnelReportRepositoryQueryDto { constructor(readonly organizationId: string, readonly query: FunnelReportQueryDto) {} }
+export class AiUsagePointDto {
+  constructor(readonly date: string, readonly operation: string, readonly status: string, readonly runCount: number, readonly averageLatencyMs: number | null, readonly estimatedCostUsd: string | null, readonly audioDurationMs: number, readonly inputTokens: number, readonly outputTokens: number) {}
+}
+export class AiUsageReportDto {
+  constructor(readonly from: string, readonly to: string, readonly points: AiUsagePointDto[], readonly generatedAt: string) {}
+}
+export class SalesTrendPointDto {
+  constructor(readonly date: string, readonly leadsCreated: number, readonly opportunitiesCreated: number, readonly won: number, readonly lost: number) {}
+}
+export class LeadCohortPointDto {
+  constructor(
+    readonly date: string,
+    readonly ageDays: number,
+    readonly leadCount: number,
+    readonly respondedCount: number,
+    readonly convertedToSdrCount: number,
+    readonly opportunityCount: number,
+    readonly respondedRate: number,
+    readonly convertedToSdrRate: number,
+    readonly opportunityRate: number,
+  ) {}
+}

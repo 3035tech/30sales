@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 
 @Injectable()
 export class WebhooksRepository {
@@ -46,7 +47,7 @@ export class WebhooksRepository {
         .where(and(eq(handoffs.organizationId, input.organizationId), eq(handoffs.opportunityId, source.opportunityId), eq(handoffs.status, 'accepted'))).limit(1);
       const [membership] = await transaction.select({ role: authMember.role }).from(authMember)
         .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, opportunity.ownerUserId))).limit(1);
-      const hasCloserRole = membership?.role.split(',').map((role) => role.trim()).includes('closer') ?? false;
+      const hasCloserRole = membership ? hasOrganizationRole(membership.role, ORGANIZATION_CLOSER_ROLES) : false;
       if (!acceptedHandoff && !hasCloserRole) return 'unroutable';
 
       const externalEventId = 'agent.interpretation_failure:' + input.channelId + ':' + input.input.externalMessageId;
@@ -92,7 +93,8 @@ export class WebhooksRepository {
 
       const [lead] = await transaction.select({ accountId: leads.accountId, opportunityId: opportunities.id }).from(leads)
         .leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
-        .where(and(eq(leads.organizationId, input.organizationId), eq(leads.personId, person.id))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
+        .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId)))
+        .where(and(eq(leads.organizationId, input.organizationId), or(eq(leads.personId, person.id), eq(leadContacts.personId, person.id)))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
 
       const [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
@@ -158,7 +160,7 @@ export class WebhooksRepository {
           let closerMembership = false;
           if (opportunity?.ownerUserId) {
             const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
-              .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, opportunity.ownerUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY['closer']::text[]`)).limit(1);
+              .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, opportunity.ownerUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
             closerMembership = Boolean(membership);
           }
           const isCloserOwned = activeOpportunity && closerMembership;

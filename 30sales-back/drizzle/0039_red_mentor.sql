@@ -1,0 +1,1 @@
+CREATE INDEX "opportunities_org_pipeline_stage_updated_idx" ON "opportunities" USING btree ("organization_id","pipeline_id","stage","updated_at");

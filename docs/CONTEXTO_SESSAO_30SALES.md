@@ -180,3 +180,131 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Faixa superior reduzida a 72px em desktop para organização/notificações e preservada em altura automática no mobile.
 - Uma captura desktop do Chrome confirmou o desalinhamento do menu: ícones e rótulos ficavam centralizados na área clicável. `.nav` agora define `justify-content:flex-start`, preservando a largura clicável e o estado ativo.
 - A confirmação visual após a correção ainda está pendente: o host CUA não lista abas e o Chrome bloqueia JavaScript via Apple Events. Não usei credenciais nem alterei dados.
+
+## Modelos e transcrição do agente — implementação em andamento
+
+- Configurações por organização agora selecionam entre Claude Haiku 5.5, Sonnet 5.5 e Opus 5.5. O padrão continua Haiku; o catálogo aparece na tela e a API valida os IDs permitidos.
+- Nova opção de transcrição de áudio usa a API de áudio da OpenAI (`gpt-transcribe`) antes de gerar a resposta. A documentação atual recomenda esse modelo para transcrição geral; `whisper-1` fica para compatibilidade legada. A transcrição fica registrada em `messages.transcript_text`, aparece no histórico do Inbox e é reutilizada em retries. Áudio pendente no processamento de mídia adia o evento; anexo ausente/indisponível segue para revisão humana.
+- Adicionada a variável `OPENAI_API_KEY` ao schema de ambiente e ao `.env.example`; para habilitar a transcrição em execução é necessário configurá-la no servidor. A chave Anthropic continua necessária para respostas textuais.
+- Migration Drizzle `0037_cooing_dazzler.sql` gerada para os novos campos/limite de modelos; permanece **não aplicada**. Nenhum build ou teste executado por preferência persistente; `git diff --check` passou.
+- Nova revisão do Inbox: ordem visual e DOM agora seguem dados do lead à esquerda, conversa ao centro e fila à direita; a lista rola em área própria com paginação fixa, linhas não encolhem, e o cabeçalho mantém ações em flex. Em larguras médias a conversa fica acima dos painéis auxiliares; em mobile a ordem linear segue o DOM. Chrome indisponível para confirmação visual nesta retomada; sem build/testes.
+- Alinhamento de validação generalizado nos formulários: labels com controles compartilhados de campo/calendário agora permanecem alinhados ao topo de cada linha de grid, impedindo que um erro visível desloque os controles dos campos vizinhos. Aplicado na camada compartilhada `FormControls.css`, não apenas no formulário de tarefas.
+
+## Pipeline visual e arraste de oportunidades — implementação em andamento
+
+- O quadro do Pipeline agora usa cards compactos com altura fixa, mostrando negócio, empresa/contato, etapa, valor potencial e próxima ação. Abrir o card exibe um modal com os controles detalhados já existentes, linha do tempo, atribuição e transição.
+- Arrastar um card para outra etapa abre a revisão da mudança no modal. A persistência continua usando o comando atual da API, incluindo validação de transição, próxima ação, valor/data de ganho ou motivo de perda; não confirma movimento antes de salvar. Etapas vazias, inclusive ganha/perdida, continuam como destinos visíveis.
+- Estado de carregamento/erro e filtros/lista existentes foram preservados. Textos novos adicionados aos catálogos pt-BR/en.
+- Ajuste global para botões legados `.primary`: hover/foco agora mantém preenchimento de ação com contraste, corrigindo o botão verde “Salvar políticas” observado nas capturas.
+- Segunda passada para carteiras grandes: cada etapa mantém cabeçalho e rolagem vertical próprios dentro do quadro, evitando que uma coluna longa empurre todas as outras para baixo. Todas as etapas ativas ficam visíveis como destino; contagens ainda correspondem aos resultados carregados pelo quadro.
+- Não houve mudança de API/schema. Sem build/testes por preferência persistente; revisar `git diff --check`. Inspeção visual desta implementação ainda pendente.
+
+## Pipelines CRM independentes — em implementação
+
+- A configuração agora prevê vários pipelines por organização, com nome, pipeline padrão, arquivamento bloqueado enquanto houver oportunidades e etapas independentes. Pipelines novos começam com Ganho e Perda fixas; etapas abertas são cadastradas/reordenadas dentro do pipeline. O quadro permite selecionar o pipeline e transferir oportunidades para outro pipeline e uma etapa válida.
+- Compatibilidade e preservação: `pipelines` e os novos vínculos são aditivos/nullable. Ao consultar pipeline/etapas/oportunidades, `PipelinesRepository.ensureDefault` cria (se necessário) o pipeline principal e associa, de modo idempotente, estágios/oportunidades legados sem vínculo. Os dados de negócio/histórico permanecem. Organizações com estágios ou oportunidades legados conservam os estágios padrão atuais para manter as transições e os históricos interpretáveis. Uma organização nova e vazia começa com apenas Ganho/Perda como estágios de sistema; pipelines novos também começam só com essas duas etapas.
+- Migrations `0038_lethal_alex_power.sql` (modelo/vínculos), `0039_red_mentor.sql` (índice tenant-first do quadro) e `0040_chunky_skin.sql` (integridade tenant-scoped dos vínculos de pipeline no histórico) geradas, não aplicadas. Não aplicar até solicitação explícita; registros existentes ainda não receberam o vínculo até a migration e o primeiro acesso ao backend atualizado.
+- Telas integradas ao client centralizado e catálogos pt-BR/en. Sem build/testes e sem aplicação de migration, conforme preferência registrada. Fazer inspeção visual no Chrome e validação técnica em etapa posterior solicitada.
+- Configuração extensa dividida em abas acessíveis **Pipelines** e **Etapas**, mantendo o seletor do pipeline visível em ambas; ao criar um pipeline, a interface segue para a aba de etapas. Inspeção visual ainda pendente: automação do Chrome nesta retomada retornou ao iTerm/aba do 30studio; nenhuma credencial ou dado foi alterado.
+
+## Acesso local de demonstração UX
+
+- Conta criada no tenant local `Acme Brasil (dados de demonstração)`, vinculada à carga preexistente `ui-demo-v1`; role `owner`, e-mail verificado para login local. Nenhum registro de negócio foi recriado, removido ou reatribuído.
+- URL: `http://localhost:5174` (Better Auth trusted origin; `127.0.0.1` returns `Invalid origin`)
+- E-mail: `ux.demo@30sales.test`
+- Senha local guardada em `.local/demo-credentials.md` (arquivo ignorado pelo Git; não publicar).
+- Seed idempotente: `npm run db:seed:ux-demo-user`. Aceita somente o banco `30sales` em loopback na porta `55432`, exige `DEMO_ACCOUNT_CONFIRM=CREATE_LOCAL_UX_DEMO_ACCOUNT` e falha em produção. Usa `hashPassword` do Better Auth e registra a criação em auditoria.
+
+## Retomada de inspeção funcional no Chrome — 16/11/2026
+
+- Login da conta UX Demo em `localhost:5174` concluído; percorri Hoje, Tarefas, Inbox, Leads, Contas, Central do closer, Passagens para closer, Pipeline CRM, Canais WhatsApp, Assistente, SLA, Relatórios, Auditoria, Importações e Equipe.
+- Leads/Contas, Tarefas, Passagens, Auditoria, Canais WhatsApp, Importações e Equipe carregaram os dados de demonstração. O canal é fictício, desativado e sem credenciais; não enviei mensagens nem convites.
+- Hoje, Inbox, Central do closer, Pipeline, Assistente e Relatórios exibiram erros de carregamento parciais ou totais. Log da API confirmou schema local incompleto: relação `pipelines` inexistente e coluna `messages.transcript_text` ausente.
+- Auditoria registra agora a criação da conta e exibe 83 eventos/4 páginas. Equipe lista 3 membros no tenant demo.
+- `git diff --check` passou. O trabalho local preexistente permanece; nenhuma alteração em dados comerciais foi feita durante a navegação.
+
+## Correção do schema local de demonstração — 16/11/2026
+
+- Aplicadas as migrations pendentes `0037`–`0040` no banco local verificado `30sales` do container `30sales-ux-db`. `drizzle-kit migrate` concluiu sem erro. Não houve acesso a ambiente remoto/produção.
+- Confirmei `public.pipelines` e `messages.transcript_text`. Contagens antes/depois preservadas: 66 leads, 56 oportunidades, 10 etapas, 112 registros de histórico e 233 mensagens. A tabela de migrações registra as quatro novas entradas.
+- A inspeção visual pós-migração ficou pendente porque o host de controle do Chrome estava indisponível nesta retomada. Reabrir/atualizar Pipeline, Inbox, Assistente, Central do closer, Hoje e Relatórios no navegador local.
+
+## Leads empresa com contatos múltiplos — em implementação
+
+- Lead pode ser cadastrado inicialmente só com a empresa; contato, e-mail e telefone são opcionais. Informando e-mail ou telefone no cadastro inicial, o nome do contato passa a ser exigido.
+- `lead_contacts` registra várias pessoas por lead com cargo/área, nota de indicação, observações e flags de contato principal e interessado no produto. “Em conversa” é calculado a partir de conversas ativas (`open`, `pending`, `snoozed`), não editado manualmente.
+- A tela de leads permite abrir/gerenciar os contatos, adicionar uma secretária sem canal direto, registrar quem indicou o financeiro/responsável, marcar interesse e definir o contato principal. Contas contam os contatos associados.
+- Webhooks de WhatsApp, Inbox e qualificação do assistente passam a localizar o lead por contatos associados, preservando compatibilidade temporária com `leads.person_id` legado.
+- Migrations `0041_lead_contacts.sql` e `0042_leads_company_first.sql` geradas e não aplicadas. Sem build/testes por preferência persistente; `git diff --check` passou. Próxima etapa: aplicar migrations somente quando solicitado e validar no Chrome/API.
+
+## Perfis de plataforma e operação comercial — decisão de produto registrada
+
+- Atualizado `docs/sofia_produto/01_visao_e_navegacao.md` para separar autorização global da plataforma e membership por tenant: superadmin cadastra empresas e define o primeiro responsável (`owner`); usuários da empresa, incluindo vários `closer`, entram por convites/memberships.
+- `owner` tem visão da empresa/equipe; `closer` começa pela carteira atribuída (oportunidades, conversas, tarefas, handoffs e próximos passos) e não vê a carteira dos colegas por padrão. Escopo individual precisa ser aplicado também nas queries e commands do backend, não só no menu.
+- Uma identidade pode participar de várias empresas com papel diferente em cada tenant. Superadmin não é role de organização e não deve ser convite de cliente; o acesso a dados de tenant pelo suporte deve ser explícito e auditado.
+- Implementação inicial do console global: o papel de plataforma fica na identidade global e é validado novamente no backend; a sessão o expõe ao frontend, que apresenta o console isolado de administração ao superadmin.
+- O console lista empresas com busca/paginação e cadastra empresa mais convite para seu owner inicial. O convite é enviado pelo mailer existente; se SMTP falhar, o link seguro fica disponível para cópia. O endpoint não consulta dados comerciais de tenants.
+- Promotion script exige conta existente com e-mail verificado e confirmação explícita no ambiente. Papéis, status, códigos, caminhos e valores técnicos da fatia estão centralizados em constantes; UI usa catálogos pt-BR/en.
+- Migration `0043_platform_role.sql` gerada, ainda não aplicada. Script de promoção não executado; sem build/testes por preferência persistente. `git diff --check` passou.
+- Próxima fatia em andamento: navegação contextual por papel e carteira individual do closer nos fluxos restantes (Inbox, tarefas, leads e handoffs); validar permissões dos relatórios com dados agregados.
+
+## Navegação por papel e carteira de oportunidades — em implementação
+
+- Menu, rotas e página inicial variam por membership ativa: owner/admin/manager veem o espaço de gestão; closer inicia na central pessoal; BDR, SDR, operações e analista recebem entradas adequadas ao seu trabalho. Trocar empresa recarrega o papel ativo antes do redirecionamento.
+- Backend restringe oportunidades individuais a owner/admin/manager e closer. A API força `view=mine` para closer mesmo com filtro cliente adulterado; histórico e atividades usam o mesmo escopo por owner. Relatório agregado fica reservado a owner/admin/manager/analista.
+- Consultas de Inbox filtram conversas por owner para papéis sem visão de gestão; mensagens e cursor de leitura também validam o owner. Listagem/paginação de tarefas, criação vinculada a lead e conclusão usam o usuário autenticado para papéis sem visão de gestão.
+- Leads têm escopo server-side: gestão vê o tenant; BDR/SDR veem leads atribuídos; closer também vê leads ligados às próprias oportunidades. O escopo cobre busca de duplicados, detalhes por ID, mudança de status, contatos e tarefas vinculadas. Verificação global de duplicidade continua bloqueando registros repetidos sem expor dados de carteiras alheias.
+- Atribuição/lista de responsáveis de lead fica restrita a owner/admin/manager. Closers veem na fila de handoffs solicitações compartilhadas e itens aceitos/devolvidos por eles; outros papéis veem solicitações que criaram; gestores veem todos. Um closer só pode devolver handoff aceito por ele.
+- Contas e seus totais agora respeitam a mesma carteira: BDR/SDR veem empresas com leads atribuídos; closer também pode ver empresas ligadas às próprias oportunidades; só gestores veem totais da organização. A fila da central do closer é individual para closers e compartilhada para gestores.
+- Leitura de memberships com múltiplos papéis foi centralizada em constantes/helpers no backend e frontend. A navegação combina as páginas permitidas e escolhe a página inicial pelo primeiro papel conhecido; verificações de papel deixaram de comparar valores soltos.
+- Valores de papéis e grupos de autorização usam constantes. A navegação é conveniência de UX; cada endpoint sensível mantém sua própria autorização no backend.
+- Sem mudança de schema/migration. `git diff --check` passou. Não rodar build/testes sem pedido explícito.
+- Eventos realtime do Inbox consultam o owner atual antes de distribuir a atualização: gestores e o usuário dono recebem o ID da conversa; os demais recebem apenas um sinal sem identificador para atualizar a lista. Revisar endpoints menos usados e validar os papéis com contas de cada perfil quando for solicitada a passada funcional.
+
+## Fluxo operacional do closer — em implementação
+
+- Indicadores do topo da Central do closer agora são filtros acionáveis por clique, com estado ativo acessível por `aria-pressed` e foco visível. Passagens, eventos, ações vencidas, primeiro contato pendente e oportunidades sem próxima ação abrem o recorte correspondente; a paginação volta ao início ao mudar o recorte.
+- Corrigida a leitura de alertas de SLA na central: usa o endpoint próprio de alertas do closer, mantendo o tenant/user scope, em vez do endpoint de notificações gerais.
+- A fila agora agrega tarefas abertas usando a paginação da API. Tarefas vencidas compartilham o sinalizador de atraso; as demais têm filtro e indicador próprios. A ação abre a tarefa pelo `taskId` na tela de tarefas existente, e o endpoint mantém o escopo de usuário/organização.
+- Conversas com mensagens não lidas e status ativo também aparecem na central, respeitando o escopo aplicado pelo endpoint do Inbox. O filtro dedicado abre o Inbox na conversa; conversas resolvidas ficam fora desse sinalizador.
+- Sem mudança de backend/schema. `git diff --check` passou; build/testes não executados por preferência persistente. Próximo passo recomendado: inspeção visual/funcional da Central no Chrome, em especial a disposição dos sete indicadores e o fluxo de abrir uma tarefa ou conversa não lida.
+- Retomada da inspeção em 16/11/2026: Chrome acessível em `localhost:5174`; formulário de login está centralizado e sem desalinhamento horizontal visível. Login da conta demo falhou porque o backend 30Sales não estava disponível na origem de API configurada. A porta 3000 não respondeu com a API Nest e o proxy Vite está configurado para essa porta. Não alterei senha, sessão nem dados. Inspeção autenticada da Central e dos atalhos segue pendente até iniciar a API local apontada para o banco `30sales-ux-db`.
+
+## Segmentação inicial de leads — em implementação
+
+- Categorias de segmento são configuráveis por tenant em `account_segments`; cada empresa pode ter uma categoria ativa. `accounts.segment_id` nullable mantém os registros existentes sem alteração semântica; nenhuma classificação é inferida.
+- Owner/admin/manager podem criar categorias e atribuí-las na tela Contas. Ações são revalidadas no backend, tenant-scoped e auditadas. Leads exibe a categoria e filtra por segmento ou “Sem segmento”; filtragem, ordenação e paginação ocorrem no servidor.
+- Migration Drizzle `0044_low_naoko.sql` foi gerada, ainda não aplicada. Nenhum dado foi alterado no banco. A revisão estática foi concluída e `git diff --check` passou; sem build/testes por preferência persistente.
+- Escopo intencional desta primeira etapa: classificação simples de empresa. Critérios dinâmicos combinados e dimensões como UF, porte, CNAE, fonte/proveniência e confirmação ficam para fatias seguintes, após amostra atual do Twenty.
+- Revisão final: UUID do caminho de atribuição agora é validado por Zod; erros de criação ficam visíveis dentro do modal. Consultas de contas e leads filtram, ordenam e paginam no servidor; a associação entre segmento e empresa tem FK composta por tenant, e mudanças são auditadas.
+
+## Inspeção do CRM Twenty — 16/11/2026
+
+- Correção de escopo do usuário: a análise deve incluir Companies/People e também Tasks, Notes, Files, Emails e Timeline, pois todos participam do processo comercial.
+- Inspecionei em modo somente leitura a aba já aberta no Chrome. Companies tem vários campos personalizados além de nome/telefone: domínio, faturamento anual, endereço, indústria, Client Type, MRR / Contract Value, School Segment, Student Count, Account Status, Status Abordagem, Chip, CNPJ, Origem do lead, IDs Sofia, marcos de abordagem/resposta/aceite/recusa e referência de conversa. People tem email, telefone, empresa, cargo e LinkedIn.
+- Tasks relaciona título/tipo/status/prazo/responsável/corpo/criador/data a registros Company; Notes têm relação e corpo livre, podendo conter snapshots de handoff, indicações, lacunas de qualificação e excertos de conversa; Timeline mostra criação, mudanças de campos e vínculos com tasks/notes.
+- Files e Emails existem como abas relacionadas. As fichas observadas estavam vazias nessas abas; os campos exatos das integrações ainda precisam de exemplo não vazio/export read-only. Não persistir texto de notas/email como critério de segmento; priorizar atributos tipados/proveniência e sinais calculados de atividade. Binaries devem seguir política privada S3.
+- Documentado em `docs/sofia_produto/09_mapeamento_fontes_importacao.md` e `03_modelo_de_dados.md`. Inspeção posterior em Data model → Companies confirmou os principais tipos e listas: School Segment 28 opções, Status Abordagem 7 e Origem do lead 7. Account Status, Client Type, Industry, School Segment, Status Abordagem e Origem do lead são Select; Student Count é Number; Annual Revenue e MRR / Contract Value são Currency; CNPJ/Chip são Text; datas são Date and Time; Conversa Sofia é Links. A lista API value → label está documentada no mapa.
+- Não fixar opções editáveis do Twenty em enums globais. Preservar API value, label, provedor, tenant e mapeamento canônico revisável; enums/constantes ficam para conceitos estáveis próprios do domínio. Valores desconhecidos não podem ser descartados no preview/importação.
+- Lacunas confirmadas no modelo atual: tasks ligadas a lead; activities obrigatoriamente ligadas a opportunity; anexos de mídia ligados a mensagens. Não há ainda Notes e Files de CRM vinculados a conta/contato, nem modelo/integrador de Emails. Próximas fatias devem criar relações por entidade e uma timeline agregada de registros/auditoria, sem duplicar a fonte e sem usar conteúdo livre como filtro de segmento.
+
+## Perfil útil para segmentar empresas — em implementação
+
+- Sem copiar a configuração extensa do Twenty: `accounts` ganhou `market_segment` canônico amplo (`education`, `sports`, `fitness`, `other`) e `student_count` inteiro não negativo, ambos opcionais para preservar empresas atuais sem inferência.
+- Contas permite editar os dois campos num modal; API valida e persiste com auditoria, tenant e carteira do usuário. Contas e Leads filtram no backend por perfil e faixa mínima/máxima de alunos; a fila de Leads mostra esses atributos junto à empresa, além da categoria comercial customizável existente.
+- Migration `0045_pretty_violations.sql` gerada e não aplicada. Sem build/testes; `git diff --check` executado nos arquivos desta fatia. A atribuição manual fica registrada em auditoria, mas proveniência/nível de confirmação por campo ainda não está modelado para futura importação/enriquecimento.
+
+## Dashboard gerencial e métricas — escopo registrado
+
+- Definido dashboard de gestão com gráficos úteis para vendedores/closers, BDR/SDR IA, pipeline e saúde operacional. Métricas devem ter fonte, fórmula, população/denominador, período/coorte, moeda/fuso e atualização explícitos, além de drill-down e alternativa tabular acessível.
+- Atualizados `docs/sofia_produto/02_telas_campos_acoes.md`, `03_modelo_de_dados.md` e `06_backlog_aceite_entrega.md` com o catálogo inicial, critérios e lacunas. Relatórios agora incluem série comercial diária (leads/oportunidades criados e fechados por data UTC do evento) e uso de IA (respostas, transcrições, falhas, latência e custo estimado), ambas com filtro de período, tenant e tabela acessível.
+- Não calcular desempenho retroativo por vendedor sem histórico de ownership; não atribuir resultado à IA só pelo modo atual da conversa.
+- Série comercial por evento, uso diário de IA e coorte diária de leads estão implementados localmente. Coorte: população de leads criados por dia UTC; numeradores de resposta (`responded` ou `converted_to_sdr`), conversão para SDR (`converted_to_sdr`) e oportunidade criada até o fim do período selecionado; taxas usam a população diária; idade da coorte aparece para sinalizar acompanhamento desigual. Usa `lead_status_history` e relação tenant-scoped com `opportunities`, sem migration. Próxima fatia: ampliar indicadores de pipeline/aging e SLA sem atribuição retroativa a vendedor na ausência de histórico de owner/equipe. Sem build/testes por preferência persistente; migrations somente geradas, não aplicadas, salvo pedido explícito.
+
+## Telemetria inicial do SDR IA — implementação local
+
+- `assistant_runs` registra tentativas de geração Anthropic e transcrição OpenAI separadamente, com tenant, conversa, mensagem inbound, evento/tentativa da fila, operação, modelo, status, latência e falha tipada/redigida. Geração mede tokens, intenção, stop reason e entrega. Nenhum prompt, resposta ou transcrição é copiado para o registro de telemetria.
+- Transcrição salva duração faturável retornada pela API, tamanho do arquivo e latência. A geração salva tokens de entrada/saída. Ambas guardam estimativa de custo em USD e versão de preço usada como snapshot por execução; custo ausente permanece `null`, sem estimativa por duração presumida. Valores não representam fatura confirmada do provider.
+- Preços versionados em `assistant-runtime.constants.ts` (revisão `2026-11-16`), conforme referências oficiais consultadas nesta data: OpenAI `gpt-transcribe` US$ 0,0045/min; Anthropic Claude Haiku 5.5 US$ 0,10/0,50 por milhão de tokens até 100k tokens de entrada e US$ 0,50/2,50 acima; Sonnet 5.5 US$ 2/10 e Opus 5.5 US$ 4/20 por milhão de tokens de entrada/saída. Cache, batch, Fast Mode, impostos e condições regionais não estão incluídos.
+- Migration `0047_far_tyger_tiger.sql` gerada; não aplicada. `0046_slimy_jackal.sql` também segue gerada e não aplicada. Revisão manual concluída e `git diff --check` passou. Sem testes/build por preferência.
+- A cobertura de eventos por campanha, histórico de owner/equipe e confirmação de custo faturado seguem pendentes. Registros `started` sem conclusão identificam interrupções, não sucesso.

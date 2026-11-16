@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { CalendarDays, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import './FormControls.css'
 
@@ -7,6 +7,12 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primar
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className = '', variant = 'secondary', type = 'submit', ...props }, ref) {
   return <button ref={ref} type={type} className={`ui-button ui-button-${variant} ${className}`.trim()} {...props} />
+})
+
+type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { label: string }
+
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton({ className = '', label, type = 'button', ...props }, ref) {
+  return <Button ref={ref} type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} title={label} {...props} />
 })
 
 type TextInputType = 'text' | 'search' | 'email' | 'password' | 'tel' | 'url' | 'hidden'
@@ -125,7 +131,12 @@ function formatPhoneDisplay(value: string) {
 }
 
 export const FileField = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>>(function FileField({ className = '', ...props }, ref) {
-  return <input ref={ref} type="file" className={`ui-file-field ${className}`.trim()} {...props} />
+  const { t } = useTranslation()
+  const inputRef = useRef<HTMLInputElement>(null)
+  return <>
+    <input {...props} ref={(element) => { inputRef.current = element; if (typeof ref === 'function') ref(element); else if (ref) ref.current = element }} type="file" tabIndex={-1} aria-hidden="true" className={`ui-file-field ${className}`.trim()} />
+    <Button className="ui-file-select" type="button" onClick={() => inputRef.current?.click()}><FileUp size={16} aria-hidden="true" />{t('formControls.chooseFile')}</Button>
+  </>
 })
 
 type NumericFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange' | 'min' | 'max' | 'step'> & {

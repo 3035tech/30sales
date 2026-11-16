@@ -5,26 +5,16 @@ The backend and frontend are built and published as independent OCI images:
 - `ghcr.io/3035tech/30sales-back`
 - `ghcr.io/3035tech/30sales-front`
 
-Each project has its own Dockerfile and workflow. `.github/workflows/build-back.yml` builds and publishes only the backend image; `.github/workflows/build-front.yml` does the same for the frontend. Pull requests build the affected image without publishing. Pushes publish for `linux/amd64` and `linux/arm64`; tags include the branch or release tag and the full commit SHA (`sha-…`). Each workflow uses the repository `GITHUB_TOKEN` with `packages: write` only in its publish job.
+Each project has its own Dockerfile and workflow. `.github/workflows/build-back.yml` builds and publishes only the backend image; `.github/workflows/build-front.yml` does the same for the frontend. Pull requests build the affected image without publishing. Pushes publish for `linux/amd64` and `linux/arm64`; tags include the branch or release tag and the full commit SHA (`sha-…`). Workflows only need `packages: write` to publish.
 
-The frontend image is static NGINX running unprivileged on port `8080`. It uses a relative API URL by default so an Ingress can route `/api` and `/api/auth` to the backend and all other paths to the frontend. Set `VITE_API_URL` as a build argument only if a separate API origin is intentionally chosen.
+The frontend image is static NGINX running unprivileged on port `8080`. It uses a relative API URL, so frontend and backend share `https://30sales.3035service.com`: `/` routes to the frontend and `/api` (including `/api/auth`) routes to the backend. This keeps browser requests same-origin and requires no `VITE_API_URL` build argument.
 
-The backend listens on port `3000` by default and exposes `/health` for the image health check. Runtime configuration remains external to the image; use Kubernetes Secrets/ConfigMaps for the variables in `30sales-back/.env.example`. The container does not apply database migrations at startup.
+The backend listens on port `3000` and exposes `/health`. Runtime configuration remains external to the image; use the Kubernetes Secret `30sales-back-runtime` for the variables in `30sales-back/.env.example`, including database URL, Better Auth secret, and S3 bucket. The container does not apply database migrations at startup.
 
-GHCR packages may be private by default. The Kubernetes namespace needs an `ghcr-pull` image pull secret with read access to both packages. The backend also needs a `30sales-backend-runtime` Secret with its runtime configuration. Do not commit either Secret.
+## GitOps and image updates
 
-## GitOps and promotion
+Argo CD is managed from the separate `3035tech/gitops` repository. The two Applications live under `dublin/30sales-back` and `dublin/30sales-front`; `dublin/kustomization.yaml` includes both, following the existing app-of-apps pattern. Each Application uses the shared `charts/backend` Helm chart and deploys independently into the `apps` namespace. The chart uses the shared `github-app-auth-token` image pull secret.
 
-`gitops/argocd/root-application.yaml` is the bootstrap Argo CD Application. It tracks `main` and reconciles the two child Application definitions from `gitops/argocd/apps/`. The child Applications point independently to `gitops/backend/` and `gitops/frontend/`, each with its own Deployment, Service and Kustomize image reference. Child sync is manual so an image promotion does not deploy code before its runtime secrets, ingress and database migrations are ready.
+When a commit reaches `main`, each workflow builds and publishes only its own image with `main` and immutable `sha-…` tags. Argo Image Updater tracks the `main` tag for each separate Application, resolves its digest, and writes the update back to that Application. CI does not commit deployment manifests into the application repository.
 
-When a commit reaches `main`, each workflow publishes its own image with an immutable `sha-…` tag and updates only that component's `newTag` in GitOps. The GitOps change is committed back to `main`; Argo detects the changed desired state. Backend and frontend can therefore be promoted and synced independently. The namespace is `30sales`; both deployments expect the private image pull secret `ghcr-pull`.
-
-Bootstrap once with the Argo CD CLI or UI after the Argo CD server and repository access are configured:
-
-```sh
-argocd app create 30sales-apps \
-  --file gitops/argocd/root-application.yaml \
-  --upsert
-```
-
-The root Application creates/updates the two child Applications. Sync the backend and frontend child Applications separately when prerequisites are ready. Add the environment-specific Ingress outside these generic manifests: route `/api` and `/api/auth` to `30sales-back:3000`, and other paths to `30sales-front:80`. Set `BETTER_AUTH_URL` and `FRONTEND_URL` to the real public origin. Apply pending Drizzle migrations through the approved operational process before syncing a backend release that requires them; the image never runs migrations at startup.
+The back-end Application routes `/api` to `sales30-back:3000`; the front-end Application routes `/` to `sales30-front:8080` under the same hostname. The backend probes `/health`. Before the backend becomes healthy, configure `30sales-back-runtime` with required production settings and apply pending Drizzle migrations through the operational process.

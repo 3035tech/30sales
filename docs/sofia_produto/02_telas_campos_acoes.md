@@ -42,6 +42,10 @@ Layout em três painéis: filas/conversas; thread e composer; contexto da pessoa
 
 Composer: prévia de destinatário e número, bloqueio visível, enviar; opção “sugerir resposta” não envia; anexos respeitam tipos/tamanho. Resposta gerada mostra fatos usados e edição humana.
 
+**Mídia no composer:** resposta humana aceita texto e uma imagem, vídeo, PDF ou áudio (até 16 MiB por arquivo). O arquivo vai para S3 privado; metadados e status ficam ligados à mensagem na timeline. O destinatário/canal e a permissão de ownership continuam obrigatórios. Nota interna não aceita anexo. Formatos não suportados ou divergentes do conteúdo real são recusados antes do envio; falha/resultado incerto do provedor permanece explícito.
+
+**Jornada da base:** a importação (LDR) valida e deduplica a origem; o SDR IA aborda apenas leads elegíveis e registra mensagens/respostas no Inbox; BDR/closer assume exceções ou handoffs e conduz a oportunidade no pipeline. Cada mudança mantém origem, ator, histórico e próxima ação.
+
 ## 2.3 Contas — lista e detalhe
 
 ### Lista

@@ -1,12 +1,16 @@
-import { Button, CheckboxField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound } from 'lucide-react'
+import { Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api/client'
+import { api, ApiError, INBOX_MEDIA_ERROR_CODE, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api/client'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import i18n from '../lib/i18n'
 import './InboxWorkspace.css'
 import './InboxAttachments.css'
+
+const INBOX_MEDIA_LIMIT_BYTES = 16 * 1024 * 1024
+const INBOX_FILE_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf'
+const INBOX_AUDIO_ACCEPT = 'audio/mpeg,audio/aac,audio/ogg,audio/amr,audio/mp4,audio/wav'
 
 export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
@@ -15,6 +19,9 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [messagesConversationId, setMessagesConversationId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
+  const [mediaDraft, setMediaDraft] = useState<File | null>(null)
+  const attachmentInputRef = useRef<HTMLInputElement>(null)
+  const audioInputRef = useRef<HTMLInputElement>(null)
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [tagFilter, setTagFilter] = useState('')
   const [tagDraft, setTagDraft] = useState('')
@@ -84,7 +91,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(conversationSearch.trim()), 250); return () => window.clearTimeout(timer) }, [conversationSearch])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { setMessageDraft(''); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode('reply') }, [selectedId])
+  useEffect(() => { setMessageDraft(''); setMediaDraft(null); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode('reply') }, [selectedId])
   useEffect(() => {
     if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
@@ -183,19 +190,33 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   }
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!selected || (composerMode === 'reply' ? !canSend : !canAddNote) || !messageDraft.trim()) return
+    if (!selected || (composerMode === 'reply' ? !canSend : !canAddNote) || (!messageDraft.trim() && !mediaDraft) || (composerMode === 'note' && mediaDraft) || (mediaDraft?.type.startsWith('audio/') && messageDraft.trim())) return
     setSendingMessage(true); setMessageSendError('')
     try {
       const message = composerMode === 'reply'
-        ? await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
+        ? mediaDraft
+          ? await api.inbox.sendMediaMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey, file: mediaDraft })
+          : await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
         : await api.inbox.addNote(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
-      setMessageDraft(''); setMessageKey(crypto.randomUUID())
+      setMessageDraft(''); setMediaDraft(null); setMessageKey(crypto.randomUUID())
       if (composerMode === 'reply' && message.deliveryState === 'unknown') setMessageSendError(t('inbox.deliveryUnknown'))
       if (composerMode === 'reply' && message.deliveryState === 'failed') setMessageSendError(t('inbox.deliveryFailed'))
-    } catch {
-      setMessageSendError(t('inbox.sendFailed'))
+    } catch (error) {
+      if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.unsupportedType) setMessageSendError(t('inboxComposer.mediaUnsupported'))
+      else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.invalidContent) setMessageSendError(t('inboxComposer.mediaInvalid'))
+      else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.tooLarge) setMessageSendError(t('inboxComposer.mediaTooLarge'))
+      else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.audioCaptionUnsupported) setMessageSendError(t('inboxComposer.audioCaptionUnsupported'))
+      else setMessageSendError(t('inbox.sendFailed'))
     } finally { setSendingMessage(false) }
+  }
+  const selectMedia = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0] ?? null
+    event.currentTarget.value = ''
+    if (!file) return
+    if (file.size > INBOX_MEDIA_LIMIT_BYTES) { setMessageSendError(t('inboxComposer.mediaTooLarge')); return }
+    setMediaDraft(file)
+    setMessageSendError(file.type.startsWith('audio/') && messageDraft.trim() ? t('inboxComposer.audioCaptionUnsupported') : '')
   }
   const addTag = async () => {
     if (!selected || !canEditTags || !tagDraft.trim()) return
@@ -284,12 +305,13 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             </article>)}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>
-            <div className="inbox-composer-modes"><Button type="button" className={composerMode === 'reply' ? 'active' : ''} onClick={() => { setComposerMode('reply'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</Button><Button type="button" className={composerMode === 'note' ? 'active' : ''} onClick={() => { setComposerMode('note'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.noteMode')}</Button></div>
+            <div className="inbox-composer-modes"><Button type="button" className={composerMode === 'reply' ? 'active' : ''} onClick={() => { setComposerMode('reply'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</Button><Button type="button" className={composerMode === 'note' ? 'active' : ''} onClick={() => { setComposerMode('note'); setMessageSendError('') }} disabled={sendingMessage || Boolean(mediaDraft)}>{t('inboxComposer.noteMode')}</Button></div>
             {composerMode === 'reply' && !canSend && <p>{t('inbox.replyUnavailable')}</p>}
             {composerMode === 'note' && !canAddNote && <p>{t('inboxComposer.noteUnavailable')}</p>}
-            <TextareaField value={messageDraft} onChange={(event) => setMessageDraft(event.target.value)} maxLength={4096} placeholder={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage} aria-label={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
+            <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith('audio/') && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} maxLength={4096} placeholder={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage} aria-label={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
+            {composerMode === 'reply' && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith('audio/') ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
             {messageSendError && <p className="inbox-send-error" role="status">{messageSendError}</p>}
-            <div><small>{messageDraft.length}/4096</small><Button type="submit" disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage || !messageDraft.trim()}>{sendingMessage ? t('inbox.sending') : t(composerMode === 'note' ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
+            <div><small>{messageDraft.length}/4096</small><Button type="submit" disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage || (!messageDraft.trim() && !mediaDraft) || (mediaDraft?.type.startsWith('audio/') && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === 'note' ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
           </form>
           <footer className="inbox-readonly-note">{t('inbox.readOnly')}</footer>
         </>}

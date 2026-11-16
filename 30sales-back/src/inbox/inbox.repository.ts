@@ -5,8 +5,9 @@ import { accounts, agentSettings, auditEvents, conversationReads, conversationTa
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto, AssistantQualificationDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
 import { ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.constants';
+import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 
@@ -262,7 +263,12 @@ export class InboxRepository {
       const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
         .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);
-      if (duplicate) return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName) };
+      if (duplicate) {
+        const [attachment] = await transaction.select({ id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status }).from(messageAttachments)
+          .where(and(eq(messageAttachments.messageId, duplicate.id), eq(messageAttachments.organizationId, input.organizationId))).limit(1);
+        const attachments = attachment ? [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)] : [];
+        return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName, attachments) };
+      }
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       if (conversation.automationMode !== 'human') return 'automation_not_human';
       if (!conversation.personId || !conversation.channelId) return 'channel_unavailable';
@@ -274,9 +280,11 @@ export class InboxRepository {
       if (!channel?.isActive) return 'channel_unavailable';
       if (!channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'credentials_missing';
       const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.message_requested', entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, afterState: { messageId: message.id, channelProvider: channel.provider, deliveryState: 'requested' } });
+      const attachments = input.attachment ? [input.attachment] : [];
+      if (input.attachment) await transaction.insert(messageAttachments).values({ id: input.attachment.id, organizationId: input.organizationId, messageId: message.id, channelId: conversation.channelId, provider: channel.provider, mediaType: input.attachment.mediaType, mimeType: input.attachment.mimeType, fileName: input.attachment.fileName, sizeBytes: input.attachment.sizeBytes, sha256: input.attachment.sha256, status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.message_requested', entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, afterState: { messageId: message.id, channelProvider: channel.provider, deliveryState: 'requested', mediaType: input.attachment?.mediaType ?? null, fileName: input.attachment?.fileName ?? null, sizeBytes: input.attachment?.sizeBytes ?? null } });
       return {
-        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId), channelId: conversation.channelId, recipientPhone,
+        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId, null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending))), channelId: conversation.channelId, recipientPhone,
         provider: channel.provider as PreparedMessageSend['provider'], providerChannelId: channel.providerChannelId,
         credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag },
       };
@@ -289,9 +297,23 @@ export class InboxRepository {
         .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       if (!row) return null;
       const [actor] = row.actorUserId ? await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, row.actorUserId)).limit(1) : [];
+      const attachments = await transaction.select({ id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status }).from(messageAttachments)
+        .where(and(eq(messageAttachments.messageId, row.id), eq(messageAttachments.organizationId, input.organizationId)));
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: `conversation.message_${input.deliveryState}`, entityType: 'conversation', entityId: row.conversationId, correlationId: input.correlationId, afterState: { messageId: row.id, deliveryState: input.deliveryState, externalMessageId: input.externalMessageId } });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: row.occurredAt.toISOString() })})`);
-      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null);
+      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)));
     });
+  }
+
+  async markOutboundAttachmentAvailable(organizationId: string, messageId: string, attachmentId: string, storageKey: string): Promise<boolean> {
+    const rows = await database.update(messageAttachments).set({ storageKey, status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.available, updatedAt: new Date() })
+      .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.messageId, messageId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending)))
+      .returning({ id: messageAttachments.id });
+    return rows.length === 1;
+  }
+
+  async markOutboundAttachmentFailed(organizationId: string, messageId: string, attachmentId: string): Promise<void> {
+    await database.update(messageAttachments).set({ status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.failed, lastErrorCode: OUTBOUND_MEDIA_ERROR.storageFailed, updatedAt: new Date() })
+      .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.messageId, messageId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending)));
   }
 }

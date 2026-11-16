@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { MessageAttachmentDto } from '../attachments/attachments.dto';
 import { conversationStatus, messageActorType, messageDeliveryState, messageDirection } from '../db/schema';
+import type { OUTBOUND_MEDIA_TYPE } from './outbound-media.constants';
 
 export const listConversationsSchema = z.object({ conversationId: z.string().uuid().optional(), status: z.enum(conversationStatus.enumValues).optional(), channelId: z.string().uuid().optional(), tagId: z.string().uuid().optional(), ownerUserId: z.union([z.string().uuid(), z.literal('unassigned')]).optional(), search: z.string().trim().max(120).optional(), unreadOnly: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListConversationsQueryDto = z.infer<typeof listConversationsSchema>;
@@ -32,10 +33,13 @@ export class ConversationAssignDto { constructor(readonly organizationId: string
 export class ConversationAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }
 export const sendConversationMessageSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type SendConversationMessageDto = z.infer<typeof sendConversationMessageSchema>;
+export const sendConversationMediaSchema = z.object({ bodyText: z.string().trim().max(4096).optional(), idempotencyKey: z.string().uuid() }).strict();
+export type SendConversationMediaDto = z.infer<typeof sendConversationMediaSchema>;
+export type OutboundMediaInputDto = { readonly id: string; readonly mediaType: typeof OUTBOUND_MEDIA_TYPE[keyof typeof OUTBOUND_MEDIA_TYPE]; readonly mimeType: string; readonly fileName: string; readonly sizeBytes: number; readonly sha256: string };
 export const createConversationNoteSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type CreateConversationNoteDto = z.infer<typeof createConversationNoteSchema>;
 export class ConversationNoteCreateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
-export class ConversationMessageSendDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
+export class ConversationMessageSendDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string | null, readonly idempotencyKey: string, readonly correlationId: string | null = null, readonly attachment: OutboundMediaInputDto | null = null) {} }
 export class ConversationMessageDeliveryDto { constructor(readonly organizationId: string, readonly messageId: string, readonly actorUserId: string, readonly deliveryState: 'accepted' | 'failed' | 'unknown', readonly externalMessageId: string | null, readonly correlationId: string | null = null) {} }
 export class MessageRecordDto {
   constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string, readonly actorUserId: string | null = null, readonly actorName: string | null = null, readonly attachments: MessageAttachmentDto[] = [], readonly transcriptText: string | null = null) {}

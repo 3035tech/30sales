@@ -8,6 +8,7 @@ import { ACCOUNT_MARKET_SEGMENTS } from '../accountConstants';
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
 export const ACCOUNT_SEGMENT_FILTER = { unassigned: 'unassigned' } as const;
 export const ACCOUNT_SEGMENT_ERROR_CODE = { alreadyExists: 'ACCOUNT_SEGMENT_ALREADY_EXISTS' } as const;
+export const INBOX_MEDIA_ERROR_CODE = { tooLarge: 'MEDIA_SIZE_LIMIT_EXCEEDED', unsupportedType: 'MEDIA_TYPE_UNSUPPORTED', invalidContent: 'MEDIA_CONTENT_INVALID', missing: 'MEDIA_FILE_REQUIRED', audioCaptionUnsupported: 'MEDIA_AUDIO_CAPTION_UNSUPPORTED' } as const;
 const leadStatus = z.enum(['new','researching','ready','queued','contacting','responded','converted_to_sdr','invalid_contact','no_channel','out_of_profile','duplicate_review','no_response','paused','do_not_contact']);
 export const ASSISTANT_RUN_OPERATION = { replyGeneration: 'reply_generation', audioTranscription: 'audio_transcription' } as const;
 export const ASSISTANT_RUN_STATUS = { started: 'started', completed: 'completed', failed: 'failed' } as const;
@@ -120,7 +121,7 @@ async function request<T>(path: string, schema: z.ZodType<T>, init: RequestInit 
   const headers = new Headers(init.headers);
   headers.set('accept', 'application/json');
   headers.set('x-request-id', crypto.randomUUID());
-  if (init.body) headers.set('content-type', 'application/json');
+  if (init.body && !(typeof FormData !== 'undefined' && init.body instanceof FormData)) headers.set('content-type', 'application/json');
   const response = await fetch(`${import.meta.env.VITE_API_URL ?? ''}${path}`, { ...init, headers, credentials: 'include' });
   const payload: unknown = await response.json().catch(() => null);
   if (!response.ok) {
@@ -220,6 +221,13 @@ export const api = {
     setAutomationMode: (conversationId: string, mode: 'assistant' | 'paused') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/automation`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST', body: JSON.stringify(mode) }),
     setStatus: (conversationId: string, status: 'open' | 'resolved') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/status`, z.object({ id: z.string().uuid(), status: z.enum(['open','resolved']) }), { method: 'PATCH', body: JSON.stringify({ status }) }),
     sendMessage: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
+    sendMediaMessage: (conversationId: string, input: { bodyText: string; idempotencyKey: string; file: File }) => {
+      const form = new FormData();
+      form.set('file', input.file, input.file.name);
+      form.set('bodyText', input.bodyText);
+      form.set('idempotencyKey', input.idempotencyKey);
+      return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/media`, messageSchema, { method: 'POST', body: form });
+    },
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addTag: (conversationId: string, name: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name }) }),
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),

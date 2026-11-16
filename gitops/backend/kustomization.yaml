@@ -6,4 +6,4 @@ resources:
   - service.yaml
 images:
   - name: ghcr.io/3035tech/30sales-back
-    newTag: main
+    newTag: sha-8095058f727e7331404752af5c38108ba0a64251

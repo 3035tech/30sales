@@ -129,7 +129,7 @@ export class InboxService {
       const credentials = this.credentialCrypto.decrypt(organizationId, prepared.channelId, prepared.credentials);
       if (credentials.provider !== prepared.provider) throw new Error('Channel credential provider mismatch.');
       delivery = media
-        ? await this.mediaProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
+        ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
         : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials });
     } catch {
       delivery = { deliveryState: 'failed', externalMessageId: null };

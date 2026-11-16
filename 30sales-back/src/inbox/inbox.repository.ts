@@ -3,7 +3,7 @@ import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { database } from '../db';
 import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { ChannelRecordDto } from '../channels/channels.dto';
+import { channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
 import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
 import { ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.constants';
@@ -279,13 +279,15 @@ export class InboxRepository {
         .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
       if (!channel?.isActive) return 'channel_unavailable';
       if (!channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'credentials_missing';
+      const channelProvider = channelProviderSchema.safeParse(channel.provider);
+      if (!channelProvider.success) return 'channel_unavailable';
       const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       const attachments = input.attachment ? [input.attachment] : [];
-      if (input.attachment) await transaction.insert(messageAttachments).values({ id: input.attachment.id, organizationId: input.organizationId, messageId: message.id, channelId: conversation.channelId, provider: channel.provider, mediaType: input.attachment.mediaType, mimeType: input.attachment.mimeType, fileName: input.attachment.fileName, sizeBytes: input.attachment.sizeBytes, sha256: input.attachment.sha256, status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending });
+      if (input.attachment) await transaction.insert(messageAttachments).values({ id: input.attachment.id, organizationId: input.organizationId, messageId: message.id, channelId: conversation.channelId, provider: channelProvider.data, mediaType: input.attachment.mediaType, mimeType: input.attachment.mimeType, fileName: input.attachment.fileName, sizeBytes: input.attachment.sizeBytes, sha256: input.attachment.sha256, status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.message_requested', entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, afterState: { messageId: message.id, channelProvider: channel.provider, deliveryState: 'requested', mediaType: input.attachment?.mediaType ?? null, fileName: input.attachment?.fileName ?? null, sizeBytes: input.attachment?.sizeBytes ?? null } });
       return {
         kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId, null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending))), channelId: conversation.channelId, recipientPhone,
-        provider: channel.provider as PreparedMessageSend['provider'], providerChannelId: channel.providerChannelId,
+        provider: channelProvider.data, providerChannelId: channel.providerChannelId,
         credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag },
       };
     });

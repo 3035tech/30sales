@@ -68,7 +68,7 @@ export class CampaignsRepository {
     if (accessCondition) conditions.push(accessCondition);
     const [rows, [countRow], [channel], [agent], selectedRows] = await Promise.all([
       database.select({ leadId: leads.id, accountName: accounts.name, source: leads.source, status: leads.status, contactName: people.name, phone: people.phone, primaryContactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
-        hasConversation: exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
+        hasConversation: sql<boolean>`${exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}`,
       }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
         .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
@@ -103,7 +103,7 @@ export class CampaignsRepository {
       const accessCondition = campaignLeadAccessCondition(input.access);
       if (accessCondition) conditions.push(accessCondition);
       const candidates = input.input.leadIds.length === 0 ? [] : await transaction.select({ leadId: leads.id, status: leads.status, primaryContactId: leadContacts.id, phone: people.phone, outreachDecision: leadContacts.outreachDecision,
-        hasConversation: exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
+        hasConversation: sql<boolean>`${exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}`,
       }).from(leads).leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
         .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId))).where(and(...conditions));
       if (candidates.length !== input.input.leadIds.length || candidates.some((lead) => audienceBlockers(lead, Boolean(channel), Boolean(agent?.enabled && agent.hasPrompt)).length > 0)) {

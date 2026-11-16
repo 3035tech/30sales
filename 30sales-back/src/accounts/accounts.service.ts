@@ -1,9 +1,10 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { ACCOUNT_PROFILE_ERROR_CODE, ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_RESULT, AccountPageDto, AccountProfileRepositoryUpdateDto, AccountSegmentRepositoryAssignDto, AccountSegmentRepositoryCreateDto, AccountsRepositoryListDto, AssignAccountSegmentDto, CreateAccountSegmentDto, ListAccountsQueryDto, UpdateAccountProfileDto } from './accounts.dto';
+import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_RESULT, AccountPageDto, AccountProfileRepositoryUpdateDto, AccountSegmentRepositoryAssignDto, AccountSegmentRepositoryCreateDto, AccountsRepositoryListDto, AssignAccountSegmentDto, CreateAccountSegmentDto, ListAccountsQueryDto, UpdateAccountProfileDto } from './accounts.dto';
 import { AccountsRepository } from './accounts.repository';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { ACCOUNT_PROFILE_ERROR_CODE } from './accounts.constants';
 
 @Injectable()
 export class AccountsService {

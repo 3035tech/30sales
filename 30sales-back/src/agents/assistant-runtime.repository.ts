@@ -150,7 +150,7 @@ export class AssistantRuntimeRepository {
       const occurredAt = new Date();
       const idempotencyKey = `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
-        .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id });
+        .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id, deliveryState: messages.deliveryState });
       const outboundMessage = message ?? (await transaction.select({ id: messages.id, deliveryState: messages.deliveryState }).from(messages)
         .where(and(eq(messages.organizationId, conversation.organizationId), eq(messages.conversationId, conversation.id), eq(messages.idempotencyKey, idempotencyKey))).limit(1))[0];
       if (!outboundMessage) throw new Error('Assistant outbound message could not be recovered.');
@@ -203,7 +203,7 @@ export class AssistantRuntimeRepository {
             if (!opportunityId) {
               const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
               const initialStage = requestsHuman ? 'closer_contact_pending' : 'qualification';
-              const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
+              const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
               opportunityId = createdOpportunity.id;
               await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: initialStage, toPipelineStageKey: null, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
               await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, source: requestsHuman ? 'assistant_human_request' : 'assistant_handoff' } });

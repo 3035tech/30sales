@@ -5,7 +5,7 @@ import { database } from '../db';
 import { accounts, auditEvents, externalRecords, leadContacts, leadStatusHistory, leads, opportunities, people } from '../db/schema';
 import { LEAD_SOURCE, LEAD_STATUS } from '../leads/constants';
 import { IMPORT_PREVIEW_STATUS, IMPORT_TARGET_TYPE, LEAD_IMPORT_AUDIT_ACTION, LEAD_IMPORT_RESULT_STATUS } from './imports.constants';
-import { CanonicalEntityType, ExternalIdentityCheckResultDto, ImportLeadsResultDto, ImportMatchField, ImportPreviewCandidateDto, ImportPreviewLinkDto, ImportPreviewRecordResultDto, ImportRepositoryIdentityCheckDto, ImportRepositoryLeadsDto, ImportRepositoryPreviewDto, LeadImportRecordResultDto, PreviewImportRecordDto } from './imports.dto';
+import { CanonicalEntityType, ExternalIdentityCheckResultDto, ImportLeadsResultDto, ImportMatchField, ImportPreviewCandidateDto, ImportPreviewLinkDto, ImportPreviewRecordResultDto, ImportRepositoryIdentityCheckDto, ImportRepositoryLeadsDto, ImportRepositoryPreviewDto, ImportsPreviewDto, LeadImportRecordResultDto, PreviewImportRecordDto } from './imports.dto';
 
 function normalizedName(value: string | undefined): string { return (value ?? '').trim().toLocaleLowerCase('en-US'); }
 function normalizedEmail(value: string | undefined): string { return (value ?? '').trim().toLocaleLowerCase('en-US'); }

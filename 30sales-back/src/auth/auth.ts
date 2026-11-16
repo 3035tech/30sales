@@ -11,10 +11,12 @@ import { sendInvitationEmail, sendPasswordResetEmail, sendVerificationEmail } fr
 import { AuditRepository } from '../audit/audit.repository';
 import { requestContext } from '../common/request-context';
 import { PLATFORM_ROLE } from './authorization.constants';
+import { authSecondaryStorage } from './auth-redis.service';
 const auditRepository = new AuditRepository();
 const authLogger = new Logger('Auth');
 export const auth = betterAuth({
  database: drizzleAdapter(database, { provider: 'pg', schema: { user: authTables.user, session: authTables.session, account: authTables.account, verification: authTables.verification, organization: authTables.organization, member: authTables.member, invitation: authTables.invitation }, schemaName: 'auth' }),
+ ...(authSecondaryStorage ? { secondaryStorage: authSecondaryStorage, session: { storeSessionInDatabase: true } } : {}),
  user: { additionalFields: { platformRole: { type: 'string', required: false, input: false, defaultValue: PLATFORM_ROLE.user } } },
  secret: process.env.BETTER_AUTH_SECRET, baseURL: process.env.BETTER_AUTH_URL,
  trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:5173'],

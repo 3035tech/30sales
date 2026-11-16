@@ -9,7 +9,9 @@ Each project has its own Dockerfile and workflow. `.github/workflows/build-back.
 
 The frontend image is static NGINX running unprivileged on port `8080`. It uses a relative API URL, so frontend and backend share `https://30sales.3035service.com`: `/` routes to the frontend and `/api` (including `/api/auth`) routes to the backend. This keeps browser requests same-origin and requires no `VITE_API_URL` build argument.
 
-The backend listens on port `3000` and exposes `/health`. Runtime configuration remains external to the image; use the Kubernetes Secret `30sales-back-runtime` for the variables in `30sales-back/.env.example`, including database URL, Better Auth secret, and S3 bucket. The container does not apply database migrations at startup.
+The backend listens on port `3000` and exposes `/health`. Runtime configuration remains external to the image; use the Kubernetes Secret `30sales-back-runtime` for the variables in `30sales-back/.env.example`, including database URL, Better Auth secret, Redis URL, SMTP, channel encryption key, and S3 bucket. The container does not apply database migrations at startup.
+
+Better Auth uses Redis as shared secondary storage for sessions and keeps the database copy enabled. Redis is required in production and is connected through `REDIS_URL`; use a dedicated key prefix so this application's session keys remain isolated when Redis is shared. The backend checks the Redis connection before opening its HTTP listener and fails closed if Redis is unavailable.
 
 ## GitOps and image updates
 

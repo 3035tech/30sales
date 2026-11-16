@@ -14,6 +14,7 @@
 ## Implementação atual
 
 - [Arquitetura e fluxo de dados](arquitetura_tecnica.md): Git Flow, API client, DTOs, camadas Nest, isolamento de tenant, endpoints e migrations.
+- [Imagens de contêiner](container-images.md): builds independentes do backend e frontend, tags GHCR e requisitos para o GitOps/Argo CD.
 
 O produto começou como SaaS multi-tenant. Frontend Vite/React e backend NestJS estão separados. Login e identidade usam Better Auth + PostgreSQL/Drizzle; organizações têm papéis tipados, convites exigem verificação de e-mail e envio configurável por SMTP. O frontend contém shell, aceite de convite, gestão básica da equipe, fila de leads e assets oficiais da marca. Todas as chamadas passam por um client central.
 

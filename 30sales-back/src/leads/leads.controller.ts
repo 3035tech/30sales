@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignLeadSchema, createLeadContactSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, updateLeadContactSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
-import type { AssignLeadDto, CreateLeadContactDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, UpdateLeadContactDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
+import { assignLeadSchema, createLeadContactSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, listSdrPreviewSchema, reviewContactOutreachSchema, updateLeadContactSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadContactDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, ListSdrPreviewQueryDto, ReviewContactOutreachDto, UpdateLeadContactDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -22,6 +22,18 @@ export class LeadsController {
   @Get('assignees')
   assignees(@ApiRequest() request: ApiRequestDto) {
     return this.leadsService.listAssignees(request);
+  }
+  @Get('sdr-preview/channels')
+  sdrPreviewChannels(@ApiRequest() request: ApiRequestDto) {
+    return this.leadsService.sdrPreviewChannels(request);
+  }
+  @Get('sdr-preview')
+  sdrPreview(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listSdrPreviewSchema)) query: ListSdrPreviewQueryDto) {
+    return this.leadsService.sdrPreview(request, query);
+  }
+  @Get(':id/sdr-readiness')
+  sdrReadiness(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string) {
+    return this.leadsService.sdrReadiness(request, leadId);
   }
   @Post('duplicate-check')
   checkDuplicates(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(leadDuplicateCheckSchema)) dto: LeadDuplicateCheckDto) {
@@ -42,6 +54,10 @@ export class LeadsController {
   @Patch(':id/contacts/:contactId')
   updateContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Param('contactId', new ZodValidationPipe(leadIdSchema)) contactId: string, @Body(new ZodValidationPipe(updateLeadContactSchema)) dto: UpdateLeadContactDto) {
     return this.leadsService.updateContact(request, leadId, contactId, dto);
+  }
+  @Patch(':id/contacts/:contactId/outreach-review')
+  reviewContactOutreach(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Param('contactId', new ZodValidationPipe(leadIdSchema)) contactId: string, @Body(new ZodValidationPipe(reviewContactOutreachSchema)) dto: ReviewContactOutreachDto) {
+    return this.leadsService.reviewContactOutreach(request, leadId, contactId, dto);
   }
   @Patch(':id/contacts/:contactId/primary')
   setPrimaryContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Param('contactId', new ZodValidationPipe(leadIdSchema)) contactId: string) {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LEAD_SOURCES, LEAD_STATUSES, UNASSIGNED_SEGMENT_FILTER } from './constants';
+import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS, LEAD_SOURCES, LEAD_STATUSES, SDR_PREVIEW_MAX_PAGE_SIZE, SDR_PREVIEW_PAGE_SIZE, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
 import { ACCOUNT_MARKET_SEGMENTS, QUERY_BOOLEAN_VALUES } from '../accounts/accounts.constants';
 export const createLeadSchema = z.object({ accountName: z.string().trim().min(2).max(160), contactName: z.string().trim().min(2).max(160).optional().or(z.literal('')), email: z.union([z.string().trim().email().max(254), z.literal('')]).optional(), phone: z.string().trim().max(40).optional(), source: z.enum(LEAD_SOURCES).default('manual'), duplicateOverrideReason: z.string().trim().min(3).max(500).optional() }).strict().superRefine((input, context) => {
   if ((input.email || input.phone) && !input.contactName?.trim()) context.addIssue({ code: 'custom', path: ['contactName'], message: 'Informe o nome do contato quando preencher e-mail ou telefone.' });
@@ -20,12 +20,18 @@ export type CreateLeadContactDto = z.infer<typeof createLeadContactSchema>;
 export const updateLeadContactSchema = z.object({ isInterested: z.boolean() }).strict();
 export type UpdateLeadContactDto = z.infer<typeof updateLeadContactSchema>;
 export class LeadContactRecordDto {
-  constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null, readonly jobTitle: string | null, readonly isPrimary: boolean, readonly isInterested: boolean, readonly hasConversation: boolean, readonly referralNote: string | null, readonly notes: string | null) {}
+  constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null, readonly jobTitle: string | null, readonly isPrimary: boolean, readonly isInterested: boolean, readonly hasConversation: boolean, readonly referralNote: string | null, readonly notes: string | null, readonly outreachDecision: (typeof CONTACT_OUTREACH_DECISIONS)[number] = CONTACT_OUTREACH_DECISION.pending, readonly outreachBasis: (typeof CONTACT_OUTREACH_BASES)[number] | null = null, readonly outreachEvidence: string | null = null, readonly outreachReviewedAt: string | null = null, readonly outreachReviewedByName: string | null = null) {}
 }
 export class LeadRepositoryAccessDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean) {} }
 export class LeadContactRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadContactCreateRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly input: CreateLeadContactDto, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadContactUpdateRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly contactId: string, readonly actorUserId: string, readonly input: UpdateLeadContactDto, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
+export const reviewContactOutreachSchema = z.object({ decision: z.enum(CONTACT_OUTREACH_DECISIONS), basis: z.enum(CONTACT_OUTREACH_BASES).optional(), evidence: z.string().trim().max(2000).optional() }).strict().superRefine((input, context) => {
+  if (input.decision === CONTACT_OUTREACH_DECISION.pending && (input.basis !== undefined || input.evidence !== undefined)) context.addIssue({ code: 'custom', path: ['basis'], message: 'Pending reviews cannot include a basis or evidence.' });
+  if (input.decision !== CONTACT_OUTREACH_DECISION.pending && (!input.basis || !input.evidence || input.evidence.length < 3)) context.addIssue({ code: 'custom', path: ['evidence'], message: 'A basis and evidence are required to review contact outreach.' });
+});
+export type ReviewContactOutreachDto = z.infer<typeof reviewContactOutreachSchema>;
+export class LeadContactOutreachReviewRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly contactId: string, readonly actorUserId: string, readonly input: ReviewContactOutreachDto, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadContactPrimaryRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly contactId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadDuplicateCandidateDto { constructor(readonly id: string, readonly accountName: string, readonly contactName: string | null, readonly status: (typeof LEAD_STATUSES)[number], readonly source: string, readonly matchedBy: Array<'account_name' | 'email' | 'phone'>) {} }
 export class LeadDuplicateCheckResponseDto { constructor(readonly candidates: LeadDuplicateCandidateDto[]) {} }
@@ -55,6 +61,15 @@ export const assignLeadSchema = z.object({ assignedToUserId: z.string().uuid().n
 export type AssignLeadDto = z.infer<typeof assignLeadSchema>;
 export class LeadRepositoryAssignDto { constructor(readonly organizationId: string, readonly leadId: string, readonly assignedToUserId: string | null, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }
+
+export class SdrReadinessRepositoryInputDto { constructor(readonly organizationId: string, readonly leadId: string, readonly access: LeadRepositoryAccessDto) {} }
+export class SdrReadinessDto { constructor(readonly leadId: string, readonly blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]>) {} }
+export const listSdrPreviewSchema = z.object({ channelId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(SDR_PREVIEW_MAX_PAGE_SIZE).default(SDR_PREVIEW_PAGE_SIZE), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export type ListSdrPreviewQueryDto = z.infer<typeof listSdrPreviewSchema>;
+export class SdrPreviewRepositoryInputDto { constructor(readonly organizationId: string, readonly access: LeadRepositoryAccessDto, readonly query: ListSdrPreviewQueryDto) {} }
+export class SdrPreviewLeadDto { constructor(readonly leadId: string, readonly accountName: string, readonly contactName: string | null, readonly source: (typeof LEAD_SOURCES)[number], readonly blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]>) {} }
+export class SdrPreviewDto { constructor(readonly leads: SdrPreviewLeadDto[], readonly pageSummary: { readonly withoutBlockers: number; readonly blocked: number }, readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
+export class SdrPreviewChannelDto { constructor(readonly id: string, readonly displayName: string, readonly phoneNumber: string, readonly isActive: boolean, readonly isConfigured: boolean) {} }
 
 export const createTaskSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
 export type CreateTaskDto = z.infer<typeof createTaskSchema>;

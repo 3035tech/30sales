@@ -11,13 +11,51 @@ export const ACCOUNT_SEGMENT_FILTER = { unassigned: 'unassigned' } as const;
 export const ACCOUNT_SEGMENT_ERROR_CODE = { alreadyExists: 'ACCOUNT_SEGMENT_ALREADY_EXISTS' } as const;
 export const INBOX_MEDIA_ERROR_CODE = { tooLarge: 'MEDIA_SIZE_LIMIT_EXCEEDED', unsupportedType: 'MEDIA_TYPE_UNSUPPORTED', invalidContent: 'MEDIA_CONTENT_INVALID', missing: 'MEDIA_FILE_REQUIRED', audioCaptionUnsupported: 'MEDIA_AUDIO_CAPTION_UNSUPPORTED' } as const;
 const leadStatus = z.enum(['new','researching','ready','queued','contacting','responded','converted_to_sdr','invalid_contact','no_channel','out_of_profile','duplicate_review','no_response','paused','do_not_contact']);
+export const LEAD_SOURCE_VALUES = ['manual', 'import', 'whatsapp', 'referral'] as const;
+export const SDR_READINESS_BLOCKERS = ['primary_contact_missing', 'phone_missing', 'active_channel_missing', 'assistant_disabled', 'lead_not_ready', 'do_not_contact', 'existing_conversation', 'contact_permission_unverified', 'contact_outreach_blocked'] as const;
+export const SDR_READINESS_BLOCKER = { primaryContactMissing: SDR_READINESS_BLOCKERS[0], phoneMissing: SDR_READINESS_BLOCKERS[1], activeChannelMissing: SDR_READINESS_BLOCKERS[2], assistantDisabled: SDR_READINESS_BLOCKERS[3], leadNotReady: SDR_READINESS_BLOCKERS[4], doNotContact: SDR_READINESS_BLOCKERS[5], existingConversation: SDR_READINESS_BLOCKERS[6], contactPermissionUnverified: SDR_READINESS_BLOCKERS[7], contactOutreachBlocked: SDR_READINESS_BLOCKERS[8] } as const;
+export const SDR_PREVIEW_PAGE_SIZE = 50;
+export const CAMPAIGN_DRAFT_STATUS = { draft: 'draft' } as const;
+export const CAMPAIGN_DRAFT_STATUSES = [CAMPAIGN_DRAFT_STATUS.draft] as const;
+export const CAMPAIGN_TIME_ZONE_DEFAULT = 'America/Sao_Paulo';
+export const CAMPAIGN_AUDIENCE_MAX_LEADS = 500;
+export const CAMPAIGN_AUDIENCE_PAGE_SIZE = 50;
+export const CHANNEL_HEALTH_STATUSES = ['not_configured', 'connected', 'connecting', 'disconnected', 'reachable', 'credentials_invalid', 'configuration_error', 'unavailable', 'unknown'] as const;
+const campaignDraftSchema = z.object({ id: z.string().uuid(), name: z.string(), channelId: z.string().uuid(), channelName: z.string(), channelPhoneNumber: z.string(), windowStart: z.string(), windowEnd: z.string(), timeZone: z.string(), dailyMessageLimit: z.number().int(), minimumDelaySeconds: z.number().int(), status: z.enum(CAMPAIGN_DRAFT_STATUSES), audienceLeadCount: z.number().int().nonnegative(), createdAt: z.string() });
+const campaignDraftPageSchema = z.object({ data: z.array(campaignDraftSchema), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
+const campaignAudiencePreviewSchema = z.object({ leads: z.array(z.object({ leadId: z.string().uuid(), accountName: z.string(), contactName: z.string().nullable(), phone: z.string().nullable(), status: leadStatus, source: z.enum(LEAD_SOURCE_VALUES), blockers: z.array(z.enum(SDR_READINESS_BLOCKERS)), selected: z.boolean() })), pageSummary: z.object({ eligible: z.number().int(), excluded: z.number().int() }), selectedLeadIds: z.array(z.string().uuid()), restrictedSelectedCount: z.number().int().nonnegative(), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
+const campaignAudienceSaveSchema = z.object({ campaignDraftId: z.string().uuid(), selectedCount: z.number().int().nonnegative() });
+const campaignOperationalReadinessSchema = z.object({ campaignDraftId: z.string().uuid(), checkedAt: z.string(), audienceCount: z.number().int().nonnegative(), channel: z.object({ active: z.boolean(), configured: z.boolean(), health: z.enum(CHANNEL_HEALTH_STATUSES).nullable() }), sendingWindow: z.object({ openNow: z.boolean(), startsAt: z.string(), endsAt: z.string(), timeZone: z.string() }), holidaysConfigured: z.literal(false), quotaReserved: z.literal(false), canQueue: z.literal(false) });
+export type CampaignDraftDto = z.infer<typeof campaignDraftSchema>;
+export type CampaignDraftPageDto = z.infer<typeof campaignDraftPageSchema>;
+export type CreateCampaignDraftInput = Pick<CampaignDraftDto, 'name' | 'channelId' | 'windowStart' | 'windowEnd' | 'timeZone' | 'dailyMessageLimit' | 'minimumDelaySeconds'>;
+export type CampaignAudiencePreviewDto = z.infer<typeof campaignAudiencePreviewSchema>;
+export type CampaignOperationalReadinessDto = z.infer<typeof campaignOperationalReadinessSchema>;
+const sdrReadinessSchema = z.object({ leadId: z.string().uuid(), blockers: z.array(z.enum(SDR_READINESS_BLOCKERS)) });
+export type SdrReadinessDto = z.infer<typeof sdrReadinessSchema>;
+const sdrPreviewLeadSchema = z.object({ leadId: z.string().uuid(), accountName: z.string(), contactName: z.string().nullable(), source: z.enum(LEAD_SOURCE_VALUES), blockers: z.array(z.enum(SDR_READINESS_BLOCKERS)) });
+const sdrPreviewSchema = z.object({ leads: z.array(sdrPreviewLeadSchema), pageSummary: z.object({ withoutBlockers: z.number().int(), blocked: z.number().int() }), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
+export type SdrPreviewDto = z.infer<typeof sdrPreviewSchema>;
+const sdrPreviewChannelSchema = z.object({ id: z.string().uuid(), displayName: z.string(), phoneNumber: z.string(), isActive: z.boolean(), isConfigured: z.boolean() });
+export type SdrPreviewChannelDto = z.infer<typeof sdrPreviewChannelSchema>;
+export const CONTACT_OUTREACH_DECISION_VALUES = ['pending', 'approved', 'blocked'] as const;
+export const CONTACT_OUTREACH_DECISION = { pending: CONTACT_OUTREACH_DECISION_VALUES[0], approved: CONTACT_OUTREACH_DECISION_VALUES[1], blocked: CONTACT_OUTREACH_DECISION_VALUES[2] } as const;
+export const CONTACT_OUTREACH_BASIS_VALUES = ['documented_permission', 'existing_relationship', 'organization_policy', 'other'] as const;
+export const CONTACT_OUTREACH_BASIS = { documentedPermission: CONTACT_OUTREACH_BASIS_VALUES[0], existingRelationship: CONTACT_OUTREACH_BASIS_VALUES[1], organizationPolicy: CONTACT_OUTREACH_BASIS_VALUES[2], other: CONTACT_OUTREACH_BASIS_VALUES[3] } as const;
 export const ASSISTANT_RUN_OPERATION = { replyGeneration: 'reply_generation', audioTranscription: 'audio_transcription' } as const;
 export const ASSISTANT_RUN_STATUS = { started: 'started', completed: 'completed', failed: 'failed' } as const;
 const assistantRunOperation = z.enum([ASSISTANT_RUN_OPERATION.replyGeneration, ASSISTANT_RUN_OPERATION.audioTranscription]);
 const assistantRunStatus = z.enum([ASSISTANT_RUN_STATUS.started, ASSISTANT_RUN_STATUS.completed, ASSISTANT_RUN_STATUS.failed]);
 const accountMarketSegment = z.enum(ACCOUNT_MARKET_SEGMENTS);
 const leadSchema = z.object({ id: z.string().uuid(), accountId: z.string().uuid(), accountName: z.string(), accountSegmentId: z.string().uuid().nullable(), accountSegmentName: z.string().nullable(), accountMarketSegment: accountMarketSegment.nullable(), accountStudentCount: z.number().int().nonnegative().nullable(), contactName: z.string().nullable(), email: z.string().nullable(), phone: z.string().nullable(), source: z.string(), status: leadStatus, nextActionAt: z.string().nullable(), createdAt: z.string(), updatedAt: z.string(), assignedToUserId: z.string().uuid().nullable(), assignedToName: z.string().nullable() });
-const leadContactSchema = z.object({ id: z.string().uuid(), name: z.string(), email: z.string().nullable(), phone: z.string().nullable(), jobTitle: z.string().nullable(), isPrimary: z.boolean(), isInterested: z.boolean(), hasConversation: z.boolean(), referralNote: z.string().nullable(), notes: z.string().nullable() });
+const contactOutreachDecision = z.enum(CONTACT_OUTREACH_DECISION_VALUES);
+const contactOutreachBasis = z.enum(CONTACT_OUTREACH_BASIS_VALUES);
+const leadContactSchema = z.object({ id: z.string().uuid(), name: z.string(), email: z.string().nullable(), phone: z.string().nullable(), jobTitle: z.string().nullable(), isPrimary: z.boolean(), isInterested: z.boolean(), hasConversation: z.boolean(), referralNote: z.string().nullable(), notes: z.string().nullable(), outreachDecision: contactOutreachDecision, outreachBasis: contactOutreachBasis.nullable(), outreachEvidence: z.string().nullable(), outreachReviewedAt: z.string().nullable(), outreachReviewedByName: z.string().nullable() });
+const reviewContactOutreachSchema = z.discriminatedUnion('decision', [
+  z.object({ decision: z.literal(CONTACT_OUTREACH_DECISION.pending) }).strict(),
+  z.object({ decision: z.literal(CONTACT_OUTREACH_DECISION.approved), basis: contactOutreachBasis, evidence: z.string().trim().min(3).max(2000) }).strict(),
+  z.object({ decision: z.literal(CONTACT_OUTREACH_DECISION.blocked), basis: contactOutreachBasis, evidence: z.string().trim().min(3).max(2000) }).strict(),
+]);
 const createLeadContactSchema = z.object({ name: z.string().trim().min(2).max(160), email: z.union([z.string().trim().email().max(254), z.literal('')]).optional(), phone: z.string().trim().max(40).optional(), jobTitle: z.string().trim().max(120).optional(), isInterested: z.boolean(), referralNote: z.string().trim().max(500).optional(), notes: z.string().trim().max(2000).optional() });
 const leadDuplicateCandidateSchema = z.object({ id: z.string().uuid(), accountName: z.string(), contactName: z.string().nullable(), status: leadStatus, source: z.string(), matchedBy: z.array(z.enum(['account_name', 'email', 'phone'])) });
 const leadDuplicateCheckSchema = z.object({ candidates: z.array(leadDuplicateCandidateSchema) });
@@ -52,7 +90,7 @@ const activitySchema = z.object({ id: z.string().uuid(), type: activityType, sub
 const conversationStatus = z.enum(['open','pending','resolved','snoozed']);
 const channelProvider = z.enum(['evolution','whatsapp_cloud_api']);
 const channelSchema = z.object({ id: z.string().uuid(), provider: channelProvider, displayName: z.string(), phoneNumber: z.string(), providerChannelId: z.string(), providerAccountId: z.string().nullable(), isActive: z.boolean(), isConfigured: z.boolean(), createdAt: z.string(), updatedAt: z.string() });
-const channelHealthCheckSchema = z.object({ status: z.enum(['not_configured', 'connected', 'connecting', 'disconnected', 'reachable', 'credentials_invalid', 'configuration_error', 'unavailable', 'unknown']), checkedAt: z.string() });
+const channelHealthCheckSchema = z.object({ status: z.enum(CHANNEL_HEALTH_STATUSES), checkedAt: z.string() });
 const assistantSettingsSchema = z.object({ enabled: z.boolean(), model: z.string(), transcribeAudio: z.boolean(), availableModels: z.array(z.object({ id: z.string(), name: z.string(), provider: z.string() })), systemPrompt: z.string(), updatedAt: z.string().nullable(), runtimeAvailable: z.boolean(), transcriptionAvailable: z.boolean() });
 const conversationTagSchema = z.object({ id: z.string().uuid(), name: z.string() });
 const conversationSchema = z.object({ id: z.string().uuid(), provider: z.string(), status: conversationStatus, accountName: z.string().nullable(), personName: z.string().nullable(), personEmail: z.string().nullable(), personPhone: z.string().nullable(), lead: z.object({ status: z.string(), source: z.string(), nextActionAt: z.string().nullable() }).nullable(), lastMessageAt: z.string().nullable(), createdAt: z.string(), channelId: z.string().uuid().nullable(), channelName: z.string().nullable(), channelPhoneNumber: z.string().nullable(), channelProvider: channelProvider.nullable(), ownerUserId: z.string().uuid().nullable(), ownerName: z.string().nullable(), automationMode: z.enum(['assistant','human','paused']), replyAvailable: z.boolean(), unread: z.boolean(), tags: z.array(conversationTagSchema), assistantQualification: z.object({ intent: z.string(), summary: z.string(), confirmedFacts: z.array(z.string()), unknowns: z.array(z.string()), nextStep: z.string(), updatedAt: z.string() }).nullable() });
@@ -110,7 +148,7 @@ export type MessageDto = z.infer<typeof messageSchema>;
 export type MessageAttachmentDto = z.infer<typeof attachmentSchema>;
 export type AuditEventDto = z.infer<typeof auditEventSchema>;
 export type AuditEventsPageDto = z.infer<typeof auditEventsPageSchema>;
-export type CreateLeadInput = { accountName: string; contactName?: string; email?: string; phone?: string; source?: 'manual' | 'import' | 'whatsapp' | 'referral'; duplicateOverrideReason?: string };
+export type CreateLeadInput = { accountName: string; contactName?: string; email?: string; phone?: string; source?: (typeof LEAD_SOURCE_VALUES)[number]; duplicateOverrideReason?: string };
 export type LeadDuplicateCandidateDto = z.infer<typeof leadDuplicateCandidateSchema>;
 export type SessionDto = z.infer<typeof sessionSchema>;
 export type PlatformOrganizationDto = z.infer<typeof platformOrganizationSchema>;
@@ -171,6 +209,13 @@ function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['s
 }
 
 export const api = {
+  campaigns: {
+    listDrafts: (params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/campaign-drafts?${query.toString()}`, campaignDraftPageSchema); },
+    createDraft: (input: CreateCampaignDraftInput) => request('/api/v1/campaign-drafts', campaignDraftSchema, { method: 'POST', body: JSON.stringify(input) }),
+    previewAudience: (id: string, params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/audience/preview?${query.toString()}`, campaignAudiencePreviewSchema); },
+    saveAudience: (id: string, leadIds: string[]) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/audience`, campaignAudienceSaveSchema, { method: 'PUT', body: JSON.stringify({ leadIds }) }),
+    operationalReadiness: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/operational-readiness`, campaignOperationalReadinessSchema),
+  },
   session: { get: () => request('/api/v1/session', sessionSchema) },
   notifications: {
     list: (limit = 20) => request(`/api/v1/notifications?limit=${limit}`, userNotificationsPageSchema),
@@ -266,6 +311,9 @@ export const api = {
 
   leads: {
     listPage: listLeadPage,
+    sdrReadiness: (id: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/sdr-readiness`, sdrReadinessSchema),
+    sdrPreviewChannels: () => request('/api/v1/leads/sdr-preview/channels', z.array(sdrPreviewChannelSchema)),
+    sdrPreview: (params: { channelId?: string; limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.channelId) query.set('channelId', params.channelId); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/leads/sdr-preview?${query.toString()}`, sdrPreviewSchema) },
     checkDuplicates: (input: Pick<CreateLeadInput, 'accountName' | 'email' | 'phone'>) => request('/api/v1/leads/duplicate-check', leadDuplicateCheckSchema, { method: 'POST', body: JSON.stringify({ accountName: input.accountName, email: input.email, phone: input.phone }) }),
     assignees: () => request('/api/v1/leads/assignees', z.array(leadAssigneeSchema)),
     assign: (id: string, assignedToUserId: string | null) => request(`/api/v1/leads/${encodeURIComponent(id)}/assignee`, leadSchema, { method: 'PATCH', body: JSON.stringify({ assignedToUserId }) }),
@@ -282,6 +330,7 @@ export const api = {
     contacts: (id: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/contacts`, z.array(leadContactSchema)),
     addContact: (id: string, input: CreateLeadContactInput) => request(`/api/v1/leads/${encodeURIComponent(id)}/contacts`, leadContactSchema, { method: 'POST', body: JSON.stringify(input) }),
     updateContact: (leadId: string, contactId: string, isInterested: boolean) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/${encodeURIComponent(contactId)}`, leadContactSchema, { method: 'PATCH', body: JSON.stringify({ isInterested }) }),
+    reviewContactOutreach: (leadId: string, contactId: string, input: z.infer<typeof reviewContactOutreachSchema>) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/${encodeURIComponent(contactId)}/outreach-review`, leadContactSchema, { method: 'PATCH', body: JSON.stringify(input) }),
     setPrimaryContact: (leadId: string, contactId: string) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/${encodeURIComponent(contactId)}/primary`, leadContactSchema, { method: 'PATCH' }),
   },
   accounts: {

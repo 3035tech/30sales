@@ -155,10 +155,25 @@
 ### BDR/campanha
 
 - **Como BDR**, quero preparar público e prévia antes de iniciar campanha.
+  - **Entregue nesta fatia:** criação e listagem tenant-scoped de rascunhos com nome, canal ativo/configurado, janela diária local, timezone, limite diário e intervalo mínimo. A criação gera evento de auditoria. Não há endpoint nem controle para publicar/enviar.
+  - **Entregue nesta fatia:** seleção manual paginada de até 500 leads por rascunho, com aptidão e motivo de exclusão calculados no backend. Salvar revalida escopo, canal, agente, contato principal, telefone, status, conversa ativa e revisão do contato; alteração do público é auditada. Leads fora da carteira atual não têm seus dados expostos e ficam preservados; seleção não publica nem cria mensagens.
+  - **Entregue nesta fatia:** checagem explícita de prontidão por rascunho revalida tenant e permissão de leitura de integrações, consulta a saúde corrente do provedor e avalia se o horário local atual cai dentro da janela. O resultado é auditado como health check. O painel marca feriados e reserva diária como pendentes, mostra a quantidade selecionada e sempre mantém `canQueue=false`; não existe ação de envio.
   - Prévia informa elegíveis e excluídos por razão, quota por canal, amostra de conteúdo e estado do canal.
   - Opt-out, canal pausado, saúde ruim ou janela inválida não gera job de envio.
   - Job repetido com mesma chave não envia segunda mensagem.
   - Estado “abordado” só muda após confirmação definida pelo adaptador; falha fica visível e reprocessável com segurança.
+
+### Preparação de leads importados para o SDR
+
+- **Entregue no código:** a lista de Leads oferece revisão por registro com motivos calculados no backend, filtrados pela organização e carteira do usuário: contato principal, telefone em formato utilizável, canal ativo configurado, agente habilitado com instruções, status `ready`, status de não contatar, conversa ativa existente e decisão de abordagem pendente/bloqueada.
+- A ficha de cada contato permite registrar decisão pendente/aprovada/bloqueada, fundamento da política da empresa e evidência/referência; decisões finais exigem os dois campos, guardam revisor/data e geram auditoria. A migration aditiva `0048_giant_lady_deathstrike.sql` atribui `pending` aos contatos existentes e ainda não foi aplicada.
+- A decisão aprovada remove somente o bloqueio de revisão daquele contato. A revisão de prontidão continua verificando os demais requisitos. Ela não afirma que a política registrada é juridicamente adequada.
+- **Entregue:** a prévia SDR em Leads lista, com paginação e escopo de tenant/carteira, todos os leads `ready` da página, permite selecionar um canal interno ativo/configurado e detalha os requisitos ausentes por lead. O backend revalida o canal na empresa ativa. A contagem diferencia leads sem bloqueio identificado e leads com bloqueios na página.
+- A prévia é somente leitura. Não cria campanha, conversa, tarefa ou mensagem, e não afirma que envio está liberado: saúde do canal, janela/feriados, quotas e ownership/opt-out precisam ser revalidados pelo futuro executor.
+- Importar ou revisar não cria conversa, não muda o status para “contacting” e não envia mensagem.
+- A fila de primeira abordagem ainda depende de política explícita por fonte, quota/janela, opt-out, ownership humano e processamento idempotente por outbox.
+- O runtime atual do agente atende mensagens inbound; não é um executor de primeira abordagem. Reutilizar esse worker para outbound não é aceito sem um fluxo próprio de campanha, autorização, opt-out e reconciliação de entrega.
+- Consentimento/legítimo interesse e proveniência da permissão de contato ainda não têm representação estruturada no modelo. Não inferir permissão a partir de telefone público, fonte de importação ou canal configurado; definir a política por fonte e registrar evidência antes de liberar envio real.
 
 ### Qualificação/handoff
 

@@ -15,7 +15,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   return <Button ref={ref} type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} title={label} {...props} />
 })
 
-type TextInputType = 'text' | 'search' | 'email' | 'password' | 'tel' | 'url' | 'hidden'
+type TextInputType = 'text' | 'search' | 'email' | 'password' | 'tel' | 'url' | 'time' | 'hidden'
 type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   type?: TextInputType
   error?: string

@@ -1,0 +1,12 @@
+export const CAMPAIGN_DRAFT_STATUS = { draft: 'draft' } as const;
+export const CAMPAIGN_DRAFT_STATUSES = [CAMPAIGN_DRAFT_STATUS.draft] as const;
+export type CampaignDraftStatus = (typeof CAMPAIGN_DRAFT_STATUSES)[number];
+export const CAMPAIGN_DRAFT_LIMITS = { name: 120, dailyMessagesMin: 1, dailyMessagesMax: 500, delaySecondsMin: 5, delaySecondsMax: 300 } as const;
+export const CAMPAIGN_TIME_PATTERN = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+export const CAMPAIGN_TIME_ZONE_DEFAULT = 'America/Sao_Paulo';
+export const CAMPAIGN_AUDIT = { created: 'campaign_draft.created', entity: 'campaign_draft' } as const;
+export const CAMPAIGN_ERROR_CODE = { channelUnavailable: 'CAMPAIGN_DRAFT_CHANNEL_UNAVAILABLE', channelInvalid: 'CAMPAIGN_DRAFT_CHANNEL_INVALID', audienceIneligible: 'CAMPAIGN_AUDIENCE_LEAD_INELIGIBLE', audienceLimit: 'CAMPAIGN_AUDIENCE_LIMIT_EXCEEDED', draftNotFound: 'CAMPAIGN_DRAFT_NOT_FOUND' } as const;
+export const DATABASE_FOREIGN_KEY_VIOLATION_CODE = '23503';
+export const CAMPAIGN_AUDIENCE_MAX_LEADS = 500;
+export const CAMPAIGN_AUDIENCE_PAGE_SIZE = 50;
+export const CAMPAIGN_AUDIENCE_AUDIT_ACTION = 'campaign_draft.audience_saved';

@@ -23,7 +23,9 @@ export const channelCredentialsSchema = z.discriminatedUnion('provider', [evolut
   if (!['https:', 'http:'].includes(url.protocol) || (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') || url.username || url.password || url.search || url.hash || ['localhost', '127.0.0.1', '::1'].includes(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) context.addIssue({ code: 'custom', path: ['baseUrl'], message: 'The Evolution API URL must be a secure HTTP(S) origin without credentials, query, or fragment.' });
 });
 export type ChannelCredentialsDto = z.infer<typeof channelCredentialsSchema>;
-export const channelHealthStatusSchema = z.enum(['not_configured', 'connected', 'connecting', 'disconnected', 'reachable', 'credentials_invalid', 'configuration_error', 'unavailable', 'unknown']);
+export const CHANNEL_HEALTH_STATUS = { notConfigured: 'not_configured', connected: 'connected', connecting: 'connecting', disconnected: 'disconnected', reachable: 'reachable', credentialsInvalid: 'credentials_invalid', configurationError: 'configuration_error', unavailable: 'unavailable', unknown: 'unknown' } as const;
+export const CHANNEL_HEALTH_STATUSES = [CHANNEL_HEALTH_STATUS.notConfigured, CHANNEL_HEALTH_STATUS.connected, CHANNEL_HEALTH_STATUS.connecting, CHANNEL_HEALTH_STATUS.disconnected, CHANNEL_HEALTH_STATUS.reachable, CHANNEL_HEALTH_STATUS.credentialsInvalid, CHANNEL_HEALTH_STATUS.configurationError, CHANNEL_HEALTH_STATUS.unavailable, CHANNEL_HEALTH_STATUS.unknown] as const;
+export const channelHealthStatusSchema = z.enum(CHANNEL_HEALTH_STATUSES);
 export type ChannelHealthStatus = z.infer<typeof channelHealthStatusSchema>;
 export class ChannelHealthCheckDto {
   constructor(readonly status: ChannelHealthStatus, readonly checkedAt: string) {}
@@ -35,7 +37,7 @@ export class ChannelRepositoryCreateDto { constructor(readonly organizationId: s
 export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }
 export class ChannelRepositoryCredentialsDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly provider: ChannelCredentialsDto['provider'], readonly encrypted: { ciphertext: string; iv: string; authTag: string }, readonly correlationId: string | null = null) {} }
 export class ChannelHealthCheckTargetDto {
-  constructor(readonly id: string, readonly provider: ChannelRecordDto['provider'], readonly providerChannelId: string, readonly credentials: { ciphertext: string; iv: string; authTag: string } | null) {}
+  constructor(readonly id: string, readonly provider: ChannelRecordDto['provider'], readonly providerChannelId: string, readonly isActive: boolean, readonly credentials: { ciphertext: string; iv: string; authTag: string } | null) {}
 }
 export class ChannelHealthCheckAuditDto {
   constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly status: ChannelHealthStatus, readonly checkedAt: Date, readonly correlationId: string | null) {}

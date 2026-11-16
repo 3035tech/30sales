@@ -47,14 +47,14 @@ export class ChannelsRepository {
   }
 
   async healthCheckTarget(organizationId: string, channelId: string): Promise<ChannelHealthCheckTargetDto | null> {
-    const [row] = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId,
+    const [row] = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive,
       credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId))).limit(1);
     if (!row) return null;
     const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
       ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
       : null;
-    return new ChannelHealthCheckTargetDto(row.id, row.provider as ChannelRecordDto['provider'], row.providerChannelId, credentials);
+    return new ChannelHealthCheckTargetDto(row.id, row.provider as ChannelRecordDto['provider'], row.providerChannelId, row.isActive, credentials);
   }
 
   async auditHealthCheck(input: ChannelHealthCheckAuditDto): Promise<boolean> {

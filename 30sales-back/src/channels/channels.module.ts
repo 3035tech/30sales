@@ -6,5 +6,5 @@ import { ChannelsService } from './channels.service';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 
-@Module({ controllers: [ChannelsController], providers: [ChannelsService, ChannelsRepository, TenantAccessService, ChannelCredentialCryptoService, ChannelConnectionHealthProvider], exports: [ChannelCredentialCryptoService] })
+@Module({ controllers: [ChannelsController], providers: [ChannelsService, ChannelsRepository, TenantAccessService, ChannelCredentialCryptoService, ChannelConnectionHealthProvider], exports: [ChannelsService, ChannelCredentialCryptoService] })
 export class ChannelsModule {}

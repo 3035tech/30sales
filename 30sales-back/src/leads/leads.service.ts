@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { LEAD_TRANSITIONS } from './constants';
-import { AssignLeadDto, CompleteTaskDto, CreateLeadContactDto, CreateLeadDto, LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, UpdateLeadContactDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
+import { AssignLeadDto, CompleteTaskDto, CreateLeadContactDto, CreateLeadDto, LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactOutreachReviewRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, ListLeadsQueryDto, ListSdrPreviewQueryDto, ReviewContactOutreachDto, SdrPreviewChannelDto, SdrPreviewDto, SdrPreviewRepositoryInputDto, SdrReadinessDto, SdrReadinessRepositoryInputDto, UpdateLeadContactDto, UpdateLeadStatusDto, ListTasksQueryDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, CreateTaskDto } from './leads.dto';
 import { LeadsRepository } from './leads.repository';
 import { TenantAccessService } from './tenant-access.service';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
@@ -16,6 +16,20 @@ export class LeadsService {
     const context = await this.tenantAccess.require(request, 'assign');
     if (!hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)) throw new ForbiddenException({ code: 'LEAD_ASSIGNMENT_RESTRICTED', message: 'Only organization managers can list lead assignees.' });
     return this.repository.listAssignees(context.organizationId);
+  }
+  async sdrReadiness(request: ApiRequestDto, leadId: string): Promise<SdrReadinessDto> {
+    const context = await this.tenantAccess.require(request, 'read');
+    const readiness = await this.repository.getSdrReadiness(new SdrReadinessRepositoryInputDto(context.organizationId, leadId, this.access(context.organizationId, context.userId, context.role)));
+    if (!readiness) throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Lead was not found in the active organization.' });
+    return readiness;
+  }
+  async sdrPreview(request: ApiRequestDto, query: ListSdrPreviewQueryDto): Promise<SdrPreviewDto> {
+    const context = await this.tenantAccess.require(request, 'read');
+    return this.repository.getSdrPreview(new SdrPreviewRepositoryInputDto(context.organizationId, this.access(context.organizationId, context.userId, context.role), query));
+  }
+  async sdrPreviewChannels(request: ApiRequestDto): Promise<SdrPreviewChannelDto[]> {
+    const context = await this.tenantAccess.require(request, 'read');
+    return this.repository.listSdrPreviewChannels(context.organizationId);
   }
   async listTasks(request: ApiRequestDto, query: ListTasksQueryDto): Promise<TaskRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read');
@@ -77,6 +91,12 @@ export class LeadsService {
   async updateContact(request: ApiRequestDto, leadId: string, contactId: string, dto: UpdateLeadContactDto): Promise<LeadContactRecordDto> {
     const context = await this.tenantAccess.require(request, 'update');
     const contact = await this.repository.updateContact(new LeadContactUpdateRepositoryDto(context.organizationId, leadId, contactId, context.userId, dto, this.access(context.organizationId, context.userId, context.role), request.correlationId));
+    if (!contact) throw new NotFoundException({ code: 'LEAD_CONTACT_NOT_FOUND', message: 'Contact was not found for this lead in the active organization.' });
+    return contact;
+  }
+  async reviewContactOutreach(request: ApiRequestDto, leadId: string, contactId: string, dto: ReviewContactOutreachDto): Promise<LeadContactRecordDto> {
+    const context = await this.tenantAccess.require(request, 'update');
+    const contact = await this.repository.reviewContactOutreach(new LeadContactOutreachReviewRepositoryDto(context.organizationId, leadId, contactId, context.userId, dto, this.access(context.organizationId, context.userId, context.role), request.correlationId));
     if (!contact) throw new NotFoundException({ code: 'LEAD_CONTACT_NOT_FOUND', message: 'Contact was not found for this lead in the active organization.' });
     return contact;
   }

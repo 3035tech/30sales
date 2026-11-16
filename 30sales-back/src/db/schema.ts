@@ -3,9 +3,14 @@ import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgT
 import { organization as authOrganization, user as authUser } from './auth-schema';
 import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
+import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS } from '../leads/constants';
+import { CAMPAIGN_DRAFT_STATUSES } from '../campaigns/campaigns.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
+export const contactOutreachDecision = pgEnum('contact_outreach_decision', CONTACT_OUTREACH_DECISIONS);
+export const contactOutreachBasis = pgEnum('contact_outreach_basis', CONTACT_OUTREACH_BASES);
+export const campaignDraftStatus = pgEnum('campaign_draft_status', CAMPAIGN_DRAFT_STATUSES);
 export const accountMarketSegment = pgEnum('account_market_segment', ACCOUNT_MARKET_SEGMENTS);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
 export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost', 'custom']);
@@ -98,6 +103,11 @@ export const leadContacts = pgTable('lead_contacts', {
   jobTitle: text('job_title'),
   isPrimary: boolean('is_primary').default(false).notNull(),
   isInterested: boolean('is_interested').default(false).notNull(),
+  outreachDecision: contactOutreachDecision('outreach_decision').default(CONTACT_OUTREACH_DECISION.pending).notNull(),
+  outreachBasis: contactOutreachBasis('outreach_basis'),
+  outreachEvidence: text('outreach_evidence'),
+  outreachReviewedByUserId: uuid('outreach_reviewed_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  outreachReviewedAt: timestamp('outreach_reviewed_at', { withTimezone: true }),
   referralNote: text('referral_note'),
   notes: text('notes'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
@@ -112,8 +122,11 @@ export const leadContacts = pgTable('lead_contacts', {
   check('lead_contacts_job_title_length_check', sql`${table.jobTitle} is null or length(${table.jobTitle}) <= 120`),
   check('lead_contacts_referral_note_length_check', sql`${table.referralNote} is null or length(${table.referralNote}) <= 500`),
   check('lead_contacts_notes_length_check', sql`${table.notes} is null or length(${table.notes}) <= 2000`),
+  check('lead_contacts_outreach_evidence_length_check', sql`${table.outreachEvidence} is null or length(${table.outreachEvidence}) <= 2000`),
+  check('lead_contacts_outreach_review_check', sql`(${table.outreachDecision} = 'pending' and ${table.outreachBasis} is null and ${table.outreachEvidence} is null and ${table.outreachReviewedAt} is null) or (${table.outreachDecision} <> 'pending' and ${table.outreachBasis} is not null and ${table.outreachEvidence} is not null and ${table.outreachReviewedAt} is not null)`),
   index('lead_contacts_org_lead_idx').on(table.organizationId, table.leadId),
 ]);
+
 
 export const leadStatusHistory = pgTable('lead_status_history', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -327,6 +340,46 @@ export const messagingChannels = pgTable('messaging_channels', {
   unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
   unique('messaging_channels_org_chatwoot_inbox_unique').on(table.organizationId, table.chatwootInboxId),
   index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
+]);
+
+export const campaignDrafts = pgTable('campaign_drafts', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  channelId: uuid('channel_id').notNull(),
+  name: text('name').notNull(),
+  windowStart: text('window_start').notNull(),
+  windowEnd: text('window_end').notNull(),
+  timeZone: text('time_zone').notNull(),
+  dailyMessageLimit: integer('daily_message_limit').notNull(),
+  minimumDelaySeconds: integer('minimum_delay_seconds').notNull(),
+  status: campaignDraftStatus('status').default(CAMPAIGN_DRAFT_STATUSES[0]).notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'campaign_drafts_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('restrict'),
+  unique('campaign_drafts_id_organization_unique').on(table.id, table.organizationId),
+  check('campaign_drafts_name_length_check', sql`length(${table.name}) between 2 and 120`),
+  check('campaign_drafts_window_start_check', sql`${table.windowStart} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`),
+  check('campaign_drafts_window_end_check', sql`${table.windowEnd} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`),
+  check('campaign_drafts_window_order_check', sql`${table.windowStart} < ${table.windowEnd}`),
+  check('campaign_drafts_daily_limit_check', sql`${table.dailyMessageLimit} between 1 and 500`),
+  check('campaign_drafts_minimum_delay_check', sql`${table.minimumDelaySeconds} between 5 and 300`),
+  check('campaign_drafts_time_zone_length_check', sql`length(${table.timeZone}) between 1 and 80`),
+  index('campaign_drafts_org_created_idx').on(table.organizationId, table.createdAt),
+]);
+
+export const campaignDraftAudiences = pgTable('campaign_draft_audiences', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  campaignDraftId: uuid('campaign_draft_id').notNull(),
+  leadId: uuid('lead_id').notNull(),
+  selectedByUserId: uuid('selected_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'campaign_draft_audiences_pk', columns: [table.organizationId, table.campaignDraftId, table.leadId] }),
+  foreignKey({ name: 'campaign_draft_audiences_draft_tenant_fk', columns: [table.campaignDraftId, table.organizationId], foreignColumns: [campaignDrafts.id, campaignDrafts.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'campaign_draft_audiences_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  index('campaign_draft_audiences_org_draft_idx').on(table.organizationId, table.campaignDraftId, table.createdAt),
 ]);
 
 export const agentSettings = pgTable('agent_settings', {

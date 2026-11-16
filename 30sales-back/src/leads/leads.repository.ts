@@ -2,10 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, min, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
-import { accountSegments, accounts, auditEvents, conversations, leadContacts, leadStatusHistory, leads, opportunities, people, tasks, userNotifications } from '../db/schema';
+import { accountSegments, accounts, agentSettings, auditEvents, conversations, leadContacts, leadStatusHistory, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
-import { UNASSIGNED_SEGMENT_FILTER } from './constants';
+import { LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactOutreachReviewRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, SdrPreviewChannelDto, SdrPreviewDto, SdrPreviewLeadDto, SdrPreviewRepositoryInputDto, SdrReadinessDto, SdrReadinessRepositoryInputDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto } from './leads.dto';
+import { CONTACT_OUTREACH_AUDIT_ACTION, CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
 
 type DuplicateRow = { leadId: string; accountName: string; contactName: string | null; email: string | null; phone: string | null; status: LeadRecordDto['status']; source: string };
 function duplicateMatch(input: LeadDuplicateCheckDto): SQL | undefined {
@@ -56,6 +56,69 @@ function contactLeadAccessCondition(access: LeadRepositoryAccessDto): SQL {
 }
 @Injectable()
 export class LeadsRepository {
+  async listSdrPreviewChannels(organizationId: string): Promise<SdrPreviewChannelDto[]> {
+    const rows = await database.select({ id: messagingChannels.id, displayName: messagingChannels.displayName, phoneNumber: messagingChannels.phoneNumber, isActive: messagingChannels.isActive, isConfigured: sql<boolean>`${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null` }).from(messagingChannels)
+      .where(eq(messagingChannels.organizationId, organizationId)).orderBy(asc(messagingChannels.displayName), asc(messagingChannels.id));
+    return rows.map((channel) => new SdrPreviewChannelDto(channel.id, channel.displayName, channel.phoneNumber, channel.isActive, channel.isConfigured));
+  }
+
+  async getSdrPreview(input: SdrPreviewRepositoryInputDto): Promise<SdrPreviewDto> {
+    const conditions = [eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready)];
+    const accessCondition = leadAccessCondition(input.access);
+    if (accessCondition) conditions.push(accessCondition);
+    const [rows, [countRow], [channel], [agent]] = await Promise.all([
+      database.select({ leadId: leads.id, accountName: accounts.name, source: leads.source, contactName: people.name, phone: people.phone, contactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
+        hasConversation: exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
+      }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+        .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
+        .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
+        .where(and(...conditions)).orderBy(desc(leads.createdAt), asc(leads.id)).limit(input.query.limit).offset(input.query.offset),
+      database.select({ total: count() }).from(leads).where(and(...conditions)),
+      database.select({ id: messagingChannels.id }).from(messagingChannels).where(and(eq(messagingChannels.organizationId, input.organizationId), input.query.channelId ? eq(messagingChannels.id, input.query.channelId) : sql`false`, eq(messagingChannels.isActive, true), sql`${messagingChannels.credentialsCiphertext} is not null`, sql`${messagingChannels.credentialsIv} is not null`, sql`${messagingChannels.credentialsAuthTag} is not null`)).limit(1),
+      database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1),
+    ]);
+    const leadsWithBlockers = rows.map((lead) => {
+      const blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]> = [];
+      if (!lead.contactId) blockers.push(SDR_READINESS_BLOCKER.primaryContactMissing);
+      const digits = lead.phone?.replace(/\D/g, '') ?? '';
+      if (digits.length < 8 || digits.length > 15) blockers.push(SDR_READINESS_BLOCKER.phoneMissing);
+      if (!channel) blockers.push(SDR_READINESS_BLOCKER.activeChannelMissing);
+      if (!agent?.enabled || !agent.hasPrompt) blockers.push(SDR_READINESS_BLOCKER.assistantDisabled);
+      if (lead.hasConversation) blockers.push(SDR_READINESS_BLOCKER.existingConversation);
+      if (lead.outreachDecision === CONTACT_OUTREACH_DECISION.pending) blockers.push(SDR_READINESS_BLOCKER.contactPermissionUnverified);
+      else if (lead.outreachDecision === CONTACT_OUTREACH_DECISION.blocked) blockers.push(SDR_READINESS_BLOCKER.contactOutreachBlocked);
+      return new SdrPreviewLeadDto(lead.leadId, lead.accountName, lead.contactName, lead.source, blockers);
+    });
+    const total = countRow?.total ?? 0;
+    const withoutBlockers = leadsWithBlockers.filter((lead) => lead.blockers.length === 0).length;
+    return new SdrPreviewDto(leadsWithBlockers, { withoutBlockers, blocked: leadsWithBlockers.length - withoutBlockers }, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
+  }
+
+  async getSdrReadiness(input: SdrReadinessRepositoryInputDto): Promise<SdrReadinessDto | null> {
+    const [lead] = await database.select({ id: leads.id, status: leads.status, phone: people.phone, primaryContactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
+      hasConversation: exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
+    }).from(leads)
+      .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
+      .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
+      .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).limit(1);
+    if (!lead) return null;
+    const [channel] = await database.select({ id: messagingChannels.id, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
+      .where(and(eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.isActive, true))).limit(1);
+    const [agent] = await database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+    const blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]> = [];
+    if (!lead.primaryContactId) blockers.push(SDR_READINESS_BLOCKER.primaryContactMissing);
+    const phoneDigits = lead.phone?.replace(/\D/g, '') ?? '';
+    if (phoneDigits.length < 8 || phoneDigits.length > 15) blockers.push(SDR_READINESS_BLOCKER.phoneMissing);
+    if (!channel?.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) blockers.push(SDR_READINESS_BLOCKER.activeChannelMissing);
+    if (!agent?.enabled || !agent.hasPrompt) blockers.push(SDR_READINESS_BLOCKER.assistantDisabled);
+    if (lead.status === LEAD_STATUS.doNotContact) blockers.push(SDR_READINESS_BLOCKER.doNotContact);
+    else if (lead.status !== LEAD_STATUS.ready) blockers.push(SDR_READINESS_BLOCKER.leadNotReady);
+    if (lead.hasConversation) blockers.push(SDR_READINESS_BLOCKER.existingConversation);
+    if (lead.outreachDecision === CONTACT_OUTREACH_DECISION.pending) blockers.push(SDR_READINESS_BLOCKER.contactPermissionUnverified);
+    else if (lead.outreachDecision === CONTACT_OUTREACH_DECISION.blocked) blockers.push(SDR_READINESS_BLOCKER.contactOutreachBlocked);
+    return new SdrReadinessDto(lead.id, blockers);
+  }
   async listAssignees(organizationId: string): Promise<LeadAssigneeDto[]> {
     const rows = await database.select({ id: authUser.id, name: authUser.name, role: authMember.role }).from(authMember)
       .innerJoin(authUser, eq(authUser.id, authMember.userId)).where(eq(authMember.organizationId, organizationId)).orderBy(asc(authUser.name));
@@ -237,14 +300,15 @@ export class LeadsRepository {
         await transaction.update(leadContacts).set({ isPrimary: true, updatedAt: new Date() })
           .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.personId, lead.personId)));
       }
-      const rows = await transaction.select({ id: leadContacts.id, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, personId: leadContacts.personId })
+      const rows = await transaction.select({ id: leadContacts.id, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, personId: leadContacts.personId, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name })
         .from(leadContacts).innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
+        .leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
         .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId))).orderBy(desc(leadContacts.isPrimary), asc(people.name));
       const personIds = rows.map((row) => row.personId);
       const activeConversationRows = personIds.length ? await transaction.select({ personId: conversations.personId }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), inArray(conversations.personId, personIds), inArray(conversations.status, ['open', 'pending', 'snoozed']))) : [];
       const peopleInConversation = new Set(activeConversationRows.map((row) => row.personId));
-      return rows.map((row) => new LeadContactRecordDto(row.id, row.name, row.email, row.phone, row.jobTitle, row.isPrimary, row.isInterested, peopleInConversation.has(row.personId), row.referralNote, row.notes));
+      return rows.map((row) => new LeadContactRecordDto(row.id, row.name, row.email, row.phone, row.jobTitle, row.isPrimary, row.isInterested, peopleInConversation.has(row.personId), row.referralNote, row.notes, row.outreachDecision, row.outreachBasis, row.outreachEvidence, row.outreachReviewedAt?.toISOString() ?? null, row.outreachReviewedByName));
     });
   }
   async createContact(input: LeadContactCreateRepositoryDto): Promise<LeadContactRecordDto | 'lead_not_found' | 'duplicate_contact'> {
@@ -269,19 +333,43 @@ export class LeadsRepository {
   }
   async updateContact(input: LeadContactUpdateRepositoryDto): Promise<LeadContactRecordDto | null> {
     return database.transaction(async (transaction) => {
-      const [current] = await transaction.select({ isInterested: leadContacts.isInterested, personId: leadContacts.personId, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, referralNote: leadContacts.referralNote, notes: leadContacts.notes }).from(leadContacts)
+      const [current] = await transaction.select({ isInterested: leadContacts.isInterested, personId: leadContacts.personId, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, referralNote: leadContacts.referralNote, notes: leadContacts.notes, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name }).from(leadContacts)
         .innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
+        .leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
         .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).limit(1);
       if (!current) return null;
       await transaction.update(leadContacts).set({ isInterested: input.input.isInterested, updatedAt: new Date() }).where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access)));
       if (current.isInterested !== input.input.isInterested) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.contact_interest_changed', entityType: 'lead_contact', entityId: input.contactId, correlationId: input.correlationId, beforeState: { isInterested: current.isInterested }, afterState: { isInterested: input.input.isInterested } });
-      return new LeadContactRecordDto(input.contactId, current.name, current.email, current.phone, current.jobTitle, current.isPrimary, input.input.isInterested, false, current.referralNote, current.notes);
+      return new LeadContactRecordDto(input.contactId, current.name, current.email, current.phone, current.jobTitle, current.isPrimary, input.input.isInterested, false, current.referralNote, current.notes, current.outreachDecision, current.outreachBasis, current.outreachEvidence, current.outreachReviewedAt?.toISOString() ?? null, current.outreachReviewedByName);
     });
+  }
+  async reviewContactOutreach(input: LeadContactOutreachReviewRepositoryDto): Promise<LeadContactRecordDto | null> {
+    const reviewedAt = input.input.decision === CONTACT_OUTREACH_DECISION.pending ? null : new Date();
+    const updated = await database.transaction(async (transaction) => {
+      const [current] = await transaction.select({ outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence })
+        .from(leadContacts).where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).for('update').limit(1);
+      if (!current) return false;
+      const nextBasis = input.input.decision === CONTACT_OUTREACH_DECISION.pending ? null : input.input.basis ?? null;
+      const nextEvidence = input.input.decision === CONTACT_OUTREACH_DECISION.pending ? null : input.input.evidence ?? null;
+      if (current.outreachDecision === input.input.decision && current.outreachBasis === nextBasis && current.outreachEvidence === nextEvidence) return true;
+      await transaction.update(leadContacts).set({ outreachDecision: input.input.decision, outreachBasis: nextBasis, outreachEvidence: nextEvidence, outreachReviewedByUserId: reviewedAt ? input.actorUserId : null, outreachReviewedAt: reviewedAt, updatedAt: new Date() })
+        .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: CONTACT_OUTREACH_AUDIT_ACTION, entityType: 'lead_contact', entityId: input.contactId, correlationId: input.correlationId, beforeState: { decision: current.outreachDecision, basis: current.outreachBasis }, afterState: { decision: input.input.decision, basis: input.input.basis ?? null } });
+      return true;
+    });
+    if (!updated) return null;
+    const [contact] = await database.select({ id: leadContacts.id, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, personId: leadContacts.personId, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name })
+      .from(leadContacts).innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId))).leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
+      .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).limit(1);
+    if (!contact) return null;
+    const [active] = await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, contact.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))).limit(1);
+    return new LeadContactRecordDto(contact.id, contact.name, contact.email, contact.phone, contact.jobTitle, contact.isPrimary, contact.isInterested, Boolean(active), contact.referralNote, contact.notes, contact.outreachDecision, contact.outreachBasis, contact.outreachEvidence, contact.outreachReviewedAt?.toISOString() ?? null, contact.outreachReviewedByName);
   }
   async setPrimaryContact(input: LeadContactPrimaryRepositoryDto): Promise<LeadContactRecordDto | null> {
     return database.transaction(async (transaction) => {
-      const [contact] = await transaction.select({ personId: leadContacts.personId, isPrimary: leadContacts.isPrimary, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes }).from(leadContacts)
+      const [contact] = await transaction.select({ personId: leadContacts.personId, isPrimary: leadContacts.isPrimary, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name }).from(leadContacts)
         .innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
+        .leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
         .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).limit(1);
       if (!contact) return null;
       const [lead] = await transaction.select({ personId: leads.personId }).from(leads).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
@@ -293,7 +381,7 @@ export class LeadsRepository {
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.primary_contact_changed', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, beforeState: { personId: lead.personId }, afterState: { personId: contact.personId } });
       }
       const active = await transaction.select({ personId: conversations.personId }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, contact.personId), inArray(conversations.status, ['open', 'pending', 'snoozed']))).limit(1);
-      return new LeadContactRecordDto(input.contactId, contact.name, contact.email, contact.phone, contact.jobTitle, true, contact.isInterested, active.length > 0, contact.referralNote, contact.notes);
+      return new LeadContactRecordDto(input.contactId, contact.name, contact.email, contact.phone, contact.jobTitle, true, contact.isInterested, active.length > 0, contact.referralNote, contact.notes, contact.outreachDecision, contact.outreachBasis, contact.outreachEvidence, contact.outreachReviewedAt?.toISOString() ?? null, contact.outreachReviewedByName);
     });
   }
   async updateStatus(input: LeadRepositoryStatusChangeDto): Promise<LeadRecordDto | null> {

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
 import type { ChannelHealthStatus } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
@@ -37,26 +37,32 @@ export class ChannelsService {
 
   async healthCheck(request: ApiRequestDto, channelId: string): Promise<ChannelHealthCheckDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
-    if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    const result = await this.checkHealthForOrganization(context.organizationId, channelId, context.userId, request.correlationId);
+    if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    return result;
+  }
 
-    let status: ChannelHealthStatus = 'not_configured';
+  async checkHealthForOrganization(organizationId: string, channelId: string, userId: string, correlationId: string | null): Promise<ChannelHealthCheckDto | null> {
+    const target = await this.repository.healthCheckTarget(organizationId, channelId);
+    if (!target) return null;
+
+    let status: ChannelHealthStatus = CHANNEL_HEALTH_STATUS.notConfigured;
     if (target.credentials) {
       let credentials: ChannelCredentialsDto | null = null;
       try {
-        credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials);
+        credentials = this.credentialCrypto.decrypt(organizationId, channelId, target.credentials);
       } catch {
-        status = 'configuration_error';
+        status = CHANNEL_HEALTH_STATUS.configurationError;
       }
       if (credentials) {
         try { status = await this.healthProvider.check(target, credentials); }
-        catch { status = 'unavailable'; }
+        catch { status = CHANNEL_HEALTH_STATUS.unavailable; }
       }
     }
 
     const checkedAt = new Date();
-    const audited = await this.repository.auditHealthCheck(new ChannelHealthCheckAuditDto(context.organizationId, channelId, context.userId, status, checkedAt, request.correlationId));
-    if (!audited) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    const audited = await this.repository.auditHealthCheck(new ChannelHealthCheckAuditDto(organizationId, channelId, userId, status, checkedAt, correlationId));
+    if (!audited) return null;
     return new ChannelHealthCheckDto(status, checkedAt.toISOString());
   }
 }

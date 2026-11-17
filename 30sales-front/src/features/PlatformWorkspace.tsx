@@ -5,6 +5,7 @@ import { ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, R
 import { useTranslation } from 'react-i18next'
 import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
 import { ORGANIZATION_SLUG_PATTERN, PLATFORM_ERROR_CODE, PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_ORGANIZATION_PAGE_SIZES, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
+import { PlatformOrganizationPicker } from './PlatformOrganizationPicker'
 import './PlatformWorkspace.css'
 
 
@@ -12,7 +13,7 @@ function slugFromName(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
 }
 
-export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrganization, onSelectOrganization }: { user: SessionDto['user']; organizations: SessionDto['organizations']; onSignOut: () => Promise<void>; onOpenOrganization: (organizationId: string) => void; onSelectOrganization: (organizationId: string) => void }) {
+export function PlatformWorkspace({ user, organizations, activeOrganizationId, activeOrganizationName, platformOrganizationContext, onSignOut, onOpenOrganization, onSelectOrganization }: { user: SessionDto['user']; organizations: SessionDto['organizations']; activeOrganizationId: string | null; activeOrganizationName: string; platformOrganizationContext: boolean; onSignOut: () => Promise<void>; onOpenOrganization: (organizationId: string) => void; onSelectOrganization: (organizationId: string) => Promise<boolean> }) {
   const { t, i18n } = useTranslation()
   const [companies, setCompanies] = useState<PlatformOrganizationDto[]>([])
   const [query, setQuery] = useState('')
@@ -89,7 +90,7 @@ export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrgani
   }
 
   return <main className="platform-shell">
-    <header className="platform-topbar"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /><div className="platform-user"><span className="avatar">{user.name.slice(0, 1)}</span><span><strong>{user.name}</strong><small>{user.email}</small></span><Button type="button" className="platform-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} />{t('platform.signOut')}</Button></div></header>
+    <header className="platform-topbar"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /><div className="platform-user"><PlatformOrganizationPicker activeOrganizationId={activeOrganizationId} activeOrganizationName={activeOrganizationName} platformOrganizationContext={platformOrganizationContext} disabled={false} onSelectOrganization={onSelectOrganization} /><span className="avatar">{user.name.slice(0, 1)}</span><span><strong>{user.name}</strong><small>{user.email}</small></span><Button type="button" className="platform-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} />{t('platform.signOut')}</Button></div></header>
     <div className="platform-content">
       <header className="platform-heading"><div><p className="eyebrow">{t('platform.eyebrow')}</p><h1>{t('platform.title')}</h1><p>{t('platform.description')}</p></div><Button className="refresh" type="button" aria-label={t('platform.refresh')} onClick={() => setRefreshVersion((current) => current + 1)}><RefreshCw size={16} /></Button></header>
       <section className="platform-panel platform-workspaces-panel">

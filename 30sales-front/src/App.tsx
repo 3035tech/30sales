@@ -275,7 +275,7 @@ export default function App() {
 
   const isPlatformAdmin = current.user.platformRole === PLATFORM_ROLE.superAdmin
   const hasActiveMembership = current.activeOrganizationId !== null && current.organizations.some((organization) => organization.id === current.activeOrganizationId)
-  if (isPlatformAdmin && (location.pathname === '/platform' || (!hasActiveMembership && !current.platformOrganizationContext))) return <PlatformWorkspace user={current.user} organizations={current.organizations} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSelectOrganization={(organizationId) => void openPlatformOrganization(organizationId)} onSignOut={async () => { setPlatformOrganizationContext(null); await api.auth.signOut(); window.location.reload() }} />
+  if (isPlatformAdmin && (location.pathname === '/platform' || (!hasActiveMembership && !current.platformOrganizationContext))) return <PlatformWorkspace user={current.user} organizations={current.organizations} activeOrganizationId={current.platformOrganizationContext ? current.platformOrganization?.id ?? null : null} activeOrganizationName={current.platformOrganizationContext ? current.platformOrganization?.name ?? '' : ''} platformOrganizationContext={current.platformOrganizationContext} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSelectOrganization={openPlatformOrganization} onSignOut={async () => { setPlatformOrganizationContext(null); await api.auth.signOut(); window.location.reload() }} />
 
   if (!current.activeOrganizationId) return <main className="access-shell">
     <section className="access-card" aria-labelledby="access-title">

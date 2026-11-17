@@ -2,7 +2,7 @@ export const LEAD_STATUSES = [
   'new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr',
   'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact',
 ] as const;
-export const LEAD_STATUS = { new: 'new', ready: 'ready', doNotContact: 'do_not_contact', responded: 'responded', convertedToSdr: 'converted_to_sdr' } as const;
+export const LEAD_STATUS = { new: 'new', ready: 'ready', contacting: 'contacting', doNotContact: 'do_not_contact', responded: 'responded', convertedToSdr: 'converted_to_sdr' } as const;
 export const SDR_AGENT_KEY = 'assistant' as const;
 export const SDR_ACTIVE_CONVERSATION_STATUSES = ['open', 'pending', 'snoozed'] as const;
 export type LeadStatus = (typeof LEAD_STATUSES)[number];

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, CalendarClock, Check, CircleAlert, Plus, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
-import { api, type LeadDto, type TaskDto } from '../lib/api/client'
+import { api, type LeadDto, type TaskDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './TasksWorkspace.css'
 

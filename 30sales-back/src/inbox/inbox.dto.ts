@@ -11,6 +11,10 @@ export const conversationStatusUpdateSchema = z.object({ status: z.enum(['open',
 export type ConversationStatusUpdateInputDto = z.infer<typeof conversationStatusUpdateSchema>;
 export const assignConversationSchema = z.object({ ownerUserId: z.string().uuid() }).strict();
 export type AssignConversationDto = z.infer<typeof assignConversationSchema>;
+export const reconcileConversationContactSchema = z.object({ leadId: z.string().uuid(), name: z.string().trim().min(2).max(160).optional(), phone: z.string().trim().min(8).max(40).optional(), isPrimary: z.boolean().default(false), isInterested: z.boolean().default(false) }).strict();
+export type ReconcileConversationContactInputDto = z.infer<typeof reconcileConversationContactSchema>;
+export class ConversationContactReconcileDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly leadId: string, readonly name: string | undefined, readonly phone: string | undefined, readonly isPrimary: boolean, readonly isInterested: boolean, readonly correlationId: string | null = null) {} }
+export class ConversationContactReconcileResultDto { constructor(readonly conversationId: string, readonly leadId: string, readonly accountName: string, readonly contactName: string, readonly phone: string | null) {} }
 export const markConversationReadSchema = z.object({ lastInboundMessageId: z.string().uuid().nullable() }).strict();
 export type MarkConversationReadInputDto = z.infer<typeof markConversationReadSchema>;
 export class ConversationRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListConversationsQueryDto) {} }

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Bot, Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { ApiError, api, type AssistantSettingsDto } from '../lib/api/client'
+import { ApiError, api, type AssistantSettingsDto } from '../lib/api'
 import './AssistantSettingsWorkspace.css'
 
 export function AssistantSettingsWorkspace() {

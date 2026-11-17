@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, countDistinct, eq, gte, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, count, countDistinct, eq, gte, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { assistantRuns, handoffs, leadStatusHistory, leads, opportunities } from '../db/schema';
+import { assistantRuns, handoffs, leadStatusHistory, leads, opportunities, pipelineStages } from '../db/schema';
 import { LEAD_STATUS } from '../leads/constants';
-import { AiUsagePointDto, AiUsageReportDto, FunnelReportDto, FunnelReportRepositoryQueryDto, FunnelReportStageDto, LeadCohortPointDto, SalesTrendPointDto } from './reports.dto';
+import { AiUsagePointDto, AiUsageReportDto, FunnelReportDto, FunnelReportPipelineValueDto, FunnelReportRepositoryQueryDto, FunnelReportStageAgingDto, FunnelReportStageDto, LeadCohortPointDto, SalesTrendPointDto } from './reports.dto';
 
 const terminalStages = ['won', 'lost'] as const;
 const [wonStage, lostStage] = terminalStages;
@@ -40,6 +40,7 @@ export class ReportsRepository {
     toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
     const tenant = eq(opportunities.organizationId, input.organizationId);
     const open = and(tenant, notInArray(opportunities.stage, [...terminalStages]));
+    const stageAgeInDays = sql<number>`greatest(0, floor(extract(epoch from (now() - ${opportunities.stageChangedAt})) / 86400))`;
     const firstActivityAt = sql<Date | null>`(
       select min(first_activity.occurred_at) from (
         select activity.occurred_at from activities activity
@@ -58,9 +59,22 @@ export class ReportsRepository {
       ) first_activity
     )`;
     const cohortDate = sql<string>`to_char(date_trunc('day', ${leads.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`;
-    const [stageRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows, leadTrendRows, opportunityTrendRows, closedTrendRows, cohortLeadRows, cohortResponseRows, cohortConvertedToSdrRows, cohortOpportunityRows] = await Promise.all([
-      database.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, count: count() }).from(opportunities).where(open).groupBy(opportunities.stage, opportunities.pipelineStageKey),
-      database.select({ count: count() }).from(opportunities).where(open),
+    const [stageRows, pipelineValueRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows, leadTrendRows, opportunityTrendRows, closedTrendRows, cohortLeadRows, cohortResponseRows, cohortConvertedToSdrRows, cohortOpportunityRows] = await Promise.all([
+      database.select({
+        stage: opportunities.stage,
+        pipelineStageKey: opportunities.pipelineStageKey,
+        pipelineStageName: pipelineStages.name,
+        count: count(),
+        upTo7DaysCount: sql<number>`count(*) filter (where ${stageAgeInDays} <= 7)::int`,
+        days8To14Count: sql<number>`count(*) filter (where ${stageAgeInDays} between 8 and 14)::int`,
+        days15To30Count: sql<number>`count(*) filter (where ${stageAgeInDays} between 15 and 30)::int`,
+        over30DaysCount: sql<number>`count(*) filter (where ${stageAgeInDays} > 30)::int`,
+      }).from(opportunities).leftJoin(pipelineStages, and(eq(pipelineStages.organizationId, opportunities.organizationId), eq(pipelineStages.pipelineId, opportunities.pipelineId), eq(pipelineStages.key, opportunities.pipelineStageKey))).where(open).groupBy(opportunities.stage, opportunities.pipelineStageKey, pipelineStages.name),
+      database.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: pipelineStages.name, currency: sql<string>`${opportunities.currency}`, amount: sql<string | null>`sum(${opportunities.amount})::text`, opportunityCount: count() }).from(opportunities)
+        .leftJoin(pipelineStages, and(eq(pipelineStages.organizationId, opportunities.organizationId), eq(pipelineStages.pipelineId, opportunities.pipelineId), eq(pipelineStages.key, opportunities.pipelineStageKey)))
+        .where(and(open, isNotNull(opportunities.amount), isNotNull(opportunities.currency)))
+        .groupBy(opportunities.stage, opportunities.pipelineStageKey, pipelineStages.name, opportunities.currency),
+      database.select({ count: count(), withoutValueCount: sql<number>`count(*) filter (where ${opportunities.amount} is null or ${opportunities.currency} is null)::int` }).from(opportunities).where(open),
       database.select({ count: count() }).from(opportunities).where(and(open, isNull(opportunities.nextActionAt))),
       database.select({ count: count() }).from(opportunities).where(and(open, lt(opportunities.nextActionAt, new Date()))),
       database.select({ count: count() }).from(opportunities).where(and(tenant, gte(opportunities.createdAt, from), lt(opportunities.createdAt, toExclusive))),
@@ -135,9 +149,12 @@ export class ReportsRepository {
       input.query.from,
       input.query.to,
       Number(openRows[0]?.count ?? 0),
+      Number(openRows[0]?.withoutValueCount ?? 0),
       Number(withoutNextActionRows[0]?.count ?? 0),
       Number(overdueRows[0]?.count ?? 0),
       stageRows.map((row) => new FunnelReportStageDto(row.stage, row.pipelineStageKey, Number(row.count))),
+      stageRows.map((row) => new FunnelReportStageAgingDto(row.stage, row.pipelineStageKey, row.pipelineStageName, Number(row.upTo7DaysCount), Number(row.days8To14Count), Number(row.days15To30Count), Number(row.over30DaysCount))),
+      pipelineValueRows.map((row) => new FunnelReportPipelineValueDto(row.stage, row.pipelineStageKey, row.pipelineStageName, row.currency, row.amount ?? '0', Number(row.opportunityCount))),
       Number(createdRows[0]?.count ?? 0),
       closedCount('won'),
       closedCount('lost'),

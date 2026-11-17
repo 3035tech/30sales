@@ -97,6 +97,10 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
         return;
       }
+      if (!context.recipientPhone) {
+        await this.repository.completeEvent(queueEvent.id);
+        return;
+      }
       if (context.messages.at(-1)?.role !== 'user') {
         await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
         return;

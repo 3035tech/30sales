@@ -7,6 +7,7 @@ import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service
 import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 import { ASSISTANT_DELIVERY_OUTCOMES, ASSISTANT_PRICING_VERSION, ASSISTANT_PROVIDER_DELIVERY_STATES, ASSISTANT_REPLY_IDEMPOTENCY_PREFIX, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_STATUSES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_TRANSCRIPTION_PROVIDER, ASSISTANT_UNKNOWN_DELIVERY_STATE, estimateAssistantTokenCostUsd, type AssistantProviderDeliveryState, type AssistantStopReason } from './assistant-runtime.constants';
+import { CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
@@ -131,7 +132,7 @@ export class AssistantRuntimeRepository {
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, organizationId: conversations.organizationId, channelId: conversations.channelId, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.context.event.conversationId), eq(conversations.organizationId, input.context.event.organizationId))).for('update').limit(1);
-      if (!conversation || conversation.automationMode !== 'assistant' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return { skipped: true };
+      if (!conversation || !conversation.personId || conversation.automationMode !== 'assistant' || conversation.ownerUserId || conversation.channelId !== input.context.event.channelId) return { skipped: true };
 
       const [agent] = await transaction.select({ enabled: agentSettings.enabled, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
         .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
@@ -142,11 +143,18 @@ export class AssistantRuntimeRepository {
         .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(1);
       if (latestInbound?.id !== input.context.event.messageId) return { skipped: true };
 
-      const [channel] = await transaction.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
-        .from(messagingChannels).where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, conversation.organizationId))).limit(1);
+      const [channel] = await transaction.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+        .from(messagingChannels).where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, conversation.organizationId))).for('update').limit(1);
       if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || channel.provider !== input.context.event.provider) return { skipped: true };
+      const [person] = await transaction.select({ phone: people.phone }).from(people).where(and(eq(people.id, conversation.personId), eq(people.organizationId, conversation.organizationId))).limit(1);
+      const recipientPhone = (person?.phone ?? '').replace(/\D/g, '');
+      if (recipientPhone.length < 8 || recipientPhone.length > 15 || recipientPhone[0] === '0') return { skipped: true };
+      if (channel.provider === CHANNEL_PROVIDER.evolution && CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES.some((status) => status === channel.connectionStatus)) return { skipped: true };
+      const [quota] = await transaction.select({ used: count() }).from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, conversation.organizationId), eq(conversations.channelId, channel.id), eq(messages.direction, CHANNEL_QUOTA_COUNTED_DIRECTION), sql`${messages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE}`, sql`(${messages.occurredAt} at time zone ${channel.dailyLimitTimeZone})::date = (now() at time zone ${channel.dailyLimitTimeZone})::date`));
+      if ((quota?.used ?? 0) >= channel.dailyMessageLimit) return { skipped: true };
 
-      const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone: input.context.recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
+      const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();
       const idempotencyKey = `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })

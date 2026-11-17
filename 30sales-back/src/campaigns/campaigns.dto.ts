@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_DRAFT_LIMITS, CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_TIME_PATTERN } from './campaigns.constants';
+import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_DRAFT_LIMITS, CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_NO_SEND_DATE_LIMITS, CAMPAIGN_TIME_PATTERN } from './campaigns.constants';
 import { LEAD_SOURCES, LEAD_STATUSES, SDR_READINESS_BLOCKERS } from '../leads/constants';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { ChannelHealthStatus } from '../channels/channels.dto';
@@ -10,6 +10,7 @@ export class CampaignDraftListRepositoryDto { constructor(readonly organizationI
 
 export const createCampaignDraftSchema = z.object({
   name: z.string().trim().min(2).max(CAMPAIGN_DRAFT_LIMITS.name),
+  openingMessage: z.string().trim().min(1).max(CAMPAIGN_DRAFT_LIMITS.openingMessage),
   channelId: z.string().uuid(),
   windowStart: z.string().regex(CAMPAIGN_TIME_PATTERN),
   windowEnd: z.string().regex(CAMPAIGN_TIME_PATTERN),
@@ -34,8 +35,10 @@ export class CampaignAudienceSaveRepositoryDto { constructor(readonly organizati
 export class CampaignDraftCreateRepositoryDto {
   constructor(readonly organizationId: string, readonly userId: string, readonly correlationId: string | null, readonly input: CreateCampaignDraftDto) {}
 }
+export class CampaignStartRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null) {} }
+export class CampaignStartResultDto { constructor(readonly campaignDraftId: string, readonly queuedCount: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
 export class CampaignDraftDto {
-  constructor(readonly id: string, readonly name: string, readonly channelId: string, readonly channelName: string, readonly channelPhoneNumber: string, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly dailyMessageLimit: number, readonly minimumDelaySeconds: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number], readonly audienceLeadCount: number, readonly createdAt: string) {}
+  constructor(readonly id: string, readonly name: string, readonly openingMessage: string, readonly channelId: string, readonly channelName: string, readonly channelPhoneNumber: string, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly dailyMessageLimit: number, readonly minimumDelaySeconds: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number], readonly audienceLeadCount: number, readonly createdAt: string) {}
 }
 export class CampaignDraftPageDto {
   constructor(readonly data: CampaignDraftDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {}
@@ -48,9 +51,17 @@ export class CampaignAudiencePreviewDto {
 }
 export class CampaignAudienceSaveDto { constructor(readonly campaignDraftId: string, readonly selectedCount: number) {} }
 export class CampaignOperationalReadinessDto {
-  constructor(readonly campaignDraftId: string, readonly checkedAt: string, readonly audienceCount: number, readonly channel: { readonly active: boolean; readonly configured: boolean; readonly health: ChannelHealthStatus | null }, readonly sendingWindow: { readonly openNow: boolean; readonly startsAt: string; readonly endsAt: string; readonly timeZone: string }, readonly holidaysConfigured: false, readonly quotaReserved: false, readonly canQueue: false) {}
+  constructor(readonly campaignDraftId: string, readonly checkedAt: string, readonly audienceCount: number, readonly channel: { readonly active: boolean; readonly configured: boolean; readonly health: ChannelHealthStatus | null }, readonly sendingWindow: { readonly openNow: boolean; readonly startsAt: string; readonly endsAt: string; readonly timeZone: string }, readonly quota: { readonly campaignLimit: number; readonly channelLimit: number; readonly channelUsed: number; readonly channelRemaining: number }, readonly holidayCalendar: { readonly configured: boolean; readonly datesCount: number; readonly noSendToday: boolean; readonly todayName: string | null }, readonly quotaReserved: boolean, readonly canQueue: boolean) {}
 }
 export class CampaignOperationalSnapshotDto {
-  constructor(readonly channelId: string, readonly audienceCount: number, readonly channelActive: boolean, readonly channelConfigured: boolean, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string) {}
+  constructor(readonly channelId: string, readonly provider: 'evolution' | 'whatsapp_cloud_api', readonly audienceCount: number, readonly channelActive: boolean, readonly channelConfigured: boolean, readonly agentReady: boolean, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly campaignDailyMessageLimit: number, readonly channelDailyMessageLimit: number, readonly channelDailyMessageCount: number, readonly openingMessage: string, readonly noSendDates: Array<{ readonly date: string; readonly name: string }>) {}
 }
 export class CampaignOperationalSnapshotRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string) {} }
+export const createCampaignNoSendDateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), name: z.string().trim().min(2).max(CAMPAIGN_NO_SEND_DATE_LIMITS.name) }).strict().superRefine((input, context) => {
+  const parsed = new Date(`${input.date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== input.date) context.addIssue({ code: 'custom', path: ['date'], message: 'Choose a valid calendar date.' });
+});
+export type CreateCampaignNoSendDateDto = z.infer<typeof createCampaignNoSendDateSchema>;
+export class CampaignNoSendDateDto { constructor(readonly id: string, readonly date: string, readonly name: string) {} }
+export class CampaignNoSendDateMutationRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly correlationId: string | null, readonly input: CreateCampaignNoSendDateDto) {} }
+export class CampaignNoSendDateDeleteRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly correlationId: string | null, readonly id: string) {} }

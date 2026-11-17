@@ -2,7 +2,7 @@ import { Button, FileField, SelectField } from '../components/ui/FormControls'
 import { useMemo, useState } from 'react'
 import { AlertTriangle, FileUp, RefreshCw, SearchCheck, ShieldCheck, UserRoundPlus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api } from '../lib/api/client'
+import { api } from '../lib/api'
 import { IMPORT_CSV_HEADERS, IMPORT_CSV_MAX_BYTES, IMPORT_PREVIEW_STATUS, IMPORT_PROVIDERS, IMPORT_TARGET_TYPE, IMPORT_TARGET_TYPES, LEAD_IMPORT_RESULT_STATUS } from '../lib/importConstants'
 import './ImportsWorkspace.css'
 

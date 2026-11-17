@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, Mail, RefreshCw, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type TeamMemberDto } from '../lib/api/client'
+import { api, type TeamMemberDto } from '../lib/api'
 import { roleNames, type OrganizationRole } from '../lib/permissions'
 import { ORGANIZATION_ROLE } from '../lib/authorizationConstants'
 

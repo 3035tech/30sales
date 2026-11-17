@@ -1,6 +1,20 @@
 import { z } from 'zod';
+import { PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
 
 export type WebhookProvider = 'evolution' | 'whatsapp_cloud_api';
+export type ProviderEventFamily = (typeof PROVIDER_EVENT_FAMILY)[keyof typeof PROVIDER_EVENT_FAMILY];
+
+export class ProviderWebhookEventDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly provider: WebhookProvider,
+    readonly externalEventId: string,
+    readonly eventType: string,
+    readonly eventFamily: ProviderEventFamily,
+    readonly payloadHash: string,
+  ) {}
+}
 export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker';
 
 export class InboundMediaDto {
@@ -35,7 +49,8 @@ export class IncomingWhatsappMessageDto {
     readonly provider: WebhookProvider,
     readonly externalMessageId: string,
     readonly externalConversationId: string,
-    readonly senderPhone: string,
+    readonly senderPhone: string | null,
+    readonly senderExternalId: string | null,
     readonly senderName: string | null,
     readonly messageType: string,
     readonly closerSignal: 'human_requested' | 'buying_intent' | 'question' | null,

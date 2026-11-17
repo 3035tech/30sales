@@ -1,15 +1,19 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
+import { ChannelsService } from '../channels/channels.service';
+import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
+import type { ChannelConnectionStatus } from '../channels/channels.dto';
 import { env } from '../config/env';
-import { InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
+import { InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
+import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
 type JsonRecord = Record<string, unknown>;
 
 @Injectable()
 export class WebhooksService {
-  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService) {}
+  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly channelsService: ChannelsService) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
     if (mode !== 'subscribe' || !challenge || !this.matchesSecret(token, env.META_WEBHOOK_VERIFY_TOKEN)) throw new UnauthorizedException();
@@ -26,16 +30,33 @@ export class WebhooksService {
     const instance = this.string(event.instance);
     const eventName = this.string(event.event)?.toLowerCase().replaceAll('_', '.') ?? '';
     if (instance !== channel.providerChannelId) throw new UnauthorizedException();
-    const data = Array.isArray(event.data) ? event.data : [event.data];
+    const isSnapshotEvent = eventName === EVOLUTION_WEBHOOK_EVENT.messagesSet || eventName === EVOLUTION_WEBHOOK_EVENT.contactsSet || eventName === EVOLUTION_WEBHOOK_EVENT.chatsSet;
+    const data = isSnapshotEvent ? [event.data] : Array.isArray(event.data) ? event.data : [event.data];
+    if (eventName === EVOLUTION_WEBHOOK_EVENT.connectionUpdate) {
+      const connectionEvent = this.record(data[0]);
+      const rawState = this.string(connectionEvent.state) ?? this.string(connectionEvent.status);
+      if (rawState) await this.channelsService.recordEvolutionConnectionStatus(channel.organizationId, channel.id, this.toEvolutionConnectionStatus(rawState));
+    }
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     let processed = 0;
     for (const item of data) {
-      if (eventName === 'messages.upsert') {
+      if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpsert) {
         const message = this.normalizeEvolutionMessage(channel.id, channel.organizationId, item, payloadHash);
         if (message && await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
-      } else if (eventName === 'messages.update') {
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpdate) {
         const status = this.normalizeEvolutionStatus(channel.id, channel.organizationId, item, payloadHash);
-        if (status && await this.repository.recordMessageStatus(status) === 'updated') processed += 1;
+        if (status) {
+          const result = await this.repository.recordMessageStatus(status);
+          if (result === 'updated') processed += 1;
+          if (result === 'unmatched') processed += await this.recordUnmatchedStatus(channel.id, channel.organizationId, 'evolution', status);
+        }
+      } else {
+        const safeEventName = eventName.replace(/[^a-z0-9._-]/g, '_').slice(0, 120);
+        const normalizedEventName = this.isKnownEvolutionEvent(safeEventName) ? safeEventName : `unknown.${safeEventName || 'event'}`;
+        const fingerprint = createHash('sha256').update(JSON.stringify(item) ?? '').digest('hex');
+        const eventId = createHash('sha256').update(`${channel.id}:${normalizedEventName}:${fingerprint}`).digest('hex');
+        const eventDto = new ProviderWebhookEventDto(channel.organizationId, channel.id, 'evolution', eventId, `evolution.${normalizedEventName}`, this.evolutionEventFamily(normalizedEventName), fingerprint);
+        if (await this.repository.recordProviderEvent(eventDto) === 'created') processed += 1;
       }
     }
     return { accepted: true, processed };
@@ -81,13 +102,22 @@ export class WebhooksService {
       const changes = Array.isArray(entry.changes) ? entry.changes : [];
       for (const changeValue of changes) {
         const change = this.record(changeValue);
-        if (this.string(change.field) !== 'messages') continue;
+        const field = (this.string(change.field)?.replace(/[^a-z0-9_-]/gi, '_').slice(0, 120)) || 'unknown';
         const value = this.record(change.value);
         const metadata = this.record(value.metadata);
-        const phoneNumberId = this.string(metadata.phone_number_id);
-        if (!phoneNumberId) continue;
-        const channel = await this.repository.findCloudChannel(phoneNumberId);
+        const phoneNumberId = this.string(metadata.phone_number_id) ?? this.string(value.phone_number_id);
+        const channel = phoneNumberId
+          ? await this.repository.findCloudChannel(phoneNumberId)
+          : await this.repository.findCloudAccountChannel(this.string(entry.id) ?? '');
         if (!channel?.isActive) continue;
+        if (field !== META_WHATSAPP_WEBHOOK_FIELD.messages) {
+          const fingerprint = createHash('sha256').update(JSON.stringify(changeValue) ?? '').digest('hex');
+          const eventId = createHash('sha256').update(`${channel.id}:${field}:${fingerprint}`).digest('hex');
+          const eventDto = new ProviderWebhookEventDto(channel.organizationId, channel.id, 'whatsapp_cloud_api', eventId, `meta.${field}`, this.metaEventFamily(field), fingerprint);
+          if (await this.repository.recordProviderEvent(eventDto) === 'created') processed += 1;
+          continue;
+        }
+        if (!phoneNumberId) continue;
         const contacts = Array.isArray(value.contacts) ? value.contacts.map((contact) => this.record(contact)) : [];
         const messages = Array.isArray(value.messages) ? value.messages : [];
         for (const messageValue of messages) {
@@ -98,11 +128,53 @@ export class WebhooksService {
         const statuses = Array.isArray(value.statuses) ? value.statuses : [];
         for (const statusValue of statuses) {
           const status = this.normalizeCloudStatus(channel.id, channel.organizationId, statusValue, payloadHash);
-          if (status && await this.repository.recordMessageStatus(status) === 'updated') processed += 1;
+          if (status) {
+            const result = await this.repository.recordMessageStatus(status);
+            if (result === 'updated') processed += 1;
+            if (result === 'unmatched') processed += await this.recordUnmatchedStatus(channel.id, channel.organizationId, 'whatsapp_cloud_api', status);
+          }
         }
       }
     }
     return { accepted: true, processed };
+  }
+
+  private async recordUnmatchedStatus(channelId: string, organizationId: string, provider: WebhookProvider, status: WhatsappMessageStatusDto): Promise<number> {
+    const event = new ProviderWebhookEventDto(organizationId, channelId, provider, `unmatched:${status.externalEventId}`, 'messages.status.unmatched', 'message', status.payloadHash);
+    return await this.repository.recordProviderEvent(event) === 'created' ? 1 : 0;
+  }
+
+  private isKnownEvolutionEvent(eventName: string): boolean {
+    return Object.values(EVOLUTION_WEBHOOK_EVENT).includes(eventName as (typeof EVOLUTION_WEBHOOK_EVENT)[keyof typeof EVOLUTION_WEBHOOK_EVENT]);
+  }
+
+  private toEvolutionConnectionStatus(state: string): ChannelConnectionStatus {
+    const normalized = state.trim().toLowerCase();
+    if (normalized === EVOLUTION_CONNECTION_STATE.open || normalized === EVOLUTION_CONNECTION_STATE.connected) return CHANNEL_CONNECTION_STATUS.connected;
+    if (normalized === EVOLUTION_CONNECTION_STATE.connecting || normalized === EVOLUTION_CONNECTION_STATE.reconnecting) return CHANNEL_CONNECTION_STATUS.connecting;
+    if (normalized === EVOLUTION_CONNECTION_STATE.close || normalized === EVOLUTION_CONNECTION_STATE.closed || normalized === EVOLUTION_CONNECTION_STATE.disconnected || normalized === EVOLUTION_CONNECTION_STATE.disconnecting) return CHANNEL_CONNECTION_STATUS.disconnected;
+    return CHANNEL_CONNECTION_STATUS.unknown;
+  }
+
+  private evolutionEventFamily(eventName: string): ProviderEventFamily {
+    if (eventName.startsWith('application.') || eventName.startsWith('qrcode.') || eventName.startsWith('connection.') || eventName === EVOLUTION_WEBHOOK_EVENT.newToken) return 'channel';
+    if (eventName.startsWith('messages.') || eventName.startsWith('send.message')) return 'message';
+    if (eventName.startsWith('contacts.')) return 'contact';
+    if (eventName.startsWith('presence.')) return 'presence';
+    if (eventName.startsWith('chats.')) return 'chat';
+    if (eventName.startsWith('groups.') || eventName.startsWith('group.')) return 'group';
+    if (eventName === EVOLUTION_WEBHOOK_EVENT.call) return 'call';
+    return 'other';
+  }
+
+  private metaEventFamily(field: string): ProviderEventFamily {
+    if (field === META_WHATSAPP_WEBHOOK_FIELD.messages) return 'message';
+    if (field.includes('template')) return 'template';
+    if (field.includes('security')) return 'security';
+    if (field === META_WHATSAPP_WEBHOOK_FIELD.calls) return 'call';
+    if (field === META_WHATSAPP_WEBHOOK_FIELD.history || field === META_WHATSAPP_WEBHOOK_FIELD.smbAppStateSync) return 'sync';
+    if (field.includes('account') || field.includes('phone_number') || field.includes('business_capability')) return 'account';
+    return 'other';
   }
 
   private normalizeEvolutionStatus(channelId: string, organizationId: string, value: unknown, payloadHash: string): WhatsappMessageStatusDto | null {
@@ -188,16 +260,23 @@ export class WebhooksService {
     const mediaContent = mediaType ? this.record(messageContent[`${mediaType}Message`]) : {};
     const media = mediaType ? this.createMedia(channelId, organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), mediaContent) : null;
     const occurredAt = this.toDate(data.messageTimestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, null, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
   }
 
   private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
     const message = this.record(value);
-    const senderPhone = this.phoneDigits(this.string(message.from) ?? '');
+    let senderPhone = this.phoneDigits(this.string(message.from) ?? '');
+    const rawSenderId = this.string(message.user_id) ?? this.string(message.from_user_id);
+    let senderExternalId = this.normalizeExternalIdentity(rawSenderId);
+    let contact = contacts.find((candidate) => (this.isValidPhone(senderPhone) && this.phoneDigits(this.string(candidate.wa_id) ?? '') === senderPhone)
+      || (senderExternalId !== null && this.normalizeExternalIdentity(this.string(candidate.user_id)) === senderExternalId));
+    if (!senderExternalId) senderExternalId = this.normalizeExternalIdentity(this.string(contact?.user_id));
+    if (!this.isValidPhone(senderPhone)) senderPhone = this.phoneDigits(this.string(contact?.wa_id) ?? '');
+    if (!this.isValidPhone(senderPhone)) senderPhone = '';
     const externalMessageId = this.string(message.id);
     const messageType = (this.string(message.type) ?? 'unknown').slice(0, 80);
-    if (!this.isValidPhone(senderPhone) || !externalMessageId || externalMessageId.length > 250) return null;
-    const contact = contacts.find((candidate) => this.phoneDigits(this.string(candidate.wa_id) ?? '') === senderPhone);
+    if ((!senderPhone && !senderExternalId) || !externalMessageId || externalMessageId.length > 250) return null;
+    if (!contact && senderExternalId) contact = contacts.find((candidate) => this.normalizeExternalIdentity(this.string(candidate.user_id)) === senderExternalId);
     const profile = this.record(contact?.profile);
     const occurredAt = this.toDate(message.timestamp);
     const bodyText = this.extractCloudText(message, messageType)?.slice(0, 16000) ?? null;
@@ -205,7 +284,9 @@ export class WebhooksService {
     const mediaContent = mediaType ? this.record(message[mediaType]) : {};
     const mediaId = this.string(mediaContent.id);
     const media = mediaType && mediaId ? this.createMedia(channelId, organizationId, mediaType, mediaId, JSON.stringify({ mediaId }), mediaContent) : null;
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, this.string(profile.name), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
+    const externalConversationId = senderExternalId ? `${channelId}:${META_EXTERNAL_RECORD_TYPE.businessScopedUserId}:${senderExternalId}` : `${channelId}:${senderPhone}`;
+    const senderName = this.string(profile.name)?.trim().slice(0, 160) || senderExternalId;
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, externalConversationId, senderPhone || null, senderExternalId, senderName, messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
   }
 
   private createMedia(channelId: string, organizationId: string, mediaType: InboundMediaType, sourceMediaId: string | null, sourcePayload: string, mediaContent: JsonRecord): InboundMediaDto {
@@ -305,6 +386,11 @@ export class WebhooksService {
 
   private phoneDigits(value: string): string { return value.split('@')[0].split(':')[0].replace(/\D/g, ''); }
   private isValidPhone(value: string): boolean { return value.length >= 8 && value.length <= 15 && value[0] !== '0'; }
+
+  private normalizeExternalIdentity(value: string | null): string | null {
+    const normalized = value?.trim() ?? '';
+    return normalized.length > 0 && normalized.length <= 250 && /^[a-z0-9._:-]+$/i.test(normalized) ? normalized : null;
+  }
   private record(value: unknown): JsonRecord { return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}; }
   private string(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null; }
   private matchesSecret(presented: string | undefined, expected: string | undefined): boolean {

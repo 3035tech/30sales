@@ -4,7 +4,7 @@ import { ArrowRight, Building2, RefreshCw, Search, SlidersHorizontal, Tags } fro
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_FILTER, api, ApiError, type AccountMarketSegment, type AccountSegmentDto, type AccountSortBy, type LeadStatus } from '../lib/api/client'
+import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_FILTER, api, ApiError, type AccountMarketSegment, type AccountSegmentDto, type AccountSortBy, type LeadStatus } from '../lib/api'
 import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PROFILE_EMPTY_VALUE } from '../lib/accountConstants'
 import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'

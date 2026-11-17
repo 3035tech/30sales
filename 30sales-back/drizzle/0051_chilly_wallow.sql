@@ -1,0 +1,4 @@
+ALTER TABLE "messaging_channels" ADD COLUMN "daily_message_limit" integer DEFAULT 500 NOT NULL;--> statement-breakpoint
+ALTER TABLE "messaging_channels" ADD COLUMN "daily_limit_time_zone" text DEFAULT 'America/Sao_Paulo' NOT NULL;--> statement-breakpoint
+ALTER TABLE "messaging_channels" ADD CONSTRAINT "messaging_channels_daily_message_limit_check" CHECK ("messaging_channels"."daily_message_limit" between 1 and 5000);--> statement-breakpoint
+ALTER TABLE "messaging_channels" ADD CONSTRAINT "messaging_channels_daily_limit_time_zone_check" CHECK (length("messaging_channels"."daily_limit_time_zone") between 1 and 80);

@@ -1,0 +1,151 @@
+/* Shared visual finish for the commercial workspace. Page-specific layout stays in feature styles. */
+:is(.shell) {
+  color: var(--app-text);
+  background: var(--app-canvas);
+}
+
+:is(.rail) {
+  background: #fff;
+  border-color: var(--app-border);
+}
+
+:is(.main > header) {
+  min-width: 0;
+  border-color: var(--app-border);
+  box-shadow: 0 1px 0 rgb(15 23 42 / 2%);
+}
+
+:is(.content) {
+  min-width: 0;
+}
+
+:is(.eyebrow, .rail-caption) {
+  color: #718096;
+  letter-spacing: 1.1px;
+}
+
+:is(.content h1, .content h2, .content h3, .platform-heading h1) {
+  color: #172338;
+  text-wrap: balance;
+}
+
+:is(.content .muted, .content p.muted) {
+  color: #64748b;
+}
+
+:is(.nav) {
+  min-height: 42px;
+  border: 1px solid transparent;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+
+:is(.nav:hover:not(.active)) {
+  background: #f6f8fb;
+  color: #334155;
+}
+
+:is(.nav.active) {
+  border-color: #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+:is(.ui-button, .ui-icon-button, .notification-trigger, .data-table-page-controls button) {
+  box-shadow: var(--app-shadow-sm);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+:is(.ui-button:hover:not(:disabled), .ui-icon-button:hover:not(:disabled), .notification-trigger:hover, .data-table-page-controls button:hover:not(:disabled)) {
+  border-color: #b8c5d6;
+  background-color: #f8fafc;
+  color: #1e40af;
+  box-shadow: 0 2px 5px rgb(15 23 42 / 9%);
+}
+
+:is(.ui-button.primary:hover:not(:disabled), .ui-button-primary:hover:not(:disabled), .primary:hover:not(:disabled)) {
+  border-color: var(--brand-action-hover);
+  background: var(--brand-action-hover);
+  color: #fff;
+}
+
+:is(.ui-button:active:not(:disabled), .data-table-page-controls button:active:not(:disabled)) {
+  transform: translateY(1px);
+}
+
+:is(.ui-field-control, .ui-text-field, .ui-textarea, .ui-select, .data-table-page-size select) {
+  border-color: var(--app-border-strong);
+  border-radius: var(--app-radius-sm);
+}
+
+:is(.ui-field-control:hover:not(:disabled), .ui-text-field:hover:not(:disabled), .ui-textarea:hover:not(:disabled), .ui-select:hover:not(:disabled)) {
+  border-color: #aebed0;
+}
+
+:is(.ui-field-control:focus-visible, .ui-text-field:focus-visible, .ui-textarea:focus-visible, .ui-select:focus-visible) {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 13%);
+  outline: none;
+}
+
+:is(.ui-field-control[aria-invalid="true"], .ui-text-field[aria-invalid="true"], .ui-textarea[aria-invalid="true"], .ui-select[aria-invalid="true"]) {
+  border-color: var(--ui-danger-border);
+  box-shadow: 0 0 0 2px rgb(220 38 38 / 9%);
+}
+
+:is(.ui-form-field-label, .ui-form-field > label) {
+  color: #334155;
+}
+
+:is(.data-table) {
+  color: var(--app-text);
+}
+
+:is(.data-table th) {
+  background: #f8fafc;
+  color: #475569;
+  border-bottom: 1px solid var(--app-border);
+}
+
+:is(.data-table td) {
+  color: #334155;
+}
+
+:is(.data-table tbody tr:hover) {
+  background: #f8fafc;
+}
+
+:is(.data-table-footer, .data-table-filters) {
+  border-color: var(--app-border);
+}
+
+:is(.workspace-state, .ui-modal, .ui-calendar-popover, .notification-panel) {
+  border-color: var(--app-border-strong);
+  border-radius: var(--app-radius-md);
+  box-shadow: var(--app-shadow-md);
+}
+
+:is(.notification-item:hover) {
+  background: #f8fafc;
+}
+
+:is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline-color: var(--brand-primary);
+}
+
+@media (max-width: 900px) {
+  :is(.content) {
+    padding-top: 32px;
+  }
+}
+
+@media (max-width: 640px) {
+  :is(.content) {
+    padding-top: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.nav, .ui-button, .ui-icon-button, .notification-trigger, .data-table-page-controls button) {
+    transition: none;
+  }
+}

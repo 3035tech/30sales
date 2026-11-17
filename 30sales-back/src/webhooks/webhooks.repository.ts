@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
+import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
+import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
 
 @Injectable()
 export class WebhooksRepository {
@@ -19,6 +21,27 @@ export class WebhooksRepository {
     const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).where(and(eq(messagingChannels.providerChannelId, phoneNumberId), eq(messagingChannels.provider, 'whatsapp_cloud_api'))).limit(2);
     return rows.length === 1 ? rows[0] : null;
+  }
+
+  async findCloudAccountChannel(accountId: string): Promise<WebhookChannelDto | null> {
+    const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.providerAccountId, accountId), eq(messagingChannels.provider, 'whatsapp_cloud_api'))).limit(2);
+    return rows.length === 1 ? rows[0] : null;
+  }
+
+  async recordProviderEvent(input: ProviderWebhookEventDto): Promise<'created' | 'duplicate'> {
+    const [event] = await database.insert(inboxEvents).values({
+      organizationId: input.organizationId,
+      provider: input.provider,
+      externalEventId: input.externalEventId,
+      eventType: input.eventType,
+      payloadHash: input.payloadHash,
+      payloadRedacted: { channelId: input.channelId, eventFamily: input.eventFamily },
+      status: 'processed',
+      attempts: '1',
+      processedAt: new Date(),
+    }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+    return event ? 'created' : 'duplicate';
   }
 
   async findChannel(channelId: string): Promise<WebhookChannelDto | null> {
@@ -51,7 +74,7 @@ export class WebhooksRepository {
       if (!acceptedHandoff && !hasCloserRole) return 'unroutable';
 
       const externalEventId = 'agent.interpretation_failure:' + input.channelId + ':' + input.input.externalMessageId;
-      const [inboxEvent] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId, eventType: 'agent.interpretation_failure', payloadHash: input.payloadHash, payloadRedacted: { sourceMessageId: source.messageId }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [inboxEvent] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId, eventType: 'agent.interpretation_failure', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, sourceMessageId: source.messageId }, status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!inboxEvent) return 'duplicate';
 
@@ -76,28 +99,44 @@ export class WebhooksRepository {
 
   async recordIncomingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate'> {
     return database.transaction(async (transaction) => {
-      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalMessageId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: { messageType: input.messageType, direction: 'inbound' }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalMessageId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: 'message', messageType: input.messageType, direction: 'inbound' }, status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
-      const lockKey = `${input.organizationId}:${input.senderPhone}`;
+      const externalRecordId = input.senderExternalId ? `${input.channelId}:${input.senderExternalId}` : null;
+      const lockKey = `${input.organizationId}:${input.channelId}:${externalRecordId ?? input.senderPhone ?? input.externalMessageId}`;
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
       const normalizedStoredPhone = sql`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g')`;
-      let [person] = await transaction.select({ id: people.id }).from(people)
+      let [person] = externalRecordId ? await transaction.select({ id: people.id, phone: people.phone }).from(externalRecords)
+        .innerJoin(people, and(eq(people.id, externalRecords.personId), eq(people.organizationId, externalRecords.organizationId)))
+        .where(and(eq(externalRecords.organizationId, input.organizationId), eq(externalRecords.provider, input.provider), eq(externalRecords.recordType, META_EXTERNAL_RECORD_TYPE.businessScopedUserId), eq(externalRecords.externalId, externalRecordId))).limit(1) : [];
+      if (!person && input.senderPhone) [person] = await transaction.select({ id: people.id, phone: people.phone }).from(people)
         .where(and(eq(people.organizationId, input.organizationId), sql`${normalizedStoredPhone} = ${input.senderPhone}`)).orderBy(people.createdAt, people.id).limit(1);
       if (!person) {
-        const [createdPerson] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.senderName?.trim().slice(0, 160) || input.senderPhone, phone: `+${input.senderPhone}` }).returning({ id: people.id });
+        const [createdPerson] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.senderName?.trim().slice(0, 160) || input.senderPhone || input.senderExternalId || input.externalMessageId, phone: input.senderPhone ? `+${input.senderPhone}` : null }).returning({ id: people.id, phone: people.phone });
         person = createdPerson;
       }
       if (!person) throw new Error('Incoming WhatsApp message could not resolve its contact.');
+      if (!person.phone && input.senderPhone) {
+        const [updatedPerson] = await transaction.update(people).set({ phone: `+${input.senderPhone}`, updatedAt: new Date() })
+          .where(and(eq(people.id, person.id), eq(people.organizationId, input.organizationId))).returning({ id: people.id, phone: people.phone });
+        person = updatedPerson ?? person;
+      }
+      if (externalRecordId) await transaction.insert(externalRecords).values({ organizationId: input.organizationId, provider: input.provider, recordType: META_EXTERNAL_RECORD_TYPE.businessScopedUserId, externalId: externalRecordId, personId: person.id, payloadHash: input.payloadHash })
+        .onConflictDoUpdate({ target: [externalRecords.organizationId, externalRecords.provider, externalRecords.recordType, externalRecords.externalId], set: { lastSeenAt: new Date(), payloadHash: input.payloadHash } });
 
       const [lead] = await transaction.select({ accountId: leads.accountId, opportunityId: opportunities.id }).from(leads)
         .leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
         .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId)))
         .where(and(eq(leads.organizationId, input.organizationId), or(eq(leads.personId, person.id), eq(leadContacts.personId, person.id)))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
 
-      const [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId }).from(conversations)
+      let [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+      if (!conversation) {
+        [conversation] = await transaction.select({ id: conversations.id, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId }).from(conversations)
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId), eq(conversations.personId, person.id), inArray(conversations.status, INBOX_ACTIVE_CONVERSATION_STATUSES)))
+          .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt)).for('update').limit(1);
+      }
       let conversationId = conversation?.id;
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       let notificationRecipientUserId = conversation?.ownerUserId ?? null;
@@ -205,7 +244,7 @@ export class WebhooksRepository {
         .for('update').limit(1);
       if (!message) return 'unmatched';
 
-      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalEventId, eventType: 'messages.status', payloadHash: input.payloadHash, payloadRedacted: { messageId: message.id, deliveryState: input.deliveryState }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalEventId, eventType: 'messages.status', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState }, status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 

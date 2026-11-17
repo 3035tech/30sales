@@ -1,15 +1,19 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CHANNEL_HEALTH_STATUS, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
-import type { ChannelHealthStatus } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import type { ChannelConnectionStatus, ChannelHealthStatus } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
+import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
+import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, EvolutionInstanceListDto, EvolutionWebhookConfigurationDto } from './channels.dto';
+import { CHANNEL_CONNECTION_STATUS, CHANNEL_PROVIDER } from './channels.constants';
+import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 
 @Injectable()
 export class ChannelsService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: ChannelsRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly healthProvider: ChannelConnectionHealthProvider) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: ChannelsRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly healthProvider: ChannelConnectionHealthProvider, private readonly evolutionDiscovery: EvolutionInstanceDiscoveryProvider, private readonly evolutionWebhookConfiguration: EvolutionWebhookConfigurationProvider) {}
   async list(request: ApiRequestDto): Promise<ChannelRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
     return this.repository.list(context.organizationId);
@@ -42,6 +46,48 @@ export class ChannelsService {
     return result;
   }
 
+  async discoverEvolutionInstances(request: ApiRequestDto, channelId: string): Promise<EvolutionInstanceListDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'integrations');
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'EVOLUTION_DISCOVERY_PROVIDER_REQUIRED', message: 'Instance discovery requires an Evolution API channel.' });
+    if (!target.credentials) throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure Evolution API credentials before discovering instances.' });
+    let credentials: ChannelCredentialsDto;
+    try { credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials); }
+    catch { throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_INVALID', message: 'Evolution API credentials could not be decrypted.' }); }
+    if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The stored credentials do not match the Evolution API provider.' });
+    const instances = await this.evolutionDiscovery.list(credentials);
+    return new EvolutionInstanceListDto(channelId, instances);
+  }
+
+  async configureEvolutionWebhook(request: ApiRequestDto, channelId: string): Promise<EvolutionWebhookConfigurationDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'EVOLUTION_WEBHOOK_PROVIDER_REQUIRED', message: 'Webhook configuration requires an Evolution API channel.' });
+    if (!target.credentials) throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure Evolution API credentials before configuring its webhook.' });
+    let credentials: ChannelCredentialsDto;
+    try { credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials); }
+    catch { throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_INVALID', message: 'Evolution API credentials could not be decrypted.' }); }
+    if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The stored credentials do not match the Evolution API provider.' });
+    await this.evolutionWebhookConfiguration.configure(credentials, target.providerChannelId, channelId);
+    const configuredAt = new Date();
+    const audited = await this.repository.auditEvolutionWebhookConfigured(context.organizationId, channelId, context.userId, configuredAt, request.correlationId);
+    if (!audited) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    return new EvolutionWebhookConfigurationDto(true, configuredAt.toISOString());
+  }
+
+  async listWebhookEvents(request: ApiRequestDto, channelId: string, query: ChannelWebhookEventsQueryDto): Promise<ChannelWebhookEventsPageDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'integrations');
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    return this.repository.listWebhookEvents(context.organizationId, channelId, query);
+  }
+
+  async recordEvolutionConnectionStatus(organizationId: string, channelId: string, status: ChannelConnectionStatus, updatedAt = new Date()): Promise<void> {
+    await this.repository.setEvolutionConnectionStatus(new ChannelConnectionStatusUpdateDto(organizationId, channelId, status, updatedAt));
+  }
+
   async checkHealthForOrganization(organizationId: string, channelId: string, userId: string, correlationId: string | null): Promise<ChannelHealthCheckDto | null> {
     const target = await this.repository.healthCheckTarget(organizationId, channelId);
     if (!target) return null;
@@ -60,9 +106,22 @@ export class ChannelsService {
       }
     }
 
+    if (target.provider === CHANNEL_PROVIDER.evolution) {
+      const connectionStatus = this.toConnectionStatus(status);
+      if (connectionStatus) await this.repository.setEvolutionConnectionStatus(new ChannelConnectionStatusUpdateDto(organizationId, channelId, connectionStatus, new Date()));
+    }
+
     const checkedAt = new Date();
     const audited = await this.repository.auditHealthCheck(new ChannelHealthCheckAuditDto(organizationId, channelId, userId, status, checkedAt, correlationId));
     if (!audited) return null;
     return new ChannelHealthCheckDto(status, checkedAt.toISOString());
+  }
+
+  private toConnectionStatus(status: ChannelHealthStatus): ChannelConnectionStatus | null {
+    if (status === CHANNEL_HEALTH_STATUS.connected) return CHANNEL_CONNECTION_STATUS.connected;
+    if (status === CHANNEL_HEALTH_STATUS.connecting) return CHANNEL_CONNECTION_STATUS.connecting;
+    if (status === CHANNEL_HEALTH_STATUS.disconnected) return CHANNEL_CONNECTION_STATUS.disconnected;
+    if (status === CHANNEL_HEALTH_STATUS.unknown) return CHANNEL_CONNECTION_STATUS.unknown;
+    return null;
   }
 }

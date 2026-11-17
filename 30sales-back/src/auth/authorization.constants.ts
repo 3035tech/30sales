@@ -47,4 +47,4 @@ export const PLATFORM_AUDIT_ENTITY_TYPE = {
   organization: 'organization',
   invitation: 'invitation',
 } as const;
-export const AUDIT_ACTOR_TYPE = { user: 'user' } as const;
+export const AUDIT_ACTOR_TYPE = { user: 'user', system: 'system' } as const;

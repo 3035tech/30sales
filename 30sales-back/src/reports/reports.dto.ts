@@ -7,14 +7,38 @@ export const funnelReportQuerySchema = z.object({
 export type FunnelReportQueryDto = z.infer<typeof funnelReportQuerySchema>;
 
 export class FunnelReportStageDto { constructor(readonly stage: string, readonly pipelineStageKey: string | null, readonly count: number) {} }
+export class FunnelReportStageAgingDto {
+  constructor(
+    readonly stage: string,
+    readonly pipelineStageKey: string | null,
+    readonly pipelineStageName: string | null,
+    readonly upTo7DaysCount: number,
+    readonly days8To14Count: number,
+    readonly days15To30Count: number,
+    readonly over30DaysCount: number,
+  ) {}
+}
+export class FunnelReportPipelineValueDto {
+  constructor(
+    readonly stage: string,
+    readonly pipelineStageKey: string | null,
+    readonly pipelineStageName: string | null,
+    readonly currency: string,
+    readonly amount: string,
+    readonly opportunityCount: number,
+  ) {}
+}
 export class FunnelReportDto {
   constructor(
     readonly from: string,
     readonly to: string,
     readonly currentOpenCount: number,
+    readonly openWithoutValueCount: number,
     readonly openWithoutNextActionCount: number,
     readonly overdueNextActionCount: number,
     readonly currentStages: FunnelReportStageDto[],
+    readonly stageAging: FunnelReportStageAgingDto[],
+    readonly pipelineValues: FunnelReportPipelineValueDto[],
     readonly createdInPeriodCount: number,
     readonly wonInPeriodCount: number,
     readonly lostInPeriodCount: number,

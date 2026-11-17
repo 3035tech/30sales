@@ -2,7 +2,7 @@ import { Button, TextField } from '../components/ui/FormControls'
 import { useState } from 'react'
 import { ArrowRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api } from '../lib/api/client'
+import { api } from '../lib/api'
 
 export function ResetPassword() {
   const { t } = useTranslation()

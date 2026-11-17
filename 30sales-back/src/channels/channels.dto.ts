@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { CHANNEL_PROVIDER, CHANNEL_PROVIDERS } from './channels.constants';
+import { CHANNEL_CONNECTION_STATUSES, CHANNEL_PROVIDER, CHANNEL_PROVIDERS } from './channels.constants';
+import { CHANNEL_DAILY_MESSAGE_LIMIT_MAX, CHANNEL_DAILY_MESSAGE_LIMIT_MIN } from './channels.constants';
+import type { eventProcessingState } from '../db/schema';
 
 export const channelProviderSchema = z.enum(CHANNEL_PROVIDERS);
 export type ChannelProvider = z.infer<typeof channelProviderSchema>;
@@ -13,7 +15,11 @@ export const createChannelSchema = z.object({
   if (input.provider === 'whatsapp_cloud_api' && !input.providerAccountId) context.addIssue({ code: 'custom', path: ['providerAccountId'], message: 'A WhatsApp Business Account ID is required.' });
 });
 export type CreateChannelDto = z.infer<typeof createChannelSchema>;
-export const updateChannelSchema = z.object({ displayName: z.string().trim().min(2).max(120).optional(), isActive: z.boolean().optional() }).strict().refine((input) => input.displayName !== undefined || input.isActive !== undefined);
+export const updateChannelSchema = z.object({ displayName: z.string().trim().min(2).max(120).optional(), isActive: z.boolean().optional(), dailyMessageLimit: z.number().int().min(CHANNEL_DAILY_MESSAGE_LIMIT_MIN).max(CHANNEL_DAILY_MESSAGE_LIMIT_MAX).optional(), dailyLimitTimeZone: z.string().trim().min(1).max(80).optional() }).strict().superRefine((input, context) => {
+  if (input.dailyLimitTimeZone === undefined) return;
+  try { new Intl.DateTimeFormat('en', { timeZone: input.dailyLimitTimeZone }); }
+  catch { context.addIssue({ code: 'custom', path: ['dailyLimitTimeZone'], message: 'Choose a valid time zone.' }); }
+}).refine((input) => input.displayName !== undefined || input.isActive !== undefined || input.dailyMessageLimit !== undefined || input.dailyLimitTimeZone !== undefined);
 export type UpdateChannelDto = z.infer<typeof updateChannelSchema>;
 const evolutionCredentialsSchema = z.object({ provider: z.literal(CHANNEL_PROVIDER.evolution), baseUrl: z.string().url(), apiKey: z.string().min(1).max(500), webhookSecret: z.string().min(32).max(500) }).strict();
 const cloudApiCredentialsSchema = z.object({ provider: z.literal(CHANNEL_PROVIDER.whatsappCloudApi), accessToken: z.string().min(1).max(4000), signalSecret: z.string().min(32).max(500).optional() }).strict();
@@ -31,8 +37,23 @@ export type ChannelHealthStatus = z.infer<typeof channelHealthStatusSchema>;
 export class ChannelHealthCheckDto {
   constructor(readonly status: ChannelHealthStatus, readonly checkedAt: string) {}
 }
+export const channelConnectionStatusSchema = z.enum(CHANNEL_CONNECTION_STATUSES);
+export type ChannelConnectionStatus = z.infer<typeof channelConnectionStatusSchema>;
+export class EvolutionInstanceListDto { constructor(readonly channelId: string, readonly instances: import('./evolution-instance-discovery.provider').EvolutionInstanceDiscoveryDto[]) {} }
+export class EvolutionWebhookConfigurationDto { constructor(readonly configured: true, readonly configuredAt: string) {} }
+export const channelWebhookEventsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export type ChannelWebhookEventsQueryDto = z.infer<typeof channelWebhookEventsQuerySchema>;
+export class ChannelWebhookEventRecordDto {
+  constructor(readonly id: string, readonly provider: string, readonly eventType: string, readonly eventFamily: string, readonly status: typeof eventProcessingState.enumValues[number], readonly attempts: number, readonly receivedAt: string, readonly processedAt: string | null, readonly lastErrorCode: string | null) {}
+}
+export class ChannelWebhookEventsPageDto {
+  constructor(readonly data: ChannelWebhookEventRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {}
+}
+export class ChannelConnectionStatusUpdateDto {
+  constructor(readonly organizationId: string, readonly channelId: string, readonly status: ChannelConnectionStatus, readonly updatedAt: Date) {}
+}
 export class ChannelRecordDto {
-  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false) {}
+  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null) {}
 }
 export class ChannelRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateChannelDto, readonly correlationId: string | null = null) {} }
 export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }

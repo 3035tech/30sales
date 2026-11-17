@@ -3,7 +3,7 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, type ConversationStatusUpdateInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
@@ -13,6 +13,8 @@ import { prepareOutboundMedia, type IncomingMediaFile, type PreparedOutboundMedi
 import { OUTBOUND_MEDIA_ERROR, OUTBOUND_MEDIA_TYPE } from './outbound-media.constants';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR } from '../channels/channels.constants';
+import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 
 @Injectable()
 export class InboxService {
@@ -91,6 +93,15 @@ export class InboxService {
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the current conversation owner can change its status.' });
     return result;
   }
+  async reconcileContact(request: ApiRequestDto, conversationId: string, input: ReconcileConversationContactInputDto) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.reconcileContact(new ConversationContactReconcileDto(context.organizationId, conversationId, context.userId, input.leadId, input.name, input.phone, input.isPrimary, input.isInterested, request.correlationId));
+    if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notFound) throw new NotFoundException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.notFound, message: 'Conversation or lead was not found in the active organization.' });
+    if (result === INBOX_CONTACT_RECONCILIATION_RESULT.missingContact) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.missingContact, message: 'This conversation has no contact to associate.' });
+    if (result === INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone) throw new BadRequestException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.invalidPhone, message: 'Enter a valid international phone number.' });
+    if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notOwner) throw new ForbiddenException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.ownerRequired, message: 'Take ownership of the conversation before updating its contact.' });
+    return result;
+  }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
     return this.sendHumanMessage(context.organizationId, context.userId, conversationId, input.bodyText, input.idempotencyKey, request.correlationId, null);
@@ -110,6 +121,8 @@ export class InboxService {
     if (prepared === 'channel_unavailable') throw new ConflictException({ code: 'CHANNEL_UNAVAILABLE', message: 'The conversation has no active WhatsApp channel.' });
     if (prepared === 'credentials_missing') throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure credentials for the WhatsApp channel before replying.' });
     if (prepared === 'recipient_missing') throw new BadRequestException({ code: 'RECIPIENT_PHONE_MISSING', message: 'The contact needs a valid phone number before sending.' });
+    if (prepared === CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached) throw new ConflictException({ code: CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached, message: 'The daily message limit for this WhatsApp number has been reached.' });
+    if (prepared === CHANNEL_CONNECTION_ERROR.unavailable) throw new ConflictException({ code: CHANNEL_CONNECTION_ERROR.unavailable, message: 'The Evolution API instance is not connected. Restore its connection before sending.' });
     if (prepared.kind === 'duplicate') return prepared.message;
     let delivery: { deliveryState: 'accepted' | 'failed' | 'unknown'; externalMessageId: string | null };
     if (media) {

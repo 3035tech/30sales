@@ -1,13 +1,18 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, exists, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, campaignDraftAudiences, campaignDrafts, conversations, leadContacts, leads, messagingChannels, opportunities, people } from '../db/schema';
+import { accounts, agentSettings, auditEvents, campaignDraftAudiences, campaignDrafts, conversations, leadContacts, leadStatusHistory, leads, messages, messagingChannels, opportunities, people, outboxEvents } from '../db/schema';
 import { AUDIT_ACTOR_TYPE } from '../auth/authorization.constants';
 import { CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS } from '../leads/constants';
-import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
-import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto } from './campaigns.dto';
+import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
+import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto } from './campaigns.dto';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { SQL } from 'drizzle-orm';
+import { CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from '../channels/channels.constants';
+import { organization as authOrganization } from '../db/auth-schema';
+import { CAMPAIGN_NATIONAL_HOLIDAY_PRESETS, CAMPAIGN_NO_SEND_DATE_AUDIT, CAMPAIGN_NO_SEND_DATE_LIMITS, CAMPAIGN_NO_SEND_DATE_SOURCE } from './campaigns.constants';
+import { CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto } from './campaigns.dto';
+import { campaignNoSendDates } from '../db/schema';
 
 function campaignLeadAccessCondition(access: LeadRepositoryAccessDto): SQL | undefined {
   if (access.canManageAll) return undefined;
@@ -31,22 +36,211 @@ function audienceBlockers(candidate: { status: typeof leads.$inferSelect.status;
   return blockers;
 }
 
+function getLocalCampaignDateTime(date: Date, timeZone: string): { date: string; time: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` };
+}
+
 @Injectable()
 export class CampaignsRepository {
+  async start(input: CampaignStartRepositoryDto): Promise<CampaignStartResultDto | 'not_found' | 'already_started' | 'not_ready' | 'ineligible' | 'quota_exceeded'> {
+    return database.transaction(async (transaction) => {
+      const [draft] = await transaction.select({ id: campaignDrafts.id, channelId: campaignDrafts.channelId, name: campaignDrafts.name, openingMessage: campaignDrafts.openingMessage, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, dailyMessageLimit: campaignDrafts.dailyMessageLimit, minimumDelaySeconds: campaignDrafts.minimumDelaySeconds, status: campaignDrafts.status })
+        .from(campaignDrafts).where(and(eq(campaignDrafts.id, input.campaignDraftId), eq(campaignDrafts.organizationId, input.organizationId))).for('update').limit(1);
+      if (!draft) return 'not_found';
+      if (draft.status !== CAMPAIGN_DRAFT_STATUS.draft) return 'already_started';
+
+      const [channel] = await transaction.select({ id: messagingChannels.id, isActive: messagingChannels.isActive, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+        .from(messagingChannels).where(and(eq(messagingChannels.id, draft.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('update').limit(1);
+      if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'not_ready';
+      const [agent] = await transaction.select({ enabled: agentSettings.enabled, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+        .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+      if (!agent?.enabled || !agent.systemPrompt.trim()) return 'not_ready';
+
+      const [audienceCount] = await transaction.select({ total: count() }).from(campaignDraftAudiences)
+        .where(and(eq(campaignDraftAudiences.organizationId, input.organizationId), eq(campaignDraftAudiences.campaignDraftId, draft.id)));
+      if (!audienceCount?.total || audienceCount.total > CAMPAIGN_AUDIENCE_MAX_LEADS) return 'ineligible';
+
+      const candidates = await transaction.select({ leadId: leads.id, status: leads.status, accountId: leads.accountId, accountName: accounts.name, primaryContactId: leadContacts.personId, personName: people.name, phone: people.phone, outreachDecision: leadContacts.outreachDecision, hasConversation: sql<boolean>`${exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, draft.channelId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}` })
+        .from(campaignDraftAudiences).innerJoin(leads, and(eq(leads.id, campaignDraftAudiences.leadId), eq(leads.organizationId, campaignDraftAudiences.organizationId)))
+        .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+        .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
+        .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
+        .where(and(eq(campaignDraftAudiences.organizationId, input.organizationId), eq(campaignDraftAudiences.campaignDraftId, draft.id)));
+      if (candidates.length !== audienceCount.total || candidates.some((candidate) => audienceBlockers(candidate, true, true).length > 0)) return 'ineligible';
+
+      const now = new Date();
+      const local = getLocalCampaignDateTime(now, draft.timeZone);
+      const [holiday] = await transaction.select({ id: campaignNoSendDates.id }).from(campaignNoSendDates).where(and(eq(campaignNoSendDates.organizationId, input.organizationId), eq(campaignNoSendDates.date, local.date))).limit(1);
+      if (local.time < draft.windowStart || local.time >= draft.windowEnd || holiday) return 'not_ready';
+
+      const [usedMessages] = await transaction.select({ total: count() }).from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(conversations.channelId, channel.id), eq(messages.direction, CHANNEL_QUOTA_COUNTED_DIRECTION), sql`${messages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE}`, sql`(${messages.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = (now() at time zone ${messagingChannels.dailyLimitTimeZone})::date`));
+      const channelLocalDate = getLocalCampaignDateTime(now, channel.dailyLimitTimeZone).date;
+      const [reservedMessages] = await transaction.select({ total: count() }).from(outboxEvents)
+        .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending), sql`${outboxEvents.payload}->>'channelId' = ${channel.id}`, sql`${outboxEvents.payload}->>'reservedDate' = ${channelLocalDate}`));
+      const availableQuota = Math.max(0, Math.min(channel.dailyMessageLimit, draft.dailyMessageLimit) - (usedMessages?.total ?? 0) - (reservedMessages?.total ?? 0));
+      if (audienceCount.total > availableQuota) return 'quota_exceeded';
+
+      const outboxRows = candidates.map((candidate, index) => ({
+        organizationId: input.organizationId,
+        eventType: CAMPAIGN_OUTREACH_EVENT,
+        aggregateType: CAMPAIGN_AUDIT.entity,
+        aggregateId: draft.id,
+        idempotencyKey: `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${draft.id}:${candidate.leadId}`,
+        payload: { organizationId: input.organizationId, actorUserId: input.actorUserId, campaignDraftId: draft.id, channelId: channel.id, leadId: candidate.leadId, reservedDate: channelLocalDate },
+        availableAt: new Date(now.getTime() + index * draft.minimumDelaySeconds * 1000),
+      }));
+      await transaction.insert(outboxEvents).values(outboxRows).onConflictDoNothing({ target: [outboxEvents.organizationId, outboxEvents.idempotencyKey] });
+      await transaction.update(campaignDrafts).set({ status: CAMPAIGN_DRAFT_STATUS.active, updatedAt: now }).where(and(eq(campaignDrafts.id, draft.id), eq(campaignDrafts.organizationId, input.organizationId), eq(campaignDrafts.status, CAMPAIGN_DRAFT_STATUS.draft)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_AUDIT.started, entityType: CAMPAIGN_AUDIT.entity, entityId: draft.id, correlationId: input.correlationId, afterState: { audienceCount: candidates.length, channelId: channel.id, reservedDate: channelLocalDate, openingMessageLength: draft.openingMessage.length } });
+      return new CampaignStartResultDto(draft.id, candidates.length, CAMPAIGN_DRAFT_STATUS.active);
+    });
+  }
+
+  async prepareNextOutreach(): Promise<{ organizationId: string; actorUserId: string; channelId: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string }; recipientPhone: string; bodyText: string; messageId: string; conversationId: string; leadId: string; campaignDraftId: string } | null> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.select({ id: outboxEvents.id, organizationId: outboxEvents.organizationId, payload: outboxEvents.payload })
+        .from(outboxEvents).where(and(eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending), sql`${outboxEvents.availableAt} <= now()`))
+        .orderBy(outboxEvents.availableAt, outboxEvents.createdAt).for('update', { skipLocked: true }).limit(1);
+      if (!event || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return null;
+      const payload = event.payload as Record<string, unknown>;
+      const { organizationId, actorUserId, campaignDraftId, channelId, leadId } = payload;
+      if (organizationId !== event.organizationId || typeof actorUserId !== 'string' || typeof campaignDraftId !== 'string' || typeof channelId !== 'string' || typeof leadId !== 'string') {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const [draft] = await transaction.select({ openingMessage: campaignDrafts.openingMessage, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone })
+        .from(campaignDrafts).where(and(eq(campaignDrafts.id, campaignDraftId), eq(campaignDrafts.organizationId, event.organizationId), eq(campaignDrafts.status, CAMPAIGN_DRAFT_STATUS.active))).for('update').limit(1);
+      const [channel] = await transaction.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+        .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, event.organizationId))).for('update').limit(1);
+      const [agent] = await transaction.select({ enabled: agentSettings.enabled, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+        .where(and(eq(agentSettings.organizationId, event.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+      const [candidate] = await transaction.select({ leadId: leads.id, status: leads.status, accountId: leads.accountId, opportunityId: opportunities.id, primaryContactId: leadContacts.personId, phone: people.phone, outreachDecision: leadContacts.outreachDecision, hasConversation: sql<boolean>`${exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, channelId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}` })
+        .from(leads).leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId))).leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.isPrimary, true)))
+        .leftJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leads.organizationId)))
+        .where(and(eq(leads.id, leadId), eq(leads.organizationId, event.organizationId), exists(transaction.select({ leadId: campaignDraftAudiences.leadId }).from(campaignDraftAudiences).where(and(eq(campaignDraftAudiences.organizationId, event.organizationId), eq(campaignDraftAudiences.campaignDraftId, campaignDraftId), eq(campaignDraftAudiences.leadId, leads.id)))))).limit(1);
+      if (!draft || !channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || !agent?.enabled || !agent.systemPrompt.trim() || !candidate || audienceBlockers(candidate, true, true).length > 0) {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const recipientPhone = candidate.phone;
+      const contactId = candidate.primaryContactId;
+      if (!recipientPhone || !contactId) {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const now = new Date();
+      const local = getLocalCampaignDateTime(now, draft.timeZone);
+      const channelLocal = getLocalCampaignDateTime(now, channel.dailyLimitTimeZone);
+      const [holiday] = await transaction.select({ id: campaignNoSendDates.id }).from(campaignNoSendDates).where(and(eq(campaignNoSendDates.organizationId, event.organizationId), eq(campaignNoSendDates.date, local.date))).limit(1);
+      const [used] = await transaction.select({ total: count() }).from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, event.organizationId), eq(conversations.channelId, channelId), eq(messages.direction, CHANNEL_QUOTA_COUNTED_DIRECTION), sql`${messages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE}`, sql`(${messages.occurredAt} at time zone ${channel.dailyLimitTimeZone})::date = ${channelLocal.date}`));
+      if (local.time < draft.windowStart || local.time >= draft.windowEnd || holiday || (used?.total ?? 0) >= channel.dailyMessageLimit) {
+        await transaction.update(outboxEvents).set({ availableAt: new Date(now.getTime() + 5 * 60_000) }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      if (channel.provider !== 'evolution' && channel.provider !== 'whatsapp_cloud_api') {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const externalConversationId = `campaign:${campaignDraftId}:${leadId}`;
+      const [conversation] = await transaction.insert(conversations).values({ organizationId: event.organizationId, provider: channel.provider, externalConversationId, channelId, accountId: candidate.accountId, personId: contactId, opportunityId: candidate.opportunityId, status: 'open', automationMode: 'assistant', lastMessageAt: now })
+        .onConflictDoNothing({ target: [conversations.organizationId, conversations.provider, conversations.externalConversationId] }).returning({ id: conversations.id });
+      if (!conversation) {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const messageIdempotencyKey = `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${campaignDraftId}:${leadId}`;
+      const [message] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: draft.openingMessage, deliveryState: 'requested', idempotencyKey: messageIdempotencyKey, occurredAt: now }).returning({ id: messages.id });
+      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, attempts: sql`${outboxEvents.attempts}::int + 1`, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: event.organizationId, conversationId: conversation.id, occurredAt: now.toISOString() })})`);
+      return { organizationId: event.organizationId, actorUserId, channelId, provider: channel.provider, providerChannelId: channel.providerChannelId, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag }, recipientPhone, bodyText: draft.openingMessage, messageId: message.id, conversationId: conversation.id, leadId, campaignDraftId };
+    });
+  }
+
+  async finishOutreach(input: { organizationId: string; actorUserId: string; channelId: string; messageId: string; conversationId: string; leadId: string; campaignDraftId: string; deliveryState: 'accepted' | 'failed' | 'unknown'; externalMessageId: string | null }): Promise<void> {
+    await database.transaction(async (transaction) => {
+      const delivered = input.deliveryState === 'accepted';
+      await transaction.update(messages).set({ deliveryState: delivered ? 'accepted' : input.deliveryState, externalMessageId: input.externalMessageId }).where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId)));
+      await transaction.update(outboxEvents).set({ status: delivered ? CAMPAIGN_OUTBOX_STATUS.published : CAMPAIGN_OUTBOX_STATUS.failed, publishedAt: delivered ? new Date() : null, lastErrorCode: delivered ? null : CAMPAIGN_OUTREACH_REVIEW_CODE })
+        .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.idempotencyKey, `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${input.campaignDraftId}:${input.leadId}`)));
+      if (delivered) {
+        const [updatedLead] = await transaction.update(leads).set({ status: LEAD_STATUS.contacting, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready))).returning({ id: leads.id });
+        if (updatedLead) await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: input.leadId, fromStatus: LEAD_STATUS.ready, toStatus: LEAD_STATUS.contacting, changedByUserId: input.actorUserId });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: AUDIT_ACTOR_TYPE.system, action: 'campaign.initial_message_accepted', entityType: CAMPAIGN_AUDIT.entity, entityId: input.campaignDraftId, afterState: { leadId: input.leadId, conversationId: input.conversationId, messageId: input.messageId, channelId: input.channelId } });
+        const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending)));
+        const [needsReview] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
+        if ((remaining?.total ?? 0) === 0 && (needsReview?.total ?? 0) === 0) await transaction.update(campaignDrafts).set({ status: CAMPAIGN_DRAFT_STATUS.completed, updatedAt: new Date() }).where(and(eq(campaignDrafts.id, input.campaignDraftId), eq(campaignDrafts.organizationId, input.organizationId), eq(campaignDrafts.status, CAMPAIGN_DRAFT_STATUS.active)));
+      }
+    });
+  }
+
   async operationalSnapshot(input: CampaignOperationalSnapshotRepositoryDto): Promise<CampaignOperationalSnapshotDto | null> {
-    const [draft] = await database.select({ channelId: campaignDrafts.channelId, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, channelActive: messagingChannels.isActive, channelConfigured: sql<boolean>`(${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null)` })
+    const [draft] = await database.select({ channelId: campaignDrafts.channelId, provider: messagingChannels.provider, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, campaignDailyMessageLimit: campaignDrafts.dailyMessageLimit, channelDailyMessageLimit: messagingChannels.dailyMessageLimit, channelDailyMessageCount: sql<number>`(select count(*)::int from ${messages} inner join ${conversations} on ${conversations.id} = ${messages.conversationId} and ${conversations.organizationId} = ${messages.organizationId} where ${messages.organizationId} = ${messagingChannels.organizationId} and ${conversations.channelId} = ${messagingChannels.id} and ${messages.direction} = ${CHANNEL_QUOTA_COUNTED_DIRECTION} and ${messages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE} and (${messages.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = (now() at time zone ${messagingChannels.dailyLimitTimeZone})::date)`, channelActive: messagingChannels.isActive, channelConfigured: sql<boolean>`(${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null)`, agentReady: sql<boolean>`exists (select 1 from ${agentSettings} where ${agentSettings.organizationId} = ${campaignDrafts.organizationId} and ${agentSettings.agentKey} = ${SDR_AGENT_KEY} and ${agentSettings.enabled} = true and length(trim(${agentSettings.systemPrompt})) > 0)`, openingMessage: campaignDrafts.openingMessage })
       .from(campaignDrafts).innerJoin(messagingChannels, and(eq(messagingChannels.id, campaignDrafts.channelId), eq(messagingChannels.organizationId, campaignDrafts.organizationId)))
       .where(and(eq(campaignDrafts.id, input.campaignDraftId), eq(campaignDrafts.organizationId, input.organizationId), eq(campaignDrafts.status, CAMPAIGN_DRAFT_STATUS.draft))).limit(1);
     if (!draft) return null;
     const [audience] = await database.select({ total: count() }).from(campaignDraftAudiences)
       .where(and(eq(campaignDraftAudiences.organizationId, input.organizationId), eq(campaignDraftAudiences.campaignDraftId, input.campaignDraftId)));
-    return new CampaignOperationalSnapshotDto(draft.channelId, audience?.total ?? 0, draft.channelActive, draft.channelConfigured, draft.windowStart, draft.windowEnd, draft.timeZone);
+    const holidays = await database.select({ date: campaignNoSendDates.date, name: campaignNoSendDates.name }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, input.organizationId)).orderBy(campaignNoSendDates.date);
+    return new CampaignOperationalSnapshotDto(draft.channelId, draft.provider as CampaignOperationalSnapshotDto['provider'], audience?.total ?? 0, draft.channelActive, draft.channelConfigured, draft.agentReady, draft.windowStart, draft.windowEnd, draft.timeZone, draft.campaignDailyMessageLimit, draft.channelDailyMessageLimit, draft.channelDailyMessageCount, draft.openingMessage, holidays);
+  }
+
+  async listNoSendDates(organizationId: string): Promise<CampaignNoSendDateDto[]> {
+    const rows = await database.select({ id: campaignNoSendDates.id, date: campaignNoSendDates.date, name: campaignNoSendDates.name }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, organizationId)).orderBy(campaignNoSendDates.date, campaignNoSendDates.id).limit(CAMPAIGN_NO_SEND_DATE_LIMITS.maxDates);
+    return rows.map((row) => new CampaignNoSendDateDto(row.id, row.date, row.name));
+  }
+
+  async createNoSendDate(input: CampaignNoSendDateMutationRepositoryDto): Promise<CampaignNoSendDateDto | 'duplicate' | 'limit_reached'> {
+    return database.transaction(async (transaction) => {
+      const [organization] = await transaction.select({ id: authOrganization.id }).from(authOrganization).where(eq(authOrganization.id, input.organizationId)).for('update').limit(1);
+      if (!organization) return 'limit_reached';
+      const [total] = await transaction.select({ value: count() }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, input.organizationId));
+      if ((total?.value ?? 0) >= CAMPAIGN_NO_SEND_DATE_LIMITS.maxDates) return 'limit_reached';
+      const [row] = await transaction.insert(campaignNoSendDates).values({ organizationId: input.organizationId, date: input.input.date, name: input.input.name, createdByUserId: input.actorUserId }).onConflictDoNothing({ target: [campaignNoSendDates.organizationId, campaignNoSendDates.date] }).returning({ id: campaignNoSendDates.id, date: campaignNoSendDates.date, name: campaignNoSendDates.name });
+      if (!row) return 'duplicate';
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_NO_SEND_DATE_AUDIT.created, entityType: CAMPAIGN_NO_SEND_DATE_AUDIT.entity, entityId: row.id, correlationId: input.correlationId, afterState: { date: row.date, name: row.name } });
+      return new CampaignNoSendDateDto(row.id, row.date, row.name);
+    });
+  }
+
+  async importNationalHolidays(organizationId: string, actorUserId: string, correlationId: string | null): Promise<CampaignNoSendDateDto[] | 'limit_reached'> {
+    return database.transaction(async (transaction) => {
+      const [organization] = await transaction.select({ id: authOrganization.id }).from(authOrganization).where(eq(authOrganization.id, organizationId)).for('update').limit(1);
+      if (!organization) return 'limit_reached';
+      const todayParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+      const today = `${todayParts.find((part) => part.type === 'year')?.value}-${todayParts.find((part) => part.type === 'month')?.value}-${todayParts.find((part) => part.type === 'day')?.value}`;
+      const existing = await transaction.select({ date: campaignNoSendDates.date }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, organizationId));
+      const existingDates = new Set(existing.map((row) => row.date));
+      const candidates = CAMPAIGN_NATIONAL_HOLIDAY_PRESETS.filter((item) => item.date >= today && !existingDates.has(item.date));
+      const remaining = Math.max(0, CAMPAIGN_NO_SEND_DATE_LIMITS.maxDates - existing.length);
+      if (candidates.length > remaining) return 'limit_reached';
+      const rowsToInsert = candidates.slice(0, remaining).map((item) => ({ organizationId, date: item.date, name: item.name, createdByUserId: actorUserId }));
+      if (rowsToInsert.length > 0) {
+        const inserted = await transaction.insert(campaignNoSendDates).values(rowsToInsert).onConflictDoNothing({ target: [campaignNoSendDates.organizationId, campaignNoSendDates.date] }).returning({ id: campaignNoSendDates.id, date: campaignNoSendDates.date, name: campaignNoSendDates.name });
+        if (inserted.length > 0) await transaction.insert(auditEvents).values(inserted.map((row) => ({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_NO_SEND_DATE_AUDIT.created, entityType: CAMPAIGN_NO_SEND_DATE_AUDIT.entity, entityId: row.id, correlationId, afterState: { date: row.date, name: row.name, source: CAMPAIGN_NO_SEND_DATE_SOURCE.nationalPreset } })));
+      }
+      const rows = await transaction.select({ id: campaignNoSendDates.id, date: campaignNoSendDates.date, name: campaignNoSendDates.name }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, organizationId)).orderBy(campaignNoSendDates.date, campaignNoSendDates.id).limit(CAMPAIGN_NO_SEND_DATE_LIMITS.maxDates);
+      return rows.map((row) => new CampaignNoSendDateDto(row.id, row.date, row.name));
+    });
+  }
+
+  async deleteNoSendDate(input: CampaignNoSendDateDeleteRepositoryDto): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [row] = await transaction.select().from(campaignNoSendDates).where(and(eq(campaignNoSendDates.id, input.id), eq(campaignNoSendDates.organizationId, input.organizationId))).for('update').limit(1);
+      if (!row) return false;
+      await transaction.delete(campaignNoSendDates).where(and(eq(campaignNoSendDates.id, input.id), eq(campaignNoSendDates.organizationId, input.organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_NO_SEND_DATE_AUDIT.deleted, entityType: CAMPAIGN_NO_SEND_DATE_AUDIT.entity, entityId: row.id, correlationId: input.correlationId, beforeState: { date: row.date, name: row.name } });
+      return true;
+    });
   }
 
   async list(input: CampaignDraftListRepositoryDto): Promise<CampaignDraftPageDto> {
     const { organizationId } = input;
     const { limit, offset } = input.query;
-    const [rows, [totalRow]] = await Promise.all([database.select({ id: campaignDrafts.id, name: campaignDrafts.name, channelId: campaignDrafts.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, dailyMessageLimit: campaignDrafts.dailyMessageLimit, minimumDelaySeconds: campaignDrafts.minimumDelaySeconds, status: campaignDrafts.status, createdAt: campaignDrafts.createdAt })
+    const [rows, [totalRow]] = await Promise.all([database.select({ id: campaignDrafts.id, name: campaignDrafts.name, openingMessage: campaignDrafts.openingMessage, channelId: campaignDrafts.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, dailyMessageLimit: campaignDrafts.dailyMessageLimit, minimumDelaySeconds: campaignDrafts.minimumDelaySeconds, status: campaignDrafts.status, createdAt: campaignDrafts.createdAt })
       .from(campaignDrafts).innerJoin(messagingChannels, and(eq(messagingChannels.id, campaignDrafts.channelId), eq(messagingChannels.organizationId, campaignDrafts.organizationId)))
       .where(eq(campaignDrafts.organizationId, organizationId)).orderBy(desc(campaignDrafts.createdAt), desc(campaignDrafts.id)).limit(limit + 1).offset(offset),
       database.select({ total: count() }).from(campaignDrafts).where(eq(campaignDrafts.organizationId, organizationId)),
@@ -55,7 +249,7 @@ export class CampaignsRepository {
     const pageRows = rows.slice(0, limit);
     const audienceCounts = pageRows.length === 0 ? [] : await database.select({ campaignDraftId: campaignDraftAudiences.campaignDraftId, total: count() }).from(campaignDraftAudiences).where(and(eq(campaignDraftAudiences.organizationId, organizationId), inArray(campaignDraftAudiences.campaignDraftId, pageRows.map((row) => row.id)))).groupBy(campaignDraftAudiences.campaignDraftId);
     const audienceCountByDraft = new Map(audienceCounts.map((row) => [row.campaignDraftId, row.total]));
-    const data = pageRows.map((row) => new CampaignDraftDto(row.id, row.name, row.channelId, row.channelName, row.channelPhoneNumber, row.windowStart, row.windowEnd, row.timeZone, row.dailyMessageLimit, row.minimumDelaySeconds, row.status, audienceCountByDraft.get(row.id) ?? 0, row.createdAt.toISOString()));
+    const data = pageRows.map((row) => new CampaignDraftDto(row.id, row.name, row.openingMessage, row.channelId, row.channelName, row.channelPhoneNumber, row.windowStart, row.windowEnd, row.timeZone, row.dailyMessageLimit, row.minimumDelaySeconds, row.status, audienceCountByDraft.get(row.id) ?? 0, row.createdAt.toISOString()));
     return new CampaignDraftPageDto(data, { limit, offset, total: totalRow?.total ?? 0, hasNextPage });
   }
 
@@ -131,9 +325,9 @@ export class CampaignsRepository {
         .where(and(eq(messagingChannels.id, input.input.channelId), eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.isActive, true), sql`${messagingChannels.credentialsCiphertext} is not null`, sql`${messagingChannels.credentialsIv} is not null`, sql`${messagingChannels.credentialsAuthTag} is not null`)).limit(1);
       if (!channel) return null;
       try {
-        const [row] = await transaction.insert(campaignDrafts).values({ organizationId: input.organizationId, channelId: channel.id, name: input.input.name, windowStart: input.input.windowStart, windowEnd: input.input.windowEnd, timeZone: input.input.timeZone, dailyMessageLimit: input.input.dailyMessageLimit, minimumDelaySeconds: input.input.minimumDelaySeconds, status: CAMPAIGN_DRAFT_STATUS.draft, createdByUserId: input.userId }).returning();
+        const [row] = await transaction.insert(campaignDrafts).values({ organizationId: input.organizationId, channelId: channel.id, name: input.input.name, openingMessage: input.input.openingMessage, windowStart: input.input.windowStart, windowEnd: input.input.windowEnd, timeZone: input.input.timeZone, dailyMessageLimit: input.input.dailyMessageLimit, minimumDelaySeconds: input.input.minimumDelaySeconds, status: CAMPAIGN_DRAFT_STATUS.draft, createdByUserId: input.userId }).returning();
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_AUDIT.created, entityType: CAMPAIGN_AUDIT.entity, entityId: row.id, correlationId: input.correlationId, afterState: { name: row.name, channelId: channel.id, windowStart: row.windowStart, windowEnd: row.windowEnd, timeZone: row.timeZone, dailyMessageLimit: row.dailyMessageLimit, minimumDelaySeconds: row.minimumDelaySeconds, status: row.status } });
-        return new CampaignDraftDto(row.id, row.name, channel.id, channel.displayName, channel.phoneNumber, row.windowStart, row.windowEnd, row.timeZone, row.dailyMessageLimit, row.minimumDelaySeconds, row.status, 0, row.createdAt.toISOString());
+        return new CampaignDraftDto(row.id, row.name, row.openingMessage, channel.id, channel.displayName, channel.phoneNumber, row.windowStart, row.windowEnd, row.timeZone, row.dailyMessageLimit, row.minimumDelaySeconds, row.status, 0, row.createdAt.toISOString());
       } catch (error) {
         if (error instanceof Error && 'code' in error && error.code === DATABASE_FOREIGN_KEY_VIOLATION_CODE) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.channelInvalid, message: 'The selected channel is no longer available.' });
         throw error;

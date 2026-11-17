@@ -1,10 +1,11 @@
 import { sql } from 'drizzle-orm';
-import { boolean, check, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { organization as authOrganization, user as authUser } from './auth-schema';
 import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
 import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS } from '../leads/constants';
-import { CAMPAIGN_DRAFT_STATUSES } from '../campaigns/campaigns.constants';
+import { CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_OPENING_MESSAGE_DEFAULT } from '../campaigns/campaigns.constants';
+import { CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT } from '../channels/channels.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
@@ -330,11 +331,18 @@ export const messagingChannels = pgTable('messaging_channels', {
   credentialsAuthTag: text('credentials_auth_tag'),
   chatwootInboxId: text('chatwoot_inbox_id'),
   isActive: boolean('is_active').default(true).notNull(),
+  dailyMessageLimit: integer('daily_message_limit').default(CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT).notNull(),
+  dailyLimitTimeZone: text('daily_limit_time_zone').default(CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT).notNull(),
+  connectionStatus: text('connection_status'),
+  connectionUpdatedAt: timestamp('connection_updated_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   check('messaging_channels_provider_check', sql`${table.provider} in ('evolution', 'whatsapp_cloud_api')`),
   check('messaging_channels_phone_e164_check', sql`${table.phoneNumber} ~ '^\\+[1-9][0-9]{7,14}$'`),
+  check('messaging_channels_daily_message_limit_check', sql`${table.dailyMessageLimit} between 1 and 5000`),
+  check('messaging_channels_daily_limit_time_zone_check', sql`length(${table.dailyLimitTimeZone}) between 1 and 80`),
+  check('messaging_channels_connection_status_check', sql`${table.connectionStatus} is null or ${table.connectionStatus} in (${sql.raw(CHANNEL_CONNECTION_STATUSES.map((status) => `'${status}'`).join(', '))})`),
   unique('messaging_channels_id_organization_unique').on(table.id, table.organizationId),
   unique('messaging_channels_org_phone_unique').on(table.organizationId, table.phoneNumber),
   unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
@@ -347,6 +355,7 @@ export const campaignDrafts = pgTable('campaign_drafts', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   channelId: uuid('channel_id').notNull(),
   name: text('name').notNull(),
+  openingMessage: text('opening_message').default(CAMPAIGN_OPENING_MESSAGE_DEFAULT).notNull(),
   windowStart: text('window_start').notNull(),
   windowEnd: text('window_end').notNull(),
   timeZone: text('time_zone').notNull(),
@@ -360,6 +369,7 @@ export const campaignDrafts = pgTable('campaign_drafts', {
   foreignKey({ name: 'campaign_drafts_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('restrict'),
   unique('campaign_drafts_id_organization_unique').on(table.id, table.organizationId),
   check('campaign_drafts_name_length_check', sql`length(${table.name}) between 2 and 120`),
+  check('campaign_drafts_opening_message_length_check', sql`length(${table.openingMessage}) between 1 and 4096`),
   check('campaign_drafts_window_start_check', sql`${table.windowStart} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`),
   check('campaign_drafts_window_end_check', sql`${table.windowEnd} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'`),
   check('campaign_drafts_window_order_check', sql`${table.windowStart} < ${table.windowEnd}`),
@@ -380,6 +390,20 @@ export const campaignDraftAudiences = pgTable('campaign_draft_audiences', {
   foreignKey({ name: 'campaign_draft_audiences_draft_tenant_fk', columns: [table.campaignDraftId, table.organizationId], foreignColumns: [campaignDrafts.id, campaignDrafts.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'campaign_draft_audiences_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
   index('campaign_draft_audiences_org_draft_idx').on(table.organizationId, table.campaignDraftId, table.createdAt),
+]);
+
+export const campaignNoSendDates = pgTable('campaign_no_send_dates', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  date: date('date', { mode: 'string' }).notNull(),
+  name: text('name').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('campaign_no_send_dates_org_date_unique').on(table.organizationId, table.date),
+  unique('campaign_no_send_dates_id_org_unique').on(table.id, table.organizationId),
+  check('campaign_no_send_dates_name_length_check', sql`length(${table.name}) between 2 and 100`),
+  index('campaign_no_send_dates_org_date_idx').on(table.organizationId, table.date),
 ]);
 
 export const agentSettings = pgTable('agent_settings', {
@@ -612,6 +636,7 @@ export const userNotifications = pgTable('user_notifications', {
   taskId: uuid('task_id'),
   handoffId: uuid('handoff_id'),
   opportunityId: uuid('opportunity_id'),
+  channelId: uuid('channel_id'),
   notificationType: text('notification_type').notNull(),
   idempotencyKey: text('idempotency_key').notNull(),
   readAt: timestamp('read_at', { withTimezone: true }),
@@ -622,10 +647,11 @@ export const userNotifications = pgTable('user_notifications', {
   foreignKey({ name: 'user_notifications_task_tenant_fk', columns: [table.taskId, table.organizationId], foreignColumns: [tasks.id, tasks.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'user_notifications_handoff_tenant_fk', columns: [table.handoffId, table.organizationId], foreignColumns: [handoffs.id, handoffs.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'user_notifications_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'user_notifications_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
   unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
   index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
-  check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}, ${table.handoffId}, ${table.opportunityId}) = 1`),
-  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned')`),
+  check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}, ${table.handoffId}, ${table.opportunityId}, ${table.channelId}) = 1`),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned', 'channel_disconnected')`),
 ]);
 
 export const inboxEvents = pgTable('inbox_events', {

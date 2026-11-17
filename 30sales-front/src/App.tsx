@@ -5,7 +5,7 @@ import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, ListTodo, MessageS
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
-import { api, type SessionDto, type UserNotificationDto } from './lib/api/client'
+import { api, USER_NOTIFICATION_TYPE, type SessionDto, type UserNotificationDto } from './lib/api'
 import i18n from './lib/i18n'
 import { getOrganizationRoles, ORGANIZATION_PROFILE_UPDATE_ROLES, ORGANIZATION_ROLE, ORGANIZATION_SEGMENT_MANAGEMENT_ROLES, PLATFORM_ROLE } from './lib/authorizationConstants'
 import { TeamSettings } from './features/TeamSettings'
@@ -26,6 +26,7 @@ import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspac
 import { PipelineStagesWorkspace } from './features/PipelineStagesWorkspace'
 import { PlatformWorkspace } from './features/PlatformWorkspace'
 import './App.css'
+import './polish.css'
 
 type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
 const pagePaths: Record<Page, string> = {
@@ -192,6 +193,7 @@ export default function App() {
       if (notification.taskId) navigateToPage('tasks', { taskId: notification.taskId })
       else if (notification.handoffId) navigateToPage('handoffs', { handoffId: notification.handoffId, status: notification.notificationType === 'handoff_returned' ? 'returned' : 'accepted' })
       else if (notification.opportunityId) navigateToPage('pipeline', { opportunityId: notification.opportunityId })
+      else if (notification.channelId) navigateToPage('channels')
       else if (notification.conversationId) navigateToPage('inbox', { conversationId: notification.conversationId })
     } catch { setNotificationsError(true) }
   }
@@ -277,10 +279,10 @@ export default function App() {
               {notificationsActionError && <WorkspaceState kind="error" compact message={t('systemNotifications.markAllFailed')} />}
               {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
               {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <Button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
-                <span className={`notification-item-title${notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? ' is-inbox' : ''}`}>{notification.notificationType === 'inbox_new_message' ? t('systemNotifications.newMessage') : notification.notificationType === 'task_overdue' ? t('systemNotifications.taskOverdue') : notification.notificationType === 'handoff_accepted' ? t('systemNotifications.handoffAccepted') : notification.notificationType === 'handoff_returned' ? t('systemNotifications.handoffReturned') : notification.notificationType === 'conversation_assigned' ? t('systemNotifications.conversationAssigned') : notification.notificationType === 'opportunity_assigned' ? t('systemNotifications.opportunityAssigned') : t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</span>
+                <span className={`notification-item-title${notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? ' is-inbox' : ''}`}>{notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage ? t('systemNotifications.newMessage') : notification.notificationType === USER_NOTIFICATION_TYPE.taskOverdue ? t('systemNotifications.taskOverdue') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffAccepted ? t('systemNotifications.handoffAccepted') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffReturned ? t('systemNotifications.handoffReturned') : notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? t('systemNotifications.conversationAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.opportunityAssigned ? t('systemNotifications.opportunityAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? t('systemNotifications.channelDisconnected') : t(`closerSlaSettings.notifications.${notification.notificationType === USER_NOTIFICATION_TYPE.closerEventSlaEscalated ? 'escalated' : 'overdue'}`)}</span>
                 <span>{notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.notificationType === 'task_overdue' ? [notification.taskTitle, notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.handoffId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.opportunityId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.accountName ?? notification.summary}</span>
                 <small>{notification.eventType ? `${t(`closerEventTypes.${notification.eventType}`)} · ` : ''}{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt ?? notification.createdAt))}</small>
-                <span className="notification-open">{notification.taskId ? t('systemNotifications.openTask') : notification.handoffId ? t('systemNotifications.openHandoff') : notification.opportunityId ? t('systemNotifications.openOpportunity') : t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
+                <span className="notification-open">{notification.channelId ? t('systemNotifications.openChannels') : notification.taskId ? t('systemNotifications.openTask') : notification.handoffId ? t('systemNotifications.openHandoff') : notification.opportunityId ? t('systemNotifications.openOpportunity') : t('systemNotifications.openConversation')} <ArrowRight size={13} /></span>
               </Button>)}
             </section>}
           </div>}

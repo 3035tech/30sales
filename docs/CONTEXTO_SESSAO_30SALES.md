@@ -22,6 +22,31 @@
 
 Atualizado em 15/11/2026. Leia este arquivo ao retomar uma sessão longa para recuperar decisões recentes, estado do código e próximo passo. As regras permanentes de engenharia estão em [`../AGENTS.md`](../AGENTS.md); este documento complementa essas regras e não as substitui.
 
+## Integrações Evolution e Meta — cobertura inicial em 17/11/2026
+
+- Inventário e lacunas documentados em [`sofia_produto/08_eventos_integracoes_evolution_meta.md`](sofia_produto/08_eventos_integracoes_evolution_meta.md).
+- Webhook Evolution aceita URLs com/sem sufixo por evento; eventos conhecidos e desconhecidos fora dos handlers de mensagem entram deduplicados no `inbox_events` sem persistir payload bruto.
+- Campos WhatsApp Business Account da Meta diferentes de `messages` são associados por phone number ID ou WABA ID e registrados com metadados redigidos. Webhook parser dedicado suporta 4 MiB; o restante da API continua limitado a 256 KiB.
+- A tela de canais oferece ação explícita para configurar/reaplicar o webhook de cada instância Evolution usando URL pública, segredo no header e eventos suportados; requisição aceita fica auditada sem segredo. Isso ainda não prova alcance do callback nem entrega real dos eventos.
+- A tela de canais também lista eventos do ledger por canal (Evolution e Meta), paginados e sem payload bruto, com status, família, horário e código de erro. Eventos novos de mensagem/status levam o ID interno do canal nos metadados redigidos. Ainda não são registrados callbacks rejeitados nem falhas ocorridas antes do ledger; validar build/testes depois, conforme preferência.
+- Status recebido antes da mensagem é preservado para futura reconciliação. Ainda sem reprocessamento automático, efeito para estado de conexão/conta, sincronização de contatos/chats ou apresentação do ledger.
+- Próxima prioridade de identidade: Meta já envia BSUID `user_id`/`from_user_id` e pode omitir telefone. A ingestão atual ainda exige telefone; implementar alias tenant-scoped antes de considerar Cloud API pronta para usernames. Não rodar build/testes nem aplicar migrations sem pedido explícito.
+
+### Continuação: saúde de conexão Evolution em 17/11/2026
+
+- Webhook `CONNECTION_UPDATE` normaliza e persiste o estado da instância no canal, tenant-scoped. A tela de canais exibe estado e horário; verificação manual de saúde também atualiza os campos.
+- Envio humano pelo Inbox retorna erro localizado quando Evolution está comprovadamente conectando/desconectada; runtime do assistente pula o envio nesses estados. Estado nunca observado permanece compatível e não bloqueia; Cloud API não é afetada.
+- Alterar credenciais limpa o estado observado, evitando reutilizar saúde de configuração anterior. Migration aditiva `0054_thin_sheva_callister.sql` gerada, não aplicada.
+- A transição para `disconnected` também grava um alerta in-app idempotente para os membros do tenant, na mesma transação. A notificação abre Canais. Migration `0055_curved_shard.sql` estende o alvo e tipo das notificações, gerada e não aplicada.
+- `git diff --check` passou após a mudança; build e testes não foram executados conforme preferência persistente. A validação ponta a ponta do webhook segue pendente.
+
+## Abstração do API client — concluída (16/11/2026)
+
+- `30sales-front/src/lib/api/client.ts` agora é a camada genérica de transporte: recebe um path e `RequestInit` (incluindo método/body/headers), aplica URL base, credenciais e correlation ID, e retorna a `Response` sem conhecer endpoints nem interpretar erros de domínio.
+- Os schemas e tipos compartilhados estão em contracts.ts; validação de resposta e normalização de erros ficam em request.ts. Cada domínio em domains/*.ts escolhe seus paths e métodos e chama o transporte genérico; autenticação Better Auth fica em domains/identity.ts.
+- api.ts compõe os módulos para manter a interface api.* já usada pelas telas; index.ts só reexporta tipos e fachada. Paths não aparecem em client.ts.
+- Verificação estática de imports/exports dos domínios e git diff --check passaram. Build/testes não rodados por preferência persistente.
+
 ## Objetivo do produto
 
 Construir o 30Sales como produto SaaS multi-tenant para consolidar a operação hoje espalhada em aplicações ao redor da Sofia. A Sofia é o agente SDR; o sistema deve servir BDR, SDR, closer e operações. A meta operacional é mapear todos os leads, conversas, eventos e status, preparar contexto confiável e permitir que o closer concentre seu trabalho no fechamento.
@@ -68,7 +93,7 @@ O 30Sales será dono do CRM e do Inbox. Evolution API e WhatsApp Business Cloud 
 - Meta Cloud API: callback GET verifica `META_WEBHOOK_VERIFY_TOKEN`; POST valida HMAC SHA-256 em `X-Hub-Signature-256` usando `META_APP_SECRET` e o corpo bruto.
 - Evolution: `POST /api/v1/webhooks/evolution/:channelId` exige `X-30Sales-Webhook-Key`, segredo exclusivo de webhook por canal; verifica também a instância configurada. A API key de envio é separada.
 - Evolution `MESSAGES_UPSERT` e Cloud `entry[].changes[].value.messages` são deduplicados em `inbox_events` e persistidos com tenant, contato, conversa e mensagem. Conversa inbound reabre como `open`.
-- Ignora eventos Evolution originados pelo próprio número, grupos, broadcast e LID sem telefone resolvível. Texto/caption e algumas respostas interativas são extraídos. Esta fatia adiciona anexos de imagem, vídeo, áudio, documento e figurinha, com payload de recuperação cifrado, download por adapter e blob fora do PostgreSQL.
+- Ignora eventos Evolution originados pelo próprio número, grupos e broadcast. Meta BSUID sem telefone é preservado como alias tenant-scoped; veja a fatia abaixo. Texto/caption e algumas respostas interativas são extraídos. Esta fatia adiciona anexos de imagem, vídeo, áudio, documento e figurinha, com payload de recuperação cifrado, download por adapter e blob fora do PostgreSQL.
 - Identidade só associa a pessoa/lead/oportunidade quando encontrada no tenant. Número desconhecido pode criar Person sem inventar conta ou lead.
 - Conversa nova inicia em `assistant` se o tenant habilitou o agente; sem configuração, inicia em `paused`. Ownership humano permanece separado da origem/número do canal.
 - Configuração e instruções de callback foram acrescentadas a `.env.example`, tela de canais e documentação. `META_APP_SECRET` e `META_WEBHOOK_VERIFY_TOKEN` são configurações do servidor.
@@ -82,6 +107,12 @@ Implementação integrada na `feature/inbox-delivery-status`: reconhecer ambos o
 Limitação tratada: callback sem mensagem local é ignorado, então a corrida rara em que o callback antecede a gravação do ID externo exige futura reconciliação com worker/outbox. Sem migrations aplicadas, deploy ou teste/build nesta sessão.
 
 ## Últimas fatias do Inbox
+
+### Fechamento da identidade Meta sem telefone — em andamento (17/11/2026)
+
+- Webhook Meta associa `user_id`/`from_user_id` como alias `meta_bsuid`, incluindo BSUID-only. Telefone continua obrigatório para envio pelo provider; runtime valida o destino atualizado antes da resposta automática.
+- Novo fluxo do Inbox permite ao responsável pela conversa vinculá-la a lead existente, adiciona a pessoa em `lead_contacts` e grava nome/telefone internacional confirmado. A UI permite marcar explicitamente contato principal e interessado; principal atualiza também `leads.person_id`, serializado por lock do lead. A operação é tenant-scoped, valida ownership/telefone, registra auditoria sem incluir o valor de telefone e atualiza a empresa vinculada à conversa. A UI mostra erro específico quando o telefone não está em formato internacional válido.
+- Nenhuma migration necessária. A UI oferece busca de lead e edição dos dados no painel do contato. Build Nest e Vite passaram em 17/11/2026; o Vite mantém aviso de bundle principal com 925 kB. Os builds também revelaram e corrigiram tipagens/imports em campanhas, canais e calendário já alterados no workspace. Testes automatizados e validação visual não executados; falta validação ponta a ponta.
 
 `GET /api/v1/conversations` agora aceita busca por empresa/contato/telefone e filtros por status, responsável (inclui `unassigned`), canal e etiqueta. Retorna `{data, pagination}`; a tela usa seletor de 10/25/50/100 itens, total e navegação paginada, com strings pt-BR/en. Mude filtros e busca para voltar à primeira página; sequência local impede resposta antiga de sobrescrever busca mais nova. Sem migration.
 
@@ -368,3 +399,36 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - O primeiro build do backend revelou erros TypeScript que já estavam no código integrado. A fatia `fix/backend-container-build` corrige imports de constantes/DTOs, tipagem booleana das consultas de campanha, provider de anexos validado pelo schema e criação da oportunidade com o contato da conversa. `npm run build` em `30sales-back` passou após as correções; nenhum teste de aplicação foi executado.
 - O primeiro build do frontend revelou tipos incompatíveis, spreads duplicados e traduções de campanha duplicadas/mal posicionadas. A correção torna a lista de fontes mutável, mescla alterações de revisão de contato sem propriedades duplicadas, fornece rótulo fallback para etapa e move traduções en-US para o catálogo correto. `npm run build` em `30sales-front` passou; Vite ainda avisa que o bundle principal tem 890.56 kB e segue como item de otimização.
 - Referências e procedimento em [`container-images.md`](container-images.md). O build Docker/multiarch e os testes automatizados não foram executados localmente; a compilação TypeScript do backend foi executada e passou após a correção.
+
+
+## Canais Evolution por número e quota diária — 16/11/2026
+
+- A tela Canais WhatsApp mantém canais vinculados ao tenant e oferece descoberta de instâncias pela integração Evolution já configurada (endpoint /instance/fetchInstances). O backend descriptografa credenciais somente no servidor, valida destino externo, aplica timeout e limite de resposta e projeta apenas nome, telefone e estado; campos adicionais retornados pelo provider (incluindo segredos) são descartados. Instâncias ainda não cadastradas podem pré-preencher o formulário de canal.
+- Cada canal/número possui dailyMessageLimit (padrão 500, intervalo 1–5000) e dailyLimitTimeZone (padrão America/Sao_Paulo). A tabela mostra uso do dia e permite alterar o limite; habilitar/desabilitar continua por número. Alterações geram auditoria tenant-scoped.
+- Envio humano (texto/anexo) e resposta automática consultam a mesma quota e bloqueiam novos envios no limite. A linha do canal é bloqueada durante a verificação/reserva para serializar os envios concorrentes; falhas definitivas não contam, enquanto estados solicitados/ambíguos contam de forma conservadora. Inbox apresenta erro localizado ao operador.
+- Migration aditiva Drizzle 0051_chilly_wallow.sql foi gerada, não aplicada. A integração foi implementada no código, mas build/testes não foram executados por preferência persistente. git diff --check deve ser repetido antes da entrega.
+- Limitação atual: cadastrar canal recém-descoberto ainda cria somente o registro interno pré-preenchido; o operador configura credenciais/webhook conforme o fluxo de conexão atual. Descoberta não habilita envio automaticamente.
+- Continuação desta fatia: a checagem de prontidão de campanhas agora mostra o limite diário do canal, uso de hoje, mensagens restantes e o teto da própria campanha. Quota e janela usam o fuso horário configurado no número para o contador; o rascunho informa seu fuso para a janela. Isso é apenas leitura: reserva continua pendente e a fila permanece fechada até haver outbox/reserva atômica. Sem migration adicional.
+- Calendário de feriados: preset federal brasileiro previsto de 20/11/2026 até 2030, importável por tenant de forma idempotente na tela de Campanhas. Inclui feriados nacionais fixos e Paixão de Cristo conforme calendário MGI; os calendários federais oficiais são publicados ano a ano, então datas futuras precisam de revisão anual. Cada empresa também pode adicionar/remover datas próprias (até 500), com validação, isolamento tenant-scoped e auditoria. A checagem de prontidão indica quando hoje é uma data cadastrada no fuso do rascunho; a fila segue bloqueada.
+- Migration Drizzle 0052_public_enchantress.sql cria tabela tenant-owned, gerada e não aplicada. Build/testes não executados por preferência persistente; git diff --check passou.
+
+## Aging do Pipeline no dashboard — implementação local (17/11/2026)
+
+- O relatório gerencial agora agrega oportunidades abertas por etapa e idade desde a última mudança: até 7, 8–14, 15–30 e acima de 30 dias. O tempo é calculado em dias decorridos no banco, sem converter em dias úteis; ganhos e perdas não entram.
+- A consulta filtra pelo tenant, agrupa por etapa/chave/nome da etapa e reutiliza o snapshot atual, sem nova consulta de eventos ou migration. A tela oferece tabela responsiva com contagem por faixa e destaca itens acima de 30 dias; pt-BR/en e estado vazio estão localizados.
+- `git diff --check` passou. Build/testes não executados por preferência persistente. Próxima evolução: valor de pipeline por moeda e indicadores de handoff, mantendo a regra de não atribuir resultados retroativos sem histórico de ownership.
+
+## Valor do Pipeline no dashboard — implementação local (17/11/2026)
+
+- Relatório gerencial agrega valor de oportunidades abertas por etapa e moeda, preservando o valor decimal e sem conversão cambial. A tabela mostra etapa, moeda, soma e quantidade de oportunidades que compõem a soma. O total não mistura moedas.
+- O backend conta à parte oportunidades abertas com valor ou moeda ausentes; a UI deixa claro que esses registros não participam do agregado. Dados são tenant-scoped, nomes customizados da etapa vêm da relação do pipeline, sem migration.
+- `git diff --check` pendente; build/testes não executados por preferência persistente. Próxima evolução: indicadores de handoff e drill-down dos agregados; métricas de vendedor aguardam histórico de ownership confiável.
+
+## Primeira abordagem nativa de campanha — implementação local (17/11/2026)
+
+- Campanhas agora exigem mensagem de abertura e têm comando explícito `POST /api/v1/campaign-drafts/:id/start`. O comando valida tenant/permissão, status rascunho, canal e saúde do provider, agente habilitado com instruções, público atual elegível, janela/feriado e quota. Cria reservas tenant-scoped na outbox com idempotência por campanha+lead, respeitando o intervalo mínimo.
+- Worker revalida canal/credenciais, agente, lead, contato principal/telefone, decisão de abordagem, DNC, conversa ativa, janela, feriados e limite de canal imediatamente antes da chamada Evolution/Cloud. Registra a mensagem no Inbox como solicitada e envia texto pelo adapter existente. Só confirma delivery/transition de lead após aceite definido do provider.
+- Resultado de transporte ambíguo ou falha durante o envio vai para revisão manual e não é reenviado automaticamente; essa política evita duplicatas, mas ainda falta uma tela operacional de reconciliação de envios pendentes/ambíguos.
+- Webhook inbound agora procura conversa ativa pelo tenant+provider+canal+contato quando o ID externo não coincide, associando respostas à conversa sintética criada pela campanha.
+- Migration Drizzle `0053_absurd_logan.sql` adiciona estados de campanha e mensagem inicial com valor padrão compatível com rascunhos já existentes. Foi gerada, não aplicada. Nenhuma mensagem real foi enviada. Não rodei build/testes por preferência persistente; `git diff --check` foi executado apenas nos arquivos tocados por esta fatia.
+- A reconciliação no Inbox agora permite associar a conversa entrante a lead existente e completar dados do contato, inclusive quando a Meta não fornece telefone. Próxima fatia: completar operação de campanha (pausar/concluir e visibilidade por envio) e criar reconciliação manual para resultados de transporte ambíguos. Áudio de saída e handoff automatizado por oportunidade seguem como melhorias posteriores.

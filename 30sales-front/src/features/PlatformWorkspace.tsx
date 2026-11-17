@@ -3,7 +3,7 @@ import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { useEffect, useState } from 'react'
 import { Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformOrganizationDto, type SessionDto } from '../lib/api/client'
+import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
 import { ORGANIZATION_SLUG_PATTERN, PLATFORM_ERROR_CODE, PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_ORGANIZATION_PAGE_SIZES, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
 import './PlatformWorkspace.css'
 

@@ -4,7 +4,7 @@ import { ArrowRight, Check, Clock3, ListTodo, MessageCircle, RefreshCw, Search, 
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type CloserEventDto, type CloserSlaNotificationDto, type ConversationDto, type HandoffDto, type OpportunityDto, type TaskDto } from '../lib/api/client'
+import { api, type CloserEventDto, type CloserSlaNotificationDto, type ConversationDto, type HandoffDto, type OpportunityDto, type TaskDto } from '../lib/api'
 import i18n from '../lib/i18n'
 import './CloserQueueWorkspace.css'
 import './CloserEventActions.css'

@@ -2,8 +2,9 @@ import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaFiel
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, ApiError, INBOX_MEDIA_ERROR_CODE, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api/client'
+import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'
 import './InboxWorkspace.css'
 import './InboxAttachments.css'
@@ -49,6 +50,19 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [loading, setLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(false)
   const [error, setError] = useState('')
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [leadSearch, setLeadSearch] = useState('')
+  const [leadOptions, setLeadOptions] = useState<Array<{ id: string; accountName: string; contactName: string | null; phone: string | null }>>([])
+  const [reconcileLeadId, setReconcileLeadId] = useState('')
+  const [reconcileLead, setReconcileLead] = useState<{ id: string; accountName: string; contactName: string | null; phone: string | null } | null>(null)
+  const [leadSearchLoading, setLeadSearchLoading] = useState(false)
+  const [leadSearchFailed, setLeadSearchFailed] = useState(false)
+  const [confirmedName, setConfirmedName] = useState('')
+  const [confirmedPhone, setConfirmedPhone] = useState('')
+  const [markAsPrimary, setMarkAsPrimary] = useState(false)
+  const [markAsInterested, setMarkAsInterested] = useState(false)
+  const [reconciling, setReconciling] = useState(false)
+  const [reconcileError, setReconcileError] = useState('')
   const refreshSequence = useRef(0)
   const readCursorKey = useRef('')
   const skipUnreadAutoSelect = useRef(false)
@@ -207,6 +221,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.invalidContent) setMessageSendError(t('inboxComposer.mediaInvalid'))
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.tooLarge) setMessageSendError(t('inboxComposer.mediaTooLarge'))
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.audioCaptionUnsupported) setMessageSendError(t('inboxComposer.audioCaptionUnsupported'))
+      else if (error instanceof ApiError && error.code === INBOX_SEND_ERROR_CODE.dailyChannelLimitReached) setMessageSendError(t('inbox.dailyChannelLimitReached'))
+      else if (error instanceof ApiError && error.code === INBOX_SEND_ERROR_CODE.channelConnectionUnavailable) setMessageSendError(t('inbox.channelConnectionUnavailable'))
       else setMessageSendError(t('inbox.sendFailed'))
     } finally { setSendingMessage(false) }
   }
@@ -229,6 +245,28 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       await refresh()
     } catch { setError(t('inboxComposer.tagFailed')) }
     finally { setTagBusy(false) }
+  }
+  const openContactReconciliation = () => {
+    if (!selected) return
+    setLeadSearch(''); setLeadOptions([]); setReconcileLeadId(''); setReconcileLead(null); setLeadSearchFailed(false); setConfirmedName(selected.personName ?? ''); setConfirmedPhone(selected.personPhone ?? ''); setMarkAsPrimary(false); setMarkAsInterested(false); setReconcileError(''); setReconcileOpen(true)
+  }
+  useEffect(() => {
+    if (!reconcileOpen || leadSearch.trim().length < 2) { setLeadOptions([]); setLeadSearchLoading(false); setLeadSearchFailed(false); return }
+    let active = true
+    setLeadSearchLoading(true); setLeadSearchFailed(false)
+    const timer = window.setTimeout(() => { void api.leads.listPage({ search: leadSearch.trim(), limit: 10, offset: 0 }).then((result) => { if (active) setLeadOptions(result.data.map((lead) => ({ id: lead.id, accountName: lead.accountName, contactName: lead.contactName, phone: lead.phone }))) }).catch(() => { if (active) { setLeadOptions([]); setLeadSearchFailed(true) } }).finally(() => { if (active) setLeadSearchLoading(false) }) }, 250)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [reconcileOpen, leadSearch])
+  const saveContactReconciliation = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || !reconcileLeadId) return
+    setReconciling(true); setReconcileError('')
+    try {
+      await api.inbox.reconcileContact(selected.id, { leadId: reconcileLeadId, ...(confirmedName.trim() ? { name: confirmedName.trim() } : {}), ...(confirmedPhone.trim() ? { phone: confirmedPhone.trim() } : {}), isPrimary: markAsPrimary, isInterested: markAsInterested })
+      setReconcileOpen(false)
+      await refresh()
+    } catch (error) { setReconcileError(error instanceof ApiError && error.code === INBOX_CONTACT_ERROR_CODE.invalidPhone ? t('inbox.contactReconciliation.invalidPhone') : t('inbox.contactReconciliation.failed')) }
+    finally { setReconciling(false) }
   }
   const removeTag = async (tagId: string) => {
     if (!selected || !canEditTags) return
@@ -275,6 +313,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             <div><dt><Phone size={14} />{t('inbox.phone')}</dt><dd>{selected.personPhone ?? '—'}</dd></div>
             <div><dt><Building2 size={14} />{t('inbox.company')}</dt><dd>{selected.accountName ?? '—'}</dd></div>
           </dl></section>
+          {selected.ownerUserId === currentUserId && <Button type="button" onClick={openContactReconciliation}>{t('inbox.contactReconciliation.action')}</Button>}
           <section className="inbox-contact-section"><h4>{t('inbox.leadContext')}</h4><dl>
             <div><dt>{t('inbox.leadStatus')}</dt><dd>{selected.lead ? t(`leadStatuses.${selected.lead.status}`, { defaultValue: selected.lead.status }) : t('inbox.noLead')}</dd></div>
             <div><dt>{t('inbox.leadSource')}</dt><dd>{selected.lead ? t(`leads.sources.${selected.lead.source}`, { defaultValue: selected.lead.source }) : '—'}</dd></div>
@@ -342,5 +381,20 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
 
 
     </div>
+    <Modal open={reconcileOpen} onOpenChange={setReconcileOpen} title={t('inbox.contactReconciliation.title')} description={t('inbox.contactReconciliation.description')} closeLabel={t('common.close')}>
+      <form className="inbox-contact-reconcile-form" onSubmit={saveContactReconciliation}>
+        <label>{t('inbox.contactReconciliation.lead')}<TextField value={leadSearch} onChange={(event) => { setLeadSearch(event.target.value); setReconcileLeadId(''); setReconcileLead(null) }} maxLength={120} placeholder={t('inbox.contactReconciliation.search')} /></label>
+        {leadSearchLoading && <small role="status">{t('inbox.contactReconciliation.searching')}</small>}
+        {leadSearchFailed && <WorkspaceState kind="error" compact message={t('inbox.contactReconciliation.searchFailed')} />}
+        {!leadSearchLoading && !leadSearchFailed && leadSearch.trim().length >= 2 && leadOptions.length === 0 && <WorkspaceState kind="empty" compact message={t('inbox.contactReconciliation.noResults')} />}
+        {leadOptions.length > 0 && <div className="inbox-contact-reconcile-options" role="group" aria-label={t('inbox.contactReconciliation.results')}>{leadOptions.map((lead) => <Button key={lead.id} type="button" className={reconcileLeadId === lead.id ? 'active' : ''} aria-pressed={reconcileLeadId === lead.id} onClick={() => { setReconcileLeadId(lead.id); setReconcileLead(lead) }}>{lead.accountName} · {lead.contactName ?? t('inbox.unknownContact')}</Button>)}</div>}
+        {reconcileLead && <p className="inbox-contact-reconcile-selected"><strong>{t('inbox.contactReconciliation.selectedLead')}:</strong> {reconcileLead.accountName} · {reconcileLead.contactName ?? t('inbox.unknownContact')}</p>}
+        <label>{t('inbox.contactReconciliation.name')}<TextField value={confirmedName} onChange={(event) => setConfirmedName(event.target.value)} maxLength={160} /></label>
+        <label>{t('inbox.contactReconciliation.phone')}<TextField value={confirmedPhone} onChange={(event) => setConfirmedPhone(event.target.value)} maxLength={40} placeholder="+55 11 99999-0000" /></label>
+        <div className="inbox-contact-reconcile-flags"><label><CheckboxField checked={markAsPrimary} onChange={(event) => setMarkAsPrimary(event.target.checked)} />{t('inbox.contactReconciliation.markPrimary')}</label><label><CheckboxField checked={markAsInterested} onChange={(event) => setMarkAsInterested(event.target.checked)} />{t('inbox.contactReconciliation.markInterested')}</label></div>
+        {reconcileError && <WorkspaceState kind="error" compact message={reconcileError} />}
+        <Button type="submit" disabled={reconciling || !reconcileLeadId || confirmedName.trim().length < 2}>{reconciling ? t('common.saving') : t('inbox.contactReconciliation.save')}</Button>
+      </form>
+    </Modal>
   </section>
 }

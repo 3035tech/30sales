@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { Modal } from '../components/ui/Modal'
-import { api, type AuditEventDto, type AuditEventsPageDto } from '../lib/api/client'
+import { api, type AuditEventDto, type AuditEventsPageDto } from '../lib/api'
 import './AuditWorkspace.css'
 import './AuditTable.css'
 

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type CloserEventSlaSettingsDto } from '../lib/api/client'
+import { api, type CloserEventSlaSettingsDto } from '../lib/api'
 import './CloserSlaSettingsWorkspace.css'
 
 export function CloserSlaSettingsWorkspace() {

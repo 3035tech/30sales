@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, isNull, lte, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, closerEvents, conversations, handoffs, leads, opportunities, people, tasks, userNotifications } from '../db/schema';
+import { accounts, closerEvents, conversations, handoffs, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import { MarkAllUserNotificationsReadDto, MarkUserNotificationReadDto, UserNotificationDto, UserNotificationsListDto, UserNotificationsPageDto, userNotificationTypeValues } from './notifications.dto';
 
@@ -15,9 +15,10 @@ export class NotificationsRepository {
       taskId: userNotifications.taskId,
       handoffId: userNotifications.handoffId,
       opportunityId: userNotifications.opportunityId,
+      channelId: userNotifications.channelId,
       taskTitle: tasks.title,
       eventType: closerEvents.eventType,
-      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} = 'inbox_new_message' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'conversation_assigned' then coalesce(${people.name}, ${accounts.name}, '') else ${closerEvents.summary} end`,
+      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} = 'inbox_new_message' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'conversation_assigned' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} = 'channel_disconnected' then coalesce(${messagingChannels.displayName}, '') else ${closerEvents.summary} end`,
       accountName: accounts.name,
       contactName: people.name,
       dueAt: sql<Date | null>`coalesce(${closerEvents.dueAt}, ${tasks.dueAt})`,
@@ -31,6 +32,7 @@ export class NotificationsRepository {
       .leftJoin(conversations, and(eq(conversations.id, sql`coalesce(${userNotifications.conversationId}, ${closerEvents.conversationId})`), eq(conversations.organizationId, userNotifications.organizationId)))
       .leftJoin(accounts, and(eq(accounts.id, sql`coalesce(${conversations.accountId}, ${leads.accountId}, ${opportunities.accountId})`), eq(accounts.organizationId, userNotifications.organizationId)))
       .leftJoin(people, and(eq(people.id, sql`coalesce(${conversations.personId}, ${leads.personId}, ${opportunities.primaryPersonId})`), eq(people.organizationId, userNotifications.organizationId)))
+      .leftJoin(messagingChannels, and(eq(messagingChannels.id, userNotifications.channelId), eq(messagingChannels.organizationId, userNotifications.organizationId)))
       .where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId), isNull(userNotifications.readAt)))
       .orderBy(desc(userNotifications.createdAt), desc(userNotifications.id)).limit(input.limit);
     const [count] = await database.select({ total: sql<number>`count(*)::int` }).from(userNotifications)
@@ -38,7 +40,7 @@ export class NotificationsRepository {
     const data = rows.flatMap((row) => {
       const notificationType = userNotificationTypeValues.find((value) => value === row.notificationType);
       const dueAt = row.dueAt ? new Date(row.dueAt.toString()).toISOString() : null;
-      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, dueAt, row.createdAt.toISOString())] : [];
+      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId || row.channelId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.channelId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, dueAt, row.createdAt.toISOString())] : [];
     });
     return new UserNotificationsPageDto(data, count?.total ?? 0);
   }

@@ -2,7 +2,7 @@ import { Button, TextField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
 import { ArrowRight, Check, Command } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, type InvitationDto } from '../lib/api/client'
+import { api, type InvitationDto } from '../lib/api'
 import { roleNames } from '../lib/permissions'
 
 export function AcceptInvitation() {

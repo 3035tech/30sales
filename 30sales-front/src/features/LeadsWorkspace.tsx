@@ -1,13 +1,13 @@
-import { Button, CheckboxField, IconButton, NumericField, PhoneField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { Button, CalendarField, CheckboxField, IconButton, NumericField, PhoneField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Bot, Megaphone, Plus, RefreshCw, Search, Star, Users } from 'lucide-react'
+import { Bot, CalendarDays, Megaphone, Plus, RefreshCw, Search, Star, Trash2, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type CreateLeadContactInput, type CreateLeadInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api/client'
+import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type CreateLeadContactInput, type CreateLeadInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
 import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS } from '../lib/accountConstants'
-import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_TIME_ZONE_DEFAULT, api as campaignsApi, type CampaignAudiencePreviewDto, type CampaignDraftDto, type CampaignDraftPageDto, type CampaignOperationalReadinessDto, type CreateCampaignDraftInput } from '../lib/api/client'
+import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_NO_SEND_DATE_MAX, CAMPAIGN_TIME_ZONE_DEFAULT, api as campaignsApi, type CampaignAudiencePreviewDto, type CampaignDraftDto, type CampaignDraftPageDto, type CampaignNoSendDateDto, type CampaignOperationalReadinessDto, type CreateCampaignDraftInput } from '../lib/api'
 import i18n from '../lib/i18n'
 import './LeadsWorkspace.css'
 import './LeadDuplicateReview.css'
@@ -97,12 +97,57 @@ function CampaignOperationalReadinessModal({ draft, onClose }: { draft: Campaign
         <div><dt>{t('campaignDrafts.channelConfigured')}</dt><dd>{t(readiness.channel.configured ? 'campaignDrafts.configured' : 'campaignDrafts.notConfigured')}</dd></div>
         <div><dt>{t('campaignDrafts.channelHealth')}</dt><dd>{readiness.channel.health ? t(`channels.health.${readiness.channel.health}`) : t('campaignDrafts.healthNotChecked')}</dd></div>
         <div><dt>{t('campaignDrafts.sendingWindow')}</dt><dd>{t(readiness.sendingWindow.openNow ? 'campaignDrafts.windowOpen' : 'campaignDrafts.windowClosed', { start: readiness.sendingWindow.startsAt, end: readiness.sendingWindow.endsAt, timeZone: readiness.sendingWindow.timeZone })}</dd></div>
-        <div><dt>{t('campaignDrafts.holidayCalendar')}</dt><dd>{t('campaignDrafts.calendarPending')}</dd></div>
-        <div><dt>{t('campaignDrafts.quota')}</dt><dd>{t('campaignDrafts.quotaPending')}</dd></div>
+        <div><dt>{t('campaignDrafts.holidayCalendar')}</dt><dd>{readiness.holidayCalendar.noSendToday ? t('campaignDrafts.noSendToday', { name: readiness.holidayCalendar.todayName }) : t(readiness.holidayCalendar.configured ? 'campaignDrafts.calendarConfigured' : 'campaignDrafts.calendarPending', { count: readiness.holidayCalendar.datesCount })}</dd></div>
+        <div><dt>{t('campaignDrafts.quota')}</dt><dd>{t('campaignDrafts.quotaStatus', { used: readiness.quota.channelUsed, channelLimit: readiness.quota.channelLimit, remaining: readiness.quota.channelRemaining, campaignLimit: readiness.quota.campaignLimit })}</dd></div>
       </dl>
-      <WorkspaceState kind="partial" compact message={t('campaignDrafts.queueBlocked')} detail={t('campaignDrafts.noQueue')} />
+      <WorkspaceState kind="partial" compact message={t(readiness.canQueue ? 'campaignDrafts.queueReady' : 'campaignDrafts.queueBlocked')} detail={t(readiness.canQueue ? 'campaignDrafts.queueReadyHint' : 'campaignDrafts.noQueue')} />
     </>}
   </Modal>
+}
+
+function CampaignHolidayCalendar() {
+  const { t, i18n } = useTranslation()
+  const [dates, setDates] = useState<CampaignNoSendDateDto[]>([])
+  const [date, setDate] = useState('')
+  const [name, setName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const refresh = useCallback(async () => {
+    setLoading(true); setError('')
+    try { setDates(await campaignsApi.campaigns.listNoSendDates()) }
+    catch { setError(t('campaignDrafts.calendarLoadFailed')) }
+    finally { setLoading(false) }
+  }, [t])
+  useEffect(() => { void refresh() }, [refresh])
+  const importNational = async () => {
+    setSaving(true); setError('')
+    try { setDates(await campaignsApi.campaigns.importNationalHolidays()) }
+    catch { setError(t('campaignDrafts.calendarSaveFailed')) }
+    finally { setSaving(false) }
+  }
+  const addDate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); setSaving(true); setError('')
+    try { const created = await campaignsApi.campaigns.addNoSendDate({ date, name }); setDates((current) => [...current, created].sort((left, right) => left.date.localeCompare(right.date))); setDate(''); setName('') }
+    catch { setError(t('campaignDrafts.calendarSaveFailed')) }
+    finally { setSaving(false) }
+  }
+  const removeDate = async (id: string) => {
+    setSaving(true); setError('')
+    try { await campaignsApi.campaigns.deleteNoSendDate(id); setDates((current) => current.filter((item) => item.id !== id)) }
+    catch { setError(t('campaignDrafts.calendarSaveFailed')) }
+    finally { setSaving(false) }
+  }
+  return <section className="campaign-holiday-calendar" aria-labelledby="campaign-holiday-calendar-title">
+    <div className="campaign-holiday-calendar-heading"><div><CalendarDays size={18} /><div><strong id="campaign-holiday-calendar-title">{t('campaignDrafts.calendarTitle')}</strong><p>{t('campaignDrafts.calendarDescription')}</p></div></div><Button type="button" disabled={saving || loading} onClick={() => void importNational()}>{saving ? t('common.saving') : t('campaignDrafts.importNational')}</Button></div>
+    {error && <WorkspaceState kind="error" compact message={error}><Button type="button" onClick={() => void refresh()}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
+    <form className="campaign-holiday-calendar-form" onSubmit={(event) => void addDate(event)}>
+      <label>{t('campaignDrafts.calendarDate')}<CalendarField mode="date" value={date} onValueChange={setDate} required /></label>
+      <label>{t('campaignDrafts.calendarName')}<TextField value={name} onChange={(event) => setName(event.target.value)} minLength={2} maxLength={100} required /></label>
+      <Button type="submit" variant="primary" disabled={saving || loading || dates.length >= CAMPAIGN_NO_SEND_DATE_MAX}>{t('campaignDrafts.addCalendarDate')}</Button>
+    </form>
+    {loading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : dates.length === 0 ? <WorkspaceState kind="empty" compact message={t('campaignDrafts.calendarEmpty')} /> : <ul className="campaign-holiday-calendar-list">{dates.map((item) => <li key={item.id}><time dateTime={item.date}>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${item.date}T00:00:00.000Z`))}</time><strong>{item.name}</strong><IconButton label={t('campaignDrafts.removeCalendarDate', { name: item.name })} disabled={saving} onClick={() => void removeDate(item.id)}><Trash2 size={15} /></IconButton></li>)}</ul>}
+  </section>
 }
 
 export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string }) {
@@ -161,8 +206,10 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [campaignChannels, setCampaignChannels] = useState<SdrPreviewChannelDto[]>([])
   const [campaignDraftsLoading, setCampaignDraftsLoading] = useState(false)
   const [campaignDraftSaving, setCampaignDraftSaving] = useState(false)
+  const [campaignStartingId, setCampaignStartingId] = useState('')
+  const [campaignStartedCount, setCampaignStartedCount] = useState<number | null>(null)
   const [campaignDraftError, setCampaignDraftError] = useState('')
-  const [campaignDraftForm, setCampaignDraftForm] = useState<CreateCampaignDraftInput>({ name: '', channelId: '', windowStart: '09:00', windowEnd: '17:00', timeZone: CAMPAIGN_TIME_ZONE_DEFAULT, dailyMessageLimit: 50, minimumDelaySeconds: 30 })
+  const [campaignDraftForm, setCampaignDraftForm] = useState<CreateCampaignDraftInput>({ name: '', openingMessage: '', channelId: '', windowStart: '09:00', windowEnd: '17:00', timeZone: CAMPAIGN_TIME_ZONE_DEFAULT, dailyMessageLimit: 50, minimumDelaySeconds: 30 })
   const [contactForm, setContactForm] = useState<CreateLeadContactInput>({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' })
   const studentRangeInvalid = studentCountMin !== null && studentCountMax !== null && studentCountMin > studentCountMax
 
@@ -212,6 +259,16 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
       await loadCampaignDrafts(0)
     } catch { setCampaignDraftError(t('campaignDrafts.saveFailed')) }
     finally { setCampaignDraftSaving(false) }
+  }
+  const startCampaign = async (draft: CampaignDraftDto) => {
+    setCampaignStartingId(draft.id); setCampaignDraftError(''); setCampaignStartedCount(null)
+    try {
+      const result = await api.campaigns.startDraft(draft.id)
+      setCampaignStartedCount(result.queuedCount)
+      await loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)
+    } catch (error) {
+      setCampaignDraftError(error instanceof ApiError && error.code === 'CAMPAIGN_AUDIENCE_LEAD_INELIGIBLE' ? t('campaignDrafts.ineligible') : error instanceof ApiError && error.code === 'CAMPAIGN_NOT_READY' ? t('campaignDrafts.notReady') : t('campaignDrafts.startFailed'))
+    } finally { setCampaignStartingId('') }
   }
 
   useEffect(() => { if (initialSearch) { setQuery(initialSearch); setSearch(initialSearch); setOffset(0) } }, [initialSearch])
@@ -386,11 +443,13 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
       {campaignDraftsLoading && !campaignDrafts ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>
+        <CampaignHolidayCalendar />
         <form className="campaign-draft-form" onSubmit={(event) => void createCampaignDraft(event)}>
           <div className="campaign-draft-form-heading"><strong>{t('campaignDrafts.newDraft')}</strong><p>{t('campaignDrafts.formHint')}</p></div>
           <label>{t('campaignDrafts.name')}<TextField value={campaignDraftForm.name} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, name: event.target.value }))} minLength={2} maxLength={120} required /></label>
           <label>{t('campaignDrafts.channel')}<SelectField value={campaignDraftForm.channelId} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, channelId: event.target.value }))} required><option value="">{t('campaignDrafts.chooseChannel')}</option>{campaignChannels.map((channel) => <option key={channel.id} value={channel.id} disabled={!channel.isActive || !channel.isConfigured}>{channel.displayName} · {channel.phoneNumber}{!channel.isActive ? ` · ${t('sdrPreview.channelInactive')}` : !channel.isConfigured ? ` · ${t('sdrPreview.channelUnconfigured')}` : ''}</option>)}</SelectField></label>
           {campaignChannels.length === 0 && <p className="form-hint">{t('sdrPreview.noChannels')}</p>}
+          <label>{t('campaignDrafts.openingMessage')}<TextareaField value={campaignDraftForm.openingMessage} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, openingMessage: event.target.value }))} minLength={1} maxLength={4096} rows={4} required /></label>
           <div className="campaign-draft-fields">
             <label>{t('campaignDrafts.windowStart')}<TextField type="time" value={campaignDraftForm.windowStart} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, windowStart: event.target.value }))} required /></label>
             <label>{t('campaignDrafts.windowEnd')}<TextField type="time" value={campaignDraftForm.windowEnd} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, windowEnd: event.target.value }))} required /></label>
@@ -403,7 +462,8 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
         </form>
         <section className="campaign-draft-list" aria-label={t('campaignDrafts.savedDrafts')}>
           <div className="campaign-draft-list-heading"><div><strong>{t('campaignDrafts.savedDrafts')}</strong><span>{t('campaignDrafts.count', { count: campaignDrafts?.pagination.total ?? 0 })}</span></div></div>
-          {!campaignDraftsLoading && campaignDrafts?.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.empty')} /> : <ul>{campaignDrafts?.data.map((draft) => <li key={draft.id}><div><strong>{draft.name}</strong><span>{draft.channelName} · {draft.channelPhoneNumber}</span><small>{t('campaignDrafts.schedule', { start: draft.windowStart, end: draft.windowEnd, timeZone: draft.timeZone })}</small></div><div><span>{t('campaignDrafts.dailyLimitValue', { count: draft.dailyMessageLimit })}</span><span>{t('campaignDrafts.delayValue', { count: draft.minimumDelaySeconds })}</span><span>{t('campaignAudience.savedCount', { count: draft.audienceLeadCount })}</span><b>{t('campaignDrafts.draftStatus')}</b><Button type="button" onClick={() => setCampaignReadinessDraft(draft)}>{t('campaignDrafts.checkReadiness')}</Button><Button type="button" onClick={() => setCampaignAudienceDraft(draft)}>{t('campaignAudience.select')}</Button></div></li>)}</ul>}
+          {campaignStartedCount !== null && <p className="success-message" role="status">{t('campaignDrafts.started', { count: campaignStartedCount })}</p>}
+          {!campaignDraftsLoading && campaignDrafts?.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.empty')} /> : <ul>{campaignDrafts?.data.map((draft) => <li key={draft.id}><div><strong>{draft.name}</strong><span>{draft.channelName} · {draft.channelPhoneNumber}</span><small>{t('campaignDrafts.schedule', { start: draft.windowStart, end: draft.windowEnd, timeZone: draft.timeZone })}</small></div><div><span>{t('campaignDrafts.dailyLimitValue', { count: draft.dailyMessageLimit })}</span><span>{t('campaignDrafts.delayValue', { count: draft.minimumDelaySeconds })}</span><span>{t('campaignAudience.savedCount', { count: draft.audienceLeadCount })}</span><b>{t(`campaignDrafts.status.${draft.status}`)}</b><Button type="button" onClick={() => setCampaignReadinessDraft(draft)}>{t('campaignDrafts.checkReadiness')}</Button><Button type="button" onClick={() => setCampaignAudienceDraft(draft)} disabled={draft.status !== CAMPAIGN_DRAFT_STATUS.draft}>{t('campaignAudience.select')}</Button><Button type="button" variant="primary" disabled={draft.status !== CAMPAIGN_DRAFT_STATUS.draft || draft.audienceLeadCount === 0 || campaignStartingId !== ''} onClick={() => void startCampaign(draft)}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.start')}</Button></div></li>)}</ul>}
           {campaignDrafts && <div className="sdr-preview-pagination"><Button type="button" disabled={campaignDrafts.pagination.offset === 0 || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(Math.max(0, campaignDrafts.pagination.offset - campaignDrafts.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignDrafts.pagination.offset / campaignDrafts.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignDrafts.pagination.total / campaignDrafts.pagination.limit)) })}</span><Button type="button" disabled={!campaignDrafts.pagination.hasNextPage || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(campaignDrafts.pagination.offset + campaignDrafts.pagination.limit)}>{t('common.nextPage')}</Button></div>}
         </section>
       </>}

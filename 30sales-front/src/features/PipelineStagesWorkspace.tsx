@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, Archive, Save, Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type PipelineStagesDto, type PipelinesDto } from '../lib/api/client'
+import { api, type PipelineStagesDto, type PipelinesDto } from '../lib/api'
 import './PipelineStagesWorkspace.css'
 
 type SettingsTab = 'pipelines' | 'stages'

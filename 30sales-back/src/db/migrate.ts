@@ -9,15 +9,16 @@ async function runMigrations(): Promise<void> {
 
   const pool = new Pool({
     connectionString: databaseConnectionString(databaseUrl),
+    options: '-c search_path=public',
     max: 1,
     connectionTimeoutMillis: 10_000,
   });
 
   try {
-    const [{ database, role }] = await pool.query<{ database: string; role: string }>(
-      'SELECT current_database() AS database, current_user AS role',
+    const [{ database, role, schema }] = await pool.query<{ database: string; role: string; schema: string }>(
+      'SELECT current_database() AS database, current_user AS role, current_schema() AS schema',
     ).then((result) => result.rows);
-    process.stdout.write(`Running database migrations on ${database} as ${role}.\n`);
+    process.stdout.write(`Running database migrations on ${database} as ${role} in schema ${schema}.\n`);
     await migrate(drizzle(pool), { migrationsFolder: './drizzle' });
     process.stdout.write('Database migrations completed.\n');
   } finally {

@@ -5,4 +5,6 @@
 .platform-user>span:nth-child(3){display:grid;gap:3px}
 @media(max-width:600px){.platform-user>span:nth-child(2){display:grid}.platform-user>span:nth-child(3){display:none}}
 
+.platform-tabs{display:flex;gap:4px;margin:0 0 18px;border-bottom:1px solid #e2e8ef}.platform-tabs [role=tab]{min-height:42px;display:inline-flex;align-items:center;gap:7px;padding:0 15px;border:0;border-bottom:2px solid transparent;border-radius:7px 7px 0 0;background:transparent;color:#68788c;font:600 14px var(--brand-ui-font);cursor:pointer}.platform-tabs [role=tab]:hover{background:#f8fafc;color:#172235}.platform-tabs [role=tab][aria-selected=true]{border-bottom-color:#2563eb;color:#2563eb}.platform-tabs [role=tab]:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.platform-content [role=tabpanel][hidden]{display:none}
+
 .platform-accept-invitation{display:inline-flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;padding:9px 12px;border:1px solid #b9d6c8;border-radius:8px;background:#f0faf4;color:#176b4a;font-size:var(--font-size-sm);font-weight:650;text-decoration:none}.platform-accept-invitation:hover{background:#e6f5ec}.platform-accept-invitation:focus-visible{outline:2px solid #2563eb;outline-offset:2px}

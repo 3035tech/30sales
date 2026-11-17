@@ -39,6 +39,9 @@ jobs:
 
   publish:
     if: github.event_name == 'push'
+    concurrency:
+      group: publish-30sales-front-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     permissions:
       contents: read

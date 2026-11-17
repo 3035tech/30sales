@@ -38,13 +38,14 @@ export function AuditWorkspace() {
   useEffect(() => { void refresh() }, [refresh])
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   const entityLabel = (value: string) => value === 'messaging_channel' ? t('channels.columns.name') : t(`audit.entities.${value}`, { defaultValue: value })
+  const actionLabel = (value: string) => t(`audit.actions.${value}`, { defaultValue: value })
   const formatState = (value: unknown) => value == null ? '—' : JSON.stringify(value, null, 2) ?? '—'
   const changeDetails = (event: AuditEventDto) => event.beforeState !== null || event.afterState !== null
     ? <Button className="audit-view-change" type="button" onClick={() => setSelectedEvent(event)} aria-label={t('audit.viewChange')}><Eye size={15} />{t('audit.viewChange')}</Button>
     : null
   const columns: DataTableColumn<AuditEventDto, AuditSortKey>[] = [
     { id: 'occurredAt', label: t('audit.columns.occurredAt'), render: (event) => <time className="audit-date" dateTime={event.occurredAt}>{dateLabel(event.occurredAt)}</time> },
-    { id: 'action', label: t('audit.columns.action'), render: (event) => <strong className="audit-action">{event.action}</strong> },
+    { id: 'action', label: t('audit.columns.action'), render: (event) => <strong className="audit-action">{actionLabel(event.action)}</strong> },
     { id: 'actorName', label: t('audit.columns.actor'), render: (event) => <span className="audit-actor">{event.actorName ?? t(`audit.actorTypes.${event.actorType}`, { defaultValue: event.actorType })}</span> },
     { id: 'entityType', label: t('audit.columns.record'), render: (event) => <span className="audit-record"><strong>{entityLabel(event.entityType)}</strong>{event.entityId && <code>{event.entityId}</code>}</span> },
     { id: 'reason', label: t('audit.columns.details'), render: (event) => <div className="audit-details">{event.reason && <p className="audit-reason">{event.reason}</p>}{event.correlationId && <p className="audit-correlation"><span>{t('audit.correlationId')}</span><code>{event.correlationId}</code></p>}{changeDetails(event)}</div> },
@@ -55,7 +56,7 @@ export function AuditWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p className="muted">{t('audit.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('audit.refresh')}><RefreshCw size={16} /></Button></header>
     <div className="audit-filters">
       <label>{t('audit.action')}<TextField value={action} onChange={(event) => { setAction(event.target.value); setOffset(0) }} placeholder={t('audit.actionPlaceholder')} /></label>
-      <label>{t('audit.entityType')}<SelectField value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation','messaging_channel'].map((value) => <option key={value} value={value}>{entityLabel(value)}</option>)}</SelectField></label>
+      <label>{t('audit.entityType')}<SelectField value={entityType} onChange={(event) => { setEntityType(event.target.value); setOffset(0) }}><option value="">{t('audit.allEntities')}</option>{['lead','task','handoff','opportunity','activity','invitation','messaging_channel','platform_access'].map((value) => <option key={value} value={value}>{entityLabel(value)}</option>)}</SelectField></label>
       <label>{t('audit.from')}<CalendarField mode="datetime-local" value={from} onValueChange={(value) => { setFrom(value); setOffset(0) }} /></label>
       <label>{t('audit.to')}<CalendarField mode="datetime-local" value={to} onValueChange={(value) => { setTo(value); setOffset(0) }} /></label>
     </div>
@@ -64,7 +65,7 @@ export function AuditWorkspace() {
       <div className="lead-list-toolbar"><div><h3>{t('audit.eventList')}</h3><p>{t('audit.count', { count: page?.pagination.total ?? 0 })}</p></div><ShieldCheck size={18} /></div>
       <DataTable rows={page?.data ?? []} columns={columns} getRowId={(event) => event.id} sort={{ key: sortBy, direction: sortDirection }} onSortChange={(key, direction) => { setSortBy(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: page?.pagination.total ?? 0, hasNextPage: page?.pagination.hasNextPage ?? false }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={emptyState} emptyStateKind={error ? 'error' : 'empty'} />
     </div>
-    <Modal open={selectedEvent !== null} onOpenChange={(open) => { if (!open) setSelectedEvent(null) }} title={t('audit.changeDetails')} description={selectedEvent ? `${entityLabel(selectedEvent.entityType)} · ${selectedEvent.action} · ${dateLabel(selectedEvent.occurredAt)}` : undefined} closeLabel={t('audit.closeDetails')} className="audit-modal">
+    <Modal open={selectedEvent !== null} onOpenChange={(open) => { if (!open) setSelectedEvent(null) }} title={t('audit.changeDetails')} description={selectedEvent ? `${entityLabel(selectedEvent.entityType)} · ${actionLabel(selectedEvent.action)} · ${dateLabel(selectedEvent.occurredAt)}` : undefined} closeLabel={t('audit.closeDetails')} className="audit-modal">
           {selectedEvent && <div className="audit-modal-content">
             {selectedEvent.reason && <p className="audit-modal-reason">{selectedEvent.reason}</p>}
             <div className="audit-change-columns">

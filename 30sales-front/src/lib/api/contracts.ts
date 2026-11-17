@@ -123,6 +123,7 @@ export const sessionSchema = z.object({ user: z.object({ id: z.string(), name: z
 export const platformOrganizationSchema = z.object({ id: z.string().uuid(), name: z.string(), slug: z.string(), memberCount: z.number().int().nonnegative(), createdAt: z.string() });
 export const platformOrganizationPageSchema = z.object({ data: z.array(platformOrganizationSchema), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
 export const platformOrganizationCreateSchema = z.object({ organization: platformOrganizationSchema, ownerInvitation: z.object({ email: z.string().email(), invitationUrl: z.string().url(), emailSent: z.boolean() }) });
+export const platformOrganizationAccessSchema = z.object({ organizationId: z.string().uuid(), accessRecorded: z.literal(true) });
 export const memberSchema = z.object({ id: z.string(), role: z.string(), user: z.object({ name: z.string(), email: z.string() }) });
 export const invitationSchema = z.object({ id: z.string(), email: z.string(), role: z.string(), organizationName: z.string().optional(), organization: z.object({ name: z.string() }).optional() }).passthrough();
 export type LeadStatus = z.infer<typeof leadStatus>;

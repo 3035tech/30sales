@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { auth } from '../auth/auth';
 import { PLATFORM_ERROR_CODE, PLATFORM_INVITATION_PATH, PLATFORM_ROLE } from '../auth/authorization.constants';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -8,7 +8,7 @@ import { user } from '../db/auth-schema';
 import { eq } from 'drizzle-orm';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
-import { PlatformContextDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto } from './platform.dto';
+import { PlatformContextDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto } from './platform.dto';
 import { PlatformRepository } from './platform.repository';
 
 @Injectable()
@@ -26,6 +26,13 @@ export class PlatformService {
   async listOrganizations(request: ApiRequestDto, query: ListPlatformOrganizationsQueryDto): Promise<PlatformOrganizationListDto> {
     await this.requireSuperAdmin(request);
     return this.repository.listOrganizations(query);
+  }
+
+  async accessOrganization(request: ApiRequestDto, organizationId: string): Promise<PlatformOrganizationAccessResultDto> {
+    const actor = await this.requireSuperAdmin(request);
+    const recorded = await this.repository.recordOrganizationAccess(organizationId, actor, request.correlationId);
+    if (!recorded) throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
+    return new PlatformOrganizationAccessResultDto(organizationId, true);
   }
 
   async createOrganization(request: ApiRequestDto, input: CreatePlatformOrganizationDto): Promise<PlatformOrganizationCreateResultDto> {

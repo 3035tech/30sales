@@ -10,6 +10,24 @@ type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto
 
 @Injectable()
 export class PlatformRepository {
+  async recordOrganizationAccess(organizationId: string, actor: { userId: string }, correlationId: string | null): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [selectedOrganization] = await transaction.select({ id: organization.id }).from(organization).where(eq(organization.id, organizationId)).limit(1);
+      if (!selectedOrganization) return false;
+      await transaction.insert(auditEvents).values({
+        organizationId: selectedOrganization.id,
+        actorUserId: actor.userId,
+        actorType: AUDIT_ACTOR_TYPE.user,
+        action: PLATFORM_AUDIT_ACTION.organizationAccessed,
+        entityType: PLATFORM_AUDIT_ENTITY_TYPE.platformAccess,
+        entityId: selectedOrganization.id,
+        correlationId,
+        afterState: { accessMode: 'super_admin_support', selectionSource: 'platform_console' },
+      });
+      return true;
+    });
+  }
+
   async listOrganizations(query: ListPlatformOrganizationsQueryDto): Promise<PlatformOrganizationListDto> {
     const memberCount = count(member.id).mapWith(Number);
     const conditions = query.search ? or(ilike(organization.name, `%${query.search}%`), ilike(organization.slug, `%${query.search}%`)) : undefined;

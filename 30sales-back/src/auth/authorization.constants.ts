@@ -39,13 +39,16 @@ export const PLATFORM_ERROR_CODE = {
   authRequired: 'AUTH_REQUIRED',
   superAdminRequired: 'PLATFORM_ADMIN_REQUIRED',
   organizationSlugAlreadyExists: 'ORGANIZATION_SLUG_ALREADY_EXISTS',
+  organizationNotFound: 'PLATFORM_ORGANIZATION_NOT_FOUND',
 } as const;
 export const PLATFORM_AUDIT_ACTION = {
   organizationCreated: 'organization.created',
   invitationCreated: 'invitation.created',
+  organizationAccessed: 'organization.accessed',
 } as const;
 export const PLATFORM_AUDIT_ENTITY_TYPE = {
   organization: 'organization',
   invitation: 'invitation',
+  platformAccess: 'platform_access',
 } as const;
 export const AUDIT_ACTOR_TYPE = { user: 'user', system: 'system' } as const;

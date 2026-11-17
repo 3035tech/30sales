@@ -1,6 +1,6 @@
 import { PLATFORM_ORGANIZATION_API_PATH } from '../../authorizationConstants';
 import { request } from '../request';
-import { type CreatePlatformOrganizationInput, platformOrganizationCreateSchema, platformOrganizationPageSchema } from '../contracts';
+import { type CreatePlatformOrganizationInput, platformOrganizationAccessSchema, platformOrganizationCreateSchema, platformOrganizationPageSchema } from '../contracts';
 
 
 export const platformApi = {
@@ -12,4 +12,5 @@ export const platformApi = {
       return request(`${PLATFORM_ORGANIZATION_API_PATH}?${search.toString()}`, platformOrganizationPageSchema);
     },
     createOrganization: (input: CreatePlatformOrganizationInput) => request(PLATFORM_ORGANIZATION_API_PATH, platformOrganizationCreateSchema, { method: 'POST', body: JSON.stringify(input) }),
+    accessOrganization: (organizationId: string) => request(`${PLATFORM_ORGANIZATION_API_PATH}/${encodeURIComponent(organizationId)}/access`, platformOrganizationAccessSchema, { method: 'POST' }),
   };

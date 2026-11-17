@@ -194,8 +194,10 @@ export default function App() {
     if (changingOrganization) return
     setChangingOrganization(true)
     setOrganizationSwitchError(false)
-    setPlatformOrganizationContext(organizationId)
+    const previousPlatformOrganizationId = current?.platformOrganizationContext ? current.platformOrganization?.id ?? null : null
     try {
+      await api.platform.accessOrganization(organizationId)
+      setPlatformOrganizationContext(organizationId)
       const refreshedSession = await api.session.get()
       if (!refreshedSession.platformOrganizationContext || refreshedSession.activeOrganizationId !== organizationId) throw new Error('Company context was not authorized')
       setCurrent(refreshedSession)
@@ -207,11 +209,18 @@ export default function App() {
       notificationsLoadedRef.current = false
       navigate(pagePaths.home, { replace: true })
     } catch {
-      setPlatformOrganizationContext(null)
+      setPlatformOrganizationContext(previousPlatformOrganizationId)
       setOrganizationSwitchError(true)
     } finally {
       setChangingOrganization(false)
     }
+  }
+
+  const returnToPlatformConsole = () => {
+    setPlatformOrganizationContext(null)
+    navigate('/platform')
+    setMobileMenuOpen(false)
+    void api.session.get().then(setCurrent).catch(() => setOrganizationSwitchError(true))
   }
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId) ?? current?.platformOrganization ?? null
@@ -310,7 +319,7 @@ export default function App() {
           {canViewPage('audit') && <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>}
           {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}
           {canViewPage('team') && <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>}
-          {isPlatformAdmin && <Button className="nav" type="button" onClick={() => { navigate('/platform'); setMobileMenuOpen(false) }}><ShieldCheck size={18} />{t('platform.nav')}</Button>}
+          {isPlatformAdmin && <Button className="nav" type="button" onClick={returnToPlatformConsole}><ShieldCheck size={18} />{t('platform.nav')}</Button>}
         </div> : null}
       </nav>
       <div className="rail-bottom">
@@ -349,6 +358,7 @@ export default function App() {
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>
+      {current.platformOrganizationContext && activeOrganization && <div className="platform-context-banner" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{t('platform.contextBanner', { company: activeOrganization.name })}</span><Button type="button" onClick={returnToPlatformConsole}>{t('platform.returnToCompanies')}<ArrowRight size={14} aria-hidden="true" /></Button></div>}
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
         <Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />

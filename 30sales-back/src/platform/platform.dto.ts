@@ -8,6 +8,7 @@ export const createPlatformOrganizationSchema = z.object({
 }).strict();
 export type CreatePlatformOrganizationDto = z.infer<typeof createPlatformOrganizationSchema>;
 export const listPlatformOrganizationsSchema = z.object({ search: z.string().trim().max(160).optional(), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const platformOrganizationIdSchema = z.string().uuid();
 export type ListPlatformOrganizationsQueryDto = z.infer<typeof listPlatformOrganizationsSchema>;
 
 export class PlatformContextDto {
@@ -21,4 +22,7 @@ export class PlatformOrganizationListDto {
 }
 export class PlatformOrganizationCreateResultDto {
   constructor(readonly organization: PlatformOrganizationRecordDto, readonly ownerInvitation: { readonly email: string; readonly invitationUrl: string; readonly emailSent: boolean }) {}
+}
+export class PlatformOrganizationAccessResultDto {
+  constructor(readonly organizationId: string, readonly accessRecorded: true) {}
 }

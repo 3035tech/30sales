@@ -28,6 +28,7 @@ export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrgani
   const [createdMessage, setCreatedMessage] = useState('')
   const [invitationUrl, setInvitationUrl] = useState('')
   const [invitationEmailSent, setInvitationEmailSent] = useState(false)
+  const [invitationBelongsToCurrentUser, setInvitationBelongsToCurrentUser] = useState(false)
   const [copied, setCopied] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const [name, setName] = useState('')
@@ -54,11 +55,13 @@ export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrgani
     setError('')
     setCreatedMessage('')
     setInvitationUrl('')
+    setInvitationBelongsToCurrentUser(false)
     try {
       const input: CreatePlatformOrganizationInput = { name: name.trim(), slug: slug.trim(), ownerEmail: ownerEmail.trim().toLowerCase() }
       const result = await api.platform.createOrganization(input)
       setInvitationUrl(result.ownerInvitation.invitationUrl)
       setInvitationEmailSent(result.ownerInvitation.emailSent)
+      setInvitationBelongsToCurrentUser(result.ownerInvitation.email.toLowerCase() === user.email.toLowerCase())
       setCreatedMessage(result.ownerInvitation.emailSent ? t('platform.invitationSent', { email: result.ownerInvitation.email }) : t('platform.invitationEmailUnavailable', { email: result.ownerInvitation.email }))
       setName('')
       setSlug('')
@@ -92,7 +95,7 @@ export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrgani
       <section className="platform-panel platform-workspaces-panel">
         <div className="platform-companies-heading"><div><h2>{t('platform.yourWorkspaces')}</h2><p>{t('platform.yourWorkspacesHint')}</p></div></div>
         {organizations.length === 0
-          ? <WorkspaceState kind="empty" compact message={t('platform.noWorkspaceMembership')} />
+          ? <WorkspaceState kind="empty" compact message={t('platform.noWorkspaceMembership')} detail={t('platform.noWorkspaceMembershipHint')}>{invitationBelongsToCurrentUser && invitationUrl && <a className="platform-accept-invitation" href={invitationUrl}>{t('platform.acceptInvitation')}<ArrowRight size={15} aria-hidden="true" /></a>}</WorkspaceState>
           : <ul className="platform-company-list">{organizations.map((organization) => <li key={organization.id}><span className="platform-company-icon"><Building2 size={17} /></span><span className="platform-company-copy"><strong>{organization.name}</strong><small>{organization.slug}</small></span><Button type="button" className="platform-open-workspace" onClick={() => onOpenOrganization(organization.id)}>{t('platform.openWorkspace')}<ArrowRight size={15} /></Button></li>)}</ul>}
       </section>
       <section className="platform-panel platform-create-panel">

@@ -1,7 +1,7 @@
 import { Button, CheckboxField, SelectField, TextField } from './components/ui/FormControls'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight, BarChart3, Bell, Building2, ChevronDown, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
+import { ArrowRight, BarChart3, Bell, Building2, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
@@ -26,6 +26,7 @@ import { AssistantSettingsWorkspace } from './features/AssistantSettingsWorkspac
 import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspace'
 import { PipelineStagesWorkspace } from './features/PipelineStagesWorkspace'
 import { PlatformWorkspace } from './features/PlatformWorkspace'
+import { PlatformOrganizationPicker } from './features/PlatformOrganizationPicker'
 import './App.css'
 import './polish.css'
 
@@ -190,8 +191,8 @@ export default function App() {
     }
   }
 
-  const openPlatformOrganization = async (organizationId: string) => {
-    if (changingOrganization) return
+  const openPlatformOrganization = async (organizationId: string): Promise<boolean> => {
+    if (changingOrganization) return false
     setChangingOrganization(true)
     setOrganizationSwitchError(false)
     const previousPlatformOrganizationId = current?.platformOrganizationContext ? current.platformOrganization?.id ?? null : null
@@ -208,9 +209,11 @@ export default function App() {
       notificationRefreshRevision.current += 1
       notificationsLoadedRef.current = false
       navigate(pagePaths.home, { replace: true })
+      return true
     } catch {
       setPlatformOrganizationContext(previousPlatformOrganizationId)
       setOrganizationSwitchError(true)
+      return false
     } finally {
       setChangingOrganization(false)
     }
@@ -224,9 +227,6 @@ export default function App() {
   }
 
   const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId) ?? current?.platformOrganization ?? null
-  const selectableOrganizations = current?.platformOrganizationContext && current.platformOrganization
-    ? [...current.organizations, ...(current.organizations.some((organization) => organization.id === current.platformOrganization?.id) ? [] : [current.platformOrganization])]
-    : current?.organizations ?? []
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
   const markAllNotificationsRead = async () => {
     if (markingNotificationsRead || unreadNotificationCount === 0) return
@@ -350,9 +350,11 @@ export default function App() {
             </section>}
           </div>}
           {activeOrganization && <div className="workspace-selector-wrap">
-            <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || selectableOrganizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
-              {selectableOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-            </SelectField><ChevronDown size={15} aria-hidden="true" /></div>
+            {isPlatformAdmin
+              ? <PlatformOrganizationPicker activeOrganizationId={activeOrganization.id} activeOrganizationName={activeOrganization.name} platformOrganizationContext={current.platformOrganizationContext} disabled={changingOrganization} onSelectOrganization={openPlatformOrganization} />
+              : <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+                {current.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+              </SelectField></div>}
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>

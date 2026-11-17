@@ -157,7 +157,7 @@ export class WebhooksService {
   }
 
   private evolutionEventFamily(eventName: string): ProviderEventFamily {
-    if (eventName.startsWith('application.') || eventName.startsWith('qrcode.') || eventName.startsWith('connection.') || eventName === EVOLUTION_WEBHOOK_EVENT.newToken) return 'channel';
+    if (eventName.startsWith('application.') || eventName.startsWith('qrcode.') || eventName.startsWith('connection.') || eventName === EVOLUTION_WEBHOOK_EVENT.logoutInstance || eventName === EVOLUTION_WEBHOOK_EVENT.removeInstance || eventName === EVOLUTION_WEBHOOK_EVENT.newToken) return 'channel';
     if (eventName.startsWith('messages.') || eventName.startsWith('send.message')) return 'message';
     if (eventName.startsWith('contacts.')) return 'contact';
     if (eventName.startsWith('presence.')) return 'presence';

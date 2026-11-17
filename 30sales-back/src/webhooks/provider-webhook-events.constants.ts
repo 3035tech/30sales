@@ -2,6 +2,8 @@ export const EVOLUTION_WEBHOOK_EVENT = {
   applicationStartup: 'application.startup',
   qrCodeUpdated: 'qrcode.updated',
   connectionUpdate: 'connection.update',
+  logoutInstance: 'logout.instance',
+  removeInstance: 'remove.instance',
   messagesSet: 'messages.set',
   messagesUpsert: 'messages.upsert',
   messagesUpdate: 'messages.update',

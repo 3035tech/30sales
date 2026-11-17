@@ -10,6 +10,7 @@ import { ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.
 import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
+import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 
@@ -343,6 +344,20 @@ export class InboxRepository {
       const attachments = await transaction.select({ id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status }).from(messageAttachments)
         .where(and(eq(messageAttachments.messageId, row.id), eq(messageAttachments.organizationId, input.organizationId)));
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: `conversation.message_${input.deliveryState}`, entityType: 'conversation', entityId: row.conversationId, correlationId: input.correlationId, afterState: { messageId: row.id, deliveryState: input.deliveryState, externalMessageId: input.externalMessageId } });
+      if (input.deliveryState === 'failed' && row.direction === 'outbound') {
+        const [conversation] = await transaction.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
+          .where(and(eq(conversations.id, row.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+        const recipientUserId = conversation?.ownerUserId ?? input.actorUserId;
+        const [recipient] = await transaction.select({ userId: authMember.userId }).from(authMember)
+          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, recipientUserId))).limit(1);
+        if (recipient) await transaction.insert(userNotifications).values({
+          organizationId: input.organizationId,
+          recipientUserId: recipient.userId,
+          conversationId: row.conversationId,
+          notificationType: USER_NOTIFICATION_TYPE.messageDeliveryFailed,
+          idempotencyKey: `message-delivery-failed:${row.id}:${recipient.userId}`,
+        }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+      }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: row.occurredAt.toISOString() })})`);
       return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)));
     });

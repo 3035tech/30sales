@@ -8,6 +8,7 @@ import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWeb
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
+import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 
 @Injectable()
 export class WebhooksRepository {
@@ -238,7 +239,7 @@ export class WebhooksRepository {
 
   async recordMessageStatus(input: WhatsappMessageStatusDto): Promise<'updated' | 'duplicate' | 'unmatched' | 'unchanged'> {
     return database.transaction(async (transaction) => {
-      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState })
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId })
         .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.externalMessageId), eq(messages.direction, 'outbound'), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId)))
         .for('update').limit(1);
@@ -253,6 +254,17 @@ export class WebhooksRepository {
       if (!next) return 'unchanged';
       await transaction.update(messages).set({ deliveryState: next })
         .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      if (next === 'failed' && message.ownerUserId) {
+        const [recipient] = await transaction.select({ userId: authMember.userId }).from(authMember)
+          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, message.ownerUserId))).limit(1);
+        if (recipient) await transaction.insert(userNotifications).values({
+          organizationId: input.organizationId,
+          recipientUserId: recipient.userId,
+          conversationId: message.conversationId,
+          notificationType: USER_NOTIFICATION_TYPE.messageDeliveryFailed,
+          idempotencyKey: `message-delivery-failed:${message.id}:${recipient.userId}`,
+        }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+      }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: message.conversationId, occurredAt: input.occurredAt.toISOString() })})`);
       return 'updated';
     });

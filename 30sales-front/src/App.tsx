@@ -278,7 +278,7 @@ export default function App() {
           {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}
           {canViewPage('team') && <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>}
           {isPlatformAdmin && <Button className="nav" type="button" onClick={() => { navigate('/platform'); setMobileMenuOpen(false) }}><ShieldCheck size={18} />{t('platform.nav')}</Button>}
-        </div>}
+        </div> : null}
       </nav>
       <div className="rail-bottom">
         <span className="avatar">{current?.user.name.slice(0, 1) ?? 'S'}</span>

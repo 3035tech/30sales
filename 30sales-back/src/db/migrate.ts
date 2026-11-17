@@ -1,13 +1,14 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
+import { databaseConnectionString } from './connection-string';
 
 async function runMigrations(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required to run migrations');
 
   const pool = new Pool({
-    connectionString: databaseUrl,
+    connectionString: databaseConnectionString(databaseUrl),
     max: 1,
     connectionTimeoutMillis: 10_000,
   });

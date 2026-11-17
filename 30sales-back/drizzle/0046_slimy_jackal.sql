@@ -37,7 +37,7 @@ ALTER TABLE "assistant_runs" ADD CONSTRAINT "assistant_runs_organization_id_orga
 ALTER TABLE "assistant_runs" ADD CONSTRAINT "assistant_runs_conversation_tenant_fk" FOREIGN KEY ("conversation_id","organization_id") REFERENCES "public"."conversations"("id","organization_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assistant_runs" ADD CONSTRAINT "assistant_runs_inbound_message_tenant_fk" FOREIGN KEY ("inbound_message_id","organization_id") REFERENCES "public"."messages"("id","organization_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "assistant_runs" ADD CONSTRAINT "assistant_runs_outbound_message_tenant_fk" FOREIGN KEY ("outbound_message_id","organization_id") REFERENCES "public"."messages"("id","organization_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "outbox_events" ADD CONSTRAINT "outbox_events_id_organization_unique" UNIQUE("id","organization_id");--> statement-breakpoint
 ALTER TABLE "assistant_runs" ADD CONSTRAINT "assistant_runs_queue_event_tenant_fk" FOREIGN KEY ("queue_event_id","organization_id") REFERENCES "public"."outbox_events"("id","organization_id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "assistant_runs_org_started_idx" ON "assistant_runs" USING btree ("organization_id","started_at");--> statement-breakpoint
-CREATE INDEX "assistant_runs_org_conversation_idx" ON "assistant_runs" USING btree ("organization_id","conversation_id","started_at");--> statement-breakpoint
-ALTER TABLE "outbox_events" ADD CONSTRAINT "outbox_events_id_organization_unique" UNIQUE("id","organization_id");
+CREATE INDEX "assistant_runs_org_conversation_idx" ON "assistant_runs" USING btree ("organization_id","conversation_id","started_at");

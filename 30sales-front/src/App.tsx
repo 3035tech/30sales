@@ -89,6 +89,7 @@ export default function App() {
   const inboxSearchSeed = page === 'inbox' ? searchParams.get('search') ?? '' : ''
   const inboxConversationSeed = page === 'inbox' ? searchParams.get('conversationId') ?? '' : ''
   const [notifications, setNotifications] = useState<UserNotificationDto[]>([])
+  const [notificationToast, setNotificationToast] = useState<UserNotificationDto | null>(null)
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
@@ -96,6 +97,7 @@ export default function App() {
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false)
   const notificationsLoadedRef = useRef(false)
+  const notificationIdsRef = useRef<Set<string>>(new Set())
   const notificationRefreshRevision = useRef(0)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [changingOrganization, setChangingOrganization] = useState(false)
@@ -115,6 +117,7 @@ export default function App() {
 
   useEffect(() => {
     if (!current) return
+    if (location.pathname === '/platform' && current.user.platformRole === PLATFORM_ROLE.superAdmin) return
     if (!pagesByPath[location.pathname] || !canViewPage(page)) navigate(pagePaths[activeDefaultPage], { replace: true })
   }, [activeDefaultPage, current, location.pathname, navigate, page])
 
@@ -133,7 +136,14 @@ export default function App() {
       const revision = ++notificationRefreshRevision.current
       if (!notificationsLoadedRef.current) setNotificationsLoading(true)
       api.notifications.list().then((page) => {
-        if (active && revision === notificationRefreshRevision.current) { setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true }
+        if (active && revision === notificationRefreshRevision.current) {
+          if (notificationsLoadedRef.current) {
+            const newest = page.data.find((notification) => !notificationIdsRef.current.has(notification.id))
+            if (newest) setNotificationToast(newest)
+          }
+          notificationIdsRef.current = new Set(page.data.map((notification) => notification.id))
+          setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true
+        }
       }).catch(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsError(true) }).finally(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsLoading(false) })
     }
     refresh()
@@ -141,6 +151,12 @@ export default function App() {
     document.addEventListener('visibilitychange', refresh)
     return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh) }
   }, [current?.activeOrganizationId])
+
+  useEffect(() => {
+    if (!notificationToast) return
+    const timeout = window.setTimeout(() => setNotificationToast(null), 7000)
+    return () => window.clearTimeout(timeout)
+  }, [notificationToast])
 
   const chooseOrganization = async (organizationId: string) => {
     if (organizationId === current?.activeOrganizationId || changingOrganization) return
@@ -152,6 +168,7 @@ export default function App() {
       const refreshedSession = await api.session.get()
       setCurrent(refreshedSession)
       setNotifications([])
+      notificationIdsRef.current = new Set()
       setUnreadNotificationCount(0)
       setNotificationsActionError(false)
       notificationRefreshRevision.current += 1
@@ -214,7 +231,9 @@ export default function App() {
     </section>
   </main>
 
-  if (current.user.platformRole === PLATFORM_ROLE.superAdmin) return <PlatformWorkspace user={current.user} onSignOut={async () => { await api.auth.signOut(); window.location.reload() }} />
+  const isPlatformAdmin = current.user.platformRole === PLATFORM_ROLE.superAdmin
+  const hasActiveMembership = current.activeOrganizationId !== null && current.organizations.some((organization) => organization.id === current.activeOrganizationId)
+  if (isPlatformAdmin && (location.pathname === '/platform' || !hasActiveMembership)) return <PlatformWorkspace user={current.user} organizations={current.organizations} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSignOut={async () => { await api.auth.signOut(); window.location.reload() }} />
 
   if (!current.activeOrganizationId) return <main className="access-shell">
     <section className="access-card" aria-labelledby="access-title">
@@ -241,7 +260,7 @@ export default function App() {
           {canViewPage('tasks') && <Button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</Button>}
         </div>}
         {([ 'inbox', 'leads', 'accounts' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}><span className="nav-group-title">{t('common.navGroups.customers')}</span>
-          {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}</Button>}
+          {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length > 0 && <span className="nav-count">{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length}</span>}</Button>}
           {canViewPage('leads') && <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>}
           {canViewPage('accounts') && <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>}
         </div>}
@@ -250,7 +269,7 @@ export default function App() {
           {canViewPage('handoffs') && <Button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</Button>}
           {canViewPage('pipeline') && <Button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</Button>}
         </div>}
-        {([ 'channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team' ] as Page[]).some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}><span className="nav-group-title">{t('common.navGroups.management')}</span>
+        {([ 'channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team' ] as Page[]).some(canViewPage) || isPlatformAdmin ? <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}><span className="nav-group-title">{t('common.navGroups.management')}</span>
           {canViewPage('channels') && <Button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</Button>}
           {canViewPage('assistant') && <Button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</Button>}
           {canViewPage('closerSla') && <Button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</Button>}
@@ -258,6 +277,7 @@ export default function App() {
           {canViewPage('audit') && <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>}
           {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}
           {canViewPage('team') && <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>}
+          {isPlatformAdmin && <Button className="nav" type="button" onClick={() => { navigate('/platform'); setMobileMenuOpen(false) }}><ShieldCheck size={18} />{t('platform.nav')}</Button>}
         </div>}
       </nav>
       <div className="rail-bottom">
@@ -266,6 +286,7 @@ export default function App() {
       </div>
     </aside>
     <section className="main">
+      {notificationToast && <div className="notification-toast" role="status"><Bell size={17} /><Button type="button" onClick={() => { void openNotification(notificationToast); setNotificationToast(null) }}><strong>{t('systemNotifications.newActivity')}</strong><small>{notificationToast.contactName ?? notificationToast.accountName ?? notificationToast.summary}</small></Button><button type="button" aria-label={t('common.close')} onClick={() => setNotificationToast(null)}><X size={15} /></button></div>}
       <header>
         <div className="ui-visually-hidden"><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">

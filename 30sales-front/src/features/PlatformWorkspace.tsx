@@ -1,7 +1,7 @@
 import { Button, SelectField, TextField } from '../components/ui/FormControls'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { useEffect, useState } from 'react'
-import { Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
+import { ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
 import { ORGANIZATION_SLUG_PATTERN, PLATFORM_ERROR_CODE, PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_ORGANIZATION_PAGE_SIZES, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
@@ -12,7 +12,7 @@ function slugFromName(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
 }
 
-export function PlatformWorkspace({ user, onSignOut }: { user: SessionDto['user']; onSignOut: () => Promise<void> }) {
+export function PlatformWorkspace({ user, organizations, onSignOut, onOpenOrganization }: { user: SessionDto['user']; organizations: SessionDto['organizations']; onSignOut: () => Promise<void>; onOpenOrganization: (organizationId: string) => void }) {
   const { t, i18n } = useTranslation()
   const [companies, setCompanies] = useState<PlatformOrganizationDto[]>([])
   const [query, setQuery] = useState('')
@@ -89,6 +89,12 @@ export function PlatformWorkspace({ user, onSignOut }: { user: SessionDto['user'
     <header className="platform-topbar"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /><div className="platform-user"><span className="avatar">{user.name.slice(0, 1)}</span><span><strong>{user.name}</strong><small>{user.email}</small></span><Button type="button" className="platform-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} />{t('platform.signOut')}</Button></div></header>
     <div className="platform-content">
       <header className="platform-heading"><div><p className="eyebrow">{t('platform.eyebrow')}</p><h1>{t('platform.title')}</h1><p>{t('platform.description')}</p></div><Button className="refresh" type="button" aria-label={t('platform.refresh')} onClick={() => setRefreshVersion((current) => current + 1)}><RefreshCw size={16} /></Button></header>
+      <section className="platform-panel platform-workspaces-panel">
+        <div className="platform-companies-heading"><div><h2>{t('platform.yourWorkspaces')}</h2><p>{t('platform.yourWorkspacesHint')}</p></div></div>
+        {organizations.length === 0
+          ? <WorkspaceState kind="empty" compact message={t('platform.noWorkspaceMembership')} />
+          : <ul className="platform-company-list">{organizations.map((organization) => <li key={organization.id}><span className="platform-company-icon"><Building2 size={17} /></span><span className="platform-company-copy"><strong>{organization.name}</strong><small>{organization.slug}</small></span><Button type="button" className="platform-open-workspace" onClick={() => onOpenOrganization(organization.id)}>{t('platform.openWorkspace')}<ArrowRight size={15} /></Button></li>)}</ul>}
+      </section>
       <section className="platform-panel platform-create-panel">
         <div className="platform-panel-heading"><span className="card-icon"><Plus size={18} /></span><div><h2>{t('platform.createTitle')}</h2><p>{t('platform.createHint')}</p></div></div>
         <form className="platform-company-form" onSubmit={(event) => void submit(event)}>

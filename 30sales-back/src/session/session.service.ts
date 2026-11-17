@@ -1,6 +1,5 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { auth } from '../auth/auth';
-import { PLATFORM_ROLE } from '../auth/authorization.constants';
 import { database } from '../db';
 import { member, user } from '../db/auth-schema';
 import { and, eq } from 'drizzle-orm';
@@ -17,7 +16,9 @@ export class SessionService {
     if (!userRecord) throw new UnauthorizedException();
     const activeOrganizationId = session.session.activeOrganizationId ?? null;
     const [activeMembership] = activeOrganizationId ? await database.select({ role: member.role }).from(member).where(and(eq(member.userId, session.user.id), eq(member.organizationId, activeOrganizationId))).limit(1) : [];
-    const organizations = userRecord.platformRole === PLATFORM_ROLE.superAdmin ? [] : await auth.api.listOrganizations({ headers });
+    // Platform admins may also belong to customer workspaces. Return only memberships
+    // Better Auth confirms for this user; the platform API remains separately scoped.
+    const organizations = await auth.api.listOrganizations({ headers });
     return new SessionResponseDto(
       new SessionUserDto(session.user.id, session.user.name, session.user.email, userRecord.platformRole),
       activeOrganizationId,

@@ -3,6 +3,11 @@ import { auth } from '../auth/auth';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantContextDto } from './leads.dto';
 import { toWebHeaders } from '../common/http-headers';
+import { database } from '../db';
+import { organization, user } from '../db/auth-schema';
+import { PLATFORM_ORGANIZATION_CONTEXT_HEADER, PLATFORM_ROLE } from '../auth/authorization.constants';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
 export type TenantPermission = 'read' | 'create' | 'update' | 'assign' | 'manage';
 export type AccessDomain = 'leads' | 'pipeline' | 'activities' | 'inbox' | 'audit' | 'integrations' | 'reports';
 @Injectable()
@@ -13,6 +18,17 @@ export class TenantAccessService {
     const requestHeaders = toWebHeaders(request.headers);
     const session = await auth.api.getSession({ headers: requestHeaders });
     if (!session) throw new UnauthorizedException({ code: 'AUTH_REQUIRED', message: 'Sign in to access leads.' });
+    const platformOrganizationId = request.headers[PLATFORM_ORGANIZATION_CONTEXT_HEADER];
+    const requestedPlatformOrganizationId = Array.isArray(platformOrganizationId) ? platformOrganizationId[0] : platformOrganizationId;
+    if (requestedPlatformOrganizationId) {
+      if (!z.string().uuid().safeParse(requestedPlatformOrganizationId).success) throw new ForbiddenException({ code: 'PLATFORM_CONTEXT_INVALID', message: 'The selected company context is unavailable.' });
+      const [account, selectedOrganization] = await Promise.all([
+        database.select({ platformRole: user.platformRole }).from(user).where(eq(user.id, session.user.id)).limit(1),
+        database.select({ id: organization.id }).from(organization).where(eq(organization.id, requestedPlatformOrganizationId)).limit(1),
+      ]);
+      if (account[0]?.platformRole !== PLATFORM_ROLE.superAdmin || !selectedOrganization[0]) throw new ForbiddenException({ code: 'PLATFORM_CONTEXT_INVALID', message: 'The selected company context is unavailable.' });
+      return new TenantContextDto(session.user.id, selectedOrganization[0].id, 'owner');
+    }
     const organizationId = session.session.activeOrganizationId;
     if (!organizationId) throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Select an organization to continue.' });
     if (domain !== 'leads' && domain !== 'inbox' && permission === 'assign') throw new ForbiddenException({ code: 'INVALID_PERMISSION_DOMAIN', message: 'Assignment permission is only supported for leads and inbox conversations.' });

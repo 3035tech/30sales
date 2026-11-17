@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
 import { api, USER_NOTIFICATION_TYPE, type SessionDto, type UserNotificationDto } from './lib/api'
+import { setPlatformOrganizationContext } from './lib/api/client'
 import i18n from './lib/i18n'
 import { getOrganizationRoles, ORGANIZATION_PROFILE_UPDATE_ROLES, ORGANIZATION_ROLE, ORGANIZATION_SEGMENT_MANAGEMENT_ROLES, PLATFORM_ROLE } from './lib/authorizationConstants'
 import { TeamSettings } from './features/TeamSettings'
@@ -76,7 +77,7 @@ export default function App() {
   const canUpdateAccountProfile = activeRoles.some((role) => ORGANIZATION_PROFILE_UPDATE_ROLES.some((updateRole) => updateRole === role))
   const activeDefaultPage = activeRoles.map((role) => roleDefaultPages[role]).find((defaultPage) => defaultPage !== undefined) ?? 'home'
   const allowedPages = [...new Set(activeRoles.flatMap((role) => rolePages[role] ?? []))]
-  const canViewPage = (target: Page) => allowedPages.includes(target)
+  const canViewPage = (target: Page) => Boolean(current?.platformOrganizationContext || allowedPages.includes(target))
   const breadcrumbItems = page === 'home'
     ? []
     : [
@@ -112,7 +113,10 @@ export default function App() {
   }
 
   useEffect(() => {
-    api.session.get().then(setCurrent).catch(() => setError('authRequired')).finally(() => setLoading(false))
+    api.session.get().then((session) => {
+      if (!session.platformOrganizationContext) setPlatformOrganizationContext(null)
+      setCurrent(session)
+    }).catch(() => setError('authRequired')).finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -163,6 +167,7 @@ export default function App() {
     setChangingOrganization(true)
     setOrganizationSwitchError(false)
     try {
+      if (current?.platformOrganizationContext) setPlatformOrganizationContext(null)
       const result = await api.auth.setActiveOrganization(organizationId)
       if (result.error) throw new Error('Organization switch failed')
       const refreshedSession = await api.session.get()
@@ -178,13 +183,41 @@ export default function App() {
       navigateToPage(defaultPage, {}, { replace: true })
       setMobileMenuOpen(false)
     } catch {
+      if (current?.platformOrganizationContext && current.platformOrganization) setPlatformOrganizationContext(current.platformOrganization.id)
       setOrganizationSwitchError(true)
     } finally {
       setChangingOrganization(false)
     }
   }
 
-  const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId)
+  const openPlatformOrganization = async (organizationId: string) => {
+    if (changingOrganization) return
+    setChangingOrganization(true)
+    setOrganizationSwitchError(false)
+    setPlatformOrganizationContext(organizationId)
+    try {
+      const refreshedSession = await api.session.get()
+      if (!refreshedSession.platformOrganizationContext || refreshedSession.activeOrganizationId !== organizationId) throw new Error('Company context was not authorized')
+      setCurrent(refreshedSession)
+      setNotifications([])
+      notificationIdsRef.current = new Set()
+      setUnreadNotificationCount(0)
+      setNotificationsActionError(false)
+      notificationRefreshRevision.current += 1
+      notificationsLoadedRef.current = false
+      navigate(pagePaths.home, { replace: true })
+    } catch {
+      setPlatformOrganizationContext(null)
+      setOrganizationSwitchError(true)
+    } finally {
+      setChangingOrganization(false)
+    }
+  }
+
+  const activeOrganization = current?.organizations.find((organization) => organization.id === current.activeOrganizationId) ?? current?.platformOrganization ?? null
+  const selectableOrganizations = current?.platformOrganizationContext && current.platformOrganization
+    ? [...current.organizations, ...(current.organizations.some((organization) => organization.id === current.platformOrganization?.id) ? [] : [current.platformOrganization])]
+    : current?.organizations ?? []
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
   const markAllNotificationsRead = async () => {
     if (markingNotificationsRead || unreadNotificationCount === 0) return
@@ -233,7 +266,7 @@ export default function App() {
 
   const isPlatformAdmin = current.user.platformRole === PLATFORM_ROLE.superAdmin
   const hasActiveMembership = current.activeOrganizationId !== null && current.organizations.some((organization) => organization.id === current.activeOrganizationId)
-  if (isPlatformAdmin && (location.pathname === '/platform' || !hasActiveMembership)) return <PlatformWorkspace user={current.user} organizations={current.organizations} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSignOut={async () => { await api.auth.signOut(); window.location.reload() }} />
+  if (isPlatformAdmin && (location.pathname === '/platform' || (!hasActiveMembership && !current.platformOrganizationContext))) return <PlatformWorkspace user={current.user} organizations={current.organizations} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSelectOrganization={(organizationId) => void openPlatformOrganization(organizationId)} onSignOut={async () => { setPlatformOrganizationContext(null); await api.auth.signOut(); window.location.reload() }} />
 
   if (!current.activeOrganizationId) return <main className="access-shell">
     <section className="access-card" aria-labelledby="access-title">
@@ -308,8 +341,8 @@ export default function App() {
             </section>}
           </div>}
           {activeOrganization && <div className="workspace-selector-wrap">
-            <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || (current?.organizations.length ?? 0) < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
-              {current?.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+            <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || selectableOrganizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+              {selectableOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
             </SelectField><ChevronDown size={15} aria-hidden="true" /></div>
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}

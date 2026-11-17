@@ -13,6 +13,8 @@ export function getOrganizationRoles(role: string | null | undefined): Organizat
   return ORGANIZATION_ROLE_NAMES.filter((candidate) => assignedRoles.includes(candidate));
 }
 export const PLATFORM_ORGANIZATION_API_PATH = '/api/v1/platform/organizations';
+export const PLATFORM_ORGANIZATION_CONTEXT_HEADER = 'x-platform-organization-id';
+export const PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY = '30sales.platform-organization-context';
 export const PLATFORM_ERROR_CODE = {
   organizationSlugAlreadyExists: 'ORGANIZATION_SLUG_ALREADY_EXISTS',
 } as const;

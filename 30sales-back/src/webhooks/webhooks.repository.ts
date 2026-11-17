@@ -4,7 +4,7 @@ import { database } from '../db';
 import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionContactUpdateDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
@@ -43,6 +43,31 @@ export class WebhooksRepository {
       processedAt: new Date(),
     }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
     return event ? 'created' : 'duplicate';
+  }
+
+  async updateKnownEvolutionContact(input: EvolutionContactUpdateDto): Promise<'updated' | 'duplicate' | 'unmatched'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId,
+        provider: 'evolution',
+        externalEventId: input.externalEventId,
+        eventType: 'evolution.contacts.updated',
+        payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.contact },
+        status: 'processed',
+        attempts: '1',
+        processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+
+      const externalConversationId = `${input.channelId}:${input.phoneDigits}`;
+      const [conversation] = await transaction.select({ personId: conversations.personId }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, externalConversationId))).limit(1);
+      if (!conversation?.personId || !input.displayName) return 'unmatched';
+      await transaction.update(people).set({ name: input.displayName, updatedAt: new Date() })
+        .where(and(eq(people.id, conversation.personId), eq(people.organizationId, input.organizationId)));
+      return 'updated';
+    });
   }
 
   async findChannel(channelId: string): Promise<WebhookChannelDto | null> {

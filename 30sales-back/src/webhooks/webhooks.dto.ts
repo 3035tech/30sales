@@ -15,6 +15,18 @@ export class ProviderWebhookEventDto {
     readonly payloadHash: string,
   ) {}
 }
+
+export class EvolutionContactUpdateDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly externalEventId: string,
+    readonly phoneDigits: string,
+    readonly displayName: string | null,
+    readonly payloadHash: string,
+  ) {}
+}
+
 export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker';
 
 export class InboundMediaDto {

@@ -5,7 +5,7 @@ import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
 import type { ChannelConnectionStatus } from '../channels/channels.dto';
 import { env } from '../config/env';
-import { InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionContactUpdateDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, type WebhookProvider, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
@@ -37,6 +37,9 @@ export class WebhooksService {
       const rawState = this.string(connectionEvent.state) ?? this.string(connectionEvent.status);
       if (rawState) await this.channelsService.recordEvolutionConnectionStatus(channel.organizationId, channel.id, this.toEvolutionConnectionStatus(rawState));
     }
+    if (eventName === EVOLUTION_WEBHOOK_EVENT.logoutInstance || eventName === EVOLUTION_WEBHOOK_EVENT.removeInstance) {
+      await this.channelsService.recordEvolutionConnectionStatus(channel.organizationId, channel.id, CHANNEL_CONNECTION_STATUS.disconnected);
+    }
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     let processed = 0;
     for (const item of data) {
@@ -49,6 +52,19 @@ export class WebhooksService {
           const result = await this.repository.recordMessageStatus(status);
           if (result === 'updated') processed += 1;
           if (result === 'unmatched') processed += await this.recordUnmatchedStatus(channel.id, channel.organizationId, 'evolution', status);
+        }
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.contactsUpsert || eventName === EVOLUTION_WEBHOOK_EVENT.contactsUpdate) {
+        const contact = this.record(item);
+        const jid = [contact.remoteJid, contact.remoteJidAlt, contact.id, contact.jid]
+          .map((candidate) => this.string(candidate))
+          .find((candidate) => candidate !== null && (!candidate.includes('@') || candidate.endsWith('@s.whatsapp.net') || candidate.endsWith('@c.us')));
+        const phoneDigits = jid ? this.phoneDigits(jid) : '';
+        if (this.isValidPhone(phoneDigits)) {
+          const displayName = (this.string(contact.pushName)?.trim() || this.string(contact.name)?.trim() || this.string(contact.verifiedName)?.trim() || '').slice(0, 160) || null;
+          const fingerprint = createHash('sha256').update(JSON.stringify(item) ?? '').digest('hex');
+          const eventId = createHash('sha256').update(`${channel.id}:contacts:${phoneDigits}:${fingerprint}`).digest('hex');
+          const result = await this.repository.updateKnownEvolutionContact(new EvolutionContactUpdateDto(channel.organizationId, channel.id, eventId, phoneDigits, displayName, fingerprint));
+          if (result === 'updated') processed += 1;
         }
       } else {
         const safeEventName = eventName.replace(/[^a-z0-9._-]/g, '_').slice(0, 120);

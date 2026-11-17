@@ -10,6 +10,8 @@ Manter o 30Sales como dono do Inbox e do fluxo SDR, usando Evolution (Baileys) o
 - A configuração habilita eventos operacionais e de conversa, desativa `base64` para não transportar mídia no webhook e usa callback único (sem sufixo por evento). Sucesso significa que a Evolution aceitou a requisição; não confirma que a URL pública está alcançável nem que eventos já chegaram. A ação é auditada sem registrar segredo.
 - Evolution aceita callback na URL base do canal e na URL com sufixo do evento (`webhook_by_events`). O 30Sales usa URL base (`byEvents: false`). Mensagens recebidas e atualizações de entrega seguem para os handlers existentes.
 - Outros eventos Evolution, inclusive eventos futuros desconhecidos, são deduplicados por canal e fingerprint e gravados em `inbox_events`.
+- `CONTACTS_UPSERT` e `CONTACTS_UPDATE` atualizam o nome de contatos que já possuem conversa no canal, sem importar toda a agenda nem criar pessoas órfãs. O lookup usa organização, canal e telefone normalizado; contatos LID sem telefone permanecem apenas no ledger.
+- `LOGOUT_INSTANCE` e `REMOVE_INSTANCE` marcam o canal como desconectado, reutilizando o alerta in-app de desconexão. `CONNECTION_UPDATE` continua sendo a fonte principal para os estados conectando/conectado/desconectado.
 - Eventos Meta `messages` seguem para o handler de mensagens/status. Os demais campos WhatsApp Business Account são associados pelo `phone_number_id` ou pelo WABA ID e gravados no mesmo ledger.
 - Payload original não é persistido. O ledger guarda tipo, família, hash e o ID interno do canal; não guarda texto, número de telefone, QR code, token ou credencial.
 - A tela de Canais lista o ledger por canal, com provedor, tipo/família, status de registro, horário e tentativas; tem paginação e mostra apenas código de erro, nunca o payload bruto. Essa tela comprova a gravação de eventos aceitos pelo handler, não a chegada de callbacks rejeitados por assinatura/autenticação nem erros anteriores ao ledger.
@@ -22,11 +24,11 @@ O nome canônico abaixo transforma os nomes em maiúsculas da Evolution em minú
 
 | Família | Eventos | Tratamento atual |
 | --- | --- | --- |
-| Canal | `APPLICATION_STARTUP`, `QRCODE_UPDATED`, `CONNECTION_UPDATE`, `LOGOUT_INSTANCE`, `REMOVE_INSTANCE` | `CONNECTION_UPDATE` persiste saúde e gera alerta na transição para desconectado. Os demais são capturados no ledger; QR não é persistido nem exibido. |
+| Canal | `APPLICATION_STARTUP`, `QRCODE_UPDATED`, `CONNECTION_UPDATE`, `LOGOUT_INSTANCE`, `REMOVE_INSTANCE` | `CONNECTION_UPDATE` persiste saúde e gera alerta na transição para desconectado; logout/remoção também marcam o canal desconectado. Inicialização e QR ficam no ledger; QR não é persistido nem exibido. |
 | Mensagens | `MESSAGES_SET`, `MESSAGES_UPSERT`, `MESSAGES_UPDATE`, `MESSAGES_DELETE`, `SEND_MESSAGE` | `UPSERT` inbound e `UPDATE` de entrega têm handlers; snapshot, exclusão e eco de envio são capturados, sem importar/alterar a timeline. |
-| Contatos | `CONTACTS_SET`, `CONTACTS_UPSERT`, `CONTACTS_UPDATE` | Capturados; ainda não criam/atualizam contatos do lead. |
+| Contatos | `CONTACTS_SET`, `CONTACTS_UPSERT`, `CONTACTS_UPDATE` | UPSERT/UPDATE enriquecem nome de pessoa já relacionada a conversa. SET segue apenas no ledger; não importa a agenda inteira nem associa contatos automaticamente a leads. |
 | Presença | `PRESENCE_UPDATE` | Capturado; não alimenta indicador de digitando/online. |
-| Chats | `CHATS_SET`, `CHATS_UPDATE`, `CHATS_UPSERT`, `CHATS_DELETE` | Capturados; ainda não sincronizam chats. |
+| Chats | `CHATS_SET`, `CHATS_UPDATE`, `CHATS_UPSERT`, `CHATS_DELETE` | Capturados. O modelo atual não tem campos de arquivamento/pin/unread do provider; não alteram estado comercial nem removem conversas do CRM. |
 | Grupos | `GROUPS_UPSERT`, `GROUP_UPDATE`, `GROUP_PARTICIPANTS_UPDATE` | Capturados; grupos continuam fora da criação automática de conversas de lead. |
 | Outros | `LABELS_EDIT`, `LABELS_ASSOCIATION`, `CALL`, `TYPEBOT_START`, `TYPEBOT_CHANGE_STATUS` e eventos desconhecidos | Capturados para diagnóstico; sem efeito no CRM/Inbox. |
 

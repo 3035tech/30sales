@@ -1,5 +1,6 @@
-import { forwardRef, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
+import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type FocusEvent, type FormEvent, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import * as RadixSelect from '@radix-ui/react-select'
+import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import './FormControls.css'
 
@@ -64,23 +65,78 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   </>
 })
 
-type SelectFieldProps = SelectHTMLAttributes<HTMLSelectElement> & { error?: string; hint?: string }
+type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'onBlur' | 'onInvalid' | 'value' | 'defaultValue'> & {
+  value?: string | number | null
+  defaultValue?: string | number
+  onChange?: SelectHTMLAttributes<HTMLSelectElement>['onChange']
+  onBlur?: SelectHTMLAttributes<HTMLSelectElement>['onBlur']
+  onInvalid?: SelectHTMLAttributes<HTMLSelectElement>['onInvalid']
+  error?: string
+  hint?: string
+}
 
-export const SelectField = forwardRef<HTMLSelectElement, SelectFieldProps>(function SelectField({ className = '', children, error, hint, onChange, onBlur, onInvalid, ...props }, ref) {
+const EMPTY_SELECT_VALUE = '__30sales_empty_option__'
+
+export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(function SelectField({ className = '', children, error, hint, onChange, onBlur, onInvalid, value, defaultValue, disabled, required, name, id, autoFocus, ...props }, ref) {
   const { t } = useTranslation()
   const generatedId = useId()
+  const selectId = id ?? generatedId
+  const nativeSelectRef = useRef<HTMLSelectElement>(null)
+  const [open, setOpen] = useState(false)
+  const [uncontrolledValue, setUncontrolledValue] = useState(String(defaultValue ?? ''))
   const [validationError, setValidationError] = useState('')
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${generatedId}-error` : undefined
   const hintId = hint ? `${generatedId}-hint` : undefined
   const describedBy = [props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined
-  const validate = (element: HTMLSelectElement) => {
-    element.setCustomValidity('')
-    const message = getValidationMessage(element, t)
-    element.setCustomValidity(message)
+  const options = Children.toArray(children).filter((child) => isValidElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>(child) && child.type === 'option').map((child) => {
+    const option = child as ReactElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>
+    return { value: String(option.props.value ?? option.props.children ?? ''), label: option.props.children, disabled: option.props.disabled ?? false }
+  })
+  const currentValue = value === undefined ? uncontrolledValue : String(value ?? '')
+  const selectedValue = currentValue === '' ? EMPTY_SELECT_VALUE : currentValue
+  const emptyOption = options.find((option) => option.value === '')
+  const validate = (nextValue: string) => {
+    if (nativeSelectRef.current) nativeSelectRef.current.value = nextValue
+    const message = required && nextValue === '' ? t('formControls.required') : ''
     setValidationError(message)
+    nativeSelectRef.current?.setCustomValidity(message)
   }
-  return <><select ref={ref} className={`ui-field-control ui-select ${className}`.trim()} {...props} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={describedBy} onChange={(event) => { validate(event.currentTarget); onChange?.(event) }} onBlur={(event) => { validate(event.currentTarget); onBlur?.(event) }} onInvalid={(event) => { validate(event.currentTarget); onInvalid?.(event) }}>{children}</select>{hint && <small id={hintId} className="ui-field-hint">{hint}</small>}{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
+  const changeValue = (nextSelectedValue: string) => {
+    const nextValue = nextSelectedValue === EMPTY_SELECT_VALUE ? '' : nextSelectedValue
+    if (value === undefined) setUncontrolledValue(nextValue)
+    validate(nextValue)
+    if (nativeSelectRef.current && onChange) {
+      const event = { target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as ChangeEvent<HTMLSelectElement>
+      onChange(event)
+    }
+  }
+  const handleBlur = () => {
+    if (!open) {
+      validate(currentValue)
+      if (nativeSelectRef.current && onBlur) onBlur({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as FocusEvent<HTMLSelectElement>)
+    }
+  }
+  return <div className="ui-select-field">
+    <RadixSelect.Root value={selectedValue} onValueChange={changeValue} open={open} onOpenChange={setOpen} disabled={disabled}>
+      <RadixSelect.Trigger ref={ref} id={selectId} className={`ui-field-control ui-select ui-select-trigger ${className}`.trim()} aria-label={props['aria-label']} aria-labelledby={props['aria-labelledby']} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={describedBy} aria-required={required || undefined} autoFocus={autoFocus} title={props.title} onBlur={handleBlur}>
+        <RadixSelect.Value placeholder={emptyOption?.label} />
+        <RadixSelect.Icon className="ui-select-icon"><ChevronDown size={16} aria-hidden="true" /></RadixSelect.Icon>
+      </RadixSelect.Trigger>
+      <RadixSelect.Portal><RadixSelect.Content className="ui-select-content" position="popper" side="bottom" sideOffset={4} avoidCollisions={false} align="start">
+        <RadixSelect.Viewport className="ui-select-viewport">{options.map((option, index) => {
+          const itemValue = option.value === '' ? EMPTY_SELECT_VALUE : option.value
+          return <RadixSelect.Item key={`${itemValue}-${index}`} className="ui-select-item" value={itemValue} disabled={option.disabled}>
+            <RadixSelect.ItemText>{option.label}</RadixSelect.ItemText>
+            <RadixSelect.ItemIndicator className="ui-select-item-indicator"><Check size={14} aria-hidden="true" /></RadixSelect.ItemIndicator>
+          </RadixSelect.Item>
+        })}</RadixSelect.Viewport>
+      </RadixSelect.Content></RadixSelect.Portal>
+    </RadixSelect.Root>
+    <select ref={nativeSelectRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" name={name} required={required} disabled={disabled} value={currentValue} onInvalid={(event) => { validate(event.currentTarget.value); event.preventDefault(); (document.getElementById(selectId) as HTMLButtonElement | null)?.focus(); if (nativeSelectRef.current) onInvalid?.({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as unknown as FormEvent<HTMLSelectElement>) }} onChange={() => undefined}>{children}</select>
+    {hint && <small id={hintId} className="ui-field-hint">{hint}</small>}
+    {visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}
+  </div>
 })
 
 export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement> & { error?: string; hint?: string }>(function TextareaField({ className = '', error, hint, onChange, onBlur, onInvalid, ...props }, ref) {

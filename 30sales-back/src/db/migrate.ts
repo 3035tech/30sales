@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { databaseConnectionString } from './connection-string';
 import { createDatabasePool } from './connection-pool';
 
@@ -18,7 +18,14 @@ async function runMigrations(): Promise<void> {
       'SELECT current_database() AS database, current_user AS role, current_schema() AS schema',
     ).then((result) => result.rows);
     process.stdout.write(`Running database migrations on ${database} as ${role} in schema ${schema}.\n`);
-    await migrate(drizzle(pool), { migrationsFolder: './drizzle' });
+    const db = drizzle(pool);
+    const migrationsFolder = './drizzle';
+    const migrations = readMigrationFiles({ migrationsFolder });
+
+    for (const migration of migrations) {
+      await db.dialect.migrate([migration], db.session, { migrationsFolder });
+    }
+
     process.stdout.write('Database migrations completed.\n');
   } finally {
     await pool.end();

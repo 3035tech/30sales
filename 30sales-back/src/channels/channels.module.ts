@@ -7,6 +7,7 @@ import { ChannelCredentialCryptoService } from './channel-credential-crypto.serv
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
+import { EvolutionConnectionProvider } from './evolution-connection.provider';
 
-@Module({ controllers: [ChannelsController], providers: [ChannelsService, ChannelsRepository, TenantAccessService, ChannelCredentialCryptoService, ChannelConnectionHealthProvider, EvolutionInstanceDiscoveryProvider, EvolutionWebhookConfigurationProvider], exports: [ChannelsService, ChannelCredentialCryptoService] })
+@Module({ controllers: [ChannelsController], providers: [ChannelsService, ChannelsRepository, TenantAccessService, ChannelCredentialCryptoService, ChannelConnectionHealthProvider, EvolutionInstanceDiscoveryProvider, EvolutionWebhookConfigurationProvider, EvolutionConnectionProvider], exports: [ChannelsService, ChannelCredentialCryptoService] })
 export class ChannelsModule {}

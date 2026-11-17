@@ -27,6 +27,9 @@ export class ChannelsController {
   @Post(':id/evolution-webhook/configure')
   @HttpCode(HttpStatus.OK)
   configureEvolutionWebhook(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.configureEvolutionWebhook(request, channelId); }
+  @Post(':id/evolution/connect')
+  @HttpCode(HttpStatus.OK)
+  connectEvolution(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.connectEvolution(request, channelId); }
   @Get(':id/events')
   listWebhookEvents(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Query(new ZodValidationPipe(channelWebhookEventsQuerySchema)) query: ChannelWebhookEventsQueryDto) { return this.channelsService.listWebhookEvents(request, channelId, query); }
 }

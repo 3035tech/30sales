@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type CreateChannelInput, channelHealthCheckSchema, channelSchema, channelWebhookEventsPageSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
+import { type CreateChannelInput, channelHealthCheckSchema, channelSchema, channelWebhookEventsPageSchema, evolutionConnectionSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
 
 
 export const channelsApi = {
@@ -11,5 +11,6 @@ export const channelsApi = {
     healthCheck: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/health-check`, channelHealthCheckSchema, { method: 'POST' }),
     discoverEvolutionInstances: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-instances`, evolutionInstanceListSchema),
     configureEvolutionWebhook: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-webhook/configure`, evolutionWebhookConfigurationSchema, { method: 'POST' }),
+    connectEvolution: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution/connect`, evolutionConnectionSchema, { method: 'POST' }),
     webhookEvents: (id: string, limit = 25, offset = 0) => request(`/api/v1/channels/${encodeURIComponent(id)}/events?${new URLSearchParams({ limit: String(limit), offset: String(offset) })}`, channelWebhookEventsPageSchema),
   };

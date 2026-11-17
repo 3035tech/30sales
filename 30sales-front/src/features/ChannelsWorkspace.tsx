@@ -1,6 +1,6 @@
 import { Button, IconButton, NumericField, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
-import { useEffect, useMemo, useState } from 'react'
-import { Activity, Check, Link2, Power, RefreshCw, Search, Settings2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Activity, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -9,6 +9,7 @@ import { api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type Chan
 import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
+type ChannelsView = 'channels' | 'monitoring'
 const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 function WhatsAppMark({ size = 18 }: { size?: number }) {
@@ -35,6 +36,11 @@ export function ChannelsWorkspace() {
   const [discovery, setDiscovery] = useState<EvolutionInstanceListDto | null>(null)
   const [discoveryLoading, setDiscoveryLoading] = useState(false)
   const [discoveryError, setDiscoveryError] = useState(false)
+  const [connectionChannel, setConnectionChannel] = useState<ChannelDto | null>(null)
+  const [connectionResult, setConnectionResult] = useState<Awaited<ReturnType<typeof api.channels.connectEvolution>> | null>(null)
+  const [connectionLoading, setConnectionLoading] = useState(false)
+  const [connectionError, setConnectionError] = useState(false)
+  const pairingRequestId = useRef(0)
   const [credentialsChannelId, setCredentialsChannelId] = useState('')
   const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
   const [evolutionApiKey, setEvolutionApiKey] = useState('')
@@ -56,6 +62,7 @@ export function ChannelsWorkspace() {
   const [webhookEventsLimit, setWebhookEventsLimit] = useState(25)
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
+  const [viewMode, setViewMode] = useState<ChannelsView>('channels')
 
   const clearCredentialForm = () => {
     setCredentialsChannelId('')
@@ -77,6 +84,12 @@ export function ChannelsWorkspace() {
     api.channels.list().then((result) => { if (active) setChannels(result) }).catch(() => { if (active) setError(t('channels.loadFailed')) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [refresh, t])
+
+  useEffect(() => {
+    if (viewMode !== 'monitoring') return
+    const timer = window.setInterval(() => setRefresh((version) => version + 1), 30_000)
+    return () => window.clearInterval(timer)
+  }, [viewMode])
 
   useEffect(() => {
     if (!eventsChannel) return
@@ -162,6 +175,7 @@ export function ChannelsWorkspace() {
     try {
       const result = await api.channels.healthCheck(channelId)
       setHealthChecks((current) => ({ ...current, [channelId]: result }))
+      setRefresh((version) => version + 1)
     } catch {
       setHealthCheckErrors((current) => ({ ...current, [channelId]: true }))
     } finally {
@@ -182,6 +196,32 @@ export function ChannelsWorkspace() {
     }
   }
 
+  const requestEvolutionConnection = async (channel: ChannelDto) => {
+    const requestId = pairingRequestId.current + 1
+    pairingRequestId.current = requestId
+    setConnectionChannel(channel); setConnectionResult(null); setConnectionError(false); setConnectionLoading(true)
+    try {
+      const result = await api.channels.connectEvolution(channel.id)
+      if (pairingRequestId.current === requestId) { setConnectionResult(result); setRefresh((version) => version + 1) }
+    } catch {
+      if (pairingRequestId.current === requestId) setConnectionError(true)
+    } finally {
+      if (pairingRequestId.current === requestId) setConnectionLoading(false)
+    }
+  }
+
+  const refreshAllConnections = async () => {
+    const eligibleChannels = channels.filter((channel) => channel.provider === 'evolution' && channel.isActive && channel.isConfigured)
+    await Promise.all(eligibleChannels.map((channel) => checkConnection(channel.id)))
+  }
+
+  const monitoringChannels = channels.filter((channel) => channel.provider === 'evolution')
+  const monitoringCounts = monitoringChannels.reduce((counts, channel) => {
+    const status = channel.connectionStatus ?? CHANNEL_CONNECTION_STATUS.unknown
+    counts[status] += 1
+    return counts
+  }, { connected: 0, connecting: 0, disconnected: 0, unknown: 0 })
+
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><WhatsAppMark size={19} /><strong>{channel.displayName}</strong></div> },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => <span className="channel-provider-cell"><WhatsAppMark size={16} />{t(`channels.providers.${channel.provider}`)}</span> },
@@ -195,17 +235,45 @@ export function ChannelsWorkspace() {
       const configuringWebhook = configuringWebhookIds.includes(channel.id)
       const webhookDate = webhookConfiguredAt[channel.id] ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(webhookConfiguredAt[channel.id])) : ''
       const connectionDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : ''
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span>{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span>{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">
     <header className="channels-heading"><div><p className="eyebrow">{t('channels.eyebrow')}</p><h2>{t('channels.title')}</h2><p className="muted">{t('channels.description')}</p></div><Button className="refresh" type="button" onClick={() => setRefresh((version) => version + 1)} aria-label={t('channels.refresh')}><RefreshCw size={16} /></Button></header>
+    <div className="channels-view-tabs" role="tablist" aria-label={t('channels.title')}>
+      <Button type="button" role="tab" aria-selected={viewMode === 'channels'} onClick={() => setViewMode('channels')}>{t('channels.channelsTab')}</Button>
+      <Button type="button" role="tab" aria-selected={viewMode === 'monitoring'} onClick={() => setViewMode('monitoring')}>{t('channels.monitoringTab')}</Button>
+    </div>
+    {viewMode === 'monitoring' && <section className="channels-monitoring" aria-label={t('channels.monitoringTab')}>
+      <header><div><h3>{t('channels.monitoringTab')}</h3><p>{t('channels.monitoringDescription')}</p></div><Button type="button" disabled={loading || checkingChannelIds.length > 0} onClick={() => void refreshAllConnections()}><RefreshCw size={15} />{checkingChannelIds.length > 0 ? t('channels.monitoringChecking') : t('channels.monitoringRefreshAll')}</Button></header>
+      <div className="channels-monitoring-counts">{(['connected', 'connecting', 'disconnected', 'unknown'] as const).map((status) => <article key={status} className={`is-${status}`}><small>{t(`channels.monitoringCounts.${status}`)}</small><strong>{monitoringCounts[status]}</strong></article>)}</div>
+      {loading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
+      {!loading && error && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+      {!loading && monitoringChannels.length === 0 && <WorkspaceState kind="empty" compact message={t('channels.monitoringEmpty')} />}
+      <div className="channels-monitoring-list">{monitoringChannels.map((channel) => {
+        const status = channel.connectionStatus ?? CHANNEL_CONNECTION_STATUS.unknown
+        const checkedAt = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : null
+        const stale = channel.connectionUpdatedAt !== null && Date.now() - new Date(channel.connectionUpdatedAt).getTime() > 5 * 60_000
+        const checking = checkingChannelIds.includes(channel.id)
+        return <article key={channel.id} className={`channels-monitoring-card is-${status}`}>
+          <div className="channels-monitoring-identity"><WhatsAppMark size={20} /><div><strong>{channel.displayName}</strong><span>{channel.phoneNumber} · {channel.providerChannelId}</span></div></div>
+          <span className={`channel-status ${status === CHANNEL_CONNECTION_STATUS.connected ? 'active' : 'error'}`}>{t(`channels.connection.${status}`)}</span>
+          <small className={stale ? 'is-stale' : ''}>{checkedAt ? t(stale ? 'channels.monitoringStale' : 'channels.monitoringLastSignal', { date: checkedAt }) : t('channels.monitoringNeverSeen')}</small>
+          <Button type="button" disabled={checking || !channel.isActive || !channel.isConfigured} onClick={() => void checkConnection(channel.id)}><RefreshCw size={14} />{checking ? t('channels.checkingConnection') : t('channels.checkProvider')}</Button>
+        </article>
+      })}</div>
+    </section>}
     <Modal open={quotaChannel !== null} onOpenChange={(open) => { if (!open) { setQuotaChannel(null); setQuotaLimit(null) } }} title={t('channels.quotaTitle', { name: quotaChannel?.displayName ?? '' })} description={t('channels.quotaDescription', { timeZone: quotaChannel?.dailyLimitTimeZone ?? '' })} closeLabel={t('common.close')} className="channel-quota-modal">
       <form className="channel-quota-form" onSubmit={(event) => void saveQuota(event)}>
         <p>{t('channels.quotaCurrentUsage', { used: quotaChannel?.dailyMessageCount ?? 0, limit: quotaChannel?.dailyMessageLimit ?? 0 })}</p>
         <label>{t('channels.quotaLimit')}<NumericField mode="integer" min={1} max={5000} value={quotaLimit} onValueChange={setQuotaLimit} required /></label>
         <Button type="submit" variant="primary" disabled={savingQuota || quotaLimit === null}>{savingQuota ? t('common.saving') : t('channels.saveQuota')}</Button>
       </form>
+    </Modal>
+    <Modal open={connectionChannel !== null} onOpenChange={(open) => { if (!open) { pairingRequestId.current += 1; setConnectionChannel(null); setConnectionResult(null); setConnectionError(false); setConnectionLoading(false) } }} title={t('channels.pairingTitle', { name: connectionChannel?.displayName ?? '' })} description={t('channels.pairingDescription')} closeLabel={t('common.close')} className="channel-pairing-modal">
+      {connectionLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
+      {connectionError && <WorkspaceState kind="error" compact message={t('channels.pairingFailed')} />}
+      {connectionResult && <div className="channel-pairing-content"><p role="status">{t(`channels.connection.${connectionResult.status}`)}</p>{connectionResult.qrDataUrl ? <img src={connectionResult.qrDataUrl} alt={t('channels.pairingQrAlt')} /> : <WorkspaceState kind="empty" compact message={t(connectionResult.status === CHANNEL_CONNECTION_STATUS.connected ? 'channels.pairingAlreadyConnected' : 'channels.pairingQrUnavailable')} />}{!connectionResult.webhookConfigured && <WorkspaceState kind="error" compact message={t('channels.pairingWebhookFailed')} />}<Button type="button" disabled={connectionLoading || connectionResult.status === CHANNEL_CONNECTION_STATUS.connected} onClick={() => connectionChannel && void requestEvolutionConnection(connectionChannel)}><RefreshCw size={15} />{t('channels.refreshPairingQr')}</Button></div>}
     </Modal>
     <Modal open={discoveryChannel !== null} onOpenChange={(open) => { if (!open) { setDiscoveryChannel(null); setDiscovery(null); setDiscoveryError(false) } }} title={t('channels.discoveryTitle', { name: discoveryChannel?.displayName ?? '' })} description={t('channels.discoveryDescription')} closeLabel={t('common.close')} className="channel-discovery-modal">
       {discoveryLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : discoveryError ? <WorkspaceState kind="error" compact message={t('channels.discoveryFailed')} /> : <div className="channel-discovery-list">
@@ -230,7 +298,7 @@ export function ChannelsWorkspace() {
       </article>)}</div> : null}
       {webhookEvents && webhookEvents.pagination.total > 0 && <div className="channel-events-pagination"><span>{t('table.range', { from: webhookEvents.pagination.offset + 1, to: webhookEvents.pagination.offset + webhookEvents.data.length, total: webhookEvents.pagination.total })}</span><label>{t('table.rowsPerPage')}<SelectField value={webhookEventsLimit} disabled={webhookEventsLoading} onChange={(event) => { setWebhookEventsLimit(Number(event.target.value)); setWebhookEventsOffset(0) }} aria-label={t('table.rowsPerPage')}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</SelectField></label><div><Button type="button" disabled={webhookEventsLoading || webhookEventsOffset === 0} onClick={() => setWebhookEventsOffset((value) => Math.max(0, value - webhookEventsLimit))}>{t('table.previous')}</Button><Button type="button" disabled={webhookEventsLoading || !webhookEvents.pagination.hasNextPage} onClick={() => setWebhookEventsOffset((value) => value + webhookEventsLimit)}>{t('table.next')}</Button></div></div>}
     </Modal>
-    <form className="channel-form" onSubmit={createChannel}>
+    {viewMode === 'channels' && <form className="channel-form" onSubmit={createChannel}>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.addTitle')}</strong><small>{t('channels.addHint')}</small></div></div>
       <div className="channel-form-grid">
         <label>{t('channels.provider')}<SelectField value={form.provider} onChange={(event) => updateProvider(event.target.value)}><option value="evolution">{t('channels.providers.evolution')}</option><option value="whatsapp_cloud_api">{t('channels.providers.whatsapp_cloud_api')}</option></SelectField></label>
@@ -240,15 +308,15 @@ export function ChannelsWorkspace() {
         {form.provider === 'whatsapp_cloud_api' && <label>{t('channels.businessAccount')}<TextField value={form.providerAccountId ?? ''} onChange={(event) => setForm((current) => ({ ...current, providerAccountId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>}
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><Button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.add')}</>}</Button></div>
-    </form>
-    {credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
+    </form>}
+    {viewMode === 'channels' && credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
       <div className="channel-form-grid">
         {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<TextField value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<TextField value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" maxLength={500} required /></label><label>{t('inboxComposer.evolutionWebhookSecret')}<TextField value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><Button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</Button><Button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t('channels.saveCredentials')}</Button></div>
     </form> : null })()}
-    {error && rows.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
-    <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} emptyStateKind={error ? 'error' : 'empty'} filters={<label className="channel-search"><Search size={15} /><TextField value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />
+    {viewMode === 'channels' && error && rows.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
+    {viewMode === 'channels' && <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} emptyStateKind={error ? 'error' : 'empty'} filters={<label className="channel-search"><Search size={15} /><TextField value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />}
   </section>
 }

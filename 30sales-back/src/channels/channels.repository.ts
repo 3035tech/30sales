@@ -83,6 +83,16 @@ export class ChannelsRepository {
     });
   }
 
+  async auditEvolutionConnectionRequested(organizationId: string, channelId: string, actorUserId: string, status: string, requestedAt: Date, correlationId: string | null): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [channel] = await transaction.select({ id: messagingChannels.id }).from(messagingChannels)
+        .where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.provider, CHANNEL_PROVIDER.evolution))).limit(1);
+      if (!channel) return false;
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: 'user', action: CHANNEL_AUDIT_ACTION.evolutionConnectionRequested, entityType: 'messaging_channel', entityId: channel.id, correlationId, afterState: { status, requestedAt: requestedAt.toISOString() } });
+      return true;
+    });
+  }
+
   async setEvolutionConnectionStatus(input: ChannelConnectionStatusUpdateDto): Promise<boolean> {
     return database.transaction(async (transaction) => {
       const [channel] = await transaction.select({ id: messagingChannels.id, connectionStatus: messagingChannels.connectionStatus }).from(messagingChannels)

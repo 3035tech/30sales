@@ -29,6 +29,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   const { t } = useTranslation()
   const generatedId = useId()
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${generatedId}-error` : undefined
   const hintId = hint ? `${generatedId}-hint` : undefined
@@ -41,22 +42,24 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
       }
     }
     event.currentTarget.setCustomValidity('')
-    const message = getValidationMessage(event.currentTarget, t)
+    const message = getValidationMessage(event.currentTarget, t, submitAttempted)
     event.currentTarget.setCustomValidity(message)
     setValidationError(message)
     onChange?.(event)
   }
   const handleBlur: TextFieldProps['onBlur'] = (event) => {
     event.currentTarget.setCustomValidity('')
-    const message = getValidationMessage(event.currentTarget, t)
+    const message = getValidationMessage(event.currentTarget, t, submitAttempted)
     event.currentTarget.setCustomValidity(message)
     setValidationError(message)
     onBlur?.(event)
   }
   const handleInvalid: TextFieldProps['onInvalid'] = (event) => {
+    setSubmitAttempted(true)
     const message = getValidationMessage(event.currentTarget, t)
     event.currentTarget.setCustomValidity(message)
     setValidationError(message)
+    event.preventDefault()
     onInvalid?.(event)
   }
   return <>
@@ -86,6 +89,7 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
   const [open, setOpen] = useState(false)
   const [uncontrolledValue, setUncontrolledValue] = useState(String(defaultValue ?? ''))
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${generatedId}-error` : undefined
   const hintId = hint ? `${generatedId}-hint` : undefined
@@ -97,9 +101,9 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
   const currentValue = value === undefined ? uncontrolledValue : String(value ?? '')
   const selectedValue = currentValue === '' ? EMPTY_SELECT_VALUE : currentValue
   const emptyOption = options.find((option) => option.value === '')
-  const validate = (nextValue: string) => {
+  const validate = (nextValue: string, includeRequired = submitAttempted) => {
     if (nativeSelectRef.current) nativeSelectRef.current.value = nextValue
-    const message = required && nextValue === '' ? t('formControls.required') : ''
+    const message = includeRequired && required && nextValue === '' ? t('formControls.required') : ''
     setValidationError(message)
     nativeSelectRef.current?.setCustomValidity(message)
   }
@@ -134,7 +138,7 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
         })}</RadixSelect.Viewport>
       </RadixSelect.Content></RadixSelect.Portal>
     </RadixSelect.Root>
-    <select ref={nativeSelectRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" name={name} required={required} disabled={disabled} value={currentValue} onInvalid={(event) => { validate(event.currentTarget.value); event.preventDefault(); (document.getElementById(selectId) as HTMLButtonElement | null)?.focus(); if (nativeSelectRef.current) onInvalid?.({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as unknown as FormEvent<HTMLSelectElement>) }} onChange={() => undefined}>{children}</select>
+    <select ref={nativeSelectRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" name={name} required={required} disabled={disabled} value={currentValue} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget.value, true); event.preventDefault(); (document.getElementById(selectId) as HTMLButtonElement | null)?.focus(); if (nativeSelectRef.current) onInvalid?.({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as unknown as FormEvent<HTMLSelectElement>) }} onChange={() => undefined}>{children}</select>
     {hint && <small id={hintId} className="ui-field-hint">{hint}</small>}
     {visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}
   </div>
@@ -144,17 +148,18 @@ export const TextareaField = forwardRef<HTMLTextAreaElement, TextareaHTMLAttribu
   const { t } = useTranslation()
   const generatedId = useId()
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${generatedId}-error` : undefined
   const hintId = hint ? `${generatedId}-hint` : undefined
   const describedBy = [props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined
-  const validate = (element: HTMLTextAreaElement) => {
+  const validate = (element: HTMLTextAreaElement, includeRequired = submitAttempted) => {
     element.setCustomValidity('')
-    const message = getValidationMessage(element, t)
+    const message = getValidationMessage(element, t, includeRequired || !element.required)
     element.setCustomValidity(message)
     setValidationError(message)
   }
-  return <><textarea {...props} ref={ref} className={`ui-field-control ui-textarea ${className}`.trim()} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={describedBy} onChange={(event) => { validate(event.currentTarget); onChange?.(event) }} onBlur={(event) => { validate(event.currentTarget); onBlur?.(event) }} onInvalid={(event) => { validate(event.currentTarget); onInvalid?.(event) }} />{hint && <small id={hintId} className="ui-field-hint">{hint}</small>}{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
+  return <><textarea {...props} ref={ref} className={`ui-field-control ui-textarea ${className}`.trim()} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={describedBy} onChange={(event) => { validate(event.currentTarget); onChange?.(event) }} onBlur={(event) => { validate(event.currentTarget); onBlur?.(event) }} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget, true); event.preventDefault(); onInvalid?.(event) }} />{hint && <small id={hintId} className="ui-field-hint">{hint}</small>}{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
 })
 
 export const CheckboxField = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>>(function CheckboxField({ className = '', ...props }, ref) {
@@ -163,15 +168,16 @@ export const CheckboxField = forwardRef<HTMLInputElement, Omit<InputHTMLAttribut
 
 type PhoneFieldProps = Omit<TextFieldProps, 'type' | 'value' | 'onChange'> & { value: string; onValueChange: (value: string) => void; requireInternational?: boolean }
 
-export function PhoneField({ value, onValueChange, requireInternational = false, className = '', onFocus, onBlur, error, hint, ...props }: PhoneFieldProps) {
+export function PhoneField({ value, onValueChange, requireInternational = false, className = '', onFocus, onBlur, onInvalid, error, hint, ...props }: PhoneFieldProps) {
   const { t } = useTranslation()
   const inputId = useId()
   const [draft, setDraft] = useState(() => formatPhoneDisplay(value))
   const [touched, setTouched] = useState(false)
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const phoneIsInvalid = Boolean(value && requireInternational && !/^\+[1-9]\d{7,14}$/.test(value))
   useEffect(() => { if (document.activeElement !== inputRef.current) setDraft(formatPhoneDisplay(value)) }, [value])
-  const visibleError = error ?? (touched && props.required && !value ? t('formControls.required') : touched && phoneIsInvalid ? t('formControls.invalidPhone') : undefined)
+  const visibleError = error ?? (submitAttempted && props.required && !value ? t('formControls.required') : touched && phoneIsInvalid ? t('formControls.invalidPhone') : undefined)
   const hintId = hint ? `${inputId}-hint` : undefined
   const describedBy = [props['aria-describedby'], hintId, visibleError ? `${inputId}-error` : undefined].filter(Boolean).join(' ') || undefined
   return <><input {...props} ref={inputRef} type="tel" inputMode="tel" value={draft} className={`ui-field-control ui-text-field ${className}`.trim()} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={describedBy} onFocus={(event) => { onFocus?.(event); setDraft(formatPhoneDisplay(value)) }} onChange={(event) => {
@@ -197,9 +203,9 @@ export function PhoneField({ value, onValueChange, requireInternational = false,
       }
       input.setSelectionRange(nextCursor, nextCursor)
     })
-    const message = !canonical && props.required ? t('formControls.required') : canonical && requireInternational && !/^\+[1-9]\d{7,14}$/.test(canonical) ? t('formControls.invalidPhone') : ''
+    const message = !canonical && props.required && submitAttempted ? t('formControls.required') : canonical && requireInternational && !/^\+[1-9]\d{7,14}$/.test(canonical) ? t('formControls.invalidPhone') : ''
     event.currentTarget.setCustomValidity(message)
-  }} onBlur={(event) => { setTouched(true); setDraft(formatPhoneDisplay(value)); const message = !value && props.required ? t('formControls.required') : value && requireInternational && !/^\+[1-9]\d{7,14}$/.test(value) ? t('formControls.invalidPhone') : ''; event.currentTarget.setCustomValidity(message); onBlur?.(event) }} />{hint && <small id={hintId} className="ui-field-hint">{hint}</small>}{visibleError && <small id={`${inputId}-error`} className="ui-field-error" role="alert">{visibleError}</small>}</>
+  }} onBlur={(event) => { setTouched(true); setDraft(formatPhoneDisplay(value)); const message = !value && props.required && submitAttempted ? t('formControls.required') : value && requireInternational && !/^\+[1-9]\d{7,14}$/.test(value) ? t('formControls.invalidPhone') : ''; event.currentTarget.setCustomValidity(message); onBlur?.(event) }} onInvalid={(event) => { setTouched(true); setSubmitAttempted(true); const message = !value && props.required ? t('formControls.required') : phoneIsInvalid ? t('formControls.invalidPhone') : ''; event.currentTarget.setCustomValidity(message); event.preventDefault(); onInvalid?.(event) }} />{hint && <small id={hintId} className="ui-field-hint">{hint}</small>}{visibleError && <small id={`${inputId}-error`} className="ui-field-error" role="alert">{visibleError}</small>}</>
 }
 
 function formatPhoneDisplay(value: string) {
@@ -231,6 +237,7 @@ export function NumericField({ value, onValueChange, mode, min, max, step, class
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(() => formatNumeric(value, mode, i18n.language))
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${inputId}-error` : undefined
   useEffect(() => {
@@ -241,7 +248,7 @@ export function NumericField({ value, onValueChange, mode, min, max, step, class
     const next = mode === 'integer' ? raw.replace(/\D/g, '') : normalizeDecimalDraft(raw, precision, i18n.language)
     setDraft(mode === 'decimal' && i18n.language.startsWith('pt') ? next.replace('.', ',') : next)
     if (!next || next === ',' || next === '.') {
-      const message = props.required ? t('formControls.required') : ''
+      const message = props.required && submitAttempted ? t('formControls.required') : ''
       inputRef.current?.setCustomValidity(message)
       setValidationError(message)
       onValueChange(null)
@@ -255,13 +262,13 @@ export function NumericField({ value, onValueChange, mode, min, max, step, class
       if (Number.isFinite(parsed)) onValueChange(mode === 'integer' ? Math.trunc(parsed) : parsed)
     }
   }
-  const validate = (field: HTMLInputElement) => {
+  const validate = (field: HTMLInputElement, includeRequired = submitAttempted) => {
     const rangeMessage = value === null ? '' : numericRangeMessage(value, min, max, t)
-    const message = rangeMessage || (props.required && value === null ? t('formControls.required') : '')
+    const message = rangeMessage || (includeRequired && props.required && value === null ? t('formControls.required') : '')
     field.setCustomValidity(message)
     setValidationError(message)
   }
-  return <><input {...props} ref={inputRef} type="text" inputMode={mode === 'integer' ? 'numeric' : 'decimal'} pattern={mode === 'integer' ? '[0-9]*' : '[0-9]*([.,][0-9]*)?'} value={draft} className={`ui-field-control ui-text-field ui-numeric-field ${className}`.trim()} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={[props['aria-describedby'], errorId].filter(Boolean).join(' ') || undefined} onChange={(event) => change(event.target.value)} onBlur={(event) => { validate(event.currentTarget); setDraft(formatNumeric(value, mode, i18n.language)); onBlur?.(event) }} onInvalid={(event) => { validate(event.currentTarget); props.onInvalid?.(event) }} />{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
+  return <><input {...props} ref={inputRef} type="text" inputMode={mode === 'integer' ? 'numeric' : 'decimal'} pattern={mode === 'integer' ? '[0-9]*' : '[0-9]*([.,][0-9]*)?'} value={draft} className={`ui-field-control ui-text-field ui-numeric-field ${className}`.trim()} aria-invalid={visibleError ? true : props['aria-invalid']} aria-describedby={[props['aria-describedby'], errorId].filter(Boolean).join(' ') || undefined} onChange={(event) => change(event.target.value)} onBlur={(event) => { validate(event.currentTarget); setDraft(formatNumeric(value, mode, i18n.language)); onBlur?.(event) }} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget, true); event.preventDefault(); props.onInvalid?.(event) }} />{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
 }
 
 type CurrencyFieldProps = Omit<NumericFieldProps, 'mode' | 'step'> & { currency: string }
@@ -272,17 +279,18 @@ export function CurrencyField({ value, onValueChange, currency, min, max, classN
   const inputRef = useRef<HTMLInputElement>(null)
   const [draft, setDraft] = useState(() => formatCurrency(value, currency, i18n.language))
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const { error, onBlur, onFocus, onInvalid, ...inputProps } = props
   const visibleError = error ?? validationError
   const errorId = visibleError ? `${inputId}-error` : undefined
   useEffect(() => { if (document.activeElement !== inputRef.current) setDraft(formatCurrency(value, currency, i18n.language)) }, [currency, i18n.language, value])
-  const validate = (field: HTMLInputElement) => {
+  const validate = (field: HTMLInputElement, includeRequired = submitAttempted) => {
     const rangeMessage = value === null ? '' : numericRangeMessage(value, min, max, t)
-    const message = rangeMessage || (props.required && value === null ? t('formControls.required') : '')
+    const message = rangeMessage || (includeRequired && props.required && value === null ? t('formControls.required') : '')
     field.setCustomValidity(message)
     setValidationError(message)
   }
-  return <><input {...inputProps} ref={inputRef} type="text" inputMode="decimal" value={draft} className={`ui-field-control ui-text-field ui-numeric-field ${className}`.trim()} aria-invalid={visibleError ? true : inputProps['aria-invalid']} aria-describedby={[inputProps['aria-describedby'], errorId].filter(Boolean).join(' ') || undefined} onFocus={(event) => { onFocus?.(event); setDraft(formatNumeric(value, 'decimal', i18n.language)) }} onChange={(event) => { const next = normalizeDecimalDraft(event.target.value, 2, i18n.language); const localized = next.replace('.', i18n.language.startsWith('pt') ? ',' : '.'); setDraft(localized); const parsed = Number(next); const numeric = next ? Number.isFinite(parsed) ? parsed : null : null; const rangeMessage = numeric === null ? '' : numericRangeMessage(numeric, min, max, t); const message = rangeMessage || (inputProps.required && numeric === null ? t('formControls.required') : ''); inputRef.current?.setCustomValidity(message); setValidationError(message); onValueChange(numeric) }} onBlur={(event) => { validate(event.currentTarget); setDraft(formatCurrency(value, currency, i18n.language)); onBlur?.(event) }} onInvalid={(event) => { validate(event.currentTarget); onInvalid?.(event) }} />{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
+  return <><input {...inputProps} ref={inputRef} type="text" inputMode="decimal" value={draft} className={`ui-field-control ui-text-field ui-numeric-field ${className}`.trim()} aria-invalid={visibleError ? true : inputProps['aria-invalid']} aria-describedby={[inputProps['aria-describedby'], errorId].filter(Boolean).join(' ') || undefined} onFocus={(event) => { onFocus?.(event); setDraft(formatNumeric(value, 'decimal', i18n.language)) }} onChange={(event) => { const next = normalizeDecimalDraft(event.target.value, 2, i18n.language); const localized = next.replace('.', i18n.language.startsWith('pt') ? ',' : '.'); setDraft(localized); const parsed = Number(next); const numeric = next ? Number.isFinite(parsed) ? parsed : null : null; const rangeMessage = numeric === null ? '' : numericRangeMessage(numeric, min, max, t); const message = rangeMessage || (inputProps.required && numeric === null && submitAttempted ? t('formControls.required') : ''); inputRef.current?.setCustomValidity(message); setValidationError(message); onValueChange(numeric) }} onBlur={(event) => { validate(event.currentTarget); setDraft(formatCurrency(value, currency, i18n.language)); onBlur?.(event) }} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget, true); event.preventDefault(); onInvalid?.(event) }} />{visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}</>
 }
 
 function formatCurrency(value: number | null, currency: string, language: string) {
@@ -318,8 +326,8 @@ function numericRangeMessage(value: number, min: number | undefined, max: number
   return ''
 }
 
-function getValidationMessage(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, translate: ReturnType<typeof useTranslation>['t']) {
-  if (field.validity.valueMissing) return translate('formControls.required')
+function getValidationMessage(field: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement, translate: ReturnType<typeof useTranslation>['t'], includeRequired = true) {
+  if (includeRequired && field.validity.valueMissing) return translate('formControls.required')
   if (field.validity.typeMismatch) return translate(field instanceof HTMLInputElement && field.type === 'email' ? 'formControls.invalidEmail' : 'formControls.invalidFormat')
   if (field.validity.patternMismatch) return translate('formControls.invalidFormat')
   if (field.validity.tooShort) return translate('formControls.minimumLength', { count: 'minLength' in field ? field.minLength : 0 })
@@ -345,6 +353,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   const [open, setOpen] = useState(false)
   const [month, setMonth] = useState(() => parseCalendarValue(value) ?? new Date())
   const [validationError, setValidationError] = useState('')
+  const [submitAttempted, setSubmitAttempted] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
   const selectedDate = parseCalendarValue(value)
@@ -355,10 +364,10 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   const valueIsComplete = mode === 'date' ? isValidDateValue(value) : isValidDateTimeValue(value)
   const visibleError = error ?? (validationError || (dateIsOutsideBounds ? t('formControls.dateOutOfRange') : undefined))
   useEffect(() => {
-    const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : required && !valueIsComplete ? t('formControls.required') : ''
+    const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : required && !valueIsComplete && submitAttempted ? t('formControls.required') : ''
     hiddenInputRef.current?.setCustomValidity(message)
     if (!message) setValidationError('')
-  }, [dateIsOutsideBounds, required, t, valueIsComplete])
+  }, [dateIsOutsideBounds, required, submitAttempted, t, valueIsComplete])
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
@@ -404,7 +413,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
       {mode === 'datetime-local' && <label className="ui-calendar-time">{t('formControls.time')}<input className="ui-time-input" type="time" value={timeValue} onChange={(event) => updateTime(event.target.value)} /></label>}
       <div className="ui-calendar-actions"><button type="button" onClick={() => { onValueChange(''); setValidationError(''); setOpen(false) }} disabled={required}>{t('formControls.clear')}</button><button type="button" onClick={() => { chooseDay(new Date()); if (mode === 'date') setOpen(false) }}>{t('formControls.today')}</button></div>
     </div>}
-    <input ref={hiddenInputRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" type="text" value={valueIsComplete ? 'selected' : ''} required={required} readOnly onInvalid={(event) => { const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : t('formControls.required'); event.preventDefault(); event.currentTarget.setCustomValidity(message); setValidationError(message); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() }} />
+    <input ref={hiddenInputRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" type="text" value={valueIsComplete ? 'selected' : ''} required={required} onChange={() => undefined} onInvalid={(event) => { setSubmitAttempted(true); const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : t('formControls.required'); event.preventDefault(); event.currentTarget.setCustomValidity(message); setValidationError(message); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() }} />
     {visibleError && <small id={`${id}-error`} className="ui-field-error" role="alert">{visibleError}</small>}
   </div>
 }

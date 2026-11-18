@@ -55,6 +55,7 @@ Estas instruções se aplicam aos projetos frontend e backend. O 30Sales é SaaS
 
 - Interface pt-BR e en desde a primeira funcionalidade. Usar catálogo i18n; strings, erros e validações de usuário não ficam hardcoded em componentes/serviços.
 - Reutilizar design tokens e componentes acessíveis. Usar Radix primitives embrulhadas em componentes próprios e Lucide para ícones quando necessário. Não espalhar controles não estilizados nem duplicar componentes.
+- Em todo formulário novo ou alterado, erros de campos obrigatórios aparecem após a primeira tentativa de envio; erros de formato ou faixa aparecem após interação/blur. Corrigir o campo limpa o erro, mensagens ficam fora do input e associadas com `aria-describedby`, e a validação não deve causar deslocamentos inesperados no layout. Reutilizar os controles compartilhados de `FormControls`.
 - Acessibilidade por teclado, foco visível, labels, contraste, leitores de tela, responsividade e `prefers-reduced-motion`. Implementar carregamento, vazio, erro, sucesso e dado desatualizado.
 - Toda requisição HTTP do frontend, incluindo autenticação Better Auth, passa pelo único client `30sales-front/src/lib/api/client.ts`; componentes/features não usam `fetch`, `axios` ou `authClient` diretamente. O client centraliza credentials, erros, correlation ID, contratos e métodos por domínio.
 - O frontend nunca calcula autorização como fonte da verdade. API é sempre revalidada; estado otimista não pode afirmar que ação externa foi concluída.

@@ -464,3 +464,9 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - `git diff --check` passou. Build/testes locais não foram executados; a CI de produção comprovou a compilação e publicação. Migration `0056` continua não aplicada; sem deploy ou teste real de WhatsApp nesta etapa.
 - Commit `c65f476` ampliou o alerta de falha de entrega: owner ainda membro recebe o alerta; sem owner válido, o fallback tenant-scoped avisa papéis de atendimento, com idempotência por mensagem/destinatário. Backend CI run `44277191439` passou e publicou a imagem.
 - Commit `e299604` alinhou o backlog ao comportamento atual. `main` está limpa e atualizada em `origin/main`; imagens frontend/backend publicadas. Próximos gates continuam migration `0056`, configuração operacional e validação ponta a ponta do número de teste; deploy/Argo não executados.
+
+### Validação consistente dos formulários — 18/11/2026
+
+- Regra permanente registrada em `AGENTS.md`: erros de obrigatoriedade aparecem após a primeira tentativa de envio; erros de formato/faixa aparecem após interação/blur; corrigir limpa o erro; mensagem fica fora do input, ligada por `aria-describedby`, sem deslocamentos inesperados.
+- Controles compartilhados de texto, telefone, textarea, select, número, moeda e calendário seguem a regra e bloqueiam o popup nativo em favor de mensagens inline acessíveis. Cadastro de canais marca campos obrigatórios com asterisco discreto.
+- Nenhum build/teste rodado conforme preferência. `git diff --check` passou. Alteração ainda local, sem commit ou publicação.

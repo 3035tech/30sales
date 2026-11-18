@@ -15,9 +15,11 @@
 - `435a5bb` concluiu a união Zod discriminada das ações do closer, removendo `!` no service/repository e mantendo payloads estritos.
 - `ab1d1c1` processa eventos de SLA sob `SKIP LOCKED` e agrupa leitura de memberships, inserção de notificações em lotes de até 500, atualização de eventos e auditoria; a contagem de escalonamentos continua baseada nos inserts efetivamente criados.
 - `820fa81` extraiu ações da fila do closer para componente tipado, capturando o evento opcional uma vez e removendo assertions dos handlers.
-- Fatia em andamento: seletor de leads da criação de handoff distingue loading, erro de carregamento e lista vazia; erro e vazio localizados em pt-BR/en e submissão permanece bloqueada sem opções. `git diff --check` passou; build/testes não autorizados.
+- `c7658d3` concluiu o seletor de leads da criação de handoff: loading, erro e lista vazia são estados distintos e localizados em pt-BR/en; submissão fica bloqueada sem opções.
+- A revisão de `TenantAccessService` removeu casts de arrays de permissões por meio de um helper genérico que mantém os literais de tipo. A revisão estática dos índices não encontrou evidência suficiente para adicionar índices sem medir consultas reais.
+- Auditoria estática recente: não encontrei outros `catch` totalmente silenciosos nas áreas revistas; Pipeline, Contas, Closer e Handoffs distinguem falha de lista vazia ou preservam os dados anteriores.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
-- Próximo passo: revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts`; confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
+- Próximo passo: continuar a auditoria de assertions/casts, consultas custosas e estados de erro/loading nas áreas ainda não revistas; dividir em fatias pequenas. Confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
 
 ## Auditoria visual e funcional em 15/11/2026
 

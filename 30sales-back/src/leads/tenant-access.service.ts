@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { TenantAccessRepository } from './tenant-access.repository';
 export type TenantPermission = 'read' | 'create' | 'update' | 'assign' | 'manage';
 export type AccessDomain = 'leads' | 'pipeline' | 'activities' | 'inbox' | 'audit' | 'integrations' | 'reports';
+const onePermission = <Permission extends string>(permission: Permission): Permission[] => [permission];
 @Injectable()
 export class TenantAccessService {
   constructor(private readonly repository: TenantAccessRepository) {}
@@ -29,13 +30,13 @@ export class TenantAccessService {
     if (!organizationId) throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Select an organization to continue.' });
     if (domain !== 'leads' && domain !== 'inbox' && permission === 'assign') throw new ForbiddenException({ code: 'INVALID_PERMISSION_DOMAIN', message: 'Assignment permission is only supported for leads and inbox conversations.' });
     const regularPermission: 'read' | 'create' | 'update' = permission === 'manage' ? 'read' : permission === 'assign' ? 'read' : permission;
-    const permissionDefinition = domain === 'reports' ? { reports: permission === 'read' ? ['read'] as Array<'read'> : ['export'] as Array<'export'> }
-      : domain === 'inbox' ? { inbox: permission === 'assign' ? ['assign'] as Array<'assign'> : ['read'] as Array<'read'> }
-      : domain === 'audit' ? { audit: ['read'] as Array<'read'> }
-        : domain === 'integrations' ? { integrations: permission === 'manage' ? ['manage'] as Array<'manage'> : ['read'] as Array<'read'> }
-          : domain === 'leads' ? { leads: permission === 'assign' ? ['assign'] as Array<'assign'> : [regularPermission] }
-            : domain === 'pipeline' ? { pipeline: [regularPermission] }
-              : { activities: [regularPermission] };
+    const permissionDefinition = domain === 'reports' ? { reports: onePermission(permission === 'read' ? 'read' : 'export') }
+      : domain === 'inbox' ? { inbox: onePermission(permission === 'assign' ? 'assign' : 'read') }
+      : domain === 'audit' ? { audit: onePermission('read') }
+        : domain === 'integrations' ? { integrations: onePermission(permission === 'manage' ? 'manage' : 'read') }
+          : domain === 'leads' ? { leads: onePermission(permission === 'assign' ? 'assign' : regularPermission) }
+            : domain === 'pipeline' ? { pipeline: onePermission(regularPermission) }
+              : { activities: onePermission(regularPermission) };
     const permissionCheck = auth.api.hasPermission({ headers: requestHeaders, body: { permissions: permissionDefinition } });
     const [membership, authorization] = await Promise.all([auth.api.getActiveMemberRole({ headers: requestHeaders }), permissionCheck]);
     if (!membership?.role) throw new ForbiddenException({ code: 'MEMBERSHIP_REQUIRED', message: 'The current user is not a member of the active organization.' });

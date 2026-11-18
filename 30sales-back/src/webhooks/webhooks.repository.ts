@@ -290,16 +290,25 @@ export class WebhooksRepository {
       if (!next) return 'unchanged';
       await transaction.update(messages).set({ deliveryState: next })
         .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
-      if (next === 'failed' && message.ownerUserId) {
-        const [recipient] = await transaction.select({ userId: authMember.userId }).from(authMember)
-          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, message.ownerUserId))).limit(1);
-        if (recipient) await transaction.insert(userNotifications).values({
+      if (next === 'failed') {
+        let recipientUserIds: string[] = [];
+        if (message.ownerUserId) {
+          const [recipient] = await transaction.select({ userId: authMember.userId }).from(authMember)
+            .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, message.ownerUserId))).limit(1);
+          if (recipient) recipientUserIds = [recipient.userId];
+        }
+        if (recipientUserIds.length === 0) {
+          const members = await transaction.select({ userId: authMember.userId, role: authMember.role }).from(authMember)
+            .where(eq(authMember.organizationId, input.organizationId));
+          recipientUserIds = members.filter(({ role }) => hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)).map(({ userId }) => userId);
+        }
+        if (recipientUserIds.length) await transaction.insert(userNotifications).values(recipientUserIds.map((recipientUserId) => ({
           organizationId: input.organizationId,
-          recipientUserId: recipient.userId,
+          recipientUserId,
           conversationId: message.conversationId,
           notificationType: USER_NOTIFICATION_TYPE.messageDeliveryFailed,
-          idempotencyKey: `message-delivery-failed:${message.id}:${recipient.userId}`,
-        }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+          idempotencyKey: `message-delivery-failed:${message.id}:${recipientUserId}`,
+        }))).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: message.conversationId, occurredAt: input.occurredAt.toISOString() })})`);
       return 'updated';

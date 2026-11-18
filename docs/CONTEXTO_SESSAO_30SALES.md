@@ -459,6 +459,7 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 ### Continuação do fechamento — CI de `b162c70` (18/11/2026)
 
-- GitHub Actions do commit `b162c70` falharam nos dois builds: apóstrofo ASCII em `channels.policyDescription` quebrava o parse do catálogo inglês; `campaigns.service.ts` usava `CampaignStatusChangeRepositoryDto` sem importá-lo. Ambos corrigidos localmente nesta continuação.
+- GitHub Actions do commit `b162c70` falharam nos dois builds: apóstrofo ASCII em `channels.policyDescription` quebrava o parse do catálogo inglês; `campaigns.service.ts` usava `CampaignStatusChangeRepositoryDto` sem importá-lo. Correções publicadas no commit `559ac4b` em `main`; frontend run `44275539479` e backend run `44275544814` concluíram com sucesso e publicaram as imagens.
 - A configuração do webhook Evolution passou a incluir `MESSAGES_EDITED`, `SEND_MESSAGE_UPDATE` e `NEW_TOKEN`; o receiver já registra eventos desconhecidos/conhecidos sem handler em ledger redigido. Suporte/entrega na versão Evolution do ambiente ainda precisa ser confirmado.
-- `git diff --check` passou. Build/testes locais não foram executados; aguardar CI após o push para prova de compilação. Migration `0056` continua não aplicada; sem deploy ou teste real de WhatsApp nesta etapa.
+- `git diff --check` passou. Build/testes locais não foram executados; a CI de produção comprovou a compilação e publicação. Migration `0056` continua não aplicada; sem deploy ou teste real de WhatsApp nesta etapa.
+- Continuação durante a CI: falha de entrega sem owner válido agora usa fallback tenant-scoped para membros com papéis de atendimento, com idempotência por mensagem/destinatário. Alteração ainda local; validar pelo próximo build publicado e por webhook de teste.

@@ -134,7 +134,7 @@ export class HandoffsRepository {
         await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: input.actorUserId });
       }
       const [row] = await transaction.select(handoffRecordSelection)
-        .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(eq(handoffs.id, handoff.id)).limit(1);
+        .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(and(eq(handoffs.id, handoff.id), eq(handoffs.organizationId, input.organizationId))).limit(1);
       return row ? mapHandoff(row) : null;
     });
   }

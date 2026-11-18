@@ -6,8 +6,11 @@
 - Nesta fatia: `SelectField` deixou de fabricar eventos React completos; callbacks de mudança/foco usam o contrato estrutural mínimo consumido pelas telas, e validação encaminha o evento nativo. O foco de erro verifica o tipo real do botão antes de focar.
 - Middleware/controller de webhooks agora compartilham a extensão tipada `Request.rawBody` via declaração Express, removendo casts repetidos. Transcrição valida os tipos possíveis do chunk de stream antes de convertê-lo para Buffer.
 - Regra persistente de formulário adicionada a `30sales-front/AGENTS.md`: erros surgem após interação/submissão, são localizados e acessíveis, foco vai para o primeiro inválido e a mensagem não deve causar deslocamento inesperado do layout.
-- Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação desta fatia.
-- Próximo passo: conferir compatibilidade dos tipos alterados sem rodar build/testes, revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts` e a decisão de normalização do stream deve ser confirmada pelo gate de build quando o usuário solicitar validação.
+- Commits desta sequência já publicados na `main`: `b647936` guards DOM/CSV; `ffd7c93` contratos de Select, `Request.rawBody` tipado e normalização defensiva do stream.
+- Otimização adicional publicada em `3d23133`: notificações de canal desconectado e de tarefas vencidas são inseridas em lote, mantendo idempotência e contagem dos registros efetivamente criados.
+- Auditoria encontrou uma consulta de retorno do handoff recém-criado sem `organizationId`; correção em andamento para incluir escopo tenant explícito.
+- Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
+- Próximo passo: revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts`; confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
 
 ## Auditoria visual e funcional em 15/11/2026
 

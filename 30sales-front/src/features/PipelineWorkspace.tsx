@@ -1,6 +1,6 @@
 import { Button, CalendarField, CurrencyField, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, MessageSquarePlus, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -207,6 +207,8 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
   const [pendingDropKey, setPendingDropKey] = useState<string | null>(null)
   const [history, setHistory] = useState<OpportunityHistoryDto[] | null>(null)
   const [activities, setActivities] = useState<ActivityDto[] | null>(null)
+  const [focusActivityForm, setFocusActivityForm] = useState(false)
+  const activityFormRef = useRef<HTMLFormElement>(null)
   const [activityType, setActivityType] = useState<ActivityType>('call')
   const [activitySubject, setActivitySubject] = useState('')
   const [activityDetails, setActivityDetails] = useState('')
@@ -241,17 +243,28 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     finally { setSaving(false) }
   }
   const toggleTimeline = async () => {
-    if (history !== null || activities !== null) { setHistory(null); setActivities(null); return }
+    if (history !== null || activities !== null) { setHistory(null); setActivities(null); setFocusActivityForm(false); return }
     try {
       const [stageHistory, activityList] = await Promise.all([api.opportunities.history(opportunity.id), api.opportunities.activities.list(opportunity.id)])
       setHistory(stageHistory); setActivities(activityList); setError('')
     } catch { setError(t('errors.loadOpportunityHistory')) }
   }
+  const openActivityForm = async () => {
+    if (activities === null) { setFocusActivityForm(true); await toggleTimeline(); return }
+    activityFormRef.current?.scrollIntoView({ block: 'center' })
+    activityFormRef.current?.querySelector('input')?.focus()
+  }
+  useEffect(() => {
+    if (!focusActivityForm || activities === null) return
+    activityFormRef.current?.scrollIntoView({ block: 'center' })
+    activityFormRef.current?.querySelector('input')?.focus()
+    setFocusActivityForm(false)
+  }, [activities, focusActivityForm])
   const submitActivity = async (event: React.FormEvent) => {
     event.preventDefault(); setActivitySaving(true); setError('')
     try {
       const activity = await api.opportunities.activities.create(opportunity.id, { type: activityType, subject: activitySubject.trim(), details: activityDetails.trim() || undefined, result: activityResult.trim() || undefined, occurredAt: new Date(activityOccurredAt).toISOString() })
-      setActivities((current) => [activity, ...(current ?? [])]); setActivitySubject(''); setActivityDetails(''); setActivityResult(''); setActivityOccurredAt(localDateTime())
+      setActivities((current) => [activity, ...(current ?? [])]); setActivitySubject(''); setActivityDetails(''); setActivityResult(''); setActivityOccurredAt(localDateTime()); onUpdated()
     } catch { setError(t('errors.createActivity')) }
     finally { setActivitySaving(false) }
   }
@@ -286,7 +299,8 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     <div className="opportunity-last-activity"><History size={14} aria-hidden="true" /><span><strong>{t('pipeline.latestInteraction')}</strong>{opportunity.lastActivity ? <><small>{t(`activityTypes.${opportunity.lastActivity.type}`)} · {opportunity.lastActivity.subject}</small>{opportunity.lastActivity.result && <small>{t('pipeline.activityResult')}: {opportunity.lastActivity.result}</small>}<small>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(opportunity.lastActivity.occurredAt))}</small></> : <small>{t('pipeline.noInteractions')}</small>}</span></div>
     {opportunity.amount && <p className="opportunity-value">{new Intl.NumberFormat(i18n.language, { style: 'currency', currency: opportunity.currency ?? 'BRL' }).format(Number(opportunity.amount))}</p>}
     {opportunity.lossReason && <p className="opportunity-loss">{t('pipeline.lossReason')}: {opportunity.lossReason}</p>}
-    {canMove && <Button className="opportunity-edit" onClick={() => { setTargetKey(currentKey); setTargetPipelineId(opportunity.pipelineId); setTargetStages(availableStages); setEditing((value) => !value) }}><TrendingUp size={14} />{t('pipeline.advance')}</Button>}
+      {canMove && <Button className="opportunity-edit" onClick={() => { setTargetKey(currentKey); setTargetPipelineId(opportunity.pipelineId); setTargetStages(availableStages); setEditing((value) => !value) }}><TrendingUp size={14} />{t('pipeline.advance')}</Button>}
+    {opportunity.canUpdate && <Button className="opportunity-edit" onClick={() => void openActivityForm()}><MessageSquarePlus size={14} />{t('pipeline.logActivity')}</Button>}
     {editing && <form className="opportunity-transition" onSubmit={submit}>
       {canManagePipeline && pipelines.length > 1 && <label>{t('pipeline.selectPipeline')}<SelectField value={targetPipelineId} disabled={transferLoading} onChange={(event) => void selectTargetPipeline(event.target.value)}>{pipelines.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField></label>}
       <label>{t('pipeline.nextStage')}<SelectField value={targetKey} onChange={(event) => setTargetKey(event.target.value)}>{!targetKey && <option value="">{t('pipeline.selectStage')}</option>}{allowedStages.map((stage) => <option key={stage.key} value={stage.key}>{stage.key === currentKey ? t('pipeline.keepStage') + ' · ' : ''}{stage.isSystem ? t(`opportunityStages.${stage.stage}`) : stage.name}</option>)}</SelectField></label>
@@ -297,7 +311,7 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     </form>}
     <Button className="opportunity-history-toggle" onClick={() => void toggleTimeline()}><History size={13} />{activities === null ? t('pipeline.timeline') : t('pipeline.hideHistory')}</Button>
     {activities !== null && <div className="opportunity-timeline">
-      {opportunity.canUpdate && <form className="activity-form" onSubmit={submitActivity}>
+      {opportunity.canUpdate && <form ref={activityFormRef} className="activity-form" onSubmit={submitActivity}>
         <strong>{t('pipeline.logActivity')}</strong>
         <div className="activity-form-fields"><label>{t('pipeline.activityType')}<SelectField value={activityType} onChange={(event) => setActivityType(event.target.value as ActivityType)}>{activityTypes.map((type) => <option key={type} value={type}>{t(`activityTypes.${type}`)}</option>)}</SelectField></label><label>{t('pipeline.activitySubject')}<TextField value={activitySubject} onChange={(event) => setActivitySubject(event.target.value)} minLength={2} maxLength={240} required /></label><label>{t('pipeline.occurredAt')}<CalendarField mode="datetime-local" value={activityOccurredAt} onValueChange={(value) => setActivityOccurredAt(value)} required /></label><label>{t('pipeline.activityResult')}<TextField value={activityResult} onChange={(event) => setActivityResult(event.target.value)} maxLength={1000} /></label><label className="activity-details-field">{t('pipeline.activityDetails')}<TextareaField value={activityDetails} onChange={(event) => setActivityDetails(event.target.value)} maxLength={5000} /></label></div>
         {error && <p className="error">{error}</p>}<Button className="primary" disabled={activitySaving}>{activitySaving ? t('common.saving') : t('pipeline.saveActivity')}</Button>

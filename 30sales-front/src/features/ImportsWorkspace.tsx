@@ -39,9 +39,12 @@ function readRecords(text: string): ImportRecord[] {
   const columns = rows[0].map((value) => value.replace(/^\uFEFF/, ''))
   const missing = headers.filter((header) => !columns.includes(header))
   if (missing.length) throw new Error('missingHeaders')
-  const index = Object.fromEntries(headers.map((header) => [header, columns.indexOf(header)])) as Record<(typeof headers)[number], number>
+  const index = new Map(headers.map((header) => [header, columns.indexOf(header)] as const))
   return rows.slice(1).map((row) => {
-    const get = (key: (typeof headers)[number]) => row[index[key]]?.trim() ?? ''
+    const get = (key: (typeof headers)[number]) => {
+      const columnIndex = index.get(key)
+      return columnIndex === undefined ? '' : row[columnIndex]?.trim() ?? ''
+    }
     const targetType = IMPORT_TARGET_TYPES.find((candidate) => candidate === get('targetType'))
     if (!targetType) throw new Error('invalidTargetType')
     return { recordType: get('recordType'), externalId: get('externalId'), targetType, accountName: get('accountName') || undefined, contactName: get('contactName') || undefined, email: get('email') || undefined, phone: get('phone') || undefined, sourceStatus: get('sourceStatus') || undefined }

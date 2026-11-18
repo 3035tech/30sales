@@ -370,7 +370,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   }, [dateIsOutsideBounds, required, submitAttempted, t, valueIsComplete])
   useEffect(() => {
     if (!open) return
-    const onPointerDown = (event: PointerEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false) }
+    const onPointerDown = (event: PointerEvent) => { const target = event.target; if (!(target instanceof Node && rootRef.current?.contains(target))) setOpen(false) }
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() } }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)

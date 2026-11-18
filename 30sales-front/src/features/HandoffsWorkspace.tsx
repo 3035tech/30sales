@@ -20,7 +20,8 @@ export function HandoffsWorkspace() {
   const handoffId = searchParams.get('handoffId') ?? undefined
   const [status, setStatus] = useState<HandoffStatus>(() => {
     const requestedStatus = searchParams.get('status')
-    return statuses.includes(requestedStatus as HandoffStatus) ? requestedStatus as HandoffStatus : handoffId ? 'accepted' : 'requested'
+    const validStatus = statuses.find((candidate) => candidate === requestedStatus)
+    return validStatus ?? (handoffId ? 'accepted' : 'requested')
   })
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
   const [total, setTotal] = useState(0)

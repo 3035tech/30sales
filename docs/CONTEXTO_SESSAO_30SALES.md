@@ -469,4 +469,4 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 - Regra permanente registrada em `AGENTS.md`: erros de obrigatoriedade aparecem após a primeira tentativa de envio; erros de formato/faixa aparecem após interação/blur; corrigir limpa o erro; mensagem fica fora do input, ligada por `aria-describedby`, sem deslocamentos inesperados.
 - Controles compartilhados de texto, telefone, textarea, select, número, moeda e calendário seguem a regra e bloqueiam o popup nativo em favor de mensagens inline acessíveis. Cadastro de canais marca campos obrigatórios com asterisco discreto.
-- Nenhum build/teste rodado conforme preferência. `git diff --check` passou. Alteração ainda local, sem commit ou publicação.
+- `git diff --check` passou; build/testes locais não foram executados conforme preferência. Commit `9b9af75` enviado para `main`; GitHub Actions frontend run `44281128471` passou e publicou a imagem. Sem sync do Argo.

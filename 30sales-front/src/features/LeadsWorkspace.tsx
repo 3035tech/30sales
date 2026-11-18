@@ -205,6 +205,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [campaignDrafts, setCampaignDrafts] = useState<CampaignDraftPageDto | null>(null)
   const [campaignDeliveryReview, setCampaignDeliveryReview] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.listDeliveryReview>> | null>(null)
   const [campaignReviewOpen, setCampaignReviewOpen] = useState(false)
+  const [campaignReviewLoading, setCampaignReviewLoading] = useState(false)
   const [campaignReviewSavingId, setCampaignReviewSavingId] = useState('')
   const [campaignReviewOffset, setCampaignReviewOffset] = useState(0)
   const [campaignChannels, setCampaignChannels] = useState<SdrPreviewChannelDto[]>([])
@@ -288,8 +289,10 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     setCampaignReviewOpen(true)
     setCampaignReviewOffset(offset)
     setCampaignDraftError('')
+    setCampaignReviewLoading(true)
     try { setCampaignDeliveryReview(await campaignsApi.campaigns.listDeliveryReview({ limit: 25, offset })) }
     catch { setCampaignDraftError(t('campaignDrafts.reviewLoadFailed')) }
+    finally { setCampaignReviewLoading(false) }
   }
 
   const confirmCampaignDelivery = async (outboxEventId: string) => {
@@ -492,10 +495,10 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
         </form>
         <section className="campaign-draft-list" aria-label={t('campaignDrafts.savedDrafts')}>
           <div className="campaign-draft-list-heading"><div><strong>{t('campaignDrafts.savedDrafts')}</strong><span>{t('campaignDrafts.count', { count: campaignDrafts?.pagination.total ?? 0 })}</span></div></div>
-          <Button type="button" onClick={() => void loadCampaignDeliveryReview()}>{t('campaignDrafts.deliveryReview')}</Button>
+          <Button type="button" disabled={campaignReviewLoading} onClick={() => void loadCampaignDeliveryReview()}>{t('campaignDrafts.deliveryReview')}</Button>
           {campaignReviewOpen && <section aria-label={t('campaignDrafts.deliveryReview')}>
             <p className="form-hint">{t('campaignDrafts.reviewSafety')}</p>
-            {!campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={!campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>}
+            {campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>}
           </section>}
           <p className="form-hint">{t('campaignDrafts.pauseHint')}</p>
           {campaignStartedCount !== null && <p className="success-message" role="status">{t('campaignDrafts.started', { count: campaignStartedCount })}</p>}

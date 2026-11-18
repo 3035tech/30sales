@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { accounts, auditEvents, closerEventSlaPolicies, closerEvents, conversations, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
@@ -66,50 +66,63 @@ export class CloserEventsRepository {
         isNull(closerEvents.slaNotifiedAt),
       )).orderBy(asc(closerEvents.dueAt), asc(closerEvents.id)).limit(limit).for('update', { of: closerEvents, skipLocked: true });
 
-      for (const event of overdueEvents) {
-        const [ownerMembership] = await transaction.select({ userId: authMember.userId }).from(authMember)
-          .where(and(eq(authMember.organizationId, event.organizationId), eq(authMember.userId, event.assignedToUserId))).limit(1);
-        if (ownerMembership) {
-          await transaction.insert(userNotifications).values({
-            organizationId: event.organizationId,
-            recipientUserId: event.assignedToUserId,
-            closerEventId: event.id,
-            notificationType: 'closer_event_sla_overdue',
-            idempotencyKey: `closer-event-sla-overdue:${event.id}:${event.assignedToUserId}`,
-          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
-        }
+      if (!overdueEvents.length) return 0;
 
-        let managerCount = 0;
-        if (event.escalateToManagers) {
-          const managers = await transaction.select({ userId: authMember.userId }).from(authMember)
-            .where(and(
-              eq(authMember.organizationId, event.organizationId),
-              sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY[${ORGANIZATION_MANAGEMENT_ROLES[0]}, ${ORGANIZATION_MANAGEMENT_ROLES[1]}, ${ORGANIZATION_MANAGEMENT_ROLES[2]}]::text[]`,
-              event.assignedToUserId ? sql`${authMember.userId} <> ${event.assignedToUserId}` : sql`true`,
-            ));
-          for (const manager of managers) {
-            const [created] = await transaction.insert(userNotifications).values({
-              organizationId: event.organizationId,
-              recipientUserId: manager.userId,
-              closerEventId: event.id,
-              notificationType: 'closer_event_sla_escalated',
-              idempotencyKey: `closer-event-sla-escalated:${event.id}:${manager.userId}`,
-            }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] }).returning({ id: userNotifications.id });
-            if (created) managerCount += 1;
-          }
-        }
+      const ownerMembershipConditions = overdueEvents.map((event) => and(eq(authMember.organizationId, event.organizationId), eq(authMember.userId, event.assignedToUserId)));
+      const ownerMemberships = await transaction.select({ organizationId: authMember.organizationId, userId: authMember.userId }).from(authMember).where(or(...ownerMembershipConditions));
+      const ownerMembershipKeys = new Set(ownerMemberships.map((membership) => `${membership.organizationId}:${membership.userId}`));
+      const ownerNotifications = overdueEvents.filter((event) => ownerMembershipKeys.has(`${event.organizationId}:${event.assignedToUserId}`)).map((event) => ({
+        organizationId: event.organizationId,
+        recipientUserId: event.assignedToUserId,
+        closerEventId: event.id,
+        notificationType: 'closer_event_sla_overdue' as const,
+        idempotencyKey: `closer-event-sla-overdue:${event.id}:${event.assignedToUserId}`,
+      }));
+      if (ownerNotifications.length) await transaction.insert(userNotifications).values(ownerNotifications)
+        .onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
 
-        await transaction.update(closerEvents).set({ slaNotifiedAt: now, updatedAt: now })
-          .where(and(eq(closerEvents.id, event.id), eq(closerEvents.organizationId, event.organizationId), isNull(closerEvents.slaNotifiedAt)));
-        await transaction.insert(auditEvents).values({
-          organizationId: event.organizationId,
-          actorType: 'system',
-          action: event.escalateToManagers ? 'closer_event.sla_escalated' : 'closer_event.sla_overdue',
-          entityType: 'closer_event',
-          entityId: event.id,
-          afterState: { dueAt: event.dueAt?.toISOString() ?? null, ownerNotified: Boolean(ownerMembership), managerNotificationCount: managerCount },
-        });
+      const escalationEvents = overdueEvents.filter((event) => event.escalateToManagers);
+      const escalationOrganizationIds = [...new Set(escalationEvents.map((event) => event.organizationId))];
+      const managers = escalationOrganizationIds.length ? await transaction.select({ organizationId: authMember.organizationId, userId: authMember.userId }).from(authMember)
+        .where(and(inArray(authMember.organizationId, escalationOrganizationIds), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY[${ORGANIZATION_MANAGEMENT_ROLES[0]}, ${ORGANIZATION_MANAGEMENT_ROLES[1]}, ${ORGANIZATION_MANAGEMENT_ROLES[2]}]::text[]`)) : [];
+      const managersByOrganization = new Map<string, string[]>();
+      for (const manager of managers) {
+        const organizationManagers = managersByOrganization.get(manager.organizationId);
+        if (organizationManagers) organizationManagers.push(manager.userId);
+        else managersByOrganization.set(manager.organizationId, [manager.userId]);
       }
+      const managerNotifications = escalationEvents.flatMap((event) => (managersByOrganization.get(event.organizationId) ?? [])
+        .filter((managerId) => managerId !== event.assignedToUserId)
+        .map((managerId) => ({
+          organizationId: event.organizationId,
+          recipientUserId: managerId,
+          closerEventId: event.id,
+          notificationType: 'closer_event_sla_escalated' as const,
+          idempotencyKey: `closer-event-sla-escalated:${event.id}:${managerId}`,
+        })));
+      const managerNotificationCounts = new Map<string, number>();
+      for (let offset = 0; offset < managerNotifications.length; offset += 500) {
+        const created = await transaction.insert(userNotifications).values(managerNotifications.slice(offset, offset + 500))
+          .onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] })
+          .returning({ closerEventId: userNotifications.closerEventId });
+        for (const notification of created) {
+          if (notification.closerEventId) managerNotificationCounts.set(notification.closerEventId, (managerNotificationCounts.get(notification.closerEventId) ?? 0) + 1);
+        }
+      }
+
+      await transaction.update(closerEvents).set({ slaNotifiedAt: now, updatedAt: now }).where(and(
+        inArray(closerEvents.id, overdueEvents.map((event) => event.id)),
+        or(...overdueEvents.map((event) => and(eq(closerEvents.id, event.id), eq(closerEvents.organizationId, event.organizationId)))),
+        isNull(closerEvents.slaNotifiedAt),
+      ));
+      await transaction.insert(auditEvents).values(overdueEvents.map((event) => ({
+        organizationId: event.organizationId,
+        actorType: 'system' as const,
+        action: event.escalateToManagers ? 'closer_event.sla_escalated' : 'closer_event.sla_overdue',
+        entityType: 'closer_event',
+        entityId: event.id,
+        afterState: { dueAt: event.dueAt?.toISOString() ?? null, ownerNotified: ownerMembershipKeys.has(`${event.organizationId}:${event.assignedToUserId}`), managerNotificationCount: managerNotificationCounts.get(event.id) ?? 0 },
+      })));
       return overdueEvents.length;
     });
   }

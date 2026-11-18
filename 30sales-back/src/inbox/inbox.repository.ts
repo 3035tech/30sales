@@ -112,7 +112,11 @@ export class InboxRepository {
       .innerJoin(conversationTags, and(eq(conversationTags.id, conversationTagLinks.tagId), eq(conversationTags.organizationId, conversationTagLinks.organizationId)))
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
-    for (const tag of tagRows) tagsByConversation.set(tag.conversationId, [...(tagsByConversation.get(tag.conversationId) ?? []), new ConversationTagDto(tag.id, tag.name)]);
+    for (const tag of tagRows) {
+      const conversationTagsForRow = tagsByConversation.get(tag.conversationId);
+      if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name));
+      else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name)]);
+    }
     const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null); });
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
@@ -249,7 +253,11 @@ export class InboxRepository {
     const attachmentRows = rows.length ? await database.select({ messageId: messageAttachments.messageId, id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status })
       .from(messageAttachments).where(and(eq(messageAttachments.organizationId, input.organizationId), inArray(messageAttachments.messageId, rows.map((row) => row.id)))) : [];
     const attachmentsByMessage = new Map<string, MessageAttachmentDto[]>();
-    for (const attachment of attachmentRows) attachmentsByMessage.set(attachment.messageId, [...(attachmentsByMessage.get(attachment.messageId) ?? []), new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)]);
+    for (const attachment of attachmentRows) {
+      const messageAttachmentsForRow = attachmentsByMessage.get(attachment.messageId);
+      if (messageAttachmentsForRow) messageAttachmentsForRow.push(new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status));
+      else attachmentsByMessage.set(attachment.messageId, [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)]);
+    }
     return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText));
   }
 

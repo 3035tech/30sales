@@ -14,7 +14,11 @@ export class ChannelsRepository {
       .from(messagingChannels).where(eq(messagingChannels.organizationId, organizationId)).orderBy(desc(messagingChannels.isActive), messagingChannels.displayName, messagingChannels.id);
     const hours = await database.select().from(channelBusinessHours).where(eq(channelBusinessHours.organizationId, organizationId));
     const hoursByChannel = new Map<string, typeof hours>();
-    for (const item of hours) hoursByChannel.set(item.channelId, [...(hoursByChannel.get(item.channelId) ?? []), item]);
+    for (const item of hours) {
+      const channelHours = hoursByChannel.get(item.channelId);
+      if (channelHours) channelHours.push(item);
+      else hoursByChannel.set(item.channelId, [item]);
+    }
     return rows.map((row) => this.toDto(row.channel, row.dailyMessageCount, hoursByChannel.get(row.channel.id) ?? []));
   }
 

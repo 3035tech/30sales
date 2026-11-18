@@ -1,19 +1,29 @@
 import { Button, IconButton, NumericField, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
+import { api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
 import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
 type ChannelsView = 'channels' | 'monitoring'
+const MONITORING_CHECK_INTERVAL_MS = 60_000
+const MONITORING_CHECK_BATCH_SIZE = 20
+const MONITORING_SIGNAL_STALE_MS = 5 * 60_000
 const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 function WhatsAppMark({ size = 18 }: { size?: number }) {
   return <svg className="whatsapp-mark" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.198-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.273.297-1.04 1.016-1.04 2.479s1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.693.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.832 9.832 0 0 1-1.51-5.26c.002-5.45 4.436-9.884 9.89-9.884 2.64 0 5.122 1.03 6.985 2.897a9.825 9.825 0 0 1 2.89 6.99c-.003 5.45-4.437 9.889-9.882 9.889m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.893c-.001 2.096.547 4.142 1.588 5.946L.057 24l6.304-1.654a11.882 11.882 0 0 0 5.684 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.479-8.413Z" /></svg>
+}
+
+function toMonitoringConnectionStatus(liveStatus: ChannelMonitoringCheckDto['data'][number]['status'] | undefined, persistedStatus: ChannelDto['connectionStatus']) {
+  if (liveStatus === undefined) return persistedStatus ?? CHANNEL_CONNECTION_STATUS.unknown
+  return liveStatus === CHANNEL_CONNECTION_STATUS.connected || liveStatus === CHANNEL_CONNECTION_STATUS.connecting || liveStatus === CHANNEL_CONNECTION_STATUS.disconnected
+    ? liveStatus
+    : CHANNEL_CONNECTION_STATUS.unknown
 }
 
 export function ChannelsWorkspace() {
@@ -50,6 +60,10 @@ export function ChannelsWorkspace() {
   const [savingCredentials, setSavingCredentials] = useState(false)
   const [healthChecks, setHealthChecks] = useState<Record<string, ChannelHealthCheckDto>>({})
   const [healthCheckErrors, setHealthCheckErrors] = useState<Record<string, boolean>>({})
+  const [monitoringChecks, setMonitoringChecks] = useState<Record<string, ChannelMonitoringCheckDto['data'][number]>>({})
+  const [monitoringCheckErrors, setMonitoringCheckErrors] = useState<Record<string, boolean>>({})
+  const [monitoringChecking, setMonitoringChecking] = useState(false)
+  const monitoringCheckInFlight = useRef(false)
   const [checkingChannelIds, setCheckingChannelIds] = useState<string[]>([])
   const [configuringWebhookIds, setConfiguringWebhookIds] = useState<string[]>([])
   const [webhookConfiguredAt, setWebhookConfiguredAt] = useState<Record<string, string>>({})
@@ -85,11 +99,40 @@ export function ChannelsWorkspace() {
     return () => { active = false }
   }, [refresh, t])
 
+  const monitoringChannels = useMemo(() => channels.filter((channel) => channel.provider === 'evolution'), [channels])
+  const eligibleMonitoringChannels = useMemo(() => monitoringChannels.filter((channel) => channel.isActive && channel.isConfigured), [monitoringChannels])
+  const refreshMonitoring = useCallback(async () => {
+    if (monitoringCheckInFlight.current || eligibleMonitoringChannels.length === 0) return
+    monitoringCheckInFlight.current = true
+    setMonitoringChecking(true)
+    const channelIds = eligibleMonitoringChannels.map((channel) => channel.id)
+    try {
+      for (let offset = 0; offset < channelIds.length; offset += MONITORING_CHECK_BATCH_SIZE) {
+        const batch = channelIds.slice(offset, offset + MONITORING_CHECK_BATCH_SIZE)
+        try {
+          const result = await api.channels.monitoringCheck(batch)
+          setMonitoringChecks((current) => ({ ...current, ...Object.fromEntries(result.data.map((item) => [item.channelId, item])) }))
+          setMonitoringCheckErrors((current) => {
+            const next = { ...current }
+            for (const channelId of batch) delete next[channelId]
+            return next
+          })
+        } catch {
+          setMonitoringCheckErrors((current) => ({ ...current, ...Object.fromEntries(batch.map((channelId) => [channelId, true])) }))
+        }
+      }
+    } finally {
+      monitoringCheckInFlight.current = false
+      setMonitoringChecking(false)
+    }
+  }, [eligibleMonitoringChannels])
+
   useEffect(() => {
     if (viewMode !== 'monitoring') return
-    const timer = window.setInterval(() => setRefresh((version) => version + 1), 30_000)
+    void refreshMonitoring()
+    const timer = window.setInterval(() => void refreshMonitoring(), MONITORING_CHECK_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [viewMode])
+  }, [viewMode, refreshMonitoring])
 
   useEffect(() => {
     if (!eventsChannel) return
@@ -210,14 +253,8 @@ export function ChannelsWorkspace() {
     }
   }
 
-  const refreshAllConnections = async () => {
-    const eligibleChannels = channels.filter((channel) => channel.provider === 'evolution' && channel.isActive && channel.isConfigured)
-    await Promise.all(eligibleChannels.map((channel) => checkConnection(channel.id)))
-  }
-
-  const monitoringChannels = channels.filter((channel) => channel.provider === 'evolution')
   const monitoringCounts = monitoringChannels.reduce((counts, channel) => {
-    const status = channel.connectionStatus ?? CHANNEL_CONNECTION_STATUS.unknown
+    const status = toMonitoringConnectionStatus(monitoringChecks[channel.id]?.status, channel.connectionStatus)
     counts[status] += 1
     return counts
   }, { connected: 0, connecting: 0, disconnected: 0, unknown: 0 })
@@ -245,21 +282,31 @@ export function ChannelsWorkspace() {
       <Button type="button" role="tab" aria-selected={viewMode === 'monitoring'} onClick={() => setViewMode('monitoring')}>{t('channels.monitoringTab')}</Button>
     </div>
     {viewMode === 'monitoring' && <section className="channels-monitoring" aria-label={t('channels.monitoringTab')}>
-      <header><div><h3>{t('channels.monitoringTab')}</h3><p>{t('channels.monitoringDescription')}</p></div><Button type="button" disabled={loading || checkingChannelIds.length > 0} onClick={() => void refreshAllConnections()}><RefreshCw size={15} />{checkingChannelIds.length > 0 ? t('channels.monitoringChecking') : t('channels.monitoringRefreshAll')}</Button></header>
+      <header><div><h3>{t('channels.monitoringTab')}</h3><p>{t('channels.monitoringDescription')}</p></div><Button type="button" disabled={loading || monitoringChecking || eligibleMonitoringChannels.length === 0} onClick={() => void refreshMonitoring()}><RefreshCw size={15} />{monitoringChecking ? t('channels.monitoringChecking') : t('channels.monitoringRefreshAll')}</Button></header>
       <div className="channels-monitoring-counts">{(['connected', 'connecting', 'disconnected', 'unknown'] as const).map((status) => <article key={status} className={`is-${status}`}><small>{t(`channels.monitoringCounts.${status}`)}</small><strong>{monitoringCounts[status]}</strong></article>)}</div>
       {loading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
       {!loading && error && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
       {!loading && monitoringChannels.length === 0 && <WorkspaceState kind="empty" compact message={t('channels.monitoringEmpty')} />}
       <div className="channels-monitoring-list">{monitoringChannels.map((channel) => {
-        const status = channel.connectionStatus ?? CHANNEL_CONNECTION_STATUS.unknown
-        const checkedAt = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : null
-        const stale = channel.connectionUpdatedAt !== null && Date.now() - new Date(channel.connectionUpdatedAt).getTime() > 5 * 60_000
-        const checking = checkingChannelIds.includes(channel.id)
+        const liveCheck = monitoringChecks[channel.id]
+        const healthStatus = liveCheck?.status
+        const status = toMonitoringConnectionStatus(healthStatus, channel.connectionStatus)
+        const signalDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : null
+        const checkDate = liveCheck ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(liveCheck.checkedAt)) : null
+        const stale = channel.connectionUpdatedAt !== null && Date.now() - new Date(channel.connectionUpdatedAt).getTime() > MONITORING_SIGNAL_STALE_MS
+        const healthNeedsAttention = healthStatus !== undefined && !['connected', 'connecting', 'disconnected', 'unknown'].includes(healthStatus)
+        const channelCheckFailed = channel.isActive && channel.isConfigured && monitoringCheckErrors[channel.id]
         return <article key={channel.id} className={`channels-monitoring-card is-${status}`}>
           <div className="channels-monitoring-identity"><WhatsAppMark size={20} /><div><strong>{channel.displayName}</strong><span>{channel.phoneNumber} · {channel.providerChannelId}</span></div></div>
           <span className={`channel-status ${status === CHANNEL_CONNECTION_STATUS.connected ? 'active' : 'error'}`}>{t(`channels.connection.${status}`)}</span>
-          <small className={stale ? 'is-stale' : ''}>{checkedAt ? t(stale ? 'channels.monitoringStale' : 'channels.monitoringLastSignal', { date: checkedAt }) : t('channels.monitoringNeverSeen')}</small>
-          <Button type="button" disabled={checking || !channel.isActive || !channel.isConfigured} onClick={() => void checkConnection(channel.id)}><RefreshCw size={14} />{checking ? t('channels.checkingConnection') : t('channels.checkProvider')}</Button>
+          <div className="channels-monitoring-details">
+            <small className={stale ? 'is-stale' : ''}>{signalDate ? t(stale ? 'channels.monitoringStale' : 'channels.monitoringLastSignal', { date: signalDate }) : t('channels.monitoringNeverSeen')}</small>
+            {checkDate && <small>{t('channels.monitoringCheckedAt', { date: checkDate })}</small>}
+            {healthNeedsAttention && <small className="is-stale" role="alert">{t(`channels.health.${healthStatus}`)}</small>}
+            {channelCheckFailed && <small className="is-stale" role="alert">{t('channels.monitoringCheckFailed')}</small>}
+            {liveCheck && liveCheck.failedDeliveries > 0 && <small className="is-stale" role="alert">{t('channels.monitoringDeliveryFailures', { count: liveCheck.failedDeliveries })}</small>}
+          </div>
+          <Button type="button" disabled={monitoringChecking || !channel.isActive || !channel.isConfigured} onClick={() => void refreshMonitoring()}><RefreshCw size={14} />{monitoringChecking ? t('channels.monitoringChecking') : t('channels.checkProvider')}</Button>
         </article>
       })}</div>
     </section>}

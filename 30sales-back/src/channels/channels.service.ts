@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
-import type { ChannelConnectionStatus, ChannelHealthStatus } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
@@ -45,6 +45,30 @@ export class ChannelsService {
     const result = await this.checkHealthForOrganization(context.organizationId, channelId, context.userId, request.correlationId);
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return result;
+  }
+
+  async checkMonitoring(request: ApiRequestDto, input: ChannelMonitoringCheckInputDto): Promise<ChannelMonitoringCheckDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'integrations');
+    const targets = await this.repository.evolutionMonitoringTargets(context.organizationId, input.channelIds);
+    const checkedAt = new Date();
+    const failureCounts = await this.repository.recentFailedDeliveryCounts(context.organizationId, targets.map((target) => target.id), new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000));
+    const data = await Promise.all(targets.map(async (target) => {
+      let status: ChannelHealthStatus = CHANNEL_HEALTH_STATUS.unknown;
+      if (!target.isActive) status = CHANNEL_HEALTH_STATUS.unknown;
+      else if (!target.credentials) status = CHANNEL_HEALTH_STATUS.notConfigured;
+      else {
+        try {
+          const credentials = this.credentialCrypto.decrypt(context.organizationId, target.id, target.credentials);
+          status = credentials.provider === CHANNEL_PROVIDER.evolution
+            ? await this.healthProvider.check(target, credentials)
+            : CHANNEL_HEALTH_STATUS.configurationError;
+        } catch {
+          status = CHANNEL_HEALTH_STATUS.configurationError;
+        }
+      }
+      return new ChannelMonitoringStatusDto(target.id, status, checkedAt.toISOString(), failureCounts.get(target.id) ?? 0);
+    }));
+    return new ChannelMonitoringCheckDto(data, checkedAt.toISOString());
   }
 
   async discoverEvolutionInstances(request: ApiRequestDto, channelId: string): Promise<EvolutionInstanceListDto> {

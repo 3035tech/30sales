@@ -37,6 +37,14 @@ export type ChannelHealthStatus = z.infer<typeof channelHealthStatusSchema>;
 export class ChannelHealthCheckDto {
   constructor(readonly status: ChannelHealthStatus, readonly checkedAt: string) {}
 }
+export const channelMonitoringCheckSchema = z.object({ channelIds: z.array(z.string().uuid()).min(1).max(20).refine((ids) => new Set(ids).size === ids.length) }).strict();
+export type ChannelMonitoringCheckInputDto = z.infer<typeof channelMonitoringCheckSchema>;
+export class ChannelMonitoringStatusDto {
+  constructor(readonly channelId: string, readonly status: ChannelHealthStatus, readonly checkedAt: string, readonly failedDeliveries: number) {}
+}
+export class ChannelMonitoringCheckDto {
+  constructor(readonly data: ChannelMonitoringStatusDto[], readonly checkedAt: string) {}
+}
 export const channelConnectionStatusSchema = z.enum(CHANNEL_CONNECTION_STATUSES);
 export type ChannelConnectionStatus = z.infer<typeof channelConnectionStatusSchema>;
 export class EvolutionInstanceListDto { constructor(readonly channelId: string, readonly instances: import('./evolution-instance-discovery.provider').EvolutionInstanceDiscoveryDto[]) {} }

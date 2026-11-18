@@ -66,6 +66,7 @@ O webhook de mensagens do Cloud API reúne mensagens recebidas, recibos de saíd
 
 - `CONNECTION_UPDATE` atualiza o estado do canal para `connected`, `connecting`, `disconnected` ou `unknown`; somente valores conhecidos são persistidos. O evento segue o ledger existente.
 - A tela de canais exibe o estado persistido e o horário da última atualização. A verificação manual de saúde também atualiza esse estado.
+- A aba de monitoramento consulta o estado atual da Evolution a cada minuto, em grupos de até 20 canais, sem persistir cada leitura nem gerar auditoria recorrente. Exibe quando a última consulta falhou, quando o último sinal de conexão tem mais de cinco minutos e a contagem de falhas de entrega de mensagens recebidas por webhook nas últimas 24 horas. O endpoint limita IDs à organização ativa e exige permissão de leitura de integrações.
 - Respostas humanas são recusadas quando o estado conhecido é `connecting` ou `disconnected`. O runtime do assistente pula o envio nesses mesmos estados. Canais sem evento observado (`NULL`/desconhecido) seguem compatíveis com o comportamento anterior; Meta não usa esse bloqueio.
 - Ao entrar em `disconnected`, cada membro da organização recebe um alerta in-app, deduplicado por transição e gravado na mesma transação do estado. A notificação leva à área de canais; eventos repetidos enquanto desconectado não geram alertas novos.
 - Credenciais alteradas invalidam o estado anterior. A migration aditiva `0054_thin_sheva_callister.sql` foi gerada e ainda não foi aplicada.

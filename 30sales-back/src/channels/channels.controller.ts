@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { channelCredentialsSchema, channelWebhookEventsQuerySchema, createChannelSchema, updateChannelSchema } from './channels.dto';
-import type { ChannelCredentialsDto, ChannelWebhookEventsQueryDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import { channelCredentialsSchema, channelMonitoringCheckSchema, channelWebhookEventsQuerySchema, createChannelSchema, updateChannelSchema } from './channels.dto';
+import type { ChannelCredentialsDto, ChannelMonitoringCheckInputDto, ChannelWebhookEventsQueryDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
 import { ChannelsService } from './channels.service';
 
 const channelIdSchema = z.string().uuid();
@@ -22,6 +22,9 @@ export class ChannelsController {
   @Post(':id/health-check')
   @HttpCode(HttpStatus.OK)
   healthCheck(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.healthCheck(request, channelId); }
+  @Post('monitoring/check')
+  @HttpCode(HttpStatus.OK)
+  checkMonitoring(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(channelMonitoringCheckSchema)) input: ChannelMonitoringCheckInputDto) { return this.channelsService.checkMonitoring(request, input); }
   @Get(':id/evolution-instances')
   discoverEvolutionInstances(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.discoverEvolutionInstances(request, channelId); }
   @Post(':id/evolution-webhook/configure')

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
 import { auditEvents, conversations, inboxEvents, messages, messagingChannels, userNotifications } from '../db/schema';
@@ -59,6 +59,30 @@ export class ChannelsRepository {
       ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
       : null;
     return new ChannelHealthCheckTargetDto(row.id, row.provider as ChannelRecordDto['provider'], row.providerChannelId, row.isActive, credentials);
+  }
+
+  async evolutionMonitoringTargets(organizationId: string, channelIds: string[]): Promise<ChannelHealthCheckTargetDto[]> {
+    if (channelIds.length === 0) return [];
+    const rows = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive,
+      credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.provider, CHANNEL_PROVIDER.evolution), inArray(messagingChannels.id, channelIds)));
+    return rows.map((row) => {
+      const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
+        ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
+        : null;
+      return new ChannelHealthCheckTargetDto(row.id, CHANNEL_PROVIDER.evolution, row.providerChannelId, row.isActive, credentials);
+    });
+  }
+
+  async recentFailedDeliveryCounts(organizationId: string, channelIds: string[], since: Date): Promise<Map<string, number>> {
+    if (channelIds.length === 0) return new Map();
+    const channelId = sql<string>`${inboxEvents.payloadRedacted}->>'channelId'`;
+    const deliveryState = sql<string>`${inboxEvents.payloadRedacted}->>'deliveryState'`;
+    const channelScope = or(...channelIds.map((id) => eq(channelId, id)));
+    const rows = await database.select({ channelId, count: sql<number>`count(*)::int` }).from(inboxEvents)
+      .where(and(eq(inboxEvents.organizationId, organizationId), eq(inboxEvents.eventType, 'messages.status'), eq(deliveryState, 'failed'), gte(inboxEvents.receivedAt, since), channelScope))
+      .groupBy(channelId);
+    return new Map(rows.map((row) => [row.channelId, row.count]));
   }
 
   async auditHealthCheck(input: ChannelHealthCheckAuditDto): Promise<boolean> {

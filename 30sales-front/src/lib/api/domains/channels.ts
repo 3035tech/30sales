@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type CreateChannelInput, channelHealthCheckSchema, channelSchema, channelWebhookEventsPageSchema, evolutionConnectionSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
+import { type CreateChannelInput, channelHealthCheckSchema, channelMonitoringCheckSchema, channelSchema, channelWebhookEventsPageSchema, evolutionConnectionSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
 
 
 export const channelsApi = {
@@ -9,6 +9,7 @@ export const channelsApi = {
     update: (id: string, input: { displayName?: string; isActive?: boolean; dailyMessageLimit?: number }) => request(`/api/v1/channels/${encodeURIComponent(id)}`, channelSchema, { method: 'PATCH', body: JSON.stringify(input) }),
     setCredentials: (id: string, input: { provider: 'evolution'; baseUrl: string; apiKey: string; webhookSecret: string } | { provider: 'whatsapp_cloud_api'; accessToken: string; signalSecret: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
     healthCheck: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/health-check`, channelHealthCheckSchema, { method: 'POST' }),
+    monitoringCheck: (channelIds: string[]) => request('/api/v1/channels/monitoring/check', channelMonitoringCheckSchema, { method: 'POST', body: JSON.stringify({ channelIds }) }),
     discoverEvolutionInstances: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-instances`, evolutionInstanceListSchema),
     configureEvolutionWebhook: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-webhook/configure`, evolutionWebhookConfigurationSchema, { method: 'POST' }),
     connectEvolution: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution/connect`, evolutionConnectionSchema, { method: 'POST' }),

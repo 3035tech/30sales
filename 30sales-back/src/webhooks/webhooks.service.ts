@@ -10,6 +10,7 @@ import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
 type JsonRecord = Record<string, unknown>;
+const knownEvolutionEvents: ReadonlySet<string> = new Set(Object.values(EVOLUTION_WEBHOOK_EVENT));
 
 @Injectable()
 export class WebhooksService {
@@ -161,7 +162,7 @@ export class WebhooksService {
   }
 
   private isKnownEvolutionEvent(eventName: string): boolean {
-    return Object.values(EVOLUTION_WEBHOOK_EVENT).includes(eventName as (typeof EVOLUTION_WEBHOOK_EVENT)[keyof typeof EVOLUTION_WEBHOOK_EVENT]);
+    return knownEvolutionEvents.has(eventName);
   }
 
   private toEvolutionConnectionStatus(state: string): ChannelConnectionStatus {

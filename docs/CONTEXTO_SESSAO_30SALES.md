@@ -162,6 +162,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 ## Próxima revisão UX: closer e Pipeline
 
+- Direção desta retomada: evoluir o Pipeline para um CRM útil no dia a dia, com dados relevantes fáceis de acessar, contexto da relação e ações comerciais claras. Priorizar incrementos verticais sem inflar a tela; preservar tenant scope e fontes de dados existentes.
+- Primeira lacuna corrigida: quando o contato tinha e-mail e telefone, a lista e o cartão mostravam somente o e-mail. Ambos agora aparecem como ações `mailto:` e `tel:`, com rótulos acessíveis, em português e inglês.
+- Próximas fatias recomendadas: resumo de relacionamento (última interação e resultado), histórico de mudanças do negócio, atalhos para registrar próxima ação/interação, visualização de carteira por responsável e indicadores filtrados por período com drill-down. Verificar quais campos já existem antes de introduzir novos contratos ou migrations.
+
 - Etapas customizadas já foram implementadas e integradas; a tela “Configurar etapas” fica disponível a owner/admin/manager e suas migrations `0035`/`0036` seguem geradas, não aplicadas.
 - A carteira agora tem quadro e lista compacta, busca por e-mail/telefone e filtros por etapa/responsável/prazo, ordenação por colunas e paginação direta server-side. Os indicadores ainda representam registros carregados, não o resultado total filtrado.
 - Revisão não foi feita logada porque a sessão atual do Chrome expirou e não havia credencial fictícia claramente identificada na lista de preenchimento automático. Evidência veio do código e da inspeção anterior do board com registros de demonstração. Nenhuma credencial foi usada.

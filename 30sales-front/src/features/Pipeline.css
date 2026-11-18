@@ -22,3 +22,9 @@
 @media(max-width:600px) { .pipeline-list-footer-summary { align-items: flex-start; flex-direction: column; } }
 @media(max-width:640px) { .pipeline-board { height: min(62vh,640px); min-height: 320px; } }
 .pipeline-stage-required-hint { margin: 0; padding: .75rem 1rem; border-radius: .5rem; color: var(--text-muted, #667085); background: var(--surface-muted, #f5f7fa); }
+.pipeline-contact-links { display: grid; gap: 4px; margin-top: 4px; min-width: 0; }
+.pipeline-contact-links a { display: inline-flex; align-items: flex-start; gap: 5px; width: fit-content; max-width: 100%; color: #475569; font-size: var(--font-size-xs); line-height: 1.4; text-decoration: none; overflow-wrap: anywhere; }
+.pipeline-contact-links a:hover { color: #1d4ed8; text-decoration: underline; }
+.pipeline-contact-links a:focus-visible { border-radius: 3px; outline: 2px solid #2563eb; outline-offset: 2px; }
+.pipeline-contact-links a svg { flex: 0 0 auto; margin-top: 1px; }
+.opportunity-card-detail > .pipeline-contact-links { margin: -3px 0 2px; }

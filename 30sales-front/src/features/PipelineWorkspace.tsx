@@ -1,6 +1,6 @@
 import { Button, CalendarField, CurrencyField, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, RefreshCw, Save, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -156,11 +156,20 @@ function CompactOpportunityRow({ opportunity, columns, stageLabel, assignableClo
   return <tr>
     <td data-label={columns[0].title}><details className="pipeline-compact-details" onToggle={(event) => setExpanded(event.currentTarget.open)}><summary><span>{opportunity.name}</span>{amountLabel && <small className="pipeline-compact-value">{amountLabel}</small>}</summary>{expanded && <div className="pipeline-compact-expanded"><OpportunityCard opportunity={opportunity} stages={stages} pipelines={pipelines} canManagePipeline={canManagePipeline} assignableClosers={assignableClosers} onUpdated={onUpdated} /></div>}</details></td>
     <td data-label={columns[1].title}>{opportunity.accountName}</td>
-    <td data-label={columns[2].title}><span className="pipeline-compact-contact">{opportunity.contactName}</span>{(opportunity.contactEmail || opportunity.contactPhone) && <small className="pipeline-compact-secondary">{opportunity.contactEmail ?? opportunity.contactPhone}</small>}</td>
+    <td data-label={columns[2].title}><span className="pipeline-compact-contact">{opportunity.contactName}</span><OpportunityContactLinks email={opportunity.contactEmail} phone={opportunity.contactPhone} emailLabel={t('pipeline.contactEmailLink', { email: opportunity.contactEmail })} phoneLabel={t('pipeline.contactPhoneLink', { phone: opportunity.contactPhone })} /></td>
     <td data-label={columns[3].title}><span className={opportunity.stage === 'won' ? 'pipeline-stage-pill won' : opportunity.stage === 'lost' ? 'pipeline-stage-pill lost' : 'pipeline-stage-pill'}>{stageLabel}</span></td>
     <td data-label={columns[4].title}>{opportunity.ownerName ?? t('pipeline.unassignedOwner')}</td>
     <td data-label={columns[5].title}><span className={opportunity.nextActionAt && new Date(opportunity.nextActionAt).getTime() < Date.now() ? 'pipeline-overdue-text' : ''}>{opportunity.nextAction ?? t('pipeline.actionMissing')}</span><small className="pipeline-compact-secondary">{dateLabel(opportunity.nextActionAt)}</small></td>
   </tr>
+}
+
+function OpportunityContactLinks({ email, phone, emailLabel, phoneLabel }: { email: string | null; phone: string | null; emailLabel: string; phoneLabel: string }) {
+  if (!email && !phone) return null
+  const telephone = phone?.replace(/[^\d+]/g, '')
+  return <span className="pipeline-contact-links">
+    {email && <a href={`mailto:${email}`} aria-label={emailLabel}><Mail size={13} aria-hidden="true" /><span>{email}</span></a>}
+    {telephone && phone && <a href={`tel:${telephone}`} aria-label={phoneLabel}><Phone size={13} aria-hidden="true" /><span>{phone}</span></a>}
+  </span>
 }
 
 function PipelineColumn({ stage, title, count, opportunities, allStages, pipelines, canManagePipeline, assignableClosers, onUpdated, onDrop, onDropHandled, dropEvent }: { stage: PipelineStageDto; title: string; count: number; opportunities: OpportunityDto[]; allStages: PipelineStageDto[]; pipelines: PipelinesDto['pipelines']; canManagePipeline: boolean; assignableClosers: OpportunityAssigneeDto[] | null; onUpdated: () => void; onDrop: (opportunityId: string, stageKey: string) => void; onDropHandled: () => void; dropEvent: { opportunityId: string; stageKey: string } | null }) {
@@ -270,7 +279,7 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     <div className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</div>
     <p className="opportunity-person">{opportunity.contactName} · {opportunity.ownerName ?? t('pipeline.unassignedOwner')}</p>
     {!terminal(opportunity.stage) && assignableClosers && <label className="opportunity-owner-picker">{t('opportunityAssignment.assignCloser')}<SelectField aria-label={t('opportunityAssignment.assignCloserFor', { opportunity: opportunity.name })} value={opportunity.ownerUserId ?? ''} disabled={ownerSaving} onChange={(event) => void assignOwner(event.target.value)}><option value="">{t('pipeline.unassignedOwner')}</option>{assignableClosers.map((closer) => <option key={closer.id} value={closer.id}>{closer.name}</option>)}</SelectField></label>}
-    {(opportunity.contactEmail || opportunity.contactPhone) && <p className="opportunity-channel">{opportunity.contactEmail ?? opportunity.contactPhone}</p>}
+    <OpportunityContactLinks email={opportunity.contactEmail} phone={opportunity.contactPhone} emailLabel={t('pipeline.contactEmailLink', { email: opportunity.contactEmail })} phoneLabel={t('pipeline.contactPhoneLink', { phone: opportunity.contactPhone })} />
     <div className={`opportunity-next${overdue || !opportunity.nextActionAt ? ' overdue' : ''}`}>
       {opportunity.nextActionAt ? <><CalendarClock size={14} /><span><strong>{opportunity.nextAction ?? t('pipeline.actionMissing')}</strong><small>{formatDate(opportunity.nextActionAt)}</small></span></> : <><AlertTriangle size={14} /><span><strong>{t('pipeline.actionMissing')}</strong><small>{t('pipeline.addNextAction')}</small></span></>}
     </div>

@@ -3,7 +3,6 @@ import { ChannelsModule } from '../channels/channels.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { InboxModule } from '../inbox/inbox.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
-import { TenantAccessService } from '../leads/tenant-access.service';
 import { AgentsController } from './agents.controller';
 import { AgentsRepository } from './agents.repository';
 import { AgentsService } from './agents.service';
@@ -12,5 +11,5 @@ import { AssistantRuntimeRepository } from './assistant-runtime.repository';
 import { AssistantRuntimeWorker } from './assistant-runtime.worker';
 import { AssistantAudioTranscriptionService } from './assistant-audio-transcription.service';
 
-@Module({ imports: [ChannelsModule, AttachmentsModule, InboxModule, WebhooksModule], controllers: [AgentsController], providers: [AgentsService, AgentsRepository, AssistantLanguageModelService, AssistantAudioTranscriptionService, AssistantRuntimeRepository, AssistantRuntimeWorker, TenantAccessService] })
+@Module({ imports: [ChannelsModule, AttachmentsModule, InboxModule, WebhooksModule], controllers: [AgentsController], providers: [AgentsService, AgentsRepository, AssistantLanguageModelService, AssistantAudioTranscriptionService, AssistantRuntimeRepository, AssistantRuntimeWorker] })
 export class AgentsModule {}

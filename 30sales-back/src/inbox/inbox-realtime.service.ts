@@ -2,12 +2,13 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import type { MessageEvent } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 import { interval, map, merge, Observable, Subject, Subscription } from 'rxjs';
-import { database, pool } from '../db';
-import { conversations } from '../db/schema';
-import { and, eq } from 'drizzle-orm';
+import { pool } from '../db';
+import { InboxRepository } from './inbox.repository';
+import { z } from 'zod';
 
 const channelName = 'sales_inbox_updates';
-type InboxUpdate = { organizationId: string; conversationId: string; occurredAt: string };
+const inboxUpdateSchema = z.object({ organizationId: z.string().uuid(), conversationId: z.string().uuid(), occurredAt: z.string().datetime() }).strict();
+type InboxUpdate = z.infer<typeof inboxUpdateSchema>;
 type InboxSubscriber = { readonly subject: Subject<MessageEvent>; readonly userId: string; readonly canManageAll: boolean };
 
 @Injectable()
@@ -18,6 +19,8 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connecting = false;
   private shuttingDown = false;
+
+  constructor(private readonly repository: InboxRepository) {}
 
   onModuleInit(): void { void this.connect() }
 
@@ -83,24 +86,20 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
 
   private handleNotification(channel: string | undefined, payload: string | undefined): void {
     if (channel !== channelName || !payload) return;
-    let update: InboxUpdate;
     try {
       const parsed: unknown = JSON.parse(payload);
-      if (!parsed || typeof parsed !== 'object') return;
-      const candidate = parsed as Partial<InboxUpdate>;
-      if (typeof candidate.organizationId !== 'string' || typeof candidate.conversationId !== 'string' || typeof candidate.occurredAt !== 'string') return;
-      update = candidate as InboxUpdate;
+      const result = inboxUpdateSchema.safeParse(parsed);
+      if (!result.success) return;
+      void this.broadcastUpdate(result.data);
     } catch { return }
-    void this.broadcastUpdate(update);
   }
 
   private async broadcastUpdate(update: InboxUpdate): Promise<void> {
     try {
-      const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
-        .where(and(eq(conversations.organizationId, update.organizationId), eq(conversations.id, update.conversationId))).limit(1);
-      if (!conversation) return;
+      const ownerUserId = await this.repository.findConversationOwner(update.organizationId, update.conversationId);
+      if (ownerUserId === undefined) return;
       for (const subscriber of this.subscribers.get(update.organizationId) ?? []) {
-        const data = subscriber.canManageAll || subscriber.userId === conversation.ownerUserId
+        const data = subscriber.canManageAll || subscriber.userId === ownerUserId
           ? update
           : { refreshRequired: true };
         subscriber.subject.next({ type: 'conversation.updated', data });

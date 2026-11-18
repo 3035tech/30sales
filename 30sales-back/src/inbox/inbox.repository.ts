@@ -19,6 +19,12 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
+  async findConversationOwner(organizationId: string, conversationId: string): Promise<string | null | undefined> {
+    const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
+      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.id, conversationId))).limit(1);
+    return conversation?.ownerUserId;
+  }
+
   async reconcileContact(input: ConversationContactReconcileDto): Promise<ConversationContactReconcileResultDto | 'not_found' | 'missing_contact' | 'invalid_phone' | 'not_owner'> {
     const phone = input.phone?.trim();
     const digits = phone?.replace(/\D/g, '') ?? '';

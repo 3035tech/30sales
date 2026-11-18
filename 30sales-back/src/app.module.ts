@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health/health.controller';
 import { LeadsModule } from './leads/leads.module';
+import { TenantAccessModule } from './leads/tenant-access.module';
 import { SessionModule } from './session/session.module';
 import { HandoffsModule } from './handoffs/handoffs.module';
 import { OpportunitiesModule } from './opportunities/opportunities.module';
@@ -17,5 +18,5 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PlatformModule } from './platform/platform.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { AuthRedisService } from './auth/auth-redis.service';
-@Module({ imports: [LeadsModule, CampaignsModule, SessionModule, PlatformModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule, NotificationsModule, AgentsModule], controllers: [HealthController], providers: [AuthRedisService] })
+@Module({ imports: [TenantAccessModule, LeadsModule, CampaignsModule, SessionModule, PlatformModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule, NotificationsModule, AgentsModule], controllers: [HealthController], providers: [AuthRedisService] })
 export class AppModule {}

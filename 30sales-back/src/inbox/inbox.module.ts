@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { TenantAccessService } from '../leads/tenant-access.service';
 import { InboxController } from './inbox.controller';
 import { InboxRepository } from './inbox.repository';
 import { InboxService } from './inbox.service';
@@ -8,5 +7,5 @@ import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 import { WhatsappMediaProviderService } from './whatsapp-media-provider.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { AttachmentsModule } from '../attachments/attachments.module';
-@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, TenantAccessService, WhatsappTextProviderService, WhatsappMediaProviderService, InboxRealtimeService], exports: [WhatsappTextProviderService] })
+@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, WhatsappTextProviderService, WhatsappMediaProviderService, InboxRealtimeService], exports: [WhatsappTextProviderService] })
 export class InboxModule {}

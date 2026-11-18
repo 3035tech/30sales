@@ -5,7 +5,7 @@ Atualizado em 18/11/2026. Esta checklist acompanha o backlog funcional em [`06_b
 ## Estado atual
 
 - Branch atual: `main`.
-- Commit `559ac4b` está em `origin/main`. Os builds/publicações da imagem frontend e backend passaram nas Actions `44275539479` e `44275544814`. A árvore tem uma melhoria adicional de notificação ainda não commitada.
+- Commit `e299604` está em `origin/main`, árvore limpa. O frontend passou/publicou no run `44275539479` (`559ac4b`); o backend passou/publicou no run `44277191439` (`c65f476`).
 - A migration Drizzle `0056_minor_exodus.sql` está versionada e ainda não foi aplicada.
 - A máscara internacional de telefone está versionada, mas ainda não passou por build bem-sucedido nem inspeção no navegador.
 - Um log anterior do backend informou que o runtime da assistente estava desativado por falta de `ANTHROPIC_API_KEY`. Confirmar a configuração atual antes de aceitar o chatbot inbound.

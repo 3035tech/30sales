@@ -164,7 +164,8 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 - Direção desta retomada: evoluir o Pipeline para um CRM útil no dia a dia, com dados relevantes fáceis de acessar, contexto da relação e ações comerciais claras. Priorizar incrementos verticais sem inflar a tela; preservar tenant scope e fontes de dados existentes.
 - Primeira lacuna corrigida: quando o contato tinha e-mail e telefone, a lista e o cartão mostravam somente o e-mail. Ambos agora aparecem como ações `mailto:` e `tel:`, com rótulos acessíveis, em português e inglês.
-- Próximas fatias recomendadas: resumo de relacionamento (última interação e resultado), histórico de mudanças do negócio, atalhos para registrar próxima ação/interação, visualização de carteira por responsável e indicadores filtrados por período com drill-down. Verificar quais campos já existem antes de introduzir novos contratos ou migrations.
+- Segunda fatia: lista e board recebem a interação mais recente por oportunidade em uma consulta adicional tenant-scoped por página e exibem tipo, assunto e data; o board também mostra o resultado quando disponível. Oportunidades sem atividade ficam explícitas. Nenhuma migration.
+- Próximas fatias recomendadas: histórico de mudanças do negócio no detalhe, atalhos para registrar próxima ação/interação e visão gerencial da carteira por responsável com indicadores filtrados por período e drill-down. Verificar quais campos já existem antes de introduzir novos contratos ou migrations.
 
 - Etapas customizadas já foram implementadas e integradas; a tela “Configurar etapas” fica disponível a owner/admin/manager e suas migrations `0035`/`0036` seguem geradas, não aplicadas.
 - A carteira agora tem quadro e lista compacta, busca por e-mail/telefone e filtros por etapa/responsável/prazo, ordenação por colunas e paginação direta server-side. Os indicadores ainda representam registros carregados, não o resultado total filtrado.

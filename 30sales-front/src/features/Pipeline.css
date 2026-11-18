@@ -28,3 +28,8 @@
 .pipeline-contact-links a:focus-visible { border-radius: 3px; outline: 2px solid #2563eb; outline-offset: 2px; }
 .pipeline-contact-links a svg { flex: 0 0 auto; margin-top: 1px; }
 .opportunity-card-detail > .pipeline-contact-links { margin: -3px 0 2px; }
+.opportunity-last-activity { display: flex; align-items: flex-start; gap: 7px; padding: 9px; border: 1px solid #e2e8f0; border-radius: 7px; color: #475569; background: #fff; }
+.opportunity-last-activity > svg { flex: 0 0 auto; margin-top: 2px; color: #64748b; }
+.opportunity-last-activity > span { display: grid; gap: 3px; min-width: 0; }
+.opportunity-last-activity strong { font-size: var(--font-size-xs); }
+.opportunity-last-activity small { color: #64748b; font-size: var(--font-size-xs); line-height: 1.4; overflow-wrap: anywhere; }

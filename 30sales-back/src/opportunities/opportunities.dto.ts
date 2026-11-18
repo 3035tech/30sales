@@ -1,5 +1,8 @@
 import { z } from 'zod';
 import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.constants';
+import type { ACTIVITY_TYPES } from './activities.dto';
+type ActivityType = (typeof ACTIVITY_TYPES)[number];
+export type OpportunityLastActivityDto = { type: ActivityType; subject: string; result: string | null; occurredAt: string };
 
 const stageSchema = z.enum(OPPORTUNITY_STAGES);
 
@@ -81,6 +84,7 @@ export class OpportunityRecordDto {
     readonly nextActionAt: string | null,
     readonly createdAt: string,
     readonly updatedAt: string,
+    readonly lastActivity: OpportunityLastActivityDto | null = null,
   ) {}
 }
 export class OpportunityPageDto { constructor(readonly data: OpportunityRecordDto[], readonly pagination: { limit: number; offset: number; total: number; hasNextPage: boolean }) {} }

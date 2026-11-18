@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, ilike, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
+import { accounts, activities, auditEvents, leads, opportunities, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
-import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
+import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityLastActivityDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 
 const owner = alias(user, 'opportunity_owner');
@@ -13,9 +13,10 @@ const customStage = alias(pipelineStages, 'opportunity_custom_stage');
 const pipelineOrderStage = alias(pipelineStages, 'opportunity_order_stage');
 const fromCustomStage = alias(pipelineStages, 'history_from_custom_stage');
 const toCustomStage = alias(pipelineStages, 'history_to_custom_stage');
-type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; pipelineId: string; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date };
+type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; pipelineId: string; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; latestActivity?: Omit<OpportunityLastActivityDto, 'occurredAt'> & { occurredAt: Date } | null };
 function mapOpportunity(row: OpportunityRow, canUpdate = false) {
-  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString());
+  const lastActivity = row.latestActivity ? { ...row.latestActivity, occurredAt: row.latestActivity.occurredAt.toISOString() } : null;
+  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), lastActivity);
 }
 
 @Injectable()
@@ -53,7 +54,7 @@ export class OpportunitiesRepository {
               : input.query.sortBy === 'ownerName' ? owner.name
                 : opportunities.nextActionAt;
     const direction = input.query.sortDirection === 'desc' ? desc : asc;
-    return database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
+    const rows = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
@@ -61,6 +62,13 @@ export class OpportunitiesRepository {
       .leftJoin(pipelineOrderStage, and(eq(pipelineOrderStage.organizationId, opportunities.organizationId), eq(pipelineOrderStage.pipelineId, opportunities.pipelineId), sql`case when ${opportunities.stage} = 'custom' then ${pipelineOrderStage.key} = ${opportunities.pipelineStageKey} else ${pipelineOrderStage.stage} = ${opportunities.stage} end`))
       .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions))
       .orderBy(direction(sortColumn), asc(opportunities.id)).limit(input.query.limit).offset(input.query.offset);
+    if (rows.length === 0) return rows as OpportunityRow[];
+    const latestActivities = await database.selectDistinctOn([activities.opportunityId], { opportunityId: activities.opportunityId, type: activities.type, subject: activities.subject, result: activities.result, occurredAt: activities.occurredAt })
+      .from(activities)
+      .where(and(eq(activities.organizationId, input.organizationId), inArray(activities.opportunityId, rows.map((row) => row.id))))
+      .orderBy(activities.opportunityId, desc(activities.occurredAt), desc(activities.createdAt));
+    const activityByOpportunity = new Map(latestActivities.map((activity) => [activity.opportunityId, { type: activity.type, subject: activity.subject, result: activity.result, occurredAt: activity.occurredAt }]));
+    return rows.map((row) => ({ ...row, latestActivity: activityByOpportunity.get(row.id) ?? null })) as OpportunityRow[];
   }
 
   async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {

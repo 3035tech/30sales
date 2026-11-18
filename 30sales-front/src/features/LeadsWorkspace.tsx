@@ -19,6 +19,7 @@ type SortDirection = 'asc' | 'desc'
 type OutreachDecision = (typeof CONTACT_OUTREACH_DECISION)[keyof typeof CONTACT_OUTREACH_DECISION]
 type OutreachBasis = (typeof CONTACT_OUTREACH_BASIS)[keyof typeof CONTACT_OUTREACH_BASIS]
 type OutreachDraft = { decision: OutreachDecision; basis: OutreachBasis | ''; evidence: string }
+type CampaignTab = 'campaigns' | 'calendar' | 'delivery-review'
 
 function CampaignAudienceEditor({ draft, onClose, onSaved }: { draft: CampaignDraftDto; onClose: () => void; onSaved: () => void }) {
   const { t } = useTranslation()
@@ -200,12 +201,13 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [sdrPreviewLoading, setSdrPreviewLoading] = useState(false)
   const [sdrPreviewError, setSdrPreviewError] = useState(false)
   const [campaignDraftsOpen, setCampaignDraftsOpen] = useState(false)
+  const [campaignTab, setCampaignTab] = useState<CampaignTab>('campaigns')
   const [campaignAudienceDraft, setCampaignAudienceDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignReadinessDraft, setCampaignReadinessDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignDrafts, setCampaignDrafts] = useState<CampaignDraftPageDto | null>(null)
   const [campaignDeliveryReview, setCampaignDeliveryReview] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.listDeliveryReview>> | null>(null)
-  const [campaignReviewOpen, setCampaignReviewOpen] = useState(false)
   const [campaignReviewLoading, setCampaignReviewLoading] = useState(false)
+  const [campaignReviewError, setCampaignReviewError] = useState('')
   const [campaignReviewSavingId, setCampaignReviewSavingId] = useState('')
   const [campaignReviewOffset, setCampaignReviewOffset] = useState(0)
   const [campaignChannels, setCampaignChannels] = useState<SdrPreviewChannelDto[]>([])
@@ -286,12 +288,11 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   }
 
   const loadCampaignDeliveryReview = async (offset = 0) => {
-    setCampaignReviewOpen(true)
     setCampaignReviewOffset(offset)
-    setCampaignDraftError('')
+    setCampaignReviewError('')
     setCampaignReviewLoading(true)
     try { setCampaignDeliveryReview(await campaignsApi.campaigns.listDeliveryReview({ limit: 25, offset })) }
-    catch { setCampaignDraftError(t('campaignDrafts.reviewLoadFailed')) }
+    catch { setCampaignReviewError(t('campaignDrafts.reviewLoadFailed')) }
     finally { setCampaignReviewLoading(false) }
   }
 
@@ -300,8 +301,24 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     try {
       await campaignsApi.campaigns.confirmDeliverySent(outboxEventId)
       await loadCampaignDeliveryReview(campaignReviewOffset)
-    } catch { setCampaignDraftError(t('campaignDrafts.reviewConfirmFailed')) }
+    } catch { setCampaignReviewError(t('campaignDrafts.reviewConfirmFailed')) }
     finally { setCampaignReviewSavingId('') }
+  }
+
+  const selectCampaignTab = (tab: CampaignTab) => {
+    setCampaignTab(tab)
+    if (tab === 'delivery-review' && !campaignDeliveryReview && !campaignReviewLoading) void loadCampaignDeliveryReview()
+  }
+
+  const handleCampaignTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const tabs: CampaignTab[] = ['campaigns', 'calendar', 'delivery-review']
+    const index = tabs.indexOf(campaignTab)
+    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length
+    const nextTab = tabs[nextIndex]
+    selectCampaignTab(nextTab)
+    document.getElementById(`campaign-tab-${nextTab}`)?.focus()
   }
 
   useEffect(() => { if (initialSearch) { setQuery(initialSearch); setSearch(initialSearch); setOffset(0) } }, [initialSearch])
@@ -473,10 +490,15 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
       <div className="lead-actions"><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button><Button type="button" className="primary add-lead" onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</Button></div>
     </header>
-    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
+    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab('campaigns') } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
       {campaignDraftsLoading && !campaignDrafts ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>
-        <CampaignHolidayCalendar />
+      <div className="campaign-workspace-tabs" role="tablist" aria-label={t('campaignDrafts.sections')}>
+        <Button type="button" role="tab" id="campaign-tab-campaigns" aria-controls="campaign-panel-campaigns" aria-selected={campaignTab === 'campaigns'} tabIndex={campaignTab === 'campaigns' ? 0 : -1} className={campaignTab === 'campaigns' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('campaigns')}>{t('campaignDrafts.campaignsTab')}</Button>
+        <Button type="button" role="tab" id="campaign-tab-calendar" aria-controls="campaign-panel-calendar" aria-selected={campaignTab === 'calendar'} tabIndex={campaignTab === 'calendar' ? 0 : -1} className={campaignTab === 'calendar' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('calendar')}>{t('campaignDrafts.calendarTab')}</Button>
+        <Button type="button" role="tab" id="campaign-tab-delivery-review" aria-controls="campaign-panel-delivery-review" aria-selected={campaignTab === 'delivery-review'} tabIndex={campaignTab === 'delivery-review' ? 0 : -1} className={campaignTab === 'delivery-review' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('delivery-review')}>{t('campaignDrafts.deliveryReview')}</Button>
+      </div>
+      <div role="tabpanel" id="campaign-panel-campaigns" aria-labelledby="campaign-tab-campaigns" hidden={campaignTab !== 'campaigns'}>
         <form className="campaign-draft-form" onSubmit={(event) => void createCampaignDraft(event)}>
           <div className="campaign-draft-form-heading"><strong>{t('campaignDrafts.newDraft')}</strong><p>{t('campaignDrafts.formHint')}</p></div>
           <label>{t('campaignDrafts.name')}<TextField value={campaignDraftForm.name} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, name: event.target.value }))} minLength={2} maxLength={120} required /></label>
@@ -495,16 +517,20 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
         </form>
         <section className="campaign-draft-list" aria-label={t('campaignDrafts.savedDrafts')}>
           <div className="campaign-draft-list-heading"><div><strong>{t('campaignDrafts.savedDrafts')}</strong><span>{t('campaignDrafts.count', { count: campaignDrafts?.pagination.total ?? 0 })}</span></div></div>
-          <Button type="button" disabled={campaignReviewLoading} onClick={() => void loadCampaignDeliveryReview()}>{t('campaignDrafts.deliveryReview')}</Button>
-          {campaignReviewOpen && <section aria-label={t('campaignDrafts.deliveryReview')}>
-            <p className="form-hint">{t('campaignDrafts.reviewSafety')}</p>
-            {campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>}
-          </section>}
           <p className="form-hint">{t('campaignDrafts.pauseHint')}</p>
           {campaignStartedCount !== null && <p className="success-message" role="status">{t('campaignDrafts.started', { count: campaignStartedCount })}</p>}
           {!campaignDraftsLoading && campaignDrafts?.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.empty')} /> : <ul>{campaignDrafts?.data.map((draft) => <li key={draft.id}><div><strong>{draft.name}</strong><span>{draft.channelName} · {draft.channelPhoneNumber}</span><small>{t('campaignDrafts.schedule', { start: draft.windowStart, end: draft.windowEnd, timeZone: draft.timeZone })}</small></div><div><span>{t('campaignDrafts.dailyLimitValue', { count: draft.dailyMessageLimit })}</span><span>{t('campaignDrafts.delayValue', { count: draft.minimumDelaySeconds })}</span><span>{t('campaignAudience.savedCount', { count: draft.audienceLeadCount })}</span><b>{t(`campaignDrafts.status.${draft.status}`)}</b><Button type="button" onClick={() => setCampaignReadinessDraft(draft)}>{t('campaignDrafts.checkReadiness')}</Button><Button type="button" onClick={() => setCampaignAudienceDraft(draft)} disabled={draft.status !== CAMPAIGN_DRAFT_STATUS.draft}>{t('campaignAudience.select')}</Button>{draft.status === CAMPAIGN_DRAFT_STATUS.active && <Button type="button" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'pause')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.pause')}</Button>}{draft.status === CAMPAIGN_DRAFT_STATUS.paused && <Button type="button" variant="primary" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'resume')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.resume')}</Button>}{draft.status === CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" variant="primary" disabled={draft.audienceLeadCount === 0 || campaignStartingId !== ''} onClick={() => void startCampaign(draft)}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.start')}</Button>}</div></li>)}</ul>}
           {campaignDrafts && <div className="sdr-preview-pagination"><Button type="button" disabled={campaignDrafts.pagination.offset === 0 || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(Math.max(0, campaignDrafts.pagination.offset - campaignDrafts.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignDrafts.pagination.offset / campaignDrafts.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignDrafts.pagination.total / campaignDrafts.pagination.limit)) })}</span><Button type="button" disabled={!campaignDrafts.pagination.hasNextPage || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(campaignDrafts.pagination.offset + campaignDrafts.pagination.limit)}>{t('common.nextPage')}</Button></div>}
         </section>
+      </div>
+      <div role="tabpanel" id="campaign-panel-calendar" aria-labelledby="campaign-tab-calendar" hidden={campaignTab !== 'calendar'}><CampaignHolidayCalendar /></div>
+      <div role="tabpanel" id="campaign-panel-delivery-review" aria-labelledby="campaign-tab-delivery-review" hidden={campaignTab !== 'delivery-review'}>
+        <section className="campaign-delivery-review" aria-label={t('campaignDrafts.deliveryReview')}>
+          <p className="form-hint">{t('campaignDrafts.reviewSafety')}</p>
+          {campaignReviewError && <WorkspaceState kind="error" compact message={campaignReviewError}><Button type="button" disabled={campaignReviewLoading} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
+          {!campaignReviewError && (campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>)}
+        </section>
+      </div>
       </>}
     </Modal>
     {campaignAudienceDraft && <CampaignAudienceEditor draft={campaignAudienceDraft} onClose={() => setCampaignAudienceDraft(null)} onSaved={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)} />}

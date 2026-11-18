@@ -25,6 +25,7 @@ Apply root [`../AGENTS.md`](../AGENTS.md) first. This app is a Vite + React + Ty
 ## UI and localization
 
 - Use i18next/react-i18next for pt-BR and English; keep catalogs aligned and keys typed/validated. Locale-aware date, time, number and currency formatters.
+- Form validation: show field errors after the field is touched or submission is attempted, not preemptively on every untouched required field. Keep each concise localized error associated with its control through `aria-invalid` and `aria-describedby`; on failed submit, focus the first invalid control. Reserve a stable error/help area or otherwise prevent errors from unexpectedly shifting neighboring fields. Do not rely on color alone, and distinguish guidance hints from errors.
 - Build from product design tokens. Use Radix primitives via wrappers and Lucide icons; prefer direct imports and avoid UI library defaults.
 - Feature components do not duplicate permission logic; use permissions to conditionally render affordances, while backend remains authoritative. Explain disabled actions when helpful.
 - Inbox and data tables must support keyboard focus, predictable loading, pagination/virtualization when measured volume warrants, and filters in URL.

@@ -1,4 +1,4 @@
-import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type FocusEvent, type FormEvent, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import * as RadixSelect from '@radix-ui/react-select'
 import { AsYouType } from 'libphonenumber-js/min'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
@@ -69,11 +69,12 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
   </>
 })
 
+type SelectFieldEvent = { target: HTMLSelectElement; currentTarget: HTMLSelectElement }
 type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, 'onChange' | 'onBlur' | 'onInvalid' | 'value' | 'defaultValue'> & {
   value?: string | number | null
   defaultValue?: string | number
-  onChange?: SelectHTMLAttributes<HTMLSelectElement>['onChange']
-  onBlur?: SelectHTMLAttributes<HTMLSelectElement>['onBlur']
+  onChange?: (event: SelectFieldEvent) => void
+  onBlur?: (event: SelectFieldEvent) => void
   onInvalid?: SelectHTMLAttributes<HTMLSelectElement>['onInvalid']
   error?: string
   hint?: string
@@ -111,15 +112,12 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
     const nextValue = nextSelectedValue === EMPTY_SELECT_VALUE ? '' : nextSelectedValue
     if (value === undefined) setUncontrolledValue(nextValue)
     validate(nextValue)
-    if (nativeSelectRef.current && onChange) {
-      const event = { target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as ChangeEvent<HTMLSelectElement>
-      onChange(event)
-    }
+    if (nativeSelectRef.current && onChange) onChange({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current })
   }
   const handleBlur = () => {
     if (!open) {
       validate(currentValue)
-      if (nativeSelectRef.current && onBlur) onBlur({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as FocusEvent<HTMLSelectElement>)
+      if (nativeSelectRef.current && onBlur) onBlur({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current })
     }
   }
   return <div className="ui-select-field">
@@ -138,7 +136,7 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
         })}</RadixSelect.Viewport>
       </RadixSelect.Content></RadixSelect.Portal>
     </RadixSelect.Root>
-    <select ref={nativeSelectRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" name={name} required={required} disabled={disabled} value={currentValue} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget.value, true); event.preventDefault(); (document.getElementById(selectId) as HTMLButtonElement | null)?.focus(); if (nativeSelectRef.current) onInvalid?.({ target: nativeSelectRef.current, currentTarget: nativeSelectRef.current } as unknown as FormEvent<HTMLSelectElement>) }} onChange={() => undefined}>{children}</select>
+    <select ref={nativeSelectRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" name={name} required={required} disabled={disabled} value={currentValue} onInvalid={(event) => { setSubmitAttempted(true); validate(event.currentTarget.value, true); event.preventDefault(); const trigger = document.getElementById(selectId); if (trigger instanceof HTMLButtonElement) trigger.focus(); onInvalid?.(event) }} onChange={() => undefined}>{children}</select>
     {hint && <small id={hintId} className="ui-field-hint">{hint}</small>}
     {visibleError && <small id={errorId} className="ui-field-error" role="alert">{visibleError}</small>}
   </div>

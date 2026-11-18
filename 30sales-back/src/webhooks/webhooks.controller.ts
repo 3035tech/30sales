@@ -5,8 +5,6 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { WebhooksService } from './webhooks.service';
 import { interpretationFailureSignalSchema, type InterpretationFailureSignalInputDto } from './webhooks.dto';
 
-type RawBodyRequest = Request & { rawBody?: Buffer };
-
 @Controller('api/v1/webhooks')
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
@@ -17,12 +15,12 @@ export class WebhooksController {
   }
 
   @Post('evolution/:channelId')
-  ingestEvolution(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: RawBodyRequest) {
+  ingestEvolution(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: Request) {
     return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
   }
 
   @Post('evolution/:channelId/:eventName')
-  ingestEvolutionEventRoute(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: RawBodyRequest) {
+  ingestEvolutionEventRoute(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: Request) {
     return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
   }
 
@@ -31,13 +29,13 @@ export class WebhooksController {
     @Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string,
     @Headers('x-30sales-webhook-key') webhookSecret: string | undefined,
     @Body(new ZodValidationPipe(interpretationFailureSignalSchema)) payload: InterpretationFailureSignalInputDto,
-    @Req() request: RawBodyRequest,
+    @Req() request: Request,
   ) {
     return this.webhooksService.ingestInterpretationFailure(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
   }
 
   @Post('whatsapp-cloud')
-  ingestCloud(@Headers('x-hub-signature-256') signature: string | undefined, @Body() payload: unknown, @Req() request: RawBodyRequest) {
+  ingestCloud(@Headers('x-hub-signature-256') signature: string | undefined, @Body() payload: unknown, @Req() request: Request) {
     return this.webhooksService.ingestCloud(signature, payload, request.rawBody ?? Buffer.alloc(0));
   }
 }

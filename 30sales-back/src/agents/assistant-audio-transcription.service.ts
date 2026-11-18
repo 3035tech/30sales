@@ -23,7 +23,8 @@ export class AssistantAudioTranscriptionService {
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     for await (const chunk of stream) {
-      const content = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      if (!Buffer.isBuffer(chunk) && typeof chunk !== 'string' && !(chunk instanceof Uint8Array)) throw new AssistantRuntimeModelError('ASSISTANT_AUDIO_STREAM_INVALID', false);
+      const content = Buffer.from(chunk);
       totalBytes += content.byteLength;
       if (totalBytes > maximumAudioBytes) throw new AssistantRuntimeModelError('ASSISTANT_AUDIO_TOO_LARGE', false);
       chunks.push(content);

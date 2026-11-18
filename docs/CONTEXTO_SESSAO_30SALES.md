@@ -1,5 +1,14 @@
 # Contexto de continuidade — 30Sales
 
+## Continuidade de qualidade de código na `main` — 18/11/2026
+
+- Estado real confirmado ao retomar: branch `main`, limpa antes da fatia, remoto `origin` configurado. Commits recentes de tipagem incluem `58b96e7` (mapa de rotas) e `b647936` (guards DOM no Pipeline/calendário e leitura de cabeçalhos CSV sem cast de record).
+- Nesta fatia: `SelectField` deixou de fabricar eventos React completos; callbacks de mudança/foco usam o contrato estrutural mínimo consumido pelas telas, e validação encaminha o evento nativo. O foco de erro verifica o tipo real do botão antes de focar.
+- Middleware/controller de webhooks agora compartilham a extensão tipada `Request.rawBody` via declaração Express, removendo casts repetidos. Transcrição valida os tipos possíveis do chunk de stream antes de convertê-lo para Buffer.
+- Regra persistente de formulário adicionada a `30sales-front/AGENTS.md`: erros surgem após interação/submissão, são localizados e acessíveis, foco vai para o primeiro inválido e a mensagem não deve causar deslocamento inesperado do layout.
+- Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação desta fatia.
+- Próximo passo: conferir compatibilidade dos tipos alterados sem rodar build/testes, revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts` e a decisão de normalização do stream deve ser confirmada pelo gate de build quando o usuário solicitar validação.
+
 ## Auditoria visual e funcional em 15/11/2026
 
 - Inspecionado no Chrome autenticado com tenant e registros fictícios em banco descartável. Ambiente local aberto em `http://localhost:5173/#/closer`.

@@ -9,7 +9,7 @@ import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } f
 import { ASSISTANT_DELIVERY_OUTCOMES, ASSISTANT_PRICING_VERSION, ASSISTANT_PROVIDER_DELIVERY_STATES, ASSISTANT_REPLY_IDEMPOTENCY_PREFIX, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_STATUSES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_TRANSCRIPTION_PROVIDER, ASSISTANT_UNKNOWN_DELIVERY_STATE, estimateAssistantTokenCostUsd, type AssistantProviderDeliveryState, type AssistantStopReason } from './assistant-runtime.constants';
 import { CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 import { isAssistantAllowedAt, isWithinBusinessHours } from '../channels/channel-assistant-schedule';
-import { channelAssistantScheduleModeSchema, channelOperationModeSchema } from '../channels/channels.dto';
+import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
@@ -165,7 +165,7 @@ export class AssistantRuntimeRepository {
         .where(and(eq(channelBusinessHours.organizationId, conversation.organizationId), eq(channelBusinessHours.channelId, channel.id)));
       if (channel.operationMode === 'outbound' || !isAssistantAllowedAt({ mode: channelAssistantScheduleModeSchema.parse(channel.assistantScheduleMode), timeZone: channel.dailyLimitTimeZone, businessHours })) return { skipped: true };
 
-      const delivery = await input.send({ channelId: channel.id, provider: channel.provider as AgentSendChannel['provider'], providerChannelId: channel.providerChannelId, recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
+      const delivery = await input.send({ channelId: channel.id, provider: channelProviderSchema.parse(channel.provider), providerChannelId: channel.providerChannelId, recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();
       const idempotencyKey = `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })

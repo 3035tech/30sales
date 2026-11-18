@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
 import { auditEvents, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, userNotifications } from '../db/schema';
-import { ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
+import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 
@@ -77,7 +77,7 @@ export class ChannelsRepository {
     const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
       ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
       : null;
-    return new ChannelHealthCheckTargetDto(row.id, row.provider as ChannelRecordDto['provider'], row.providerChannelId, row.isActive, credentials);
+    return new ChannelHealthCheckTargetDto(row.id, channelProviderSchema.parse(row.provider), row.providerChannelId, row.isActive, credentials);
   }
 
   async evolutionMonitoringTargets(organizationId: string, channelIds: string[]): Promise<ChannelHealthCheckTargetDto[]> {
@@ -170,7 +170,7 @@ export class ChannelsRepository {
   }
 
   private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = []): ChannelRecordDto {
-    return new ChannelRecordDto(row.id, row.provider as ChannelRecordDto['provider'], row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus as ChannelRecordDto['connectionStatus'], row.connectionUpdatedAt?.toISOString() ?? null, row.operationMode as ChannelRecordDto['operationMode'], row.assistantScheduleMode as ChannelRecordDto['assistantScheduleMode'], businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })));
+    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })));
   }
 
   private isUniqueViolation(error: unknown): boolean {

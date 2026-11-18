@@ -17,3 +17,4 @@
 .channel-hours-row > label { display: flex; align-items: center; gap: 0.45rem; }
 @media (max-width: 520px) { .channel-hours-row { grid-template-columns: 1fr 1fr; } .channel-hours-row > label { grid-column: 1 / -1; } }
 .channel-policy-hint{margin:-6px 0 2px;padding:9px 11px;border-left:3px solid #8bb5f5;border-radius:0 7px 7px 0;background:#f2f7ff;color:#4b5f7a;font-size:var(--font-size-xs);line-height:1.5}
+.channel-policy-summary{flex-basis:100%;display:grid;gap:2px;min-width:140px;padding:5px 7px;border-left:2px solid #b7c9e4;border-radius:0 5px 5px 0;background:#f8fafc}.channel-policy-summary strong{color:#334155;font-size:var(--font-size-xs);font-weight:650}.channel-policy-summary span{color:#64748b;font-size:var(--font-size-xs)}

@@ -28,7 +28,7 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
   const refresh = useCallback(async () => {
     setLoading(true); setPartial(false); setFailed(false)
     const today = startOfDay(new Date())
-    const results = await Promise.allSettled([
+    const [overdueResult, dueTodayResult, handoffsResult, respondedResult, unassignedRespondedResult, opportunitiesResult] = await Promise.allSettled([
       api.tasks.list({ to: today.toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
       api.tasks.list({ from: today.toISOString(), to: addDays(today, 1).toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
       api.handoffs.list('requested'),
@@ -36,8 +36,8 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
       api.leads.list({ status: 'responded', assignedToUserId: 'unassigned', limit: 100 }),
       api.opportunities.list({ view: 'mine', limit: 100 }),
     ] as const)
-    const value = <T,>(index: number): T | null => results[index].status === 'fulfilled' ? results[index].value as T : null
-    const overdue = value<TaskDto[]>(0), dueToday = value<TaskDto[]>(1), handoffs = value<HandoffDto[]>(2), responded = value<LeadDto[]>(3), unassignedResponded = value<LeadDto[]>(4), opportunities = value<OpportunityDto[]>(5)
+    const value = <T,>(result: PromiseSettledResult<T>): T | null => result.status === 'fulfilled' ? result.value : null
+    const overdue = value(overdueResult), dueToday = value(dueTodayResult), handoffs = value(handoffsResult), responded = value(respondedResult), unassignedResponded = value(unassignedRespondedResult), opportunities = value(opportunitiesResult)
     const nextAvailability: TodayAvailability = { overdue: overdue !== null, dueToday: dueToday !== null, handoffs: handoffs !== null, responded: responded !== null, unassignedResponded: unassignedResponded !== null, opportunities: opportunities !== null }
     const loaded = Object.values(nextAvailability).filter(Boolean).length
     setPartial(loaded > 0 && loaded < 6); setFailed(loaded === 0); setHasLoaded(true); setAvailability(loaded === 0 ? noTodayAvailability : nextAvailability)

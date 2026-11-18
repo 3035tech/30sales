@@ -1,4 +1,4 @@
-import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type FocusEvent, type FormEvent, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ChangeEvent, type FocusEvent, type FormEvent, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import * as RadixSelect from '@radix-ui/react-select'
 import { AsYouType } from 'libphonenumber-js/min'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
@@ -94,9 +94,9 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
   const errorId = visibleError ? `${generatedId}-error` : undefined
   const hintId = hint ? `${generatedId}-hint` : undefined
   const describedBy = [props['aria-describedby'], hintId, errorId].filter(Boolean).join(' ') || undefined
-  const options = Children.toArray(children).filter((child) => isValidElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>(child) && child.type === 'option').map((child) => {
-    const option = child as ReactElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>
-    return { value: String(option.props.value ?? option.props.children ?? ''), label: option.props.children, disabled: option.props.disabled ?? false }
+  const options = Children.toArray(children).flatMap((child) => {
+    if (!isValidElement<{ value?: string | number; disabled?: boolean; children?: ReactNode }>(child) || child.type !== 'option') return []
+    return [{ value: String(child.props.value ?? child.props.children ?? ''), label: child.props.children, disabled: child.props.disabled ?? false }]
   })
   const currentValue = value === undefined ? uncontrolledValue : String(value ?? '')
   const selectedValue = currentValue === '' ? EMPTY_SELECT_VALUE : currentValue

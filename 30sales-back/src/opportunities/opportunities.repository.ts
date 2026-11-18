@@ -190,7 +190,9 @@ export class OpportunitiesRepository {
         .where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.id, targetPipelineId), eq(pipelines.isActive, true))).for('share').limit(1);
       if (!targetPipeline) return null;
       if (input.input.stage === 'custom') {
-        const [target] = await transaction.select({ key: pipelineStages.key }).from(pipelineStages).where(and(eq(pipelineStages.organizationId, input.organizationId), eq(pipelineStages.pipelineId, targetPipelineId), eq(pipelineStages.key, input.input.pipelineStageKey!), eq(pipelineStages.stage, 'custom'), eq(pipelineStages.isActive, true), eq(pipelineStages.isSystem, false))).for('share').limit(1);
+        const pipelineStageKey = input.input.pipelineStageKey;
+        if (!pipelineStageKey) return null;
+        const [target] = await transaction.select({ key: pipelineStages.key }).from(pipelineStages).where(and(eq(pipelineStages.organizationId, input.organizationId), eq(pipelineStages.pipelineId, targetPipelineId), eq(pipelineStages.key, pipelineStageKey), eq(pipelineStages.stage, 'custom'), eq(pipelineStages.isActive, true), eq(pipelineStages.isSystem, false))).for('share').limit(1);
         if (!target) return null;
       } else {
         const [target] = await transaction.select({ key: pipelineStages.key }).from(pipelineStages).where(and(eq(pipelineStages.organizationId, input.organizationId), eq(pipelineStages.pipelineId, targetPipelineId), eq(pipelineStages.stage, input.input.stage), eq(pipelineStages.isActive, true), eq(pipelineStages.isSystem, true))).for('share').limit(1);

@@ -79,7 +79,9 @@ export class PipelineStagesRepository {
       const expectedKeys = new Set(rows.map((row) => row.key));
       const requestedKeys = new Set(input.stageKeys);
       const stageFor = (key: string) => { const row = rows.find((item) => item.key === key); return row?.stage ?? (row?.isSystem ? row.key : 'custom'); };
-      if (expectedKeys.size !== requestedKeys.size || [...expectedKeys].some((key) => !requestedKeys.has(key)) || input.stageKeys.at(-2) === undefined || stageFor(input.stageKeys.at(-2)!) !== 'won' || stageFor(input.stageKeys.at(-1)!) !== 'lost' || input.stageKeys.slice(0, -2).some((key) => stageFor(key) === 'won' || stageFor(key) === 'lost')) return 'invalid_order';
+      const wonStageKey = input.stageKeys.at(-2);
+      const lostStageKey = input.stageKeys.at(-1);
+      if (expectedKeys.size !== requestedKeys.size || [...expectedKeys].some((key) => !requestedKeys.has(key)) || wonStageKey === undefined || lostStageKey === undefined || stageFor(wonStageKey) !== 'won' || stageFor(lostStageKey) !== 'lost' || input.stageKeys.slice(0, -2).some((key) => stageFor(key) === 'won' || stageFor(key) === 'lost')) return 'invalid_order';
       await this.persistOrder(transaction, input.organizationId, input.pipelineId, input.stageKeys);
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'pipeline_stage.reordered', entityType: 'pipeline_stage', entityId: input.pipelineId, correlationId: input.correlationId, afterState: { pipelineId: input.pipelineId, stageKeys: input.stageKeys } });
       return 'saved' as const;

@@ -2,7 +2,7 @@
 
 ## Continuidade de qualidade de código na `main` — 18/11/2026
 
-- Estado real confirmado ao retomar: branch `main`, limpa antes da fatia, remoto `origin` configurado. Commits recentes de tipagem incluem `58b96e7` (mapa de rotas) e `b647936` (guards DOM no Pipeline/calendário e leitura de cabeçalhos CSV sem cast de record).
+- Estado real confirmado ao retomar: branch `main`, limpa antes das fatias, remoto `origin` configurado. Commits recentes de tipagem incluem `58b96e7` (mapa de rotas) e `b647936` (guards DOM no Pipeline/calendário e leitura de cabeçalhos CSV sem cast de record).
 - Nesta fatia: `SelectField` deixou de fabricar eventos React completos; callbacks de mudança/foco usam o contrato estrutural mínimo consumido pelas telas, e validação encaminha o evento nativo. O foco de erro verifica o tipo real do botão antes de focar.
 - Middleware/controller de webhooks agora compartilham a extensão tipada `Request.rawBody` via declaração Express, removendo casts repetidos. Transcrição valida os tipos possíveis do chunk de stream antes de convertê-lo para Buffer.
 - Regra persistente de formulário adicionada a `30sales-front/AGENTS.md`: erros surgem após interação/submissão, são localizados e acessíveis, foco vai para o primeiro inválido e a mensagem não deve causar deslocamento inesperado do layout.
@@ -16,7 +16,9 @@
 - `ab1d1c1` processa eventos de SLA sob `SKIP LOCKED` e agrupa leitura de memberships, inserção de notificações em lotes de até 500, atualização de eventos e auditoria; a contagem de escalonamentos continua baseada nos inserts efetivamente criados.
 - `820fa81` extraiu ações da fila do closer para componente tipado, capturando o evento opcional uma vez e removendo assertions dos handlers.
 - `c7658d3` concluiu o seletor de leads da criação de handoff: loading, erro e lista vazia são estados distintos e localizados em pt-BR/en; submissão fica bloqueada sem opções.
-- A revisão de `TenantAccessService` removeu casts de arrays de permissões por meio de um helper genérico que mantém os literais de tipo. A revisão estática dos índices não encontrou evidência suficiente para adicionar índices sem medir consultas reais.
+- `9fa351c` removeu casts de arrays de permissões em `TenantAccessService` por meio de helper genérico que mantém os literais de tipo.
+- `4102b02` guarda os nomes conhecidos de eventos Evolution em `ReadonlySet`, evitando reconstruir o array de valores para cada verificação de webhook.
+- A revisão estática dos índices não encontrou evidência suficiente para adicionar índices sem medir consultas reais ou plano de execução.
 - Auditoria estática recente: não encontrei outros `catch` totalmente silenciosos nas áreas revistas; Pipeline, Contas, Closer e Handoffs distinguem falha de lista vazia ou preservam os dados anteriores.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
 - Próximo passo: continuar a auditoria de assertions/casts, consultas custosas e estados de erro/loading nas áreas ainda não revistas; dividir em fatias pequenas. Confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.

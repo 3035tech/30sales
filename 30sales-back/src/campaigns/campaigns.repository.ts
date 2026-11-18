@@ -14,6 +14,11 @@ import { organization as authOrganization } from '../db/auth-schema';
 import { CAMPAIGN_NATIONAL_HOLIDAY_PRESETS, CAMPAIGN_NO_SEND_DATE_AUDIT, CAMPAIGN_NO_SEND_DATE_LIMITS, CAMPAIGN_NO_SEND_DATE_SOURCE } from './campaigns.constants';
 import { CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto } from './campaigns.dto';
 import { campaignNoSendDates } from '../db/schema';
+import { z } from 'zod';
+import { channelProviderSchema } from '../channels/channels.dto';
+
+const campaignDeliveryConfirmationPayloadSchema = z.object({ campaignDraftId: z.string().min(1), leadId: z.string().min(1) });
+const campaignOutreachPayloadSchema = z.object({ organizationId: z.string().min(1), actorUserId: z.string().min(1), campaignDraftId: z.string().min(1), channelId: z.string().min(1), leadId: z.string().min(1) });
 
 function campaignLeadAccessCondition(access: LeadRepositoryAccessDto): SQL | undefined {
   if (access.canManageAll) return undefined;
@@ -65,9 +70,10 @@ export class CampaignsRepository {
     return database.transaction(async (transaction) => {
       const [event] = await transaction.select({ id: outboxEvents.id, aggregateId: outboxEvents.aggregateId, payload: outboxEvents.payload })
         .from(outboxEvents).where(and(eq(outboxEvents.id, input.outboxEventId), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed), eq(outboxEvents.lastErrorCode, CAMPAIGN_OUTREACH_REVIEW_CODE))).for('update').limit(1);
-      if (!event || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return null;
-      const payload = event.payload as Record<string, unknown>;
-      if (typeof payload.leadId !== 'string' || typeof payload.campaignDraftId !== 'string' || payload.campaignDraftId !== event.aggregateId) return null;
+      if (!event) return null;
+      const parsedPayload = campaignDeliveryConfirmationPayloadSchema.safeParse(event.payload);
+      if (!parsedPayload.success || parsedPayload.data.campaignDraftId !== event.aggregateId) return null;
+      const payload = parsedPayload.data;
       const idempotencyKey = `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${payload.campaignDraftId}:${payload.leadId}`;
       const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState })
         .from(messages).where(and(eq(messages.organizationId, input.organizationId), eq(messages.idempotencyKey, idempotencyKey), eq(messages.direction, 'outbound'))).for('update').limit(1);
@@ -168,13 +174,13 @@ export class CampaignsRepository {
       const [event] = await transaction.select({ id: outboxEvents.id, organizationId: outboxEvents.organizationId, payload: outboxEvents.payload })
         .from(outboxEvents).where(and(eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending), sql`${outboxEvents.availableAt} <= now()`))
         .orderBy(outboxEvents.availableAt, outboxEvents.createdAt).for('update', { skipLocked: true }).limit(1);
-      if (!event || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return null;
-      const payload = event.payload as Record<string, unknown>;
-      const { organizationId, actorUserId, campaignDraftId, channelId, leadId } = payload;
-      if (organizationId !== event.organizationId || typeof actorUserId !== 'string' || typeof campaignDraftId !== 'string' || typeof channelId !== 'string' || typeof leadId !== 'string') {
+      if (!event) return null;
+      const parsedPayload = campaignOutreachPayloadSchema.safeParse(event.payload);
+      if (!parsedPayload.success || parsedPayload.data.organizationId !== event.organizationId) {
         await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
         return null;
       }
+      const { actorUserId, campaignDraftId, channelId, leadId } = parsedPayload.data;
       const [draft] = await transaction.select({ openingMessage: campaignDrafts.openingMessage, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, status: campaignDrafts.status })
         .from(campaignDrafts).where(and(eq(campaignDrafts.id, campaignDraftId), eq(campaignDrafts.organizationId, event.organizationId))).for('update').limit(1);
       if (!draft) {
@@ -264,7 +270,7 @@ export class CampaignsRepository {
     const [audience] = await database.select({ total: count() }).from(campaignDraftAudiences)
       .where(and(eq(campaignDraftAudiences.organizationId, input.organizationId), eq(campaignDraftAudiences.campaignDraftId, input.campaignDraftId)));
     const holidays = await database.select({ date: campaignNoSendDates.date, name: campaignNoSendDates.name }).from(campaignNoSendDates).where(eq(campaignNoSendDates.organizationId, input.organizationId)).orderBy(campaignNoSendDates.date);
-    return new CampaignOperationalSnapshotDto(draft.channelId, draft.provider as CampaignOperationalSnapshotDto['provider'], audience?.total ?? 0, draft.channelActive && draft.operationMode !== 'inbound', draft.channelConfigured, draft.agentReady, draft.windowStart, draft.windowEnd, draft.timeZone, draft.campaignDailyMessageLimit, draft.channelDailyMessageLimit, draft.channelDailyMessageCount, draft.openingMessage, holidays);
+    return new CampaignOperationalSnapshotDto(draft.channelId, channelProviderSchema.parse(draft.provider), audience?.total ?? 0, draft.channelActive && draft.operationMode !== 'inbound', draft.channelConfigured, draft.agentReady, draft.windowStart, draft.windowEnd, draft.timeZone, draft.campaignDailyMessageLimit, draft.channelDailyMessageLimit, draft.channelDailyMessageCount, draft.openingMessage, holidays);
   }
 
   async listNoSendDates(organizationId: string): Promise<CampaignNoSendDateDto[]> {

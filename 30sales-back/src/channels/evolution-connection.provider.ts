@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
+import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { ChannelCredentialsDto, ChannelConnectionStatus } from './channels.dto';
 import { CHANNEL_CONNECTION_STATUS } from './channels.constants';
 
@@ -31,9 +32,9 @@ export class EvolutionConnectionProvider {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_CREATE_UNAVAILABLE', message: 'The Evolution API could not be reached to create the instance.' });
     }
     if (!response.ok) throw new ServiceUnavailableException({ code: 'EVOLUTION_CREATE_REJECTED', message: 'The Evolution API rejected instance creation. Check whether the instance name is available and the API key can manage instances.' });
-    const payload = await this.readPayload(response);
-    if (!payload) throw new ServiceUnavailableException({ code: 'EVOLUTION_CREATE_INVALID_RESPONSE', message: 'The Evolution API returned an invalid instance creation response.' });
-    return this.toResult(payload);
+    const result = await readLimitedJsonResponse(response, CONNECTION_LIMITS.responseBytes);
+    if (!result.ok || !result.payload) throw new ServiceUnavailableException({ code: 'EVOLUTION_CREATE_INVALID_RESPONSE', message: 'The Evolution API returned an invalid instance creation response.' });
+    return this.toResult(result.payload);
   }
 
   async connect(instanceName: string, credentials: Extract<ChannelCredentialsDto, { provider: 'evolution' }>): Promise<EvolutionConnectionResultDto> {
@@ -52,9 +53,9 @@ export class EvolutionConnectionProvider {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_CONNECT_UNAVAILABLE', message: 'The Evolution API could not be reached to start WhatsApp pairing.' });
     }
     if (!response.ok) throw new ServiceUnavailableException({ code: 'EVOLUTION_CONNECT_REJECTED', message: 'The Evolution API rejected the connection request.' });
-    const payload = await this.readPayload(response);
-    if (!payload) throw new ServiceUnavailableException({ code: 'EVOLUTION_CONNECT_INVALID_RESPONSE', message: 'The Evolution API returned an invalid connection response.' });
-    return this.toResult(payload);
+    const result = await readLimitedJsonResponse(response, CONNECTION_LIMITS.responseBytes);
+    if (!result.ok || !result.payload) throw new ServiceUnavailableException({ code: 'EVOLUTION_CONNECT_INVALID_RESPONSE', message: 'The Evolution API returned an invalid connection response.' });
+    return this.toResult(result.payload);
   }
 
   private toResult(payload: unknown): EvolutionConnectionResultDto {
@@ -68,28 +69,6 @@ export class EvolutionConnectionProvider {
     const rawState = this.string(instance.state) ?? this.string(instance.status) ?? this.string(root.state) ?? this.string(root.status);
     const status = this.connectionStatus(rawState, qrDataUrl);
     return new EvolutionConnectionResultDto(status, qrDataUrl);
-  }
-
-  private async readPayload(response: Response): Promise<unknown | null> {
-    const declaredLength = Number(response.headers.get('content-length'));
-    if (Number.isFinite(declaredLength) && declaredLength > CONNECTION_LIMITS.responseBytes) return null;
-    if (!response.body) return null;
-    try {
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let length = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        length += value.byteLength;
-        if (length > CONNECTION_LIMITS.responseBytes) { await reader.cancel(); return null; }
-        chunks.push(value);
-      }
-      const bytes = new Uint8Array(length);
-      let offset = 0;
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-      return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-    } catch { return null; }
   }
 
   private parseQrDataUrl(value: unknown): string | null {

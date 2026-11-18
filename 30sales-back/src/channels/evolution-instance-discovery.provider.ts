@@ -1,6 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
+import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { CHANNEL_HEALTH_STATUS } from './channels.dto';
 import type { ChannelHealthStatus, ChannelCredentialsDto } from './channels.dto';
 
@@ -30,29 +31,11 @@ export class EvolutionInstanceDiscoveryProvider {
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > EVOLUTION_DISCOVERY_LIMITS.responseBytes) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_RESPONSE_TOO_LARGE', message: 'The Evolution API response exceeded the discovery limit.' });
     if (!response.body) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_INVALID_RESPONSE', message: 'The Evolution API returned an empty discovery response.' });
-    let payload: unknown;
-    try {
-      const reader = response.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let byteLength = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        byteLength += value.byteLength;
-        if (byteLength > EVOLUTION_DISCOVERY_LIMITS.responseBytes) {
-          await reader.cancel();
-          throw new Error('response-too-large');
-        }
-        chunks.push(value);
-      }
-      const bytes = new Uint8Array(byteLength);
-      let offset = 0;
-      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
-      payload = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-    } catch {
+    const result = await readLimitedJsonResponse(response, EVOLUTION_DISCOVERY_LIMITS.responseBytes);
+    if (!result.ok) {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_INVALID_RESPONSE', message: 'The Evolution API returned an invalid discovery response.' });
     }
-    const parsed = evolutionInstancesSchema.safeParse(payload);
+    const parsed = evolutionInstancesSchema.safeParse(result.payload);
     if (!parsed.success) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_INVALID_RESPONSE', message: 'The Evolution API returned an unsupported discovery response.' });
     return parsed.data.map(({ instance }) => new EvolutionInstanceDiscoveryDto(instance.instanceName, instance.profileName?.trim() || instance.instanceName, this.toE164(instance.owner), this.toHealthStatus(instance.status)));
   }

@@ -19,6 +19,7 @@
 - `9fa351c` removeu casts de arrays de permissões em `TenantAccessService` por meio de helper genérico que mantém os literais de tipo.
 - `4102b02` guarda os nomes conhecidos de eventos Evolution em `ReadonlySet`, evitando reconstruir o array de valores para cada verificação de webhook.
 - A revisão do Pipeline removeu assertions de chave customizada e de posições finais na ordenação; o repository agora retorna resultado inválido se a chave customizada não estiver presente, mesmo fora do fluxo HTTP.
+- A leitura limitada de respostas JSON dos adapters Evolution e Meta foi extraída para `common/read-limited-json-response.ts`, preservando limite de bytes, cancelamento de stream excedente e a distinção entre falha de parse e payload JSON válido.
 - A revisão estática dos índices não encontrou evidência suficiente para adicionar índices sem medir consultas reais ou plano de execução.
 - Auditoria estática recente: não encontrei outros `catch` totalmente silenciosos nas áreas revistas; Pipeline, Contas, Closer e Handoffs distinguem falha de lista vazia ou preservam os dados anteriores.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.

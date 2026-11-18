@@ -5,7 +5,7 @@ import { accounts, agentSettings, auditEvents, campaignDraftAudiences, campaignD
 import { AUDIT_ACTOR_TYPE } from '../auth/authorization.constants';
 import { CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS } from '../leads/constants';
 import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
-import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignChannelQuotaSnapshotDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignSelectedChannelDto, CampaignSelectedChannelsRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
+import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignChannelPerformanceDto, CampaignChannelQuotaSnapshotDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignSelectedChannelDto, CampaignSelectedChannelsRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { SQL } from 'drizzle-orm';
 import { CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from '../channels/channels.constants';
@@ -76,6 +76,28 @@ export class CampaignsRepository {
       .where(where).orderBy(desc(outboxEvents.createdAt), desc(outboxEvents.id)).limit(input.limit).offset(input.offset);
     const total = summary?.total ?? 0;
     return new CampaignDeliveryReviewPageDto(rows.map((row) => new CampaignDeliveryReviewItemDto(row.outboxEventId, row.campaignDraftId, row.campaignName, row.leadId ?? '', row.accountName ?? '', row.contactName, row.phone, row.deliveryState, row.lastErrorCode, Number(row.attempts), row.createdAt.toISOString())), { limit: input.limit, offset: input.offset, total, hasNextPage: input.offset + rows.length < total });
+  }
+
+  async performance(input: CampaignPerformanceRepositoryDto): Promise<CampaignPerformanceDto | null> {
+    const [draft] = await database.select({ id: campaignDrafts.id }).from(campaignDrafts)
+      .where(and(eq(campaignDrafts.id, input.campaignDraftId), eq(campaignDrafts.organizationId, input.organizationId))).limit(1);
+    if (!draft) return null;
+    const rows = await database.select({
+      channelId: messagingChannels.id,
+      channelLabel: sql<string>`${messagingChannels.displayName} || ' · ' || ${messagingChannels.phoneNumber}`,
+      total: sql<number>`count(*)::int`,
+      queued: sql<number>`count(*) filter (where ${outboxEvents.status} = ${CAMPAIGN_OUTBOX_STATUS.pending})::int`,
+      accepted: sql<number>`count(*) filter (where ${messages.deliveryState} = 'accepted')::int`,
+      delivered: sql<number>`count(*) filter (where ${messages.deliveryState} in ('delivered', 'read'))::int`,
+      replied: sql<number>`count(*) filter (where exists (select 1 from ${messages} inbound where inbound.organization_id = ${outboxEvents.organizationId} and inbound.conversation_id = ${messages.conversationId} and inbound.direction = 'inbound' and inbound.occurred_at > ${messages.occurredAt}))::int`,
+      needsReview: sql<number>`count(*) filter (where ${outboxEvents.status} = ${CAMPAIGN_OUTBOX_STATUS.failed})::int`,
+    }).from(outboxEvents)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
+      .leftJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${input.campaignDraftId} || ':' || (${outboxEvents.payload}->>'leadId')`))
+      .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.aggregateId, input.campaignDraftId)))
+      .groupBy(messagingChannels.id, messagingChannels.displayName, messagingChannels.phoneNumber)
+      .orderBy(messagingChannels.displayName, messagingChannels.phoneNumber);
+    return new CampaignPerformanceDto(input.campaignDraftId, rows.reduce((sum, row) => sum + row.total, 0), rows.map((row) => new CampaignChannelPerformanceDto(row.channelId, row.channelLabel, row.queued, row.accepted, row.delivered, row.replied, row.needsReview)));
   }
 
   async confirmDelivery(input: CampaignDeliveryConfirmRepositoryDto): Promise<CampaignDeliveryConfirmDto | null> {

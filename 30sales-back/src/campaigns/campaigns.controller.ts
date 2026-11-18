@@ -29,6 +29,8 @@ export class CampaignsController {
   deleteNoSendDate(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) id: string) { return this.campaignsService.deleteNoSendDate(request, id); }
   @Get(':id/operational-readiness')
   checkOperationalReadiness(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.checkOperationalReadiness(request, campaignDraftId); }
+  @Get(':id/performance')
+  performance(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.performance(request, campaignDraftId); }
   @Post(':id/start')
   start(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.start(request, campaignDraftId); }
   @Post(':id/pause')

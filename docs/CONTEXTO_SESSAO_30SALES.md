@@ -519,3 +519,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - A confirmação nunca reenvia a mensagem. Itens sem mensagem correspondente permanecem visíveis, mas sem ação de confirmação. Nenhuma migration é necessária.
 - `git diff --check` passou. Build/testes não foram executados conforme preferência persistente. Revisar o diff e validar os dois builds na GitHub Actions após commit; não houve publicação/sync do Argo nesta etapa.
 - Ajuste de interface: a lista agora distingue carregamento, vazio e erro, e desativa atualização/paginação enquanto a consulta está em andamento. `git diff --check` pendente para esta revisão; sem build/testes locais por preferência persistente.
+
+
+### Desempenho de campanha por número — implementação local (18/11/2026)
+
+- Endpoint tenant-scoped `GET /api/v1/campaign-drafts/:id/performance` agrega cada canal em fila, aceitas, entregues/lidas, respostas posteriores do contato e envios que precisam de revisão. A busca confirma a campanha dentro da organização e usa outbox/mensagem/conversa já existentes; sem alteração de schema.
+- Tela de campanhas tem ação para abrir o resumo por número, com estados de carregamento e erro, localizado em pt-BR/en. Resposta significa mensagem inbound na mesma conversa após a primeira abordagem; a métrica não representa conversão nem resposta atribuída a outras mensagens da campanha.
+- Backlog atualizado. `git diff --check` passou; sem build/teste local, migration, commit, push ou deploy. Próximo: expor o número atribuído em cada lead/conversa e avançar métricas de atendimento/conversão.

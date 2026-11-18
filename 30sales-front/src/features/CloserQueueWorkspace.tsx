@@ -20,7 +20,21 @@ type WorkFilter = WorkKind | typeof CLOSER_QUEUE_EVENT_FILTER | typeof CLOSER_QU
 function isWorkKind(value: string): value is WorkKind { return CLOSER_QUEUE_WORK_KINDS.some((kind) => kind === value) }
 type SortKey = 'priority' | 'account' | 'event' | 'deadline'
 type WorkItem = { id: string; kind: WorkKind; accountName: string; contactName: string; title: string; context: string; occurredAt: string; deadline: string | null; handoff?: HandoffDto; event?: CloserEventDto; task?: TaskDto; conversation?: ConversationDto }
+type CloserEventActionInput = { action: 'snooze' | 'resolve' | 'reassign'; snoozedUntil?: string; assignedToUserId?: string }
 type OpportunityPage = Awaited<ReturnType<typeof api.opportunities.list>>
+
+function CloserEventActions({ event, assignees, acceptingId, eventAssignId, eventAssignTarget, onAction, onAssignmentChange }: { event: CloserEventDto; assignees: Array<{ id: string; name: string }>; acceptingId: string; eventAssignId: string; eventAssignTarget: string; onAction: (event: CloserEventDto, input: CloserEventActionInput) => Promise<void>; onAssignmentChange: (eventId: string, targetUserId: string) => void }) {
+  const { t } = useTranslation()
+  return <div className="closer-event-actions">
+    <IconButton label={t('closerEventActions.snoozeOneHour')} disabled={acceptingId === event.id} onClick={() => void onAction(event, { action: 'snooze', snoozedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString() })}><Clock3 size={15} /></IconButton>
+    <IconButton label={t('closerEventActions.resolveEvent')} disabled={acceptingId === event.id} onClick={() => void onAction(event, { action: 'resolve' })}><Check size={15} /></IconButton>
+    <SelectField aria-label={t('closerEventActions.reassignEvent')} value={eventAssignId === event.id ? eventAssignTarget : ''} disabled={acceptingId === event.id} onChange={(change) => onAssignmentChange(event.id, change.target.value)}>
+      <option value="">{t('closerEventActions.reassignEvent')}</option>
+      {assignees.filter((assignee) => assignee.id !== event.assignedToUserId).map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}
+    </SelectField>
+    {eventAssignId === event.id && eventAssignTarget && <IconButton label={t('closerEventActions.confirmReassign')} disabled={acceptingId === event.id} onClick={() => void onAction(event, { action: 'reassign', assignedToUserId: eventAssignTarget })}><UserRoundCheck size={15} /></IconButton>}
+  </div>
+}
 
 async function listAllOwnedOpportunities(): Promise<OpportunityDto[]> {
   const pageSize = 100
@@ -185,7 +199,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
     } catch { setError(t('closerQueue.eventActionFailed')) }
     finally { setAcceptingId('') }
   }
-  const actOnEvent = async (event: CloserEventDto, input: { action: 'snooze' | 'resolve' | 'reassign'; snoozedUntil?: string; assignedToUserId?: string }) => {
+  const actOnEvent = async (event: CloserEventDto, input: CloserEventActionInput) => {
     setAcceptingId(event.id); setError('')
     try {
       await api.closerEvents.act(event.id, input)
@@ -252,7 +266,19 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
   const columns: DataTableColumn<WorkItem, SortKey>[] = [
     { id: 'priority', label: t('closerQueue.columns.priority'), render: (item) => <span className={`closer-priority closer-priority-${item.event?.priority ?? item.kind}`}>{item.event?.priority === 'urgent' ? <ShieldAlert size={14} /> : item.task ? <ListTodo size={14} /> : item.conversation ? <MessageCircle size={14} /> : item.kind === 'handoff' || item.kind === 'lead_reply' ? <UserRoundCheck size={14} /> : <Clock3 size={14} />}{item.event ? t(`closerEventKinds.${item.event.eventType}`) : t(`closerQueue.kinds.${item.kind}`)}</span> },
     { id: 'account', label: t('closerQueue.columns.accountContact'), render: (item) => <div className="closer-account-cell"><strong>{item.accountName}</strong><small>{item.contactName}</small></div> },
-    { id: 'event', label: t('closerQueue.columns.context'), render: (item) => <div className="closer-event-cell"><strong>{item.title}</strong><p>{item.context}</p>{item.conversation && <small>{dateLabel(item.conversation.lastMessageAt ?? item.conversation.createdAt)}</small>}{item.event?.eventType === 'interpretation_failure' && <small className="closer-interpretation-reason">{t('closerEventActions.interpretationFailureReason', { reason: item.event.summary })}</small>}{item.event?.status === 'acknowledged' && <small>{t('closerQueue.acknowledged')}</small>}{item.handoff && item.handoff.confirmedFacts.length > 0 && <small>{t('closerQueue.confirmedFacts', { facts: item.handoff.confirmedFacts.join(' · ') })}</small>}{item.handoff && item.handoff.unknowns.length > 0 && <small className="closer-unknowns">{t('closerQueue.openQuestions', { questions: item.handoff.unknowns.join(' · ') })}</small>}{item.event && <div className="closer-event-actions"><IconButton label={t('closerEventActions.snoozeOneHour')} disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'snooze', snoozedUntil: new Date(Date.now() + 60 * 60 * 1000).toISOString() })}><Clock3 size={15} /></IconButton><IconButton label={t('closerEventActions.resolveEvent')} disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'resolve' })}><Check size={15} /></IconButton><SelectField aria-label={t('closerEventActions.reassignEvent')} value={eventAssignId === item.event.id ? eventAssignTarget : ''} disabled={acceptingId === item.event.id} onChange={(change) => { setEventAssignId(item.event!.id); setEventAssignTarget(change.target.value) }}><option value="">{t('closerEventActions.reassignEvent')}</option>{eventAssignees.filter((assignee) => assignee.id !== item.event!.assignedToUserId).map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField>{eventAssignId === item.event.id && eventAssignTarget && <IconButton label={t('closerEventActions.confirmReassign')} disabled={acceptingId === item.event.id} onClick={() => void actOnEvent(item.event!, { action: 'reassign', assignedToUserId: eventAssignTarget })}><UserRoundCheck size={15} /></IconButton>}</div>}<IconButton className="closer-item-action" disabled={Boolean(acceptingId)} label={item.task ? t('closerQueue.openTask') : item.conversation ? t('closerQueue.openConversation') : item.handoff ? (item.handoff.status === 'requested' ? acceptingId === item.handoff.id ? t('closerQueue.accepting') : t('closerQueue.acceptAction') : item.handoff.conversationId ? t('closerQueue.openConversation') : t('closerQueue.openPipeline')) : item.event ? (acceptingId === item.event.id ? t('common.loading') : t('closerQueue.openConversation')) : t('closerQueue.openPipeline')} onClick={() => item.task ? onOpenTask(item.task.id) : item.conversation ? onOpenInbox(item.conversation.id) : item.handoff ? item.handoff.status === 'requested' ? void acceptHandoff(item.handoff) : item.handoff.conversationId ? onOpenInbox(item.handoff.conversationId) : onOpenPipeline() : item.event ? void openEvent(item.event) : onOpenPipeline()}><ArrowRight size={15} /></IconButton></div> },
+    { id: 'event', label: t('closerQueue.columns.context'), render: (item) => {
+      const event = item.event
+      return <div className="closer-event-cell">
+        <strong>{item.title}</strong><p>{item.context}</p>
+        {item.conversation && <small>{dateLabel(item.conversation.lastMessageAt ?? item.conversation.createdAt)}</small>}
+        {event?.eventType === 'interpretation_failure' && <small className="closer-interpretation-reason">{t('closerEventActions.interpretationFailureReason', { reason: event.summary })}</small>}
+        {event?.status === 'acknowledged' && <small>{t('closerQueue.acknowledged')}</small>}
+        {item.handoff && item.handoff.confirmedFacts.length > 0 && <small>{t('closerQueue.confirmedFacts', { facts: item.handoff.confirmedFacts.join(' · ') })}</small>}
+        {item.handoff && item.handoff.unknowns.length > 0 && <small className="closer-unknowns">{t('closerQueue.openQuestions', { questions: item.handoff.unknowns.join(' · ') })}</small>}
+        {event && <CloserEventActions event={event} assignees={eventAssignees} acceptingId={acceptingId} eventAssignId={eventAssignId} eventAssignTarget={eventAssignTarget} onAction={actOnEvent} onAssignmentChange={(eventId, targetUserId) => { setEventAssignId(eventId); setEventAssignTarget(targetUserId) }} />}
+        <IconButton className="closer-item-action" disabled={Boolean(acceptingId)} label={item.task ? t('closerQueue.openTask') : item.conversation ? t('closerQueue.openConversation') : item.handoff ? (item.handoff.status === 'requested' ? acceptingId === item.handoff.id ? t('closerQueue.accepting') : t('closerQueue.acceptAction') : item.handoff.conversationId ? t('closerQueue.openConversation') : t('closerQueue.openPipeline')) : event ? (acceptingId === event.id ? t('common.loading') : t('closerQueue.openConversation')) : t('closerQueue.openPipeline')} onClick={() => item.task ? onOpenTask(item.task.id) : item.conversation ? onOpenInbox(item.conversation.id) : item.handoff ? item.handoff.status === 'requested' ? void acceptHandoff(item.handoff) : item.handoff.conversationId ? onOpenInbox(item.handoff.conversationId) : onOpenPipeline() : event ? void openEvent(event) : onOpenPipeline()}><ArrowRight size={15} /></IconButton>
+      </div>
+    } },
     { id: 'deadline', label: t('closerQueue.columns.deadline'), render: (item) => <span className="closer-deadline">{item.deadline ? <>{dateLabel(item.deadline)}{item.kind === 'overdue' && <small>{t(item.task ? 'tasks.overdue' : 'closerSlaSettings.overdue')}</small>}</> : '—'}</span> },
   ]
   const summaryValue = (value: number) => !hasLoadedQueueRef.current || queueLoadFailed || summaryLoadFailed ? '—' : value

@@ -2,14 +2,15 @@
 
 Atualizado em 18/11/2026. Esta checklist acompanha o backlog funcional em [`06_backlog_aceite_entrega.md`](06_backlog_aceite_entrega.md) e registra evidências necessárias para declarar uma versão pronta.
 
-## Estado inicial desta rodada
+## Estado atual
 
 - Branch atual: `main`.
-- Há alterações locais de frontend, backend, migrations e documentação sem commit. Elas precisam ser revisadas como um conjunto antes de definir o conteúdo da versão.
-- A migration Drizzle `0056_minor_exodus.sql` existe no workspace e ainda não foi aplicada.
-- A máscara internacional de telefone usa `libphonenumber-js` para formatar durante a digitação; ainda não passou por build nem inspeção no navegador.
+- Commit `b162c70` está em `origin/main`; a árvore estava limpa após o push. A correção de CI descrita abaixo está local e ainda não foi commitada.
+- A migration Drizzle `0056_minor_exodus.sql` está versionada e ainda não foi aplicada.
+- A máscara internacional de telefone está versionada, mas ainda não passou por build bem-sucedido nem inspeção no navegador.
 - Um log anterior do backend informou que o runtime da assistente estava desativado por falta de `ANTHROPIC_API_KEY`. Confirmar a configuração atual antes de aceitar o chatbot inbound.
 - O `npm install` da biblioteca de telefone reportou cinco vulnerabilidades altas na árvore de dependências. Identificar os pacotes e impacto antes do release; não aplicar correções automáticas sem revisar.
+- GitHub Actions do commit `b162c70` falharam nos builds/publicações de frontend e backend. O frontend falhou por apóstrofo ASCII não escapado na tradução inglesa de `channels.policyDescription`; já corrigido localmente. O backend falhou porque `campaigns.service.ts` usava `CampaignStatusChangeRepositoryDto` sem importá-lo; import adicionado localmente.
 
 ## 1. Escopo e revisão do código
 
@@ -24,6 +25,8 @@ Atualizado em 18/11/2026. Esta checklist acompanha o backlog funcional em [`06_b
 - Corrigido `webhooks.repository.ts`: mensagem inbound sem responsável elegível agora também notifica membros com papéis de atendimento, sem restringir o fallback a canais outbound. A consulta permanece limitada à organização e a inserção idempotente por destinatário.
 - Ainda falta validar visualmente o sino/toast e comprovar comportamento com usuário atribuído, sem atribuição e sem membro elegível.
 - A validação da máscara internacional e a revisão completa do diff continuam pendentes.
+- Corrigida a string `campaign's` para `campaign’s`, causa confirmada do erro de parse no build do frontend do commit `b162c70`.
+- A configuração Evolution agora assina `MESSAGES_EDITED`, `SEND_MESSAGE_UPDATE` e `NEW_TOKEN`, eventos que o receiver já registrava quando recebidos manualmente; validar compatibilidade no próximo build e na Evolution usada pelo ambiente.
 
 ## 2. Critérios funcionais inbound/outbound
 

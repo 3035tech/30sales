@@ -3,7 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES, hasOrganizationRole } from '../auth/authorization.constants';
 import { LeadRepositoryAccessDto } from '../leads/leads.dto';
-import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
+import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
 import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';

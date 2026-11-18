@@ -8,7 +8,7 @@ import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_HEALTH_STATUS } from '../channels/channels.dto';
-import { CampaignOperationalReadinessDto, CampaignOperationalSnapshotRepositoryDto } from './campaigns.dto';
+import { CampaignOperationalReadinessDto, CampaignOperationalSnapshotRepositoryDto, CampaignSelectedChannelsRepositoryDto } from './campaigns.dto';
 import { CampaignStartRepositoryDto } from './campaigns.dto';
 
 @Injectable()
@@ -44,21 +44,30 @@ export class CampaignsService {
     const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId));
     if (!snapshot) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     const checkedAt = new Date();
-    const health = snapshot.channelActive && snapshot.channelConfigured
-      ? await this.channelsService.checkHealthForOrganization(context.organizationId, snapshot.channelId, context.userId, request.correlationId)
-      : null;
+    const selectedChannels = await this.repository.selectedChannels(new CampaignSelectedChannelsRepositoryDto(context.organizationId, campaignDraftId)) ?? [];
+    const eligibleChannels = selectedChannels.filter((channel) => channel.active && channel.configured && channel.operationMode !== 'inbound');
+    const healthChecks = snapshot.channelActive && snapshot.channelConfigured
+      ? await Promise.all(eligibleChannels.map(async (channel) => ({ channel, result: await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, request.correlationId) })))
+      : [];
+    const readyChecks = healthChecks.filter(({ channel, result }) => channel.provider === 'evolution' ? result?.status === CHANNEL_HEALTH_STATUS.connected : result?.status === CHANNEL_HEALTH_STATUS.reachable);
+    const health = readyChecks.find(({ channel }) => channel.id === snapshot.channelId)?.result ?? readyChecks[0]?.result ?? healthChecks[0]?.result ?? null;
     const localTime = new Intl.DateTimeFormat('en-GB', { timeZone: snapshot.timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(checkedAt);
     const localDateParts = new Intl.DateTimeFormat('en-CA', { timeZone: snapshot.timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(checkedAt);
     const localDate = `${localDateParts.find((part) => part.type === 'year')?.value}-${localDateParts.find((part) => part.type === 'month')?.value}-${localDateParts.find((part) => part.type === 'day')?.value}`;
     const holidayToday = snapshot.noSendDates.find((holiday) => holiday.date === localDate) ?? null;
     const windowOpen = snapshot.windowStart <= localTime && localTime < snapshot.windowEnd;
-    const providerReady = snapshot.provider === 'evolution' ? health?.status === CHANNEL_HEALTH_STATUS.connected : health?.status === CHANNEL_HEALTH_STATUS.reachable;
-    const channelRemaining = Math.max(0, snapshot.channelDailyMessageLimit - snapshot.channelDailyMessageCount);
+    const readyChannelIds = new Set(readyChecks.map(({ channel }) => channel.id));
+    const readyQuotas = snapshot.channelQuotas.filter((channel) => readyChannelIds.has(channel.channelId));
+    const channelLimit = readyQuotas.reduce((total, channel) => total + channel.limit, 0);
+    const channelUsed = readyQuotas.reduce((total, channel) => total + channel.used, 0);
+    const channelReserved = readyQuotas.reduce((total, channel) => total + channel.reserved, 0);
+    const channelRemaining = readyQuotas.reduce((total, channel) => total + Math.max(0, channel.limit - channel.used - channel.reserved), 0);
+    const providerReady = readyQuotas.length > 0;
     const canQueue = snapshot.channelActive && snapshot.channelConfigured && snapshot.agentReady && providerReady && windowOpen && holidayToday === null && snapshot.audienceCount > 0 && snapshot.audienceCount <= snapshot.campaignDailyMessageLimit && snapshot.audienceCount <= channelRemaining;
     return new CampaignOperationalReadinessDto(campaignDraftId, checkedAt.toISOString(), snapshot.audienceCount,
       { active: snapshot.channelActive, configured: snapshot.channelConfigured, health: health?.status ?? null },
       { openNow: windowOpen, startsAt: snapshot.windowStart, endsAt: snapshot.windowEnd, timeZone: snapshot.timeZone },
-      { campaignLimit: snapshot.campaignDailyMessageLimit, channelLimit: snapshot.channelDailyMessageLimit, channelUsed: snapshot.channelDailyMessageCount, channelRemaining: Math.max(0, snapshot.channelDailyMessageLimit - snapshot.channelDailyMessageCount) },
+      { campaignLimit: snapshot.campaignDailyMessageLimit, channelLimit, channelUsed, channelReserved, channelRemaining },
       { configured: snapshot.noSendDates.length > 0, datesCount: snapshot.noSendDates.length, noSendToday: holidayToday !== null, todayName: holidayToday?.name ?? null }, false, canQueue);
   }
 
@@ -67,10 +76,16 @@ export class CampaignsService {
     const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId));
     if (!snapshot) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     if (!snapshot.channelActive || !snapshot.channelConfigured) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The campaign channel is inactive or missing credentials.' });
-    const health = await this.channelsService.checkHealthForOrganization(context.organizationId, snapshot.channelId, context.userId, request.correlationId);
-    const providerReady = snapshot.provider === 'evolution' ? health?.status === CHANNEL_HEALTH_STATUS.connected : health?.status === CHANNEL_HEALTH_STATUS.reachable;
-    if (!providerReady) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The messaging provider is not connected and ready.' });
-    const result = await this.repository.start(new CampaignStartRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId));
+    const selectedChannels = await this.repository.selectedChannels(new CampaignSelectedChannelsRepositoryDto(context.organizationId, campaignDraftId));
+    if (!selectedChannels?.length) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
+    const availableChannelIds: string[] = [];
+    for (const channel of selectedChannels.filter((candidate) => candidate.active && candidate.configured && candidate.operationMode !== 'inbound')) {
+      const health = await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, request.correlationId);
+      const providerReady = channel.provider === 'evolution' ? health?.status === CHANNEL_HEALTH_STATUS.connected : health?.status === CHANNEL_HEALTH_STATUS.reachable;
+      if (providerReady) availableChannelIds.push(channel.id);
+    }
+    if (!availableChannelIds.length) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'No selected messaging provider is connected and ready.' });
+    const result = await this.repository.start(new CampaignStartRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, availableChannelIds));
     if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     if (result === 'already_started') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.alreadyStarted, message: 'This campaign has already started.' });
     if (result === 'ineligible') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.audienceIneligible, message: 'One or more selected leads are no longer eligible. Refresh the audience preview.' });

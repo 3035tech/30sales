@@ -1,5 +1,13 @@
 # Contexto de continuidade — 30Sales
 
+## Grupo outbound de números em campanhas — implementado em 18/11/2026
+
+- Campanhas agora aceitam múltiplos números WhatsApp da empresa; cada vínculo fica em `campaign_draft_channels`, com FK composta por organização para impedir mistura de tenants. Rascunhos antigos sem vínculo continuam usando o `channel_id` principal.
+- Ao iniciar, a aplicação consulta saúde dos canais ativos/configurados e usa somente os conectados; dentro de transação, revalida estado/modo/credenciais, janela do canal/campanha, feriado, opt-out, conversas existentes e quotas. Distribuição é round-robin entre canais abertos com capacidade; a quota da campanha limita o total. O outbox preserva `channelId` por lead e idempotência existente.
+- Interface de Campanhas tem seleção por checkbox, apresenta todos os números escolhidos e localiza labels em pt-BR/en. A prontidão agrega limite, uso e reservas pendentes somente dos números outbound ativos/configurados e saudáveis; o início revalida a quota livre de cada número.
+- Migration `0058_gray_pretty_boy.sql` gerada e não aplicada. `git diff --check` passou. Não executei build/testes nem deploy, conforme preferência persistente.
+- Próxima verificação quando solicitada: build backend/frontend e revisão de conflitos do Drizzle; acompanhar métricas de distribuição/resultado por canal ainda é uma fatia futura.
+
 ## Continuidade de qualidade de código na `main` — 18/11/2026
 
 - Estado real confirmado ao retomar: branch `main`, limpa antes das fatias, remoto `origin` configurado. Commits recentes de tipagem incluem `58b96e7` (mapa de rotas) e `b647936` (guards DOM no Pipeline/calendário e leitura de cabeçalhos CSV sem cast de record).

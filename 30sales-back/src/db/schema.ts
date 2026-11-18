@@ -396,6 +396,20 @@ export const campaignDrafts = pgTable('campaign_drafts', {
   index('campaign_drafts_org_created_idx').on(table.organizationId, table.createdAt),
 ]);
 
+export const campaignDraftChannels = pgTable('campaign_draft_channels', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  campaignDraftId: uuid('campaign_draft_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  position: integer('position').notNull(),
+}, (table) => [
+  primaryKey({ name: 'campaign_draft_channels_pk', columns: [table.organizationId, table.campaignDraftId, table.channelId] }),
+  foreignKey({ name: 'campaign_draft_channels_draft_tenant_fk', columns: [table.campaignDraftId, table.organizationId], foreignColumns: [campaignDrafts.id, campaignDrafts.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'campaign_draft_channels_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('restrict'),
+  unique('campaign_draft_channels_order_unique').on(table.organizationId, table.campaignDraftId, table.position),
+  check('campaign_draft_channels_position_check', sql`${table.position} >= 0`),
+  index('campaign_draft_channels_org_channel_idx').on(table.organizationId, table.channelId),
+]);
+
 export const campaignDraftAudiences = pgTable('campaign_draft_audiences', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   campaignDraftId: uuid('campaign_draft_id').notNull(),

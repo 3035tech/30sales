@@ -1,7 +1,7 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { env } from '../config/env';
-import type { ChannelCredentialsDto } from './channels.dto';
+import { channelCredentialsSchema, type ChannelCredentialsDto } from './channels.dto';
 
 export type EncryptedChannelCredentials = { ciphertext: string; iv: string; authTag: string };
 
@@ -20,7 +20,7 @@ export class ChannelCredentialCryptoService {
     decipher.setAAD(Buffer.from(`${organizationId}:${channelId}`));
     decipher.setAuthTag(Buffer.from(encrypted.authTag, 'base64'));
     const plaintext = Buffer.concat([decipher.update(Buffer.from(encrypted.ciphertext, 'base64')), decipher.final()]).toString('utf8');
-    return JSON.parse(plaintext) as ChannelCredentialsDto;
+    return channelCredentialsSchema.parse(JSON.parse(plaintext));
   }
 
   encryptPayload(organizationId: string, channelId: string, plaintext: string): EncryptedChannelCredentials {

@@ -407,7 +407,12 @@ export class WebhooksService {
     const normalized = value?.trim() ?? '';
     return normalized.length > 0 && normalized.length <= 250 && /^[a-z0-9._:-]+$/i.test(normalized) ? normalized : null;
   }
-  private record(value: unknown): JsonRecord { return value && typeof value === 'object' && !Array.isArray(value) ? value as JsonRecord : {}; }
+  private record(value: unknown): JsonRecord {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const record: JsonRecord = {};
+    for (const [key, entry] of Object.entries(value)) record[key] = entry;
+    return record;
+  }
   private string(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null; }
   private matchesSecret(presented: string | undefined, expected: string | undefined): boolean {
     if (!presented || !expected) return false;

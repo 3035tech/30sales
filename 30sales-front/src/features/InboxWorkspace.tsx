@@ -6,12 +6,14 @@ import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'
+import { z } from 'zod'
 import './InboxWorkspace.css'
 import './InboxAttachments.css'
 
 const INBOX_MEDIA_LIMIT_BYTES = 16 * 1024 * 1024
 const INBOX_FILE_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf'
 const INBOX_AUDIO_ACCEPT = 'audio/mpeg,audio/aac,audio/ogg,audio/amr,audio/mp4,audio/wav'
+const inboxStreamUpdateSchema = z.object({ conversationId: z.string().uuid() }).passthrough()
 
 export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
@@ -152,8 +154,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       if (document.visibilityState !== 'visible') return
       void refreshRef.current(true)
       try {
-        const update = JSON.parse((event as MessageEvent<string>).data) as { conversationId?: string }
-        if (update.conversationId === selectedIdRef.current) refreshMessagesRef.current()
+        if (!(event instanceof MessageEvent) || typeof event.data !== 'string') return
+        const parsed: unknown = JSON.parse(event.data)
+        const update = inboxStreamUpdateSchema.safeParse(parsed)
+        if (update.success && update.data.conversationId === selectedIdRef.current) refreshMessagesRef.current()
       } catch { /* Ignore malformed event data; the next update will retry the refresh. */ }
     }
     const refreshOnReturn = () => {

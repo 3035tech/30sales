@@ -16,7 +16,8 @@ export type ListHandoffsQueryDto = z.infer<typeof listHandoffsSchema>;
 export const returnHandoffSchema = z.object({ reason: z.string().trim().min(3).max(1000), nextStep: z.string().trim().min(3).max(500), dueAt: z.string().datetime({ offset: true }) }).strict();
 export type ReturnHandoffDto = z.infer<typeof returnHandoffSchema>;
 
-export type HandoffStatus = 'requested' | 'accepted' | 'returned';
+export const handoffStatusSchema = z.enum(['requested', 'accepted', 'returned']);
+export type HandoffStatus = z.infer<typeof handoffStatusSchema>;
 export class HandoffRecordDto {
   constructor(
     readonly id: string,

@@ -73,15 +73,16 @@ export class SdrPreviewChannelDto { constructor(readonly id: string, readonly di
 
 export const createTaskSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
 export type CreateTaskDto = z.infer<typeof createTaskSchema>;
+export const taskCompletionResultSchema = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 const taskFollowUpSchema = z.object({ title: z.string().trim().min(2).max(240), dueAt: z.string().datetime({ offset: true }) }).strict();
-export const completeTaskSchema = z.object({ result: z.enum(['completed', 'contacted', 'no_response', 'follow_up']).default('completed'), resultNote: z.string().trim().max(2000).optional(), followUp: taskFollowUpSchema.optional() }).strict().superRefine((input, context) => {
+export const completeTaskSchema = z.object({ result: taskCompletionResultSchema.default('completed'), resultNote: z.string().trim().max(2000).optional(), followUp: taskFollowUpSchema.optional() }).strict().superRefine((input, context) => {
   if (input.result === 'follow_up' && !input.followUp) context.addIssue({ code: 'custom', path: ['followUp'], message: 'A follow-up task is required for this result.' });
   if (input.result !== 'follow_up' && input.followUp) context.addIssue({ code: 'custom', path: ['followUp'], message: 'A follow-up task is only allowed for the follow-up result.' });
 }).default({ result: 'completed' });
 export type CompleteTaskDto = z.infer<typeof completeTaskSchema>;
 export const listTasksSchema = z.object({ taskId: z.string().uuid().optional(), from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), assignedToUserId: z.string().uuid().optional(), status: z.enum(['open', 'completed', 'cancelled']).optional(), search: z.string().trim().max(200).optional(), sortBy: z.enum(['dueAt', 'title', 'accountName', 'contactName']).default('dueAt'), sortDirection: z.enum(['asc', 'desc']).default('asc'), limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListTasksQueryDto = z.infer<typeof listTasksSchema>;
-export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string | null, readonly completionResult: 'completed' | 'contacted' | 'no_response' | 'follow_up' | null, readonly completionNote: string | null) {} }
+export class TaskRecordDto { constructor(readonly id: string, readonly leadId: string, readonly title: string, readonly dueAt: string, readonly status: 'open' | 'completed' | 'cancelled', readonly completedAt: string | null, readonly accountName: string, readonly contactName: string | null, readonly completionResult: z.infer<typeof taskCompletionResultSchema> | null, readonly completionNote: string | null) {} }
 export class TaskPageDto { constructor(readonly data: TaskRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class TaskRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListTasksQueryDto) {} }
 export class TaskRepositoryCreateDto { constructor(readonly organizationId: string, readonly leadId: string, readonly createdByUserId: string, readonly title: string, readonly dueAt: Date, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }

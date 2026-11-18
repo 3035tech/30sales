@@ -5,13 +5,13 @@ import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user } from '../db/auth-schema';
-import { HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto, HandoffStatus } from './handoffs.dto';
+import { handoffStatusSchema, HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto } from './handoffs.dto';
 
 const requester = alias(user, 'handoff_requester');
 const closer = alias(user, 'handoff_closer');
-type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string; status: 'requested' | 'accepted' | 'returned' | 'cancelled'; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
+type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string; status: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
 function mapHandoff(row: HandoffRow): HandoffRecordDto {
-  return new HandoffRecordDto(row.id, row.opportunityId, row.conversationId, row.leadId, row.opportunityName, row.accountName, row.contactName, row.status as HandoffStatus, row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
+  return new HandoffRecordDto(row.id, row.opportunityId, row.conversationId, row.leadId, row.opportunityName, row.accountName, row.contactName, handoffStatusSchema.parse(row.status), row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
 }
 
 const firstCustomerActivityAt = sql<Date | null>`(
@@ -70,7 +70,7 @@ export class HandoffsRepository {
       .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
       .where(and(eq(handoffs.id, handoffId), eq(handoffs.organizationId, organizationId))).limit(1);
-    return row ? mapHandoff(row as HandoffRow) : null;
+    return row ? mapHandoff(row) : null;
   }
 
   async list(input: HandoffRepositoryListDto): Promise<HandoffRecordDto[]> {
@@ -103,7 +103,7 @@ export class HandoffsRepository {
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
       .where(and(...handoffConditions(input)))
       .orderBy(primaryOrder, tieOrder).limit(input.query.limit).offset(input.query.offset);
-    return rows.map((row) => mapHandoff(row as HandoffRow));
+    return rows.map(mapHandoff);
   }
 
   async create(input: HandoffRepositoryCreateDto): Promise<HandoffRecordDto | null> {
@@ -135,7 +135,7 @@ export class HandoffsRepository {
       }
       const [row] = await transaction.select(handoffRecordSelection)
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(eq(handoffs.id, handoff.id)).limit(1);
-      return row ? mapHandoff(row as HandoffRow) : null;
+      return row ? mapHandoff(row) : null;
     });
   }
 

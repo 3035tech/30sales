@@ -3,8 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, eq, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { auditEvents, opportunities, pipelineStages, pipelines } from '../db/schema';
-import { DEFAULT_PIPELINE_STAGES, type OpportunityStage } from './opportunities.constants';
-import { PipelineStageRecordDto, PipelineStagesDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto } from './opportunities.dto';
+import { DEFAULT_PIPELINE_STAGES } from './opportunities.constants';
+import { opportunityStageSchema, PipelineStageRecordDto, PipelineStagesDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto } from './opportunities.dto';
 import { PipelinesRepository } from './pipelines.repository';
 
 @Injectable()
@@ -22,7 +22,7 @@ export class PipelineStagesRepository {
     return new PipelineStagesDto(resolvedPipelineId, rows.map((row) => {
       const stage = row.stage ?? (row.isSystem ? DEFAULT_PIPELINE_STAGES.find((item) => item.key === row.key)?.key : 'custom');
       if (!stage) throw new Error('Unknown pipeline stage');
-      return new PipelineStageRecordDto(row.key, stage as OpportunityStage, row.name, row.isSystem, row.isActive, row.position);
+      return new PipelineStageRecordDto(row.key, opportunityStageSchema.parse(stage), row.name, row.isSystem, row.isActive, row.position);
     }), canManage);
   }
 

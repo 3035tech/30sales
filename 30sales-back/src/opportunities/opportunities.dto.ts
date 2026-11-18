@@ -5,7 +5,8 @@ type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type OpportunityLastActivityDto = { type: ActivityType; subject: string; result: string | null; occurredAt: string };
 export type OpportunityConversationContextDto = { conversationId: string; summary: string; confirmedFacts: string[]; unknowns: string[]; capturedAt: string };
 
-const stageSchema = z.enum(OPPORTUNITY_STAGES);
+export const opportunityStageSchema = z.enum(OPPORTUNITY_STAGES);
+const stageSchema = opportunityStageSchema;
 
 export const listOpportunitiesSchema = z.object({
   pipelineId: z.string().uuid().optional(),

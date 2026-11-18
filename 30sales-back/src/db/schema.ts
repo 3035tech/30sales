@@ -476,6 +476,22 @@ export const conversations = pgTable('conversations', {
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
 ]);
 
+export const opportunityConversationContexts = pgTable('opportunity_conversation_contexts', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  opportunityId: uuid('opportunity_id').notNull(),
+  conversationId: uuid('conversation_id').notNull(),
+  summary: text('summary').notNull(),
+  confirmedFacts: text('confirmed_facts').array().notNull(),
+  unknowns: text('unknowns').array().notNull(),
+  capturedAt: timestamp('captured_at', { withTimezone: true }).notNull(),
+}, (table) => [
+  foreignKey({ name: 'opportunity_conversation_contexts_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'opportunity_conversation_contexts_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  unique('opportunity_conversation_contexts_org_conversation_unique').on(table.organizationId, table.conversationId),
+  index('opportunity_conversation_contexts_org_opportunity_captured_idx').on(table.organizationId, table.opportunityId, table.capturedAt),
+]);
+
 export const conversationReads = pgTable('conversation_reads', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

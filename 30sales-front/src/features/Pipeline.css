@@ -33,3 +33,11 @@
 .opportunity-last-activity > span { display: grid; gap: 3px; min-width: 0; }
 .opportunity-last-activity strong { font-size: var(--font-size-xs); }
 .opportunity-last-activity small { color: #64748b; font-size: var(--font-size-xs); line-height: 1.4; overflow-wrap: anywhere; }
+.opportunity-conversation-context { max-height: 300px; overflow: auto; padding: 11px; border: 1px solid #dbeafe; border-radius: 8px; background: #f8fbff; }
+.opportunity-conversation-context h4 { margin: 0 0 7px; color: #334155; font-size: var(--font-size-xs); }
+.opportunity-conversation-context-item { padding: 8px 0; color: #475569; font-size: var(--font-size-xs); line-height: 1.55; }
+.opportunity-conversation-context-item + .opportunity-conversation-context-item { border-top: 1px solid #dbeafe; }
+.opportunity-conversation-context-item > small { color: #64748b; }
+.opportunity-conversation-context-item p { margin: 5px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.opportunity-conversation-context-item strong { color: #334155; }
+.opportunity-conversation-context-item ul { margin: 3px 0 6px; padding-left: 20px; }

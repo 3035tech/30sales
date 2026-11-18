@@ -2,9 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, activities, auditEvents, leads, opportunities, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
+import { accounts, activities, auditEvents, leads, opportunities, opportunityConversationContexts, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
-import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityLastActivityDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
+import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityConversationContextDto, type OpportunityLastActivityDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 
 const owner = alias(user, 'opportunity_owner');
@@ -13,10 +13,10 @@ const customStage = alias(pipelineStages, 'opportunity_custom_stage');
 const pipelineOrderStage = alias(pipelineStages, 'opportunity_order_stage');
 const fromCustomStage = alias(pipelineStages, 'history_from_custom_stage');
 const toCustomStage = alias(pipelineStages, 'history_to_custom_stage');
-type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; pipelineId: string; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; latestActivity?: Omit<OpportunityLastActivityDto, 'occurredAt'> & { occurredAt: Date } | null };
+type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; pipelineId: string; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; conversationContexts?: OpportunityConversationContextDto[]; latestActivity?: Omit<OpportunityLastActivityDto, 'occurredAt'> & { occurredAt: Date } | null };
 function mapOpportunity(row: OpportunityRow, canUpdate = false) {
   const lastActivity = row.latestActivity ? { ...row.latestActivity, occurredAt: row.latestActivity.occurredAt.toISOString() } : null;
-  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), lastActivity);
+  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), row.conversationContexts ?? [], lastActivity);
 }
 
 @Injectable()
@@ -68,7 +68,17 @@ export class OpportunitiesRepository {
       .where(and(eq(activities.organizationId, input.organizationId), inArray(activities.opportunityId, rows.map((row) => row.id))))
       .orderBy(activities.opportunityId, desc(activities.occurredAt), desc(activities.createdAt));
     const activityByOpportunity = new Map(latestActivities.map((activity) => [activity.opportunityId, { type: activity.type, subject: activity.subject, result: activity.result, occurredAt: activity.occurredAt }]));
-    return rows.map((row) => ({ ...row, latestActivity: activityByOpportunity.get(row.id) ?? null })) as OpportunityRow[];
+    const contexts = await database.select({ opportunityId: opportunityConversationContexts.opportunityId, conversationId: opportunityConversationContexts.conversationId, summary: opportunityConversationContexts.summary, confirmedFacts: opportunityConversationContexts.confirmedFacts, unknowns: opportunityConversationContexts.unknowns, capturedAt: opportunityConversationContexts.capturedAt })
+      .from(opportunityConversationContexts)
+      .where(and(eq(opportunityConversationContexts.organizationId, input.organizationId), inArray(opportunityConversationContexts.opportunityId, rows.map((row) => row.id))))
+      .orderBy(desc(opportunityConversationContexts.capturedAt));
+    const contextsByOpportunity = new Map<string, OpportunityConversationContextDto[]>();
+    for (const context of contexts) {
+      const list = contextsByOpportunity.get(context.opportunityId) ?? [];
+      list.push({ ...context, capturedAt: context.capturedAt.toISOString() });
+      contextsByOpportunity.set(context.opportunityId, list);
+    }
+    return rows.map((row) => ({ ...row, latestActivity: activityByOpportunity.get(row.id) ?? null, conversationContexts: contextsByOpportunity.get(row.id) ?? [] })) as OpportunityRow[];
   }
 
   async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {

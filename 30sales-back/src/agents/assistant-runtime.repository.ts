@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, inArray, or, sql } from 'drizzle-orm';
 import { database, pool } from '../db';
-import { accounts, agentSettings, assistantRuns, auditEvents, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, assistantRuns, auditEvents, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityConversationContexts, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
 import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
@@ -189,6 +189,15 @@ export class AssistantRuntimeRepository {
       }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, conversation.organizationId)));
       await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'conversation.assistant_qualification_updated', entityType: 'conversation', entityId: conversation.id, afterState: { intent: input.result.intent, confirmedFactCount: input.result.confirmedFacts.length, unknownCount: input.result.unknowns.length } });
 
+      if (conversation.opportunityId) {
+        const [linkedOpportunity] = await transaction.select({ id: opportunities.id }).from(opportunities)
+          .where(and(eq(opportunities.id, conversation.opportunityId), eq(opportunities.organizationId, conversation.organizationId))).for('update').limit(1);
+        if (linkedOpportunity) {
+          await transaction.insert(opportunityConversationContexts).values({ organizationId: conversation.organizationId, opportunityId: linkedOpportunity.id, conversationId: conversation.id, summary: input.result.summary, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, capturedAt: occurredAt })
+            .onConflictDoUpdate({ target: [opportunityConversationContexts.organizationId, opportunityConversationContexts.conversationId], set: { opportunityId: linkedOpportunity.id, summary: input.result.summary, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, capturedAt: occurredAt } });
+        }
+      }
+
       const requestsCloser = ['meeting_request', 'proposal_request'].includes(input.result.intent);
       const requestsHuman = input.result.intent === 'explicit_human_request';
       let humanHandoffCreated = false;
@@ -229,6 +238,8 @@ export class AssistantRuntimeRepository {
             }
 
             const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
+            await transaction.insert(opportunityConversationContexts).values({ organizationId: conversation.organizationId, opportunityId, conversationId: conversation.id, summary: input.result.summary, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, capturedAt: occurredAt })
+              .onConflictDoUpdate({ target: [opportunityConversationContexts.organizationId, opportunityConversationContexts.conversationId], set: { opportunityId, summary: input.result.summary, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, capturedAt: occurredAt } });
             await transaction.update(opportunities).set({ nextAction: input.result.nextStep, nextActionAt: dueAt, updatedAt: occurredAt }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, conversation.organizationId)));
             const requestDescription = requestsHuman ? 'Lead asked to speak with a person.' : `Lead requested a ${input.result.intent === 'meeting_request' ? 'meeting or demonstration' : 'proposal'}.`;
             const [handoff] = await transaction.insert(handoffs).values({ organizationId: conversation.organizationId, opportunityId, reason: input.result.summary, evidence: `${requestDescription} Latest message: ${input.context.messages.at(-1)?.content.slice(0, 1500) ?? ''}`, confirmedFacts: input.result.confirmedFacts, unknowns: input.result.unknowns, nextStep: input.result.nextStep, nextStepAt: dueAt, requestedByUserId: agent.updatedByUserId, requestedByAgent: true }).returning({ id: handoffs.id });

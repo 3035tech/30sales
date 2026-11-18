@@ -3,6 +3,7 @@ import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.const
 import type { ACTIVITY_TYPES } from './activities.dto';
 type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type OpportunityLastActivityDto = { type: ActivityType; subject: string; result: string | null; occurredAt: string };
+export type OpportunityConversationContextDto = { conversationId: string; summary: string; confirmedFacts: string[]; unknowns: string[]; capturedAt: string };
 
 const stageSchema = z.enum(OPPORTUNITY_STAGES);
 
@@ -84,6 +85,7 @@ export class OpportunityRecordDto {
     readonly nextActionAt: string | null,
     readonly createdAt: string,
     readonly updatedAt: string,
+    readonly conversationContexts: OpportunityConversationContextDto[] = [],
     readonly lastActivity: OpportunityLastActivityDto | null = null,
   ) {}
 }

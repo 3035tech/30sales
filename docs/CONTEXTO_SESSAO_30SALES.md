@@ -14,7 +14,8 @@
 - `2bf4f56` restringe timestamps opcionais na fila do closer antes de formatá-los, sem assertions.
 - `435a5bb` concluiu a união Zod discriminada das ações do closer, removendo `!` no service/repository e mantendo payloads estritos.
 - `ab1d1c1` processa eventos de SLA sob `SKIP LOCKED` e agrupa leitura de memberships, inserção de notificações em lotes de até 500, atualização de eventos e auditoria; a contagem de escalonamentos continua baseada nos inserts efetivamente criados.
-- Fatia em andamento: controles de ação da fila do closer extraídos para componente tipado; a coluna captura o evento opcional uma vez, removendo non-null assertions dos handlers. `git diff --check` passou; build/testes não autorizados.
+- `820fa81` extraiu ações da fila do closer para componente tipado, capturando o evento opcional uma vez e removendo assertions dos handlers.
+- Fatia em andamento: seletor de leads da criação de handoff distingue loading, erro de carregamento e lista vazia; erro e vazio localizados em pt-BR/en e submissão permanece bloqueada sem opções. `git diff --check` passou; build/testes não autorizados.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
 - Próximo passo: revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts`; confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
 

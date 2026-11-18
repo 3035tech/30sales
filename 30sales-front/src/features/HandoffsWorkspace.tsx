@@ -34,6 +34,7 @@ export function HandoffsWorkspace() {
   const [hasNextPage, setHasNextPage] = useState(false)
   const [refreshTick, setRefreshTick] = useState(0)
   const [leads, setLeads] = useState<LeadDto[]>([])
+  const [leadOptionsState, setLeadOptionsState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -66,7 +67,13 @@ export function HandoffsWorkspace() {
     const timeout = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0) }, 250)
     return () => window.clearTimeout(timeout)
   }, [search])
-  useEffect(() => { api.leads.list({ status: 'responded', limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [])
+  useEffect(() => {
+    let active = true
+    api.leads.list({ status: 'responded', limit: 100 })
+      .then((result) => { if (active) { setLeads(result); setLeadOptionsState('ready') } })
+      .catch(() => { if (active) setLeadOptionsState('error') })
+    return () => { active = false }
+  }, [])
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
@@ -106,7 +113,7 @@ export function HandoffsWorkspace() {
     <form className="handoff-form" onSubmit={create}>
       <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
       <div className="handoff-fields">
-        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField></label>
+        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required disabled={leadOptionsState !== 'ready'}><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField>{leadOptionsState === 'loading' && <small aria-live="polite">{t('common.loading')}</small>}{leadOptionsState === 'error' && <small className="ui-field-error" role="alert">{t('handoffs.leadsLoadFailed')}</small>}{leadOptionsState === 'ready' && leads.length === 0 && <small>{t('handoffs.noRespondedLeads')}</small>}</label>
         <label>{t('handoffs.reason')}<TextField value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
         <label>{t('handoffs.evidence')}<TextareaField value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
         <label>{t('handoffs.confirmedFacts')}<TextareaField value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>

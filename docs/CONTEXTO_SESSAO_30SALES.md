@@ -10,7 +10,8 @@
 - Otimização adicional publicada em `3d23133`: notificações de canal desconectado e de tarefas vencidas são inseridas em lote, mantendo idempotência e contagem dos registros efetivamente criados.
 - `9fea671` adicionou `organizationId` à leitura de retorno do handoff, reforçando o escopo tenant.
 - `c63b0f7` remove cópias repetidas de arrays ao agrupar horários, tags e anexos no Inbox, evitando crescimento quadrático nesses agrupamentos.
-- Fatia em andamento: removidas duas asserções de não-null no relatório de conversão e criação de lead; fazer `git diff --check`, commit/push e seguir revisando asserts e consultas repetidas.
+- `17077ec` remove asserções de não-null no relatório de conversão e na criação de lead, com fallback caso a identidade atribuída não seja encontrada.
+- Fatia em andamento: fila do closer agora restringe timestamp de aceite e prazo antes de formatá-los, removendo asserções não-null desses caminhos. Seguir revisando asserts e consultas repetidas; sem build/testes.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
 - Próximo passo: revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts`; confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
 

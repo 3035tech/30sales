@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityHistorySchema, opportunityPageSchema, opportunityPipelineSummarySchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
+import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityConversationContextSchema, opportunityHistorySchema, opportunityPageSchema, opportunityPipelineSummarySchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
 
 
 export const opportunitiesApi = {
@@ -62,6 +62,7 @@ export const opportunitiesApi = {
     },
     transition: (id: string, input: { expectedPipelineId: string; pipelineId: string; expectedStage: OpportunityStage; expectedPipelineStageKey?: string; stage: OpportunityStage; pipelineStageKey?: string; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
     history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),
+    conversationContexts: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/conversation-contexts`, z.array(opportunityConversationContextSchema)),
     activities: {
       list: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, z.array(activitySchema)),
       create: (id: string, input: { type: ActivityType; subject: string; details?: string; result?: string; occurredAt: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, activitySchema, { method: 'POST', body: JSON.stringify(input) }),

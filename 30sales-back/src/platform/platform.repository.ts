@@ -2,14 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { asc, count, eq, ilike, or } from 'drizzle-orm';
 import { database } from '../db';
 import { auditEvents } from '../db/schema';
-import { invitation, member, organization } from '../db/auth-schema';
-import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_OWNER_INVITATION_VALIDITY_DAYS } from '../auth/authorization.constants';
+import { invitation, member, organization, user } from '../db/auth-schema';
+import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_OWNER_INVITATION_VALIDITY_DAYS, PLATFORM_ROLE } from '../auth/authorization.constants';
 import { PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto } from './platform.dto';
 
 type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto; invitationId: string };
 
 @Injectable()
 export class PlatformRepository {
+  async isSuperAdmin(userId: string): Promise<boolean> {
+    const [account] = await database.select({ platformRole: user.platformRole }).from(user).where(eq(user.id, userId)).limit(1);
+    return account?.platformRole === PLATFORM_ROLE.superAdmin;
+  }
+
   async recordOrganizationAccess(organizationId: string, actor: { userId: string }, correlationId: string | null): Promise<boolean> {
     return database.transaction(async (transaction) => {
       const [selectedOrganization] = await transaction.select({ id: organization.id }).from(organization).where(eq(organization.id, organizationId)).limit(1);

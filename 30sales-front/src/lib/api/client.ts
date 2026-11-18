@@ -23,6 +23,20 @@ export function apiRequest(path: string, init: RequestInit = {}): Promise<Respon
   });
 }
 
+export async function apiAuthFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const request = new Request(input, init);
+  const base = API_BASE_URL ? new URL(API_BASE_URL, window.location.origin) : new URL(window.location.origin);
+  const target = new URL(request.url, base);
+  if (target.origin !== base.origin) throw new TypeError('Authentication requests must use the configured API origin.');
+  const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+  return apiRequest(`${target.pathname}${target.search}`, {
+    method: request.method,
+    headers: request.headers,
+    body,
+    signal: request.signal,
+  });
+}
+
 export function apiEventSource(path: string): EventSource {
   return new EventSource(`${API_BASE_URL}${path}`, { withCredentials: true });
 }

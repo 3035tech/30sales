@@ -57,6 +57,10 @@ export class OpportunitiesController {
   history(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string) {
     return this.opportunitiesService.history(request, opportunityId);
   }
+  @Get(':id/conversation-contexts')
+  conversationContexts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string) {
+    return this.opportunitiesService.conversationContexts(request, opportunityId);
+  }
   @Get(':id/activities')
   activities(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string) {
     return this.opportunitiesService.activities(request, opportunityId);

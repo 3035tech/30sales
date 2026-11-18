@@ -3,8 +3,9 @@ import { organizationClient } from 'better-auth/client/plugins';
 import { z } from 'zod';
 import { access, roles, type OrganizationRole } from '../../permissions';
 import { memberSchema, invitationSchema, type TeamMemberDto, type InvitationDto } from '../contracts';
+import { apiAuthFetch } from '../client';
 
-const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', plugins: [organizationClient({ ac: access, roles })] });
+const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', fetchOptions: { customFetchImpl: apiAuthFetch }, plugins: [organizationClient({ ac: access, roles })] });
 
 function authError(result: { error?: { message?: string } | null }): { message: string } | null {
   return result.error ? { message: result.error.message ?? 'The request could not be completed.' } : null;

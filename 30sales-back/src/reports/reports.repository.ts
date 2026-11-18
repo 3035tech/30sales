@@ -7,6 +7,15 @@ import { AiUsagePointDto, AiUsageReportDto, FunnelReportDto, FunnelReportPipelin
 
 const terminalStages = ['won', 'lost'] as const;
 const [wonStage, lostStage] = terminalStages;
+
+async function runQueriesInBatches<const Queries extends readonly PromiseLike<unknown>[]>(queries: Queries, batchSize: number): Promise<{ [Index in keyof Queries]: Awaited<Queries[Index]> }> {
+  const results: unknown[] = [];
+  for (let offset = 0; offset < queries.length; offset += batchSize) {
+    results.push(...await Promise.all(queries.slice(offset, offset + batchSize)));
+  }
+  return results as { [Index in keyof Queries]: Awaited<Queries[Index]> };
+}
+
 @Injectable()
 export class ReportsRepository {
   async aiUsage(input: FunnelReportRepositoryQueryDto): Promise<AiUsageReportDto> {
@@ -59,7 +68,7 @@ export class ReportsRepository {
       ) first_activity
     )`;
     const cohortDate = sql<string>`to_char(date_trunc('day', ${leads.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`;
-    const [stageRows, pipelineValueRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows, leadTrendRows, opportunityTrendRows, closedTrendRows, cohortLeadRows, cohortResponseRows, cohortConvertedToSdrRows, cohortOpportunityRows] = await Promise.all([
+    const [stageRows, pipelineValueRows, openRows, withoutNextActionRows, overdueRows, createdRows, closedRows, wonAmountRows, handoffResponseRows, leadStatusRows, leadCreatedRows, leadTrendRows, opportunityTrendRows, closedTrendRows, cohortLeadRows, cohortResponseRows, cohortConvertedToSdrRows, cohortOpportunityRows] = await runQueriesInBatches([
       database.select({
         stage: opportunities.stage,
         pipelineStageKey: opportunities.pipelineStageKey,
@@ -107,7 +116,7 @@ export class ReportsRepository {
         .innerJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
         .where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(opportunities.createdAt, leads.createdAt), lt(opportunities.createdAt, toExclusive)))
         .groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
-    ]);
+    ] as const, 6);
     const closedCount = (stage: 'won' | 'lost') => Number(closedRows.find((row) => row.stage === stage)?.count ?? 0);
     const trends = new Map<string, { leads: number; opportunities: number; won: number; lost: number }>();
     const trendFor = (date: string) => {

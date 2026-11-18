@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityPipelineSummaryDto, type OpportunityStage, type PipelineStageDto, type PipelinesDto } from '../lib/api'
+import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityConversationContextDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityPipelineSummaryDto, type OpportunityStage, type PipelineStageDto, type PipelinesDto } from '../lib/api'
 import './Pipeline.css'
 import './ActivityTimeline.css'
 
@@ -187,6 +187,9 @@ function PipelineColumn({ stage, title, count, opportunities, allStages, pipelin
 function OpportunityCard({ opportunity, stages: availableStages, pipelines, canManagePipeline, assignableClosers, onUpdated, drop, onDropHandled }: { opportunity: OpportunityDto; stages: PipelineStageDto[]; pipelines: PipelinesDto['pipelines']; canManagePipeline: boolean; assignableClosers: OpportunityAssigneeDto[] | null; onUpdated: () => void; drop?: { opportunityId: string; stageKey: string } | null; onDropHandled?: () => void }) {
   const { t, i18n } = useTranslation()
   const [open, setOpen] = useState(false)
+  const [conversationContexts, setConversationContexts] = useState<OpportunityConversationContextDto[] | null>(null)
+  const [contextsLoading, setContextsLoading] = useState(false)
+  const [contextsError, setContextsError] = useState(false)
   const [editing, setEditing] = useState(false)
   const currentKey = opportunity.stage === 'custom' ? opportunity.pipelineStageKey ?? '' : opportunity.stage
   const [targetKey, setTargetKey] = useState(currentKey)
@@ -222,6 +225,16 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
   const overdue = Boolean(dueAt && dueAt.getTime() < Date.now() && !terminal(opportunity.stage))
   const stale = Date.now() - new Date(opportunity.stageChangedAt).getTime() > 7 * 86400000 && !terminal(opportunity.stage)
   const formatDate = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const loadConversationContexts = useCallback(async () => {
+    setContextsLoading(true)
+    setContextsError(false)
+    try { setConversationContexts(await api.opportunities.conversationContexts(opportunity.id)) }
+    catch { setContextsError(true) }
+    finally { setContextsLoading(false) }
+  }, [opportunity.id])
+  useEffect(() => {
+    if (open && conversationContexts === null && !contextsLoading && !contextsError) void loadConversationContexts()
+  }, [open, conversationContexts, contextsLoading, contextsError, loadConversationContexts])
   const selectTargetPipeline = async (nextPipelineId: string) => {
     setTransferLoading(true); setTargetPipelineId(nextPipelineId); setTargetKey(''); setError('')
     try { const result = await api.opportunities.pipelineStages.list(nextPipelineId); const activeStages = result.stages.filter((stage) => stage.isActive); setTargetStages(activeStages); const firstOpen = activeStages.find((stage) => stage.stage !== 'won' && stage.stage !== 'lost'); if (firstOpen) setTargetKey(firstOpen.key) }
@@ -291,7 +304,9 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
   const details = <article className={`opportunity-card opportunity-card-detail${overdue || !opportunity.nextActionAt ? ' at-risk' : ''}`}>
     <div className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</div>
     <p className="opportunity-person">{opportunity.contactName} · {opportunity.ownerName ?? t('pipeline.unassignedOwner')}</p>
-    {opportunity.conversationContexts.length > 0 && <section className="opportunity-conversation-context" aria-label={t('pipeline.conversationContext')}><h4>{t('pipeline.conversationContext')}</h4>{opportunity.conversationContexts.map((context) => <article key={context.conversationId} className="opportunity-conversation-context-item"><small>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(context.capturedAt))}</small><p>{context.summary}</p>{context.confirmedFacts.length > 0 && <div><strong>{t('pipeline.confirmedFacts')}</strong><ul>{context.confirmedFacts.map((fact, index) => <li key={`${context.conversationId}-fact-${index}`}>{fact}</li>)}</ul></div>}{context.unknowns.length > 0 && <div><strong>{t('pipeline.openQuestions')}</strong><ul>{context.unknowns.map((unknown, index) => <li key={`${context.conversationId}-unknown-${index}`}>{unknown}</li>)}</ul></div>}</article>)}</section>}
+    {conversationContexts && conversationContexts.length > 0 && <section className="opportunity-conversation-context" aria-label={t('pipeline.conversationContext')}><h4>{t('pipeline.conversationContext')}</h4>{conversationContexts.map((context) => <article key={context.conversationId} className="opportunity-conversation-context-item"><small>{formatDate(context.capturedAt)}</small><p>{context.summary}</p>{context.confirmedFacts.length > 0 && <div><strong>{t('pipeline.confirmedFacts')}</strong><ul>{context.confirmedFacts.map((fact, index) => <li key={`${context.conversationId}-fact-${index}`}>{fact}</li>)}</ul></div>}{context.unknowns.length > 0 && <div><strong>{t('pipeline.openQuestions')}</strong><ul>{context.unknowns.map((unknown, index) => <li key={`${context.conversationId}-unknown-${index}`}>{unknown}</li>)}</ul></div>}</article>)}</section>}
+    {contextsLoading && <WorkspaceState kind="loading" compact message={t('pipeline.contextLoading')} />}
+    {contextsError && <WorkspaceState kind="error" compact message={t('pipeline.contextLoadFailed')}><Button onClick={() => void loadConversationContexts()}>{t('platform.retry')}</Button></WorkspaceState>}
     {!terminal(opportunity.stage) && assignableClosers && <label className="opportunity-owner-picker">{t('opportunityAssignment.assignCloser')}<SelectField aria-label={t('opportunityAssignment.assignCloserFor', { opportunity: opportunity.name })} value={opportunity.ownerUserId ?? ''} disabled={ownerSaving} onChange={(event) => void assignOwner(event.target.value)}><option value="">{t('pipeline.unassignedOwner')}</option>{assignableClosers.map((closer) => <option key={closer.id} value={closer.id}>{closer.name}</option>)}</SelectField></label>}
     <OpportunityContactLinks email={opportunity.contactEmail} phone={opportunity.contactPhone} emailLabel={t('pipeline.contactEmailLink', { email: opportunity.contactEmail })} phoneLabel={t('pipeline.contactPhoneLink', { phone: opportunity.contactPhone })} />
     <div className={`opportunity-next${overdue || !opportunity.nextActionAt ? ' overdue' : ''}`}>

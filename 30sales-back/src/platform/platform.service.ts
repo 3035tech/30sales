@@ -1,11 +1,8 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { auth } from '../auth/auth';
-import { PLATFORM_ERROR_CODE, PLATFORM_INVITATION_PATH, PLATFORM_ROLE } from '../auth/authorization.constants';
+import { PLATFORM_ERROR_CODE, PLATFORM_INVITATION_PATH } from '../auth/authorization.constants';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { toWebHeaders } from '../common/http-headers';
-import { database } from '../db';
-import { user } from '../db/auth-schema';
-import { eq } from 'drizzle-orm';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
 import { PlatformContextDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto } from './platform.dto';
@@ -18,8 +15,7 @@ export class PlatformService {
   private async requireSuperAdmin(request: ApiRequestDto): Promise<PlatformContextDto> {
     const session = await auth.api.getSession({ headers: toWebHeaders(request.headers) });
     if (!session) throw new UnauthorizedException({ code: PLATFORM_ERROR_CODE.authRequired });
-    const [account] = await database.select({ platformRole: user.platformRole }).from(user).where(eq(user.id, session.user.id)).limit(1);
-    if (account?.platformRole !== PLATFORM_ROLE.superAdmin) throw new ForbiddenException({ code: PLATFORM_ERROR_CODE.superAdminRequired });
+    if (!await this.repository.isSuperAdmin(session.user.id)) throw new ForbiddenException({ code: PLATFORM_ERROR_CODE.superAdminRequired });
     return new PlatformContextDto(session.user.id, session.user.name, session.user.email);
   }
 

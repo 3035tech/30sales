@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
-import { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, PipelineRepositoryArchiveDto, PipelineRepositoryCreateDto, PipelineRepositoryUpdateDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto, PipelineStagesDto, PipelinesDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
+import { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityConversationContextsQueryDto, type OpportunityConversationContextDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, PipelineRepositoryArchiveDto, PipelineRepositoryCreateDto, PipelineRepositoryUpdateDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto, PipelineStagesDto, PipelinesDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto, CreateActivityDto } from './activities.dto';
 import { OpportunityActivitiesRepository } from './activities.repository';
@@ -158,6 +158,13 @@ export class OpportunitiesService {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
     return this.repository.history(new OpportunityRepositoryHistoryDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)));
+  }
+  async conversationContexts(request: ApiRequestDto, opportunityId: string): Promise<OpportunityConversationContextDto[]> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    this.requireOpportunityRecordAccess(context.role);
+    const contexts = await this.repository.conversationContexts(new OpportunityConversationContextsQueryDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)));
+    if (!contexts) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active organization.' });
+    return contexts;
   }
   async activities(request: ApiRequestDto, opportunityId: string): Promise<ActivityRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');

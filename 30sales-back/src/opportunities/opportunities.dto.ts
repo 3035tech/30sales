@@ -85,11 +85,11 @@ export class OpportunityRecordDto {
     readonly nextActionAt: string | null,
     readonly createdAt: string,
     readonly updatedAt: string,
-    readonly conversationContexts: OpportunityConversationContextDto[] = [],
     readonly lastActivity: OpportunityLastActivityDto | null = null,
   ) {}
 }
 export class OpportunityPageDto { constructor(readonly data: OpportunityRecordDto[], readonly pagination: { limit: number; offset: number; total: number; hasNextPage: boolean }) {} }
+export class OpportunityConversationContextsQueryDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly userId: string, readonly canManageAll: boolean) {} }
 export class OpportunityPipelineSummaryDto {
   constructor(
     readonly openCount: number,

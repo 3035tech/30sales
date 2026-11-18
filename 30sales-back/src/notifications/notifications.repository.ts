@@ -57,18 +57,15 @@ export class NotificationsRepository {
           .innerJoin(authMember, and(eq(authMember.organizationId, tasks.organizationId), eq(authMember.userId, recipientUserId)))
           .where(and(eq(tasks.organizationId, organizationId), eq(tasks.status, 'open'), lte(tasks.dueAt, now)))
           .orderBy(asc(tasks.dueAt), asc(tasks.id)).limit(limit).for('update', { of: tasks, skipLocked: true });
-        let tenantCreatedCount = 0;
-        for (const task of overdueTasks) {
-          const [created] = await transaction.insert(userNotifications).values({
+        if (!overdueTasks.length) return 0;
+        const created = await transaction.insert(userNotifications).values(overdueTasks.map((task) => ({
             organizationId: task.organizationId,
             recipientUserId: task.recipientUserId,
             taskId: task.id,
             notificationType: 'task_overdue',
             idempotencyKey: `task-overdue:${task.id}:${task.recipientUserId}:${task.dueAt.toISOString()}`,
-          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] }).returning({ id: userNotifications.id });
-          if (created) tenantCreatedCount += 1;
-        }
-        return tenantCreatedCount;
+          }))).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] }).returning({ id: userNotifications.id });
+        return created.length;
       });
     }
     return createdCount;

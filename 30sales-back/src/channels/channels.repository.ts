@@ -145,13 +145,13 @@ export class ChannelsRepository {
         .where(and(eq(messagingChannels.id, channel.id), eq(messagingChannels.organizationId, input.organizationId)));
       if (input.status === CHANNEL_CONNECTION_STATUS.disconnected && channel.connectionStatus !== CHANNEL_CONNECTION_STATUS.disconnected) {
         const recipients = await transaction.select({ userId: authMember.userId }).from(authMember).where(eq(authMember.organizationId, input.organizationId));
-        for (const recipient of recipients) await transaction.insert(userNotifications).values({
+        if (recipients.length) await transaction.insert(userNotifications).values(recipients.map((recipient) => ({
           organizationId: input.organizationId,
           recipientUserId: recipient.userId,
           channelId: channel.id,
           notificationType: USER_NOTIFICATION_TYPE.channelDisconnected,
           idempotencyKey: `channel-disconnected:${channel.id}:${input.updatedAt.toISOString()}`,
-        }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+        }))).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       }
       return true;
     });

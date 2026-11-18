@@ -37,6 +37,11 @@ export class CampaignDraftCreateRepositoryDto {
 }
 export class CampaignStartRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null) {} }
 export class CampaignStartResultDto { constructor(readonly campaignDraftId: string, readonly queuedCount: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
+export class CampaignDeliveryReviewRepositoryDto { constructor(readonly organizationId: string, readonly limit: number, readonly offset: number) {} }
+export class CampaignDeliveryReviewItemDto { constructor(readonly outboxEventId: string, readonly campaignDraftId: string, readonly campaignName: string, readonly leadId: string, readonly accountName: string, readonly contactName: string | null, readonly phone: string | null, readonly deliveryState: string | null, readonly lastErrorCode: string | null, readonly attempts: number, readonly createdAt: string) {} }
+export class CampaignDeliveryReviewPageDto { constructor(readonly data: CampaignDeliveryReviewItemDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
+export class CampaignDeliveryConfirmRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly correlationId: string | null, readonly outboxEventId: string) {} }
+export class CampaignDeliveryConfirmDto { constructor(readonly outboxEventId: string, readonly status: 'published') {} }
 export class CampaignStatusChangeRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null, readonly fromStatus: 'active' | 'paused', readonly toStatus: 'active' | 'paused') {} }
 export class CampaignStatusChangeDto { constructor(readonly campaignDraftId: string, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
 export class CampaignDraftDto {

@@ -35,4 +35,8 @@ export class CampaignsController {
   pause(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.pause(request, campaignDraftId); }
   @Post(':id/resume')
   resume(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.resume(request, campaignDraftId); }
+  @Get('delivery-review')
+  deliveryReview(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listCampaignDraftsSchema)) query: ListCampaignDraftsDto) { return this.campaignsService.deliveryReview(request, query); }
+  @Post('delivery-review/:id/confirm-sent')
+  confirmDelivery(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) outboxEventId: string) { return this.campaignsService.confirmDelivery(request, outboxEventId); }
 }

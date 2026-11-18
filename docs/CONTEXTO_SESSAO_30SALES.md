@@ -470,3 +470,10 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Regra permanente registrada em `AGENTS.md`: erros de obrigatoriedade aparecem após a primeira tentativa de envio; erros de formato/faixa aparecem após interação/blur; corrigir limpa o erro; mensagem fica fora do input, ligada por `aria-describedby`, sem deslocamentos inesperados.
 - Controles compartilhados de texto, telefone, textarea, select, número, moeda e calendário seguem a regra e bloqueiam o popup nativo em favor de mensagens inline acessíveis. Cadastro de canais marca campos obrigatórios com asterisco discreto.
 - `git diff --check` passou; build/testes locais não foram executados conforme preferência. Commit `9b9af75` enviado para `main`; GitHub Actions frontend run `44281128471` passou e publicou a imagem. Sem sync do Argo.
+
+### Reconciliação manual de campanhas — implementação local (18/11/2026)
+
+- Adicionada à tela de campanhas uma lista paginada de envios outbound que terminaram em revisão manual, com campanha, lead/contato, telefone e estado da mensagem.
+- Owner/admin/manager com acesso a integrações pode confirmar um envio como aceito após conferir o WhatsApp/provedor. A operação exige mensagem local existente, escopo de tenant, transação e auditoria; atualiza estado da mensagem, lead e conclusão da campanha quando apropriado.
+- A confirmação nunca reenvia a mensagem. Itens sem mensagem correspondente permanecem visíveis, mas sem ação de confirmação. Nenhuma migration é necessária.
+- `git diff --check` passou. Build/testes não foram executados conforme preferência persistente. Revisar o diff e validar os dois builds na GitHub Actions após commit; não houve publicação/sync do Argo nesta etapa.

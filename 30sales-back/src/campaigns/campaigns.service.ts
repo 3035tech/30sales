@@ -3,7 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES, hasOrganizationRole } from '../auth/authorization.constants';
 import { LeadRepositoryAccessDto } from '../leads/leads.dto';
-import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
+import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
 import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';
@@ -92,6 +92,18 @@ export class CampaignsService {
     const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, 'paused', 'active'));
     if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
     if (result === 'invalid_state') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.invalidState });
+    return result;
+  }
+
+  async deliveryReview(request: ApiRequestDto, query: ListCampaignDraftsDto): Promise<CampaignDeliveryReviewPageDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'integrations');
+    return this.repository.listDeliveryReview(new CampaignDeliveryReviewRepositoryDto(context.organizationId, query.limit, query.offset));
+  }
+
+  async confirmDelivery(request: ApiRequestDto, outboxEventId: string): Promise<CampaignDeliveryConfirmDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const result = await this.repository.confirmDelivery(new CampaignDeliveryConfirmRepositoryDto(context.organizationId, context.userId, request.correlationId, outboxEventId));
+    if (!result) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign delivery review was not found in the active organization.' });
     return result;
   }
 

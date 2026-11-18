@@ -5,7 +5,7 @@ import { accounts, agentSettings, auditEvents, campaignDraftAudiences, campaignD
 import { AUDIT_ACTOR_TYPE } from '../auth/authorization.constants';
 import { CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS } from '../leads/constants';
 import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
-import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
+import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { SQL } from 'drizzle-orm';
 import { CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from '../channels/channels.constants';
@@ -45,6 +45,47 @@ function getLocalCampaignDateTime(date: Date, timeZone: string): { date: string;
 
 @Injectable()
 export class CampaignsRepository {
+  async listDeliveryReview(input: CampaignDeliveryReviewRepositoryDto): Promise<CampaignDeliveryReviewPageDto> {
+    const where = and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed), eq(outboxEvents.lastErrorCode, CAMPAIGN_OUTREACH_REVIEW_CODE));
+    const [summary] = await database.select({ total: count() }).from(outboxEvents).where(where);
+    const rows = await database.select({ outboxEventId: outboxEvents.id, campaignDraftId: campaignDrafts.id, campaignName: campaignDrafts.name, leadId: leads.id, accountName: accounts.name, contactName: people.name, phone: people.phone, deliveryState: messages.deliveryState, lastErrorCode: outboxEvents.lastErrorCode, attempts: outboxEvents.attempts, createdAt: outboxEvents.createdAt })
+      .from(outboxEvents)
+      .innerJoin(campaignDrafts, and(eq(campaignDrafts.id, outboxEvents.aggregateId), eq(campaignDrafts.organizationId, outboxEvents.organizationId)))
+      .leftJoin(leads, and(sql`${leads.id}::text = ${outboxEvents.payload}->>'leadId'`, eq(leads.organizationId, outboxEvents.organizationId)))
+      .leftJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+      .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
+      .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
+      .leftJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${campaignDrafts.id}::text || ':' || ${leads.id}::text`))
+      .where(where).orderBy(desc(outboxEvents.createdAt), desc(outboxEvents.id)).limit(input.limit).offset(input.offset);
+    const total = summary?.total ?? 0;
+    return new CampaignDeliveryReviewPageDto(rows.map((row) => new CampaignDeliveryReviewItemDto(row.outboxEventId, row.campaignDraftId, row.campaignName, row.leadId ?? '', row.accountName ?? '', row.contactName, row.phone, row.deliveryState, row.lastErrorCode, Number(row.attempts), row.createdAt.toISOString())), { limit: input.limit, offset: input.offset, total, hasNextPage: input.offset + rows.length < total });
+  }
+
+  async confirmDelivery(input: CampaignDeliveryConfirmRepositoryDto): Promise<CampaignDeliveryConfirmDto | null> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.select({ id: outboxEvents.id, aggregateId: outboxEvents.aggregateId, payload: outboxEvents.payload })
+        .from(outboxEvents).where(and(eq(outboxEvents.id, input.outboxEventId), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed), eq(outboxEvents.lastErrorCode, CAMPAIGN_OUTREACH_REVIEW_CODE))).for('update').limit(1);
+      if (!event || !event.payload || typeof event.payload !== 'object' || Array.isArray(event.payload)) return null;
+      const payload = event.payload as Record<string, unknown>;
+      if (typeof payload.leadId !== 'string' || typeof payload.campaignDraftId !== 'string' || payload.campaignDraftId !== event.aggregateId) return null;
+      const idempotencyKey = `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${payload.campaignDraftId}:${payload.leadId}`;
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState })
+        .from(messages).where(and(eq(messages.organizationId, input.organizationId), eq(messages.idempotencyKey, idempotencyKey), eq(messages.direction, 'outbound'))).for('update').limit(1);
+      if (!message || !['requested', 'unknown', 'failed', 'accepted', 'delivered', 'read'].includes(message.deliveryState)) return null;
+      const now = new Date();
+      const confirmedDeliveryState = ['accepted', 'delivered', 'read'].includes(message.deliveryState) ? message.deliveryState : 'accepted';
+      await transaction.update(messages).set({ deliveryState: confirmedDeliveryState }).where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.published, publishedAt: now, lastErrorCode: null }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
+      const [updatedLead] = await transaction.update(leads).set({ status: LEAD_STATUS.contacting, updatedAt: now }).where(and(eq(leads.id, payload.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready))).returning({ id: leads.id });
+      if (updatedLead) await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: updatedLead.id, fromStatus: LEAD_STATUS.ready, toStatus: LEAD_STATUS.contacting, changedByUserId: input.actorUserId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: 'campaign.delivery_confirmed_sent', entityType: CAMPAIGN_AUDIT.entity, entityId: event.aggregateId, correlationId: input.correlationId, beforeState: { deliveryState: message.deliveryState }, afterState: { outboxEventId: event.id, leadId: payload.leadId, messageId: message.id, conversationId: message.conversationId, deliveryState: confirmedDeliveryState } });
+      const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, event.aggregateId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending)));
+      const [needsReview] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, event.aggregateId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
+      if ((remaining?.total ?? 0) === 0 && (needsReview?.total ?? 0) === 0) await transaction.update(campaignDrafts).set({ status: CAMPAIGN_DRAFT_STATUS.completed, updatedAt: now }).where(and(eq(campaignDrafts.id, event.aggregateId), eq(campaignDrafts.organizationId, input.organizationId), inArray(campaignDrafts.status, [CAMPAIGN_DRAFT_STATUS.active, CAMPAIGN_DRAFT_STATUS.paused])));
+      return new CampaignDeliveryConfirmDto(event.id, CAMPAIGN_OUTBOX_STATUS.published);
+    });
+  }
+
   async start(input: CampaignStartRepositoryDto): Promise<CampaignStartResultDto | 'not_found' | 'already_started' | 'not_ready' | 'ineligible' | 'quota_exceeded'> {
     return database.transaction(async (transaction) => {
       const [draft] = await transaction.select({ id: campaignDrafts.id, channelId: campaignDrafts.channelId, name: campaignDrafts.name, openingMessage: campaignDrafts.openingMessage, windowStart: campaignDrafts.windowStart, windowEnd: campaignDrafts.windowEnd, timeZone: campaignDrafts.timeZone, dailyMessageLimit: campaignDrafts.dailyMessageLimit, minimumDelaySeconds: campaignDrafts.minimumDelaySeconds, status: campaignDrafts.status })

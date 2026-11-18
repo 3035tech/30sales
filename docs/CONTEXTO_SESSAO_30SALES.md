@@ -8,7 +8,9 @@
 - Regra persistente de formulário adicionada a `30sales-front/AGENTS.md`: erros surgem após interação/submissão, são localizados e acessíveis, foco vai para o primeiro inválido e a mensagem não deve causar deslocamento inesperado do layout.
 - Commits desta sequência já publicados na `main`: `b647936` guards DOM/CSV; `ffd7c93` contratos de Select, `Request.rawBody` tipado e normalização defensiva do stream.
 - Otimização adicional publicada em `3d23133`: notificações de canal desconectado e de tarefas vencidas são inseridas em lote, mantendo idempotência e contagem dos registros efetivamente criados.
-- Auditoria encontrou uma consulta de retorno do handoff recém-criado sem `organizationId`; correção em andamento para incluir escopo tenant explícito.
+- `9fea671` adicionou `organizationId` à leitura de retorno do handoff, reforçando o escopo tenant.
+- `c63b0f7` remove cópias repetidas de arrays ao agrupar horários, tags e anexos no Inbox, evitando crescimento quadrático nesses agrupamentos.
+- Fatia em andamento: removidas duas asserções de não-null no relatório de conversão e criação de lead; fazer `git diff --check`, commit/push e seguir revisando asserts e consultas repetidas.
 - Verificação executada: `git diff --check` e buscas estáticas. Não executar build, testes ou migrations sem pedido explícito. Ainda não houve validação visual ou de compilação destas fatias.
 - Próximo passo: revisar consultas/índices tenant-first e estados de erro/loading nas áreas restantes; dividir em fatias pequenas. Permanecem assertions literais em `tenant-access.service.ts`; confirmar compatibilidade dos tipos alterados no próximo gate de build quando o usuário solicitar validação.
 

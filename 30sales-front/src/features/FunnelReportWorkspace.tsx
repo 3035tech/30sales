@@ -45,7 +45,7 @@ export function FunnelReportWorkspace() {
   }
   useEffect(() => { void refresh() }, [])
   const closedCount = (report?.wonInPeriodCount ?? 0) + (report?.lostInPeriodCount ?? 0)
-  const winRate = closedCount ? Math.round((report!.wonInPeriodCount / closedCount) * 100) : null
+  const winRate = report && closedCount ? Math.round((report.wonInPeriodCount / closedCount) * 100) : null
   const currentLeadCount = report?.leadCountsByStatus.reduce((total, item) => total + item.count, 0) ?? 0
   const money = (currency: string, amount: string) => new Intl.NumberFormat(i18n.language, { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(amount))
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`))

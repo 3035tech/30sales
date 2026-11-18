@@ -12,9 +12,12 @@ export const listCloserEventsSchema = z.object({ limit: z.coerce.number().int().
 export type ListCloserEventsQueryDto = z.infer<typeof listCloserEventsSchema>;
 export const listCloserSlaNotificationsSchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) }).strict();
 export type ListCloserSlaNotificationsQueryDto = z.infer<typeof listCloserSlaNotificationsSchema>;
-export const closerEventActionSchema = z.object({ action: z.enum(['acknowledge', 'snooze', 'reassign', 'resolve']), snoozedUntil: z.string().datetime({ offset: true }).optional(), assignedToUserId: z.string().uuid().optional() }).strict()
-  .refine((input) => input.action === 'snooze' ? Boolean(input.snoozedUntil) : input.snoozedUntil === undefined, { message: 'snoozedUntil is required only when snoozing.' })
-  .refine((input) => input.action === 'reassign' ? Boolean(input.assignedToUserId) : input.assignedToUserId === undefined, { message: 'assignedToUserId is required only when reassigning.' });
+export const closerEventActionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('acknowledge') }).strict(),
+  z.object({ action: z.literal('snooze'), snoozedUntil: z.string().datetime({ offset: true }) }).strict(),
+  z.object({ action: z.literal('reassign'), assignedToUserId: z.string().uuid() }).strict(),
+  z.object({ action: z.literal('resolve') }).strict(),
+]);
 export type CloserEventActionInputDto = z.infer<typeof closerEventActionSchema>;
 export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListCloserEventsQueryDto) {} }
 export class CloserEventDto {

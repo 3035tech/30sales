@@ -168,16 +168,16 @@ export class CloserEventsRepository {
         status = 'acknowledged'; acknowledgedAt = now; snoozedUntil = null;
       } else if (input.input.action === 'snooze') {
         if (!['new', 'snoozed'].includes(current.status)) return 'not_found';
-        status = 'snoozed'; snoozedUntil = new Date(input.input.snoozedUntil!);
+        status = 'snoozed'; snoozedUntil = new Date(input.input.snoozedUntil);
       } else if (input.input.action === 'resolve') {
         if (!['new', 'snoozed', 'acknowledged'].includes(current.status)) return 'not_found';
         status = 'resolved'; resolvedAt = now; snoozedUntil = null;
       } else {
         if (!['new', 'snoozed'].includes(current.status)) return 'not_found';
         const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
-          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId!), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
+          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
         if (!membership) return 'invalid_assignee';
-        assignedToUserId = input.input.assignedToUserId!;
+        assignedToUserId = input.input.assignedToUserId;
         status = 'new'; snoozedUntil = null;
       }
       const [updated] = await transaction.update(closerEvents).set({ status, assignedToUserId, acknowledgedAt, snoozedUntil, resolvedAt, updatedAt: now })

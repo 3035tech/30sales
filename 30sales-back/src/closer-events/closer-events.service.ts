@@ -39,7 +39,7 @@ export class CloserEventsService {
   async act(request: ApiRequestDto, eventId: string, input: CloserEventActionInputDto) {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');
     if (input.action === 'snooze') {
-      const snoozedUntil = new Date(input.snoozedUntil!);
+      const snoozedUntil = new Date(input.snoozedUntil);
       const maxSnoozeAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
       if (snoozedUntil.getTime() <= Date.now() || snoozedUntil.getTime() > maxSnoozeAt) throw new BadRequestException({ code: 'INVALID_SNOOZE_TIME', message: 'Snooze time must be in the future and within 30 days.' });
     }

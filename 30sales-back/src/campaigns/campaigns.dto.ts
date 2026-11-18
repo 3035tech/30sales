@@ -37,6 +37,8 @@ export class CampaignDraftCreateRepositoryDto {
 }
 export class CampaignStartRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null) {} }
 export class CampaignStartResultDto { constructor(readonly campaignDraftId: string, readonly queuedCount: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
+export class CampaignStatusChangeRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null, readonly fromStatus: 'active' | 'paused', readonly toStatus: 'active' | 'paused') {} }
+export class CampaignStatusChangeDto { constructor(readonly campaignDraftId: string, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
 export class CampaignDraftDto {
   constructor(readonly id: string, readonly name: string, readonly openingMessage: string, readonly channelId: string, readonly channelName: string, readonly channelPhoneNumber: string, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly dailyMessageLimit: number, readonly minimumDelaySeconds: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number], readonly audienceLeadCount: number, readonly createdAt: string) {}
 }

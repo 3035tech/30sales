@@ -35,6 +35,10 @@ export class OpportunitiesController {
   updatePipelineStage(@ApiRequest() request: ApiRequestDto, @Param('key', new ZodValidationPipe(pipelineStageKeySchema)) key: string, @Body(new ZodValidationPipe(updatePipelineStageSchema)) dto: UpdatePipelineStageDto) { return this.opportunitiesService.updatePipelineStage(request, key, dto); }
   @Delete('pipeline-stages/:key')
   archivePipelineStage(@ApiRequest() request: ApiRequestDto, @Param('key', new ZodValidationPipe(pipelineStageKeySchema)) key: string, @Query(new ZodValidationPipe(pipelineQuerySchema)) query: { pipelineId?: string }) { return this.opportunitiesService.archivePipelineStage(request, key, query.pipelineId); }
+  @Get('summary')
+  summary(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listOpportunitiesSchema)) query: ListOpportunitiesQueryDto) {
+    return this.opportunitiesService.summary(request, query);
+  }
   @Get('page')
   page(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listOpportunitiesSchema)) query: ListOpportunitiesQueryDto) {
     return this.opportunitiesService.page(request, query);

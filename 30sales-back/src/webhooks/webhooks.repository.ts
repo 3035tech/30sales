@@ -5,7 +5,7 @@ import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conve
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionContactUpdateDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
-import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
+import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
@@ -129,6 +129,10 @@ export class WebhooksRepository {
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
+      const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode }).from(messagingChannels)
+        .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
+      if (!channel) throw new Error('Inbound message channel is unavailable in the active organization.');
+
       const externalRecordId = input.senderExternalId ? `${input.channelId}:${input.senderExternalId}` : null;
       const lockKey = `${input.organizationId}:${input.channelId}:${externalRecordId ?? input.senderPhone ?? input.externalMessageId}`;
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
@@ -151,7 +155,7 @@ export class WebhooksRepository {
       if (externalRecordId) await transaction.insert(externalRecords).values({ organizationId: input.organizationId, provider: input.provider, recordType: META_EXTERNAL_RECORD_TYPE.businessScopedUserId, externalId: externalRecordId, personId: person.id, payloadHash: input.payloadHash })
         .onConflictDoUpdate({ target: [externalRecords.organizationId, externalRecords.provider, externalRecords.recordType, externalRecords.externalId], set: { lastSeenAt: new Date(), payloadHash: input.payloadHash } });
 
-      const [lead] = await transaction.select({ accountId: leads.accountId, opportunityId: opportunities.id }).from(leads)
+      const [lead] = await transaction.select({ accountId: leads.accountId, assignedToUserId: leads.assignedToUserId, opportunityId: opportunities.id }).from(leads)
         .leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
         .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId)))
         .where(and(eq(leads.organizationId, input.organizationId), or(eq(leads.personId, person.id), eq(leadContacts.personId, person.id)))).orderBy(desc(leads.createdAt), desc(leads.id)).limit(1);
@@ -165,12 +169,12 @@ export class WebhooksRepository {
       }
       let conversationId = conversation?.id;
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
-      let notificationRecipientUserId = conversation?.ownerUserId ?? null;
+      let notificationRecipientUserId = conversation?.ownerUserId ?? lead?.assignedToUserId ?? null;
       if (!conversationId) {
         const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: agent?.enabled ? 'assistant' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
+        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: channel.operationMode === 'outbound' || !agent?.enabled ? 'paused' : 'assistant', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
         conversationId = createdConversation.id;
-        notificationRecipientUserId = createdConversation.ownerUserId;
+        notificationRecipientUserId = createdConversation.ownerUserId ?? lead?.assignedToUserId ?? null;
         opportunityId = lead?.opportunityId ?? null;
       }
 
@@ -192,7 +196,7 @@ export class WebhooksRepository {
           sizeBytes: input.media.sizeBytes,
           sha256: input.media.sha256,
         });
-        await transaction.update(conversations).set({ status: 'open', lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
+        await transaction.update(conversations).set({ status: 'open', ...(channel.operationMode === 'outbound' && !conversation?.ownerUserId ? { automationMode: 'paused' as const } : {}), lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, input.organizationId)));
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId, occurredAt: input.occurredAt.toISOString() })})`);
         await transaction.insert(outboxEvents).values({
@@ -246,17 +250,24 @@ export class WebhooksRepository {
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }
         }
+        let notificationRecipients: string[] = [];
         if (notificationRecipientUserId) {
           const [recipientMembership] = await transaction.select({ userId: authMember.userId }).from(authMember)
             .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, notificationRecipientUserId))).limit(1);
-          if (recipientMembership) await transaction.insert(userNotifications).values({
-            organizationId: input.organizationId,
-            recipientUserId: notificationRecipientUserId,
-            conversationId,
-            notificationType: 'inbox_new_message',
-            idempotencyKey: `inbox-new-message:${message.id}`,
-          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+          if (recipientMembership) notificationRecipients = [recipientMembership.userId];
         }
+        if (notificationRecipients.length === 0) {
+          const memberships = await transaction.select({ userId: authMember.userId, role: authMember.role }).from(authMember)
+            .where(eq(authMember.organizationId, input.organizationId));
+          notificationRecipients = memberships.filter(({ role }) => hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)).map(({ userId }) => userId);
+        }
+        if (notificationRecipients.length) await transaction.insert(userNotifications).values(notificationRecipients.map((recipientUserId) => ({
+            organizationId: input.organizationId,
+            recipientUserId,
+            conversationId,
+            notificationType: USER_NOTIFICATION_TYPE.inboxNewMessage,
+            idempotencyKey: `inbox-new-message:${message.id}`,
+          }))).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       }
       return message ? 'created' : 'duplicate';
     });

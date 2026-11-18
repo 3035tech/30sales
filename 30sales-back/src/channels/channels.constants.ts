@@ -4,6 +4,11 @@ export const CHANNEL_PROVIDER = {
 } as const;
 
 export const CHANNEL_PROVIDERS = Object.values(CHANNEL_PROVIDER);
+export const CHANNEL_OPERATION_MODE = { inbound: 'inbound', outbound: 'outbound', hybrid: 'hybrid' } as const;
+export const CHANNEL_OPERATION_MODES = Object.values(CHANNEL_OPERATION_MODE);
+export const CHANNEL_ASSISTANT_SCHEDULE_MODE = { always: 'always', businessHours: 'business_hours', afterHours: 'after_hours', disabled: 'disabled' } as const;
+export const CHANNEL_ASSISTANT_SCHEDULE_MODES = Object.values(CHANNEL_ASSISTANT_SCHEDULE_MODE);
+export const CHANNEL_WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const;
 export const CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT = 500;
 export const CHANNEL_DAILY_MESSAGE_LIMIT_MIN = 1;
 export const CHANNEL_DAILY_MESSAGE_LIMIT_MAX = 5000;

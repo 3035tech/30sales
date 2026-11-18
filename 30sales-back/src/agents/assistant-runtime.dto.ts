@@ -38,6 +38,10 @@ export type AssistantRuntimeContextDto = {
   model: string;
   transcribeAudio: boolean;
   systemPrompt: string;
+  operationMode: import('../channels/channels.dto').ChannelOperationMode;
+  assistantScheduleMode: import('../channels/channels.dto').ChannelAssistantScheduleMode;
+  businessHours: import('../channels/channels.dto').ChannelBusinessHourDto[];
+  timeZone: string;
   automationMode: string;
   ownerUserId: string | null;
   recipientPhone: string;

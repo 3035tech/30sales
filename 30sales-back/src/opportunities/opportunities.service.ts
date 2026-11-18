@@ -2,7 +2,7 @@ import { ConflictException, ForbiddenException, Injectable, NotFoundException } 
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
-import { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, PipelineRepositoryArchiveDto, PipelineRepositoryCreateDto, PipelineRepositoryUpdateDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto, PipelineStagesDto, PipelinesDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
+import { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, PipelineRepositoryArchiveDto, PipelineRepositoryCreateDto, PipelineRepositoryUpdateDto, PipelineStageRepositoryArchiveDto, PipelineStageRepositoryCreateDto, PipelineStageRepositoryReorderDto, PipelineStageRepositoryUpdateDto, PipelineStagesDto, PipelinesDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
 import { OpportunitiesRepository } from './opportunities.repository';
 import { ActivityRecordDto, ActivityRepositoryCreateDto, ActivityRepositoryListDto, CreateActivityDto } from './activities.dto';
 import { OpportunityActivitiesRepository } from './activities.repository';
@@ -120,6 +120,12 @@ export class OpportunitiesService {
     this.requireOpportunityRecordAccess(context.role);
     await this.pipelinesRepository.ensureDefault(context.organizationId);
     return this.repository.page(new OpportunityRepositoryListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query)));
+  }
+  async summary(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityPipelineSummaryDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    this.requireOpportunityRecordAccess(context.role);
+    await this.pipelinesRepository.ensureDefault(context.organizationId);
+    return this.repository.summary(new OpportunityRepositoryListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query)));
   }
   private scopeOpportunityQuery(role: string, query: ListOpportunitiesQueryDto): ListOpportunitiesQueryDto {
     return hasOrganizationRole(role, ORGANIZATION_CLOSER_ROLES) ? { ...query, view: 'mine', assignedToUserId: undefined } : query;

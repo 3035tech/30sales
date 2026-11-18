@@ -84,6 +84,14 @@ export class OpportunityRecordDto {
   ) {}
 }
 export class OpportunityPageDto { constructor(readonly data: OpportunityRecordDto[], readonly pagination: { limit: number; offset: number; total: number; hasNextPage: boolean }) {} }
+export class OpportunityPipelineSummaryDto {
+  constructor(
+    readonly openCount: number,
+    readonly atRiskCount: number,
+    readonly openValueByCurrency: Array<{ currency: string; amount: string }>,
+    readonly stageCounts: Array<{ stage: OpportunityStage; pipelineStageKey: string | null; count: number }>,
+  ) {}
+}
 export class OpportunityHistoryRecordDto { constructor(readonly id: string, readonly fromStage: OpportunityStage | null, readonly fromPipelineStageKey: string | null, readonly fromPipelineStageName: string | null, readonly toStage: OpportunityStage, readonly toPipelineStageKey: string | null, readonly toPipelineStageName: string | null, readonly actorName: string, readonly reason: string | null, readonly occurredAt: string) {} }
 export class OpportunityRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly canEditOwned: boolean, readonly query: ListOpportunitiesQueryDto) {} }
 export class OpportunityRepositoryTransitionDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: TransitionOpportunityDto, readonly correlationId: string | null = null) {} }

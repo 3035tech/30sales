@@ -5,7 +5,7 @@ import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
 import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS } from '../leads/constants';
 import { CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_OPENING_MESSAGE_DEFAULT } from '../campaigns/campaigns.constants';
-import { CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT } from '../channels/channels.constants';
+import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT, CHANNEL_OPERATION_MODES } from '../channels/channels.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
@@ -331,6 +331,8 @@ export const messagingChannels = pgTable('messaging_channels', {
   credentialsAuthTag: text('credentials_auth_tag'),
   chatwootInboxId: text('chatwoot_inbox_id'),
   isActive: boolean('is_active').default(true).notNull(),
+  operationMode: text('operation_mode').default('hybrid').notNull(),
+  assistantScheduleMode: text('assistant_schedule_mode').default('always').notNull(),
   dailyMessageLimit: integer('daily_message_limit').default(CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT).notNull(),
   dailyLimitTimeZone: text('daily_limit_time_zone').default(CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT).notNull(),
   connectionStatus: text('connection_status'),
@@ -339,6 +341,8 @@ export const messagingChannels = pgTable('messaging_channels', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   check('messaging_channels_provider_check', sql`${table.provider} in ('evolution', 'whatsapp_cloud_api')`),
+  check('messaging_channels_operation_mode_check', sql`${table.operationMode} in (${sql.raw(CHANNEL_OPERATION_MODES.map((mode) => `'${mode}'`).join(', '))})`),
+  check('messaging_channels_assistant_schedule_mode_check', sql`${table.assistantScheduleMode} in (${sql.raw(CHANNEL_ASSISTANT_SCHEDULE_MODES.map((mode) => `'${mode}'`).join(', '))})`),
   check('messaging_channels_phone_e164_check', sql`${table.phoneNumber} ~ '^\\+[1-9][0-9]{7,14}$'`),
   check('messaging_channels_daily_message_limit_check', sql`${table.dailyMessageLimit} between 1 and 5000`),
   check('messaging_channels_daily_limit_time_zone_check', sql`length(${table.dailyLimitTimeZone}) between 1 and 80`),
@@ -348,6 +352,19 @@ export const messagingChannels = pgTable('messaging_channels', {
   unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
   unique('messaging_channels_org_chatwoot_inbox_unique').on(table.organizationId, table.chatwootInboxId),
   index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
+]);
+
+export const channelBusinessHours = pgTable('channel_business_hours', {
+  organizationId: uuid('organization_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  dayOfWeek: integer('day_of_week').notNull(),
+  startTime: text('start_time').notNull(),
+  endTime: text('end_time').notNull(),
+}, (table) => [
+  primaryKey({ name: 'channel_business_hours_pk', columns: [table.organizationId, table.channelId, table.dayOfWeek] }),
+  foreignKey({ name: 'channel_business_hours_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
+  check('channel_business_hours_day_check', sql`${table.dayOfWeek} between 0 and 6`),
+  check('channel_business_hours_time_check', sql`${table.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${table.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${table.startTime} <> ${table.endTime}`),
 ]);
 
 export const campaignDrafts = pgTable('campaign_drafts', {

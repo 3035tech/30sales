@@ -29,6 +29,7 @@ export class ChannelsService {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
     const result = await this.repository.update(new ChannelRepositoryUpdateDto(context.organizationId, channelId, context.userId, input, request.correlationId));
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    if (result === 'schedule_required') throw new BadRequestException({ code: 'CHANNEL_SCHEDULE_REQUIRED', message: 'Configure at least one business-hours window before enabling scheduled assistant replies.' });
     return result;
   }
   async configureCredentials(request: ApiRequestDto, channelId: string, credentials: ChannelCredentialsDto): Promise<ChannelRecordDto> {

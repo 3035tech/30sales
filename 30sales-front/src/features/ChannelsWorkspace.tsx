@@ -1,4 +1,4 @@
-import { Button, IconButton, NumericField, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
+import { Button, CheckboxField, IconButton, NumericField, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -10,9 +10,13 @@ import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
 type ChannelsView = 'channels' | 'monitoring'
+function parseChannelOperationMode(value: string): ChannelDto['operationMode'] | null { return value === 'inbound' || value === 'outbound' || value === 'hybrid' ? value : null }
+function parseAssistantScheduleMode(value: string): ChannelDto['assistantScheduleMode'] | null { return value === 'always' || value === 'business_hours' || value === 'after_hours' || value === 'disabled' ? value : null }
 const MONITORING_CHECK_INTERVAL_MS = 60_000
 const MONITORING_CHECK_BATCH_SIZE = 20
 const MONITORING_SIGNAL_STALE_MS = 5 * 60_000
+const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const
+type EditableBusinessHour = { dayOfWeek: number; enabled: boolean; startTime: string; endTime: string }
 const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 function WhatsAppMark({ size = 18 }: { size?: number }) {
@@ -42,6 +46,13 @@ export function ChannelsWorkspace() {
   const [quotaChannel, setQuotaChannel] = useState<ChannelDto | null>(null)
   const [quotaLimit, setQuotaLimit] = useState<number | null>(null)
   const [savingQuota, setSavingQuota] = useState(false)
+  const [policyChannel, setPolicyChannel] = useState<ChannelDto | null>(null)
+  const [policyMode, setPolicyMode] = useState<ChannelDto['operationMode']>('hybrid')
+  const [assistantScheduleMode, setAssistantScheduleMode] = useState<ChannelDto['assistantScheduleMode']>('always')
+  const [policyTimeZone, setPolicyTimeZone] = useState('America/Sao_Paulo')
+  const [policyHours, setPolicyHours] = useState<EditableBusinessHour[]>([])
+  const [policyAllDay, setPolicyAllDay] = useState(true)
+  const [savingPolicy, setSavingPolicy] = useState(false)
   const [discoveryChannel, setDiscoveryChannel] = useState<ChannelDto | null>(null)
   const [discovery, setDiscovery] = useState<EvolutionInstanceListDto | null>(null)
   const [discoveryLoading, setDiscoveryLoading] = useState(false)
@@ -160,8 +171,12 @@ export function ChannelsWorkspace() {
   const createChannel = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
-      setForm(emptyForm); setQuery(''); setOffset(0); setRefresh((version) => version + 1)
+      const created = await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
+      setChannels((current) => [created, ...current.filter((channel) => channel.id !== created.id)])
+      setForm(emptyForm)
+      clearCredentialForm()
+      setCredentialsChannelId(created.id)
+      setQuery(''); setOffset(0); setRefresh((version) => version + 1)
     } catch { setError(t('channels.saveFailed')) }
     finally { setSaving(false) }
   }
@@ -182,6 +197,23 @@ export function ChannelsWorkspace() {
     try { await api.channels.update(quotaChannel.id, { dailyMessageLimit: quotaLimit }); setQuotaChannel(null); setRefresh((version) => version + 1) }
     catch { setError(t('channels.quotaUpdateFailed')) }
     finally { setSavingQuota(false) }
+  }
+  const openPolicy = (channel: ChannelDto) => {
+    setPolicyChannel(channel); setPolicyMode(channel.operationMode); setAssistantScheduleMode(channel.assistantScheduleMode); setPolicyTimeZone(channel.dailyLimitTimeZone)
+    setPolicyAllDay(channel.businessHours.length === 0)
+    setPolicyHours(WEEKDAYS.map((dayOfWeek) => { const saved = channel.businessHours.find((window) => window.dayOfWeek === dayOfWeek); return { dayOfWeek, enabled: Boolean(saved), startTime: saved?.startTime ?? '09:00', endTime: saved?.endTime ?? '18:00' } }))
+  }
+  const savePolicy = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!policyChannel) return
+    setSavingPolicy(true); setError('')
+    try {
+      const businessHours = policyAllDay ? [] : policyHours.filter((window) => window.enabled).map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime }))
+      if (!policyAllDay && businessHours.length === 0) { setError(t('channels.businessHoursRequired')); return }
+      await api.channels.update(policyChannel.id, { operationMode: policyMode, assistantScheduleMode, dailyLimitTimeZone: policyTimeZone, businessHours })
+      setPolicyChannel(null); setRefresh((version) => version + 1)
+    } catch { setError(t('channels.policySaveFailed')) }
+    finally { setSavingPolicy(false) }
   }
   const discoverInstances = async (channel: ChannelDto) => {
     setDiscoveryChannel(channel); setDiscovery(null); setDiscoveryError(false); setDiscoveryLoading(true)
@@ -207,6 +239,7 @@ export function ChannelsWorkspace() {
       setHealthChecks((current) => { const next = { ...current }; delete next[channel.id]; return next })
       setHealthCheckErrors((current) => { const next = { ...current }; delete next[channel.id]; return next })
       clearCredentialForm(); setRefresh((version) => version + 1)
+      if (channel.provider === 'evolution') void requestEvolutionConnection(channel)
     } catch { setError(t('channels.credentialsFailed')) }
     finally { setSavingCredentials(false) }
   }
@@ -272,7 +305,7 @@ export function ChannelsWorkspace() {
       const configuringWebhook = configuringWebhookIds.includes(channel.id)
       const webhookDate = webhookConfiguredAt[channel.id] ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(webhookConfiguredAt[channel.id])) : ''
       const connectionDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : ''
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span>{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">
@@ -317,6 +350,16 @@ export function ChannelsWorkspace() {
         <Button type="submit" variant="primary" disabled={savingQuota || quotaLimit === null}>{savingQuota ? t('common.saving') : t('channels.saveQuota')}</Button>
       </form>
     </Modal>
+    <Modal open={policyChannel !== null} onOpenChange={(open) => { if (!open) setPolicyChannel(null) }} title={t('channels.policyTitle', { name: policyChannel?.displayName ?? '' })} description={t('channels.policyDescription')} closeLabel={t('common.close')} className="channel-quota-modal">
+      <form className="channel-quota-form channel-policy-form" onSubmit={(event) => void savePolicy(event)}>
+        <label>{t('channels.operationMode')}<SelectField value={policyMode} onChange={(event) => { const parsed = parseChannelOperationMode(event.target.value); if (parsed) setPolicyMode(parsed) }}><option value="inbound">{t('channels.operationModes.inbound')}</option><option value="outbound">{t('channels.operationModes.outbound')}</option><option value="hybrid">{t('channels.operationModes.hybrid')}</option></SelectField></label>
+        {policyMode !== 'outbound' && <label>{t('channels.assistantScheduleMode')}<SelectField value={assistantScheduleMode} onChange={(event) => { const parsed = parseAssistantScheduleMode(event.target.value); if (parsed) setAssistantScheduleMode(parsed) }}><option value="always">{t('channels.assistantScheduleModes.always')}</option><option value="business_hours">{t('channels.assistantScheduleModes.business_hours')}</option><option value="after_hours">{t('channels.assistantScheduleModes.after_hours')}</option><option value="disabled">{t('channels.assistantScheduleModes.disabled')}</option></SelectField></label>}
+        <label>{t('channels.businessHoursTimeZone')}<TextField value={policyTimeZone} onChange={(event) => setPolicyTimeZone(event.target.value)} maxLength={80} required /></label>
+        <label><CheckboxField checked={policyAllDay} onChange={(event) => { const allDay = event.target.checked; setPolicyAllDay(allDay); if (!allDay && policyHours.every((window) => !window.enabled)) setPolicyHours((hours) => hours.map((window) => ({ ...window, enabled: window.dayOfWeek >= 1 && window.dayOfWeek <= 5 }))) }} />{t(policyMode === 'outbound' ? 'channels.outboundAllDay' : 'channels.businessHoursAllDay')}</label>
+        {!policyAllDay && <fieldset><legend>{t(policyMode === 'outbound' ? 'channels.outboundWindow' : 'channels.businessHours')}</legend>{policyHours.map((window) => <div className="channel-hours-row" key={window.dayOfWeek}><label><CheckboxField checked={window.enabled} onChange={(event) => setPolicyHours((hours) => hours.map((item) => item.dayOfWeek === window.dayOfWeek ? { ...item, enabled: event.target.checked } : item))} />{t(`channels.weekdays.${window.dayOfWeek}`)}</label><TextField type="time" aria-label={t('channels.businessHoursStart', { day: t(`channels.weekdays.${window.dayOfWeek}`) })} value={window.startTime} disabled={!window.enabled} onChange={(event) => setPolicyHours((hours) => hours.map((item) => item.dayOfWeek === window.dayOfWeek ? { ...item, startTime: event.target.value } : item))} /><TextField type="time" aria-label={t('channels.businessHoursEnd', { day: t(`channels.weekdays.${window.dayOfWeek}`) })} value={window.endTime} disabled={!window.enabled} onChange={(event) => setPolicyHours((hours) => hours.map((item) => item.dayOfWeek === window.dayOfWeek ? { ...item, endTime: event.target.value } : item))} /></div>)}</fieldset>}
+        <Button type="submit" variant="primary" disabled={savingPolicy}>{savingPolicy ? t('common.saving') : t('channels.savePolicy')}</Button>
+      </form>
+    </Modal>
     <Modal open={connectionChannel !== null} onOpenChange={(open) => { if (!open) { pairingRequestId.current += 1; setConnectionChannel(null); setConnectionResult(null); setConnectionError(false); setConnectionLoading(false) } }} title={t('channels.pairingTitle', { name: connectionChannel?.displayName ?? '' })} description={t('channels.pairingDescription')} closeLabel={t('common.close')} className="channel-pairing-modal">
       {connectionLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
       {connectionError && <WorkspaceState kind="error" compact message={t('channels.pairingFailed')} />}
@@ -345,23 +388,25 @@ export function ChannelsWorkspace() {
       </article>)}</div> : null}
       {webhookEvents && webhookEvents.pagination.total > 0 && <div className="channel-events-pagination"><span>{t('table.range', { from: webhookEvents.pagination.offset + 1, to: webhookEvents.pagination.offset + webhookEvents.data.length, total: webhookEvents.pagination.total })}</span><label>{t('table.rowsPerPage')}<SelectField value={webhookEventsLimit} disabled={webhookEventsLoading} onChange={(event) => { setWebhookEventsLimit(Number(event.target.value)); setWebhookEventsOffset(0) }} aria-label={t('table.rowsPerPage')}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</SelectField></label><div><Button type="button" disabled={webhookEventsLoading || webhookEventsOffset === 0} onClick={() => setWebhookEventsOffset((value) => Math.max(0, value - webhookEventsLimit))}>{t('table.previous')}</Button><Button type="button" disabled={webhookEventsLoading || !webhookEvents.pagination.hasNextPage} onClick={() => setWebhookEventsOffset((value) => value + webhookEventsLimit)}>{t('table.next')}</Button></div></div>}
     </Modal>
-    {viewMode === 'channels' && <form className="channel-form" onSubmit={createChannel}>
+    {viewMode === 'channels' && !credentialsChannelId && <form className="channel-form" onSubmit={createChannel}>
+      <ol className="channel-setup-progress" aria-label={t('channels.setupSteps')}><li aria-current="step"><span>1</span>{t('channels.setupDetails')}</li><li><span>2</span>{t('channels.setupConnection')}</li></ol>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.addTitle')}</strong><small>{t('channels.addHint')}</small></div></div>
       <div className="channel-form-grid">
         <label>{t('channels.provider')}<SelectField value={form.provider} onChange={(event) => updateProvider(event.target.value)}><option value="evolution">{t('channels.providers.evolution')}</option><option value="whatsapp_cloud_api">{t('channels.providers.whatsapp_cloud_api')}</option></SelectField></label>
         <label>{t('channels.name')}<TextField value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} minLength={2} maxLength={120} pattern=".*\S.*" required /></label>
-        <label>{t('channels.phone')}<PhoneField requireInternational value={form.phoneNumber} onValueChange={(phoneNumber) => setForm((current) => ({ ...current, phoneNumber }))} placeholder="+55 (11) 99999-9999" required /></label>
+        <label>{t('channels.phone')}<PhoneField requireInternational value={form.phoneNumber} onValueChange={(phoneNumber) => setForm((current) => ({ ...current, phoneNumber }))} hint={t('channels.phoneHint')} placeholder="+55 (11) 99999-9999" required /></label>
         <label>{t(form.provider === 'evolution' ? 'channels.evolutionInstance' : 'channels.phoneNumberId')}<TextField value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>
         {form.provider === 'whatsapp_cloud_api' && <label>{t('channels.businessAccount')}<TextField value={form.providerAccountId ?? ''} onChange={(event) => setForm((current) => ({ ...current, providerAccountId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>}
       </div>
-      <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><Button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.add')}</>}</Button></div>
+      <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><Button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.continueToConnection')}</>}</Button></div>
     </form>}
     {viewMode === 'channels' && credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
+      <ol className="channel-setup-progress" aria-label={t('channels.setupSteps')}><li className="is-complete"><span><Check size={13} /></span>{t('channels.setupDetails')}</li><li aria-current="step"><span>2</span>{t('channels.setupConnection')}</li></ol>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
       <div className="channel-form-grid">
         {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<TextField value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<TextField value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" maxLength={500} required /></label><label>{t('inboxComposer.evolutionWebhookSecret')}<TextField value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
       </div>
-      <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><Button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</Button><Button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t('channels.saveCredentials')}</Button></div>
+      <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><Button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</Button><Button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t(channel.provider === 'evolution' ? 'channels.saveAndPair' : 'channels.saveCredentials')}</Button></div>
     </form> : null })()}
     {viewMode === 'channels' && error && rows.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {viewMode === 'channels' && <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong></div>} emptyStateKind={error ? 'error' : 'empty'} filters={<label className="channel-search"><Search size={15} /><TextField value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />}

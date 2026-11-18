@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, ilike, isNull, lt, notInArray, or, SQL, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, ilike, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { accounts, auditEvents, leads, opportunities, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
-import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
+import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 
 const owner = alias(user, 'opportunity_owner');
@@ -81,6 +81,40 @@ export class OpportunitiesRepository {
     const total = totalRows[0]?.total ?? 0;
     const data = rows.map((row) => mapOpportunity(row as OpportunityRow, input.canManageAll || (input.canEditOwned && row.ownerUserId === input.userId)));
     return new OpportunityPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
+  }
+
+  async summary(input: OpportunityRepositoryListDto): Promise<OpportunityPipelineSummaryDto> {
+    const conditions = this.conditions({ ...input, query: { ...input.query, opportunityId: undefined, limit: 1, offset: 0 } });
+    const openConditions = [...conditions, notInArray(opportunities.stage, ['won', 'lost'])];
+    const riskConditions = [...openConditions, or(isNull(opportunities.nextActionAt), lt(opportunities.nextActionAt, new Date()), lt(opportunities.stageChangedAt, new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)))!];
+    const [openRows, riskRows, valueRows, stageRows] = await Promise.all([
+      database.select({ total: count() }).from(opportunities)
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...openConditions)),
+      database.select({ total: count() }).from(opportunities)
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...riskConditions)),
+      database.select({ currency: opportunities.currency, amount: sum(opportunities.amount) }).from(opportunities)
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...openConditions, isNotNull(opportunities.currency), isNotNull(opportunities.amount))).groupBy(opportunities.currency),
+      database.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, total: count() }).from(opportunities)
+        .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
+        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions)).groupBy(opportunities.stage, opportunities.pipelineStageKey),
+    ]);
+    return new OpportunityPipelineSummaryDto(
+      openRows[0]?.total ?? 0,
+      riskRows[0]?.total ?? 0,
+      valueRows.flatMap((row) => row.currency && row.amount ? [{ currency: row.currency, amount: row.amount }] : []),
+      stageRows.map((row) => ({ stage: row.stage, pipelineStageKey: row.pipelineStageKey, count: row.total })),
+    );
   }
 
   async listAssignees(organizationId: string): Promise<OpportunityAssigneeDto[]> {

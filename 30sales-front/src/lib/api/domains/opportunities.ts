@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityHistorySchema, opportunityPageSchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
+import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityHistorySchema, opportunityPageSchema, opportunityPipelineSummarySchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
 
 
 export const opportunitiesApi = {
@@ -47,6 +47,18 @@ export const opportunitiesApi = {
       if (params.opportunityId) search.set('opportunityId', params.opportunityId);
       if (params.search) search.set('search', params.search);
       return request(`/api/v1/opportunities/page?${search.toString()}`, opportunityPageSchema);
+    },
+    summary: (params: { pipelineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string }) => {
+      const search = new URLSearchParams({ view: params.view ?? 'mine' });
+      if (params.pipelineId) search.set('pipelineId', params.pipelineId);
+      if (params.stage) search.set('stage', params.stage);
+      if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);
+      if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
+      if (params.dueAfter) search.set('dueAfter', params.dueAfter);
+      if (params.dueBefore) search.set('dueBefore', params.dueBefore);
+      if (params.noNextAction) search.set('noNextAction', 'true');
+      if (params.search) search.set('search', params.search);
+      return request(`/api/v1/opportunities/summary?${search.toString()}`, opportunityPipelineSummarySchema);
     },
     transition: (id: string, input: { expectedPipelineId: string; pipelineId: string; expectedStage: OpportunityStage; expectedPipelineStageKey?: string; stage: OpportunityStage; pipelineStageKey?: string; reason?: string; nextAction?: string; nextActionAt?: string; amount?: string; currency?: string; closedAt?: string; lossReason?: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/stage`, opportunitySchema, { method: 'PATCH', body: JSON.stringify(input) }),
     history: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/history`, z.array(opportunityHistorySchema)),

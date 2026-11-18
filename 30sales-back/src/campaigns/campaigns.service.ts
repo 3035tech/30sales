@@ -63,7 +63,7 @@ export class CampaignsService {
   }
 
   async start(request: ApiRequestDto, campaignDraftId: string) {
-    const context = await this.tenantAccess.require(request, 'update', 'integrations');
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
     const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId));
     if (!snapshot) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     if (!snapshot.channelActive || !snapshot.channelConfigured) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The campaign channel is inactive or missing credentials.' });
@@ -76,6 +76,22 @@ export class CampaignsService {
     if (result === 'ineligible') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.audienceIneligible, message: 'One or more selected leads are no longer eligible. Refresh the audience preview.' });
     if (result === 'quota_exceeded') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The channel or campaign daily quota does not have capacity for the selected audience.' });
     if (result === 'not_ready') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The campaign is outside its sending window or falls on a no-send date.' });
+    return result;
+  }
+
+  async pause(request: ApiRequestDto, campaignDraftId: string) {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, 'active', 'paused'));
+    if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
+    if (result === 'invalid_state') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.invalidState });
+    return result;
+  }
+
+  async resume(request: ApiRequestDto, campaignDraftId: string) {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, 'paused', 'active'));
+    if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
+    if (result === 'invalid_state') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.invalidState });
     return result;
   }
 

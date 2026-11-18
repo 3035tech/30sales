@@ -8,6 +8,14 @@ import { assistantInboundEventSchema, type AssistantQueueEventDto } from './assi
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { AssistantAudioTranscriptionService } from './assistant-audio-transcription.service';
 import { ASSISTANT_RUN_OPERATIONS, ASSISTANT_TRANSCRIPTION_MODEL, estimateAssistantTranscriptionCostUsd } from './assistant-runtime.constants';
+import { isWithinBusinessHours } from '../channels/channel-assistant-schedule';
+
+const AFTER_HOURS_ASSISTANT_GUIDANCE = [
+  'The configured service schedule is currently closed.',
+  'Continue answering from the organization instructions when you can do so confidently.',
+  'If a person needs to follow up or the customer asks for a person, say the team will respond during the next service period.',
+  'Do not claim a teammate is available now or promise an exact response time unless the organization instructions explicitly provide one.',
+].join(' ');
 
 @Injectable()
 export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
@@ -105,6 +113,8 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
         return;
       }
+      const afterHours = !isWithinBusinessHours({ timeZone: context.timeZone, businessHours: context.businessHours });
+      const systemPrompt = afterHours ? `${context.systemPrompt}\n\n${AFTER_HOURS_ASSISTANT_GUIDANCE}` : context.systemPrompt;
       assistantRunId = await this.repository.startAssistantRun({
         organizationId: context.event.organizationId,
         conversationId: context.event.conversationId,
@@ -112,10 +122,10 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         queueEventId: queueEvent.id,
         attempt: queueEvent.attempts,
         modelKey: context.model,
-        promptHash: this.model.promptFingerprint(context.systemPrompt),
+        promptHash: this.model.promptFingerprint(systemPrompt),
       });
       modelStartedAt = Date.now();
-      const execution = await this.model.generateReply({ model: context.model, systemPrompt: context.systemPrompt, messages: context.messages });
+      const execution = await this.model.generateReply({ model: context.model, systemPrompt, messages: context.messages });
       await this.repository.completeAssistantRun({
         organizationId: context.event.organizationId,
         runId: assistantRunId,

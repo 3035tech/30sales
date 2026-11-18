@@ -43,6 +43,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [ownerFilter, setOwnerFilter] = useState('')
   const [unreadOnly, setUnreadOnly] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [contactContextOpen, setContactContextOpen] = useState(false)
   const [conversationIdFilter, setConversationIdFilter] = useState(initialConversationId)
   const [pageSize, setPageSize] = useState(25)
   const [offset, setOffset] = useState(0)
@@ -180,6 +181,12 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
   const hasConversationFilters = Boolean(conversationIdFilter || channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
+  const quickView = unreadOnly ? 'unread' : currentUserId && ownerFilter === currentUserId ? 'mine' : ownerFilter === 'unassigned' ? 'unassigned' : 'all'
+  const applyQuickView = (view: 'all' | 'mine' | 'unassigned' | 'unread') => {
+    setUnreadOnly(view === 'unread')
+    setOwnerFilter(view === 'mine' ? currentUserId : view === 'unassigned' ? 'unassigned' : '')
+    setOffset(0)
+  }
   const clearConversationFilters = () => { setConversationIdFilter(''); setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setChannelFilter(''); setTagFilter(''); setOffset(0) }
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
@@ -299,13 +306,13 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     } catch { setError(t('inbox.attachmentDownloadFailed')) }
   }
 
-  return <section className="inbox-page">
+  return <section className={`inbox-page${contactContextOpen ? '' : ' inbox-context-collapsed'}`}>
     <header className="inbox-heading"><div><p className="eyebrow">{t('inbox.eyebrow')}</p><h2>{t('inbox.title')}</h2><p className="muted">{t('inbox.description')}</p></div>
       <Button className="refresh" disabled={sendingMessage} onClick={() => void refresh()} aria-label={t('inbox.refresh')}><RefreshCw size={16} /></Button>
     </header>
     {error && <WorkspaceState kind="error" compact message={error} />}
     <div className="inbox-layout">
-      <aside className="inbox-contact-panel" aria-label={t('inbox.leadDetails')}>
+      <aside id="inbox-contact-context" className="inbox-contact-panel" aria-label={t('inbox.leadDetails')}>
         {!selected ? <WorkspaceState kind="empty" compact message={t('inbox.selectConversation')} /> : <>
           <div className="inbox-contact-identity"><span><UserRound size={21} /></span><div><h3>{selected.personName ?? t('inbox.unknownContact')}</h3><p>{selected.accountName ?? t('inbox.noCompany')}</p></div></div>
           <section className="inbox-contact-section"><h4>{t('inbox.contactDetails')}</h4><dl>
@@ -329,6 +336,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       <section className="inbox-thread" aria-label={t('inbox.thread')}>
         {!selected ? <WorkspaceState kind={loading ? 'loading' : 'empty'} message={loading ? t('common.loading') : t('inbox.selectConversation')} detail={t('inbox.readOnly')} /> : <>
           <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
+            <Button type="button" className="inbox-context-toggle" aria-controls="inbox-contact-context" aria-expanded={contactContextOpen} onClick={() => setContactContextOpen((open) => !open)}><UserRound size={15} />{t('inbox.leadDetails')}</Button>
             {(!selected.ownerUserId || selected.ownerUserId === currentUserId) && assignees.length > 0 && <><label className="inbox-assignee-select"><span>{t('inbox.assignTo')}</span><SelectField value={assigneeTarget} onChange={(event) => setAssigneeTarget(event.target.value)} disabled={controlling}><option value="" disabled>{t('inbox.selectAssignee')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label><Button type="button" disabled={controlling || !assigneeTarget} onClick={() => void controlConversation('assign')}>{t('inbox.assign')}</Button></>}
             {!selected.ownerUserId && <Button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</Button>}
             {selected.ownerUserId === currentUserId && selected.automationMode === 'human' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('pause')}>{t('inbox.pauseAssistant')}</Button>}
@@ -358,6 +366,9 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
 
       <aside className="inbox-conversations" aria-label={t('inbox.conversationList')}>
         <div className="inbox-conversation-list-heading"><div><h3>{t('inbox.recentConversations')}</h3><span>{t('inbox.conversationCount', { count: conversationTotal })}</span></div><MessageSquareText size={17} /></div>
+        <div className="inbox-quick-views" role="group" aria-label={t('inboxQuickViews.label')}>
+          {(['all', 'mine', 'unassigned', 'unread'] as const).map((view) => <Button key={view} type="button" className={quickView === view ? 'selected' : ''} aria-pressed={quickView === view} disabled={view === 'mine' && !currentUserId} onClick={() => applyQuickView(view)}>{t(`inboxQuickViews.${view}`)}</Button>)}
+        </div>
         <div className="inbox-conversation-filters"><label className="inbox-channel-filter">{t('inbox.searchConversations')}<TextField value={conversationSearch} onChange={(event) => { setConversationSearch(event.target.value); setOffset(0) }} maxLength={120} placeholder={t('inbox.searchPlaceholder')} /></label><Button className="inbox-filter-toggle" type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={15} />{t(filtersOpen ? 'inbox.hideFilters' : 'inbox.showFilters')}</Button>
           {filtersOpen && <div className="inbox-advanced-filters"><label className="inbox-channel-filter">{t('inbox.filterStatus')}<SelectField value={statusFilter} onChange={(event) => { setStatusFilter((['open','pending','resolved','snoozed'] as const).find((status) => status === event.target.value) ?? ''); setOffset(0) }}><option value="">{t('inbox.allStatuses')}</option>{(['open','pending','resolved','snoozed'] as const).map((status) => <option key={status} value={status}>{t(`inbox.status.${status}`)}</option>)}</SelectField></label>
             <label className="inbox-channel-filter">{t('inbox.filterOwner')}<SelectField value={ownerFilter} onChange={(event) => { setOwnerFilter(event.target.value); setOffset(0) }}><option value="">{t('inbox.allOwners')}</option><option value="unassigned">{t('inbox.unassigned')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label>

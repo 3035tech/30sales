@@ -58,6 +58,18 @@ const pageTranslationKeys: Record<Page, string> = {
   accounts: 'accounts', channels: 'channels', assistant: 'assistantSettings', tasks: 'tasks', handoffs: 'handoffs',
   pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team',
 }
+const notificationTitleKeys: Record<UserNotificationDto['notificationType'], string> = {
+  closer_event_sla_overdue: 'closerSlaSettings.notifications.overdue',
+  closer_event_sla_escalated: 'closerSlaSettings.notifications.escalated',
+  inbox_new_message: 'systemNotifications.newMessage',
+  message_delivery_failed: 'systemNotifications.messageDeliveryFailed',
+  task_overdue: 'systemNotifications.taskOverdue',
+  handoff_accepted: 'systemNotifications.handoffAccepted',
+  handoff_returned: 'systemNotifications.handoffReturned',
+  conversation_assigned: 'systemNotifications.conversationAssigned',
+  opportunity_assigned: 'systemNotifications.opportunityAssigned',
+  channel_disconnected: 'systemNotifications.channelDisconnected',
+}
 const breadcrumbGroupKeys: Partial<Record<Page, string>> = {
   home: 'common.navGroups.daily', tasks: 'common.navGroups.daily', inbox: 'common.navGroups.customers', leads: 'common.navGroups.customers', accounts: 'common.navGroups.customers',
   closerQueue: 'common.navGroups.sales', handoffs: 'common.navGroups.sales', pipeline: 'common.navGroups.sales', pipelineStages: 'common.navGroups.sales',
@@ -328,7 +340,7 @@ export default function App() {
       </div>
     </aside>
     <section className="main">
-      {notificationToast && <div className="notification-toast" role="status"><Bell size={17} /><Button type="button" onClick={() => { void openNotification(notificationToast); setNotificationToast(null) }}><strong>{t('systemNotifications.newActivity')}</strong><small>{notificationToast.contactName ?? notificationToast.accountName ?? notificationToast.summary}</small></Button><button type="button" aria-label={t('common.close')} onClick={() => setNotificationToast(null)}><X size={15} /></button></div>}
+      {notificationToast && <div className={`notification-toast${notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? ' is-error' : ''}`} role={notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? 'alert' : 'status'}><Bell size={17} /><Button type="button" onClick={() => { void openNotification(notificationToast); setNotificationToast(null) }}><strong>{t(notificationTitleKeys[notificationToast.notificationType])}</strong><small>{notificationToast.contactName ?? notificationToast.accountName ?? notificationToast.summary}</small></Button><button type="button" aria-label={t('common.close')} onClick={() => setNotificationToast(null)}><X size={15} /></button></div>}
       <header>
         <div className="ui-visually-hidden"><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">

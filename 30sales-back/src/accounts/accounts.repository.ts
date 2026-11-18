@@ -11,8 +11,9 @@ function visibleLeadCondition(input: AccountsRepositoryListDto): SQL | undefined
   if (input.canManageAll) return undefined;
   const assignedLead = eq(leads.assignedToUserId, input.userId);
   if (!input.includeOwnedOpportunities) return assignedLead;
-  return or(assignedLead, exists(database.select({ id: opportunities.id }).from(opportunities)
-    .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, input.userId)))));
+  const ownedOpportunity = exists(database.select({ id: opportunities.id }).from(opportunities)
+    .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, input.userId))));
+  return or(assignedLead, ownedOpportunity) ?? assignedLead;
 }
 
 function accountAccessCondition(input: AccountsRepositoryListDto): SQL | undefined {
@@ -23,7 +24,7 @@ function accountAccessCondition(input: AccountsRepositoryListDto): SQL | undefin
     ? exists(database.select({ id: opportunities.id }).from(opportunities)
       .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.accountId, accounts.id), eq(opportunities.ownerUserId, input.userId))))
     : undefined;
-  return or(assignedLead, ownedOpportunity);
+  return ownedOpportunity ? or(assignedLead, ownedOpportunity) ?? assignedLead : assignedLead;
 }
 
 @Injectable()
@@ -36,7 +37,7 @@ export class AccountsRepository {
         const visibleOpportunity = input.includeOwnedOpportunities
           ? exists(transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.accountId, accounts.id), eq(opportunities.ownerUserId, input.userId))) )
           : undefined;
-        scopeConditions.push(or(visibleLead, visibleOpportunity)!);
+        scopeConditions.push(visibleOpportunity ? or(visibleLead, visibleOpportunity) ?? visibleLead : visibleLead);
       }
       const [account] = await transaction.select({ marketSegment: accounts.marketSegment, studentCount: accounts.studentCount }).from(accounts).where(and(...scopeConditions)).for('update').limit(1);
       if (!account) return ACCOUNT_PROFILE_ERROR_CODE.notFound;
@@ -86,10 +87,12 @@ export class AccountsRepository {
     if (accountAccess) conditions.push(accountAccess);
     if (input.query.search) {
       const search = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
-      conditions.push(or(ilike(accounts.name, search), exists(database.select({ id: leadContacts.id }).from(leadContacts)
+      const matchingAccountName = ilike(accounts.name, search);
+      const matchingContact = exists(database.select({ id: leadContacts.id }).from(leadContacts)
         .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
         .innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
-        .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input), ilike(people.name, search)))))!);
+        .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input), ilike(people.name, search))));
+      conditions.push(or(matchingAccountName, matchingContact) ?? matchingAccountName);
     }
     if (input.query.leadStatus) {
       conditions.push(exists(database.select({ id: leads.id }).from(leads)

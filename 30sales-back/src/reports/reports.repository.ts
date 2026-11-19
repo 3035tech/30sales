@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, count, countDistinct, eq, gte, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
+import { and, count, countDistinct, eq, exists, gte, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { assistantRuns, handoffs, leadStatusHistory, leads, opportunities, pipelineStages } from '../db/schema';
+import { assistantRuns, businessLineMembers, businessLines, conversations, handoffs, leadStatusHistory, leads, messagingChannels, opportunities, pipelines, pipelineStages } from '../db/schema';
+import { member } from '../db/auth-schema';
 import { LEAD_STATUS } from '../leads/constants';
 import { AiUsagePointDto, AiUsageReportDto, FunnelReportDto, FunnelReportPipelineValueDto, FunnelReportRepositoryQueryDto, FunnelReportStageAgingDto, FunnelReportStageDto, LeadCohortPointDto, SalesTrendPointDto } from './reports.dto';
 
@@ -18,6 +19,44 @@ async function runQueriesInBatches<const Queries extends readonly PromiseLike<un
 
 @Injectable()
 export class ReportsRepository {
+  async isActiveBusinessLine(organizationId: string, businessLineId: string): Promise<boolean> {
+    const [line] = await database.select({ id: businessLines.id }).from(businessLines)
+      .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.id, businessLineId), eq(businessLines.status, 'active'))).limit(1);
+    return Boolean(line);
+  }
+
+  async listAccessibleBusinessLineIds(organizationId: string, userId: string): Promise<string[]> {
+    const rows = await database.select({ id: businessLines.id }).from(businessLineMembers)
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(member, and(eq(member.id, businessLineMembers.memberId), eq(member.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(member.userId, userId), eq(businessLines.status, 'active')));
+    return rows.map(({ id }) => id);
+  }
+
+  private opportunityLineScope(input: FunnelReportRepositoryQueryDto) {
+    if (input.businessLineIds === null) return undefined;
+    return exists(database.select({ id: pipelines.id }).from(pipelines)
+      .where(and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, input.organizationId), inArray(pipelines.businessLineId, [...input.businessLineIds]))));
+  }
+
+  private handoffLineScope(input: FunnelReportRepositoryQueryDto) {
+    if (input.businessLineIds === null) return undefined;
+    return exists(database.select({ id: opportunities.id }).from(opportunities)
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+      .where(and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, input.organizationId), inArray(pipelines.businessLineId, [...input.businessLineIds]))));
+  }
+
+  private assistantLineScope(input: FunnelReportRepositoryQueryDto) {
+    if (input.businessLineIds === null) return undefined;
+    return exists(database.select({ id: conversations.id }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, assistantRuns.conversationId), eq(conversations.organizationId, input.organizationId), inArray(messagingChannels.businessLineId, [...input.businessLineIds]))));
+  }
+
+  private leadLineScope(input: FunnelReportRepositoryQueryDto) {
+    return input.businessLineIds === null ? undefined : inArray(leads.businessLineId, [...input.businessLineIds]);
+  }
+
   async aiUsage(input: FunnelReportRepositoryQueryDto): Promise<AiUsageReportDto> {
     const from = new Date(`${input.query.from}T00:00:00.000Z`);
     const toExclusive = new Date(`${input.query.to}T00:00:00.000Z`);
@@ -34,7 +73,7 @@ export class ReportsRepository {
       inputTokens: sql<number>`coalesce(sum(${assistantRuns.usageInputTokens}), 0)::int`,
       outputTokens: sql<number>`coalesce(sum(${assistantRuns.usageOutputTokens}), 0)::int`,
     }).from(assistantRuns)
-      .where(and(eq(assistantRuns.organizationId, input.organizationId), gte(assistantRuns.startedAt, from), lt(assistantRuns.startedAt, toExclusive)))
+      .where(and(eq(assistantRuns.organizationId, input.organizationId), gte(assistantRuns.startedAt, from), lt(assistantRuns.startedAt, toExclusive), this.assistantLineScope(input)))
       .groupBy(day, assistantRuns.operation, assistantRuns.status)
       .orderBy(day, assistantRuns.operation, assistantRuns.status);
     return new AiUsageReportDto(input.query.from, input.query.to, rows.map((row) => new AiUsagePointDto(
@@ -47,7 +86,7 @@ export class ReportsRepository {
     const from = new Date(`${input.query.from}T00:00:00.000Z`);
     const toExclusive = new Date(`${input.query.to}T00:00:00.000Z`);
     toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
-    const tenant = eq(opportunities.organizationId, input.organizationId);
+    const tenant = and(eq(opportunities.organizationId, input.organizationId), this.opportunityLineScope(input));
     const open = and(tenant, notInArray(opportunities.stage, [...terminalStages]));
     const stageAgeInDays = sql<number>`greatest(0, floor(extract(epoch from (now() - ${opportunities.stageChangedAt})) / 86400))`;
     const firstActivityAt = sql<Date | null>`(
@@ -91,30 +130,30 @@ export class ReportsRepository {
       database.select({ currency: opportunities.currency, amount: sql<string>`coalesce(sum(${opportunities.amount}), 0)::text` }).from(opportunities).where(and(tenant, eq(opportunities.stage, 'won'), gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), sql`${opportunities.currency} is not null`)).groupBy(opportunities.currency),
       database.select({ acceptedCount: count(), firstActivityCount: sql<number>`count(${firstActivityAt})::int`, averageMinutes: sql<number | null>`avg(extract(epoch from (${firstActivityAt} - ${handoffs.acceptedAt})) / 60)::float8` })
         .from(handoffs)
-        .where(and(eq(handoffs.organizationId, input.organizationId), gte(handoffs.acceptedAt, from), lt(handoffs.acceptedAt, toExclusive))),
-      database.select({ status: leads.status, count: count() }).from(leads).where(eq(leads.organizationId, input.organizationId)).groupBy(leads.status),
-      database.select({ count: count() }).from(leads).where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive))),
+        .where(and(eq(handoffs.organizationId, input.organizationId), gte(handoffs.acceptedAt, from), lt(handoffs.acceptedAt, toExclusive), this.handoffLineScope(input))),
+      database.select({ status: leads.status, count: count() }).from(leads).where(and(eq(leads.organizationId, input.organizationId), this.leadLineScope(input))).groupBy(leads.status),
+      database.select({ count: count() }).from(leads).where(and(eq(leads.organizationId, input.organizationId), this.leadLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive))),
       database.select({ date: sql<string>`to_char(date_trunc('day', ${leads.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`, count: count() }).from(leads)
-        .where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive))).groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
+        .where(and(eq(leads.organizationId, input.organizationId), this.leadLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive))).groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
       database.select({ date: sql<string>`to_char(date_trunc('day', ${opportunities.createdAt} at time zone 'UTC'), 'YYYY-MM-DD')`, count: count() }).from(opportunities)
         .where(and(tenant, gte(opportunities.createdAt, from), lt(opportunities.createdAt, toExclusive))).groupBy(sql`date_trunc('day', ${opportunities.createdAt} at time zone 'UTC')`),
       database.select({ date: sql<string>`to_char(date_trunc('day', ${opportunities.closedAt} at time zone 'UTC'), 'YYYY-MM-DD')`, stage: opportunities.stage, count: count() }).from(opportunities)
         .where(and(tenant, gte(opportunities.closedAt, from), lt(opportunities.closedAt, toExclusive), inArray(opportunities.stage, [...terminalStages])))
         .groupBy(sql`date_trunc('day', ${opportunities.closedAt} at time zone 'UTC')`, opportunities.stage),
       database.select({ date: cohortDate, count: count() }).from(leads)
-        .where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive)))
+        .where(and(eq(leads.organizationId, input.organizationId), this.leadLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive)))
         .groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
       database.select({ date: cohortDate, count: countDistinct(leadStatusHistory.leadId) }).from(leadStatusHistory)
         .innerJoin(leads, and(eq(leads.id, leadStatusHistory.leadId), eq(leads.organizationId, leadStatusHistory.organizationId)))
-        .where(and(eq(leadStatusHistory.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(leadStatusHistory.changedAt, leads.createdAt), lt(leadStatusHistory.changedAt, toExclusive), inArray(leadStatusHistory.toStatus, [LEAD_STATUS.responded, LEAD_STATUS.convertedToSdr])))
+        .where(and(eq(leadStatusHistory.organizationId, input.organizationId), this.leadLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(leadStatusHistory.changedAt, leads.createdAt), lt(leadStatusHistory.changedAt, toExclusive), inArray(leadStatusHistory.toStatus, [LEAD_STATUS.responded, LEAD_STATUS.convertedToSdr])))
         .groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
       database.select({ date: cohortDate, count: countDistinct(leadStatusHistory.leadId) }).from(leadStatusHistory)
         .innerJoin(leads, and(eq(leads.id, leadStatusHistory.leadId), eq(leads.organizationId, leadStatusHistory.organizationId)))
-        .where(and(eq(leadStatusHistory.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(leadStatusHistory.changedAt, leads.createdAt), lt(leadStatusHistory.changedAt, toExclusive), eq(leadStatusHistory.toStatus, LEAD_STATUS.convertedToSdr)))
+        .where(and(eq(leadStatusHistory.organizationId, input.organizationId), this.leadLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(leadStatusHistory.changedAt, leads.createdAt), lt(leadStatusHistory.changedAt, toExclusive), eq(leadStatusHistory.toStatus, LEAD_STATUS.convertedToSdr)))
         .groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
       database.select({ date: cohortDate, count: countDistinct(leads.id) }).from(leads)
         .innerJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId)))
-        .where(and(eq(leads.organizationId, input.organizationId), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(opportunities.createdAt, leads.createdAt), lt(opportunities.createdAt, toExclusive)))
+        .where(and(eq(leads.organizationId, input.organizationId), this.leadLineScope(input), this.opportunityLineScope(input), gte(leads.createdAt, from), lt(leads.createdAt, toExclusive), gte(opportunities.createdAt, leads.createdAt), lt(opportunities.createdAt, toExclusive)))
         .groupBy(sql`date_trunc('day', ${leads.createdAt} at time zone 'UTC')`),
     ] as const, 6);
     const closedCount = (stage: 'won' | 'lost') => Number(closedRows.find((row) => row.stage === stage)?.count ?? 0);

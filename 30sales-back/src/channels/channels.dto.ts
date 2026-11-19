@@ -16,9 +16,11 @@ export const createChannelSchema = z.object({
   displayName: z.string().trim().min(2).max(120),
   phoneNumber: z.string().trim().regex(/^\+[1-9]\d{7,14}$/),
   providerChannelId: z.string().trim().min(1).max(200),
+  businessLineId: z.string().uuid(),
   providerAccountId: z.string().trim().max(200).optional(),
 }).strict().superRefine((input, context) => {
   if (input.provider === 'whatsapp_cloud_api' && !input.providerAccountId) context.addIssue({ code: 'custom', path: ['providerAccountId'], message: 'A WhatsApp Business Account ID is required.' });
+  if (input.provider === 'evolution' && !/^[A-Za-z0-9][A-Za-z0-9-]{0,199}$/.test(input.providerChannelId)) context.addIssue({ code: 'custom', path: ['providerChannelId'], message: 'Evolution instance names must start with a letter or number and contain only letters, numbers, or hyphens.' });
 });
 export type CreateChannelDto = z.infer<typeof createChannelSchema>;
 export const updateChannelSchema = z.object({ displayName: z.string().trim().min(2).max(120).optional(), isActive: z.boolean().optional(), dailyMessageLimit: z.number().int().min(CHANNEL_DAILY_MESSAGE_LIMIT_MIN).max(CHANNEL_DAILY_MESSAGE_LIMIT_MAX).optional(), dailyLimitTimeZone: z.string().trim().min(1).max(80).optional(), operationMode: channelOperationModeSchema.optional(), assistantScheduleMode: channelAssistantScheduleModeSchema.optional(), businessHours: z.array(channelBusinessHourSchema).max(7).optional() }).strict().superRefine((input, context) => {
@@ -39,6 +41,10 @@ export const channelCredentialsSchema = z.discriminatedUnion('provider', [evolut
   if (!['https:', 'http:'].includes(url.protocol) || (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') || url.username || url.password || url.search || url.hash || ['localhost', '127.0.0.1', '::1'].includes(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) context.addIssue({ code: 'custom', path: ['baseUrl'], message: 'The Evolution API URL must be a secure HTTP(S) origin without credentials, query, or fragment.' });
 });
 export type ChannelCredentialsDto = z.infer<typeof channelCredentialsSchema>;
+const configuredEvolutionCredentialsSchema = z.object({ provider: z.literal(CHANNEL_PROVIDER.evolution), webhookSecret: z.string().min(32).max(500) }).strict();
+export const configureChannelCredentialsSchema = z.union([configuredEvolutionCredentialsSchema, channelCredentialsSchema]);
+export type ConfigureChannelCredentialsDto = z.infer<typeof configureChannelCredentialsSchema>;
+export const platformEvolutionSecretsSchema = z.object({ apiKey: z.string().min(1).max(500) }).strict();
 export const CHANNEL_HEALTH_STATUS = { notConfigured: 'not_configured', connected: 'connected', connecting: 'connecting', disconnected: 'disconnected', reachable: 'reachable', credentialsInvalid: 'credentials_invalid', configurationError: 'configuration_error', unavailable: 'unavailable', unknown: 'unknown' } as const;
 export const CHANNEL_HEALTH_STATUSES = [CHANNEL_HEALTH_STATUS.notConfigured, CHANNEL_HEALTH_STATUS.connected, CHANNEL_HEALTH_STATUS.connecting, CHANNEL_HEALTH_STATUS.disconnected, CHANNEL_HEALTH_STATUS.reachable, CHANNEL_HEALTH_STATUS.credentialsInvalid, CHANNEL_HEALTH_STATUS.configurationError, CHANNEL_HEALTH_STATUS.unavailable, CHANNEL_HEALTH_STATUS.unknown] as const;
 export const channelHealthStatusSchema = z.enum(CHANNEL_HEALTH_STATUSES);
@@ -70,14 +76,14 @@ export class ChannelConnectionStatusUpdateDto {
   constructor(readonly organizationId: string, readonly channelId: string, readonly status: ChannelConnectionStatus, readonly updatedAt: Date) {}
 }
 export class ChannelRecordDto {
-  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null, readonly operationMode: ChannelOperationMode = 'hybrid', readonly assistantScheduleMode: ChannelAssistantScheduleMode = 'always', readonly businessHours: ChannelBusinessHourDto[] = []) {}
+  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null, readonly operationMode: ChannelOperationMode = 'hybrid', readonly assistantScheduleMode: ChannelAssistantScheduleMode = 'always', readonly businessHours: ChannelBusinessHourDto[] = [], readonly businessLineId: string | null = null, readonly businessLineName: string | null = null) {}
 }
-export class ChannelRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateChannelDto, readonly correlationId: string | null = null) {} }
-export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }
-export class ChannelRepositoryCredentialsDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly provider: ChannelCredentialsDto['provider'], readonly encrypted: { ciphertext: string; iv: string; authTag: string }, readonly correlationId: string | null = null) {} }
+export class ChannelRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: CreateChannelDto, readonly correlationId: string | null = null) {} }
+export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }
+export class ChannelRepositoryCredentialsDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly provider: ChannelCredentialsDto['provider'], readonly encrypted: { ciphertext: string; iv: string; authTag: string }, readonly correlationId: string | null = null) {} }
 export class ChannelHealthCheckTargetDto {
   constructor(readonly id: string, readonly provider: ChannelRecordDto['provider'], readonly providerChannelId: string, readonly isActive: boolean, readonly credentials: { ciphertext: string; iv: string; authTag: string } | null) {}
 }
 export class ChannelHealthCheckAuditDto {
-  constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly status: ChannelHealthStatus, readonly checkedAt: Date, readonly correlationId: string | null) {}
+  constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly status: ChannelHealthStatus, readonly checkedAt: Date, readonly correlationId: string | null) {}
 }

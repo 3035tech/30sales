@@ -29,17 +29,17 @@ export class LeadsService {
   }
   async sdrPreviewChannels(request: ApiRequestDto): Promise<SdrPreviewChannelDto[]> {
     const context = await this.tenantAccess.require(request, 'read');
-    return this.repository.listSdrPreviewChannels(context.organizationId);
+    return this.repository.listSdrPreviewChannels(this.access(context.organizationId, context.userId, context.role));
   }
   async listTasks(request: ApiRequestDto, query: ListTasksQueryDto): Promise<TaskRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read');
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    return this.repository.listTasks(new TaskRepositoryListDto(context.organizationId, context.userId, canManageAll, query));
+    const access = this.access(context.organizationId, context.userId, context.role);
+    return this.repository.listTasks(new TaskRepositoryListDto(context.organizationId, context.userId, access, query));
   }
   async listTasksPage(request: ApiRequestDto, query: ListTasksQueryDto): Promise<TaskPageDto> {
     const context = await this.tenantAccess.require(request, 'read');
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    return this.repository.listTasksPage(new TaskRepositoryListDto(context.organizationId, context.userId, canManageAll, query));
+    const access = this.access(context.organizationId, context.userId, context.role);
+    return this.repository.listTasksPage(new TaskRepositoryListDto(context.organizationId, context.userId, access, query));
   }
   async createTask(request: ApiRequestDto, leadId: string, dto: CreateTaskDto): Promise<TaskRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');
@@ -51,8 +51,8 @@ export class LeadsService {
     const context = await this.tenantAccess.require(request, 'update');
     const completedAt = new Date();
     if (dto.followUp && new Date(dto.followUp.dueAt) <= completedAt) throw new BadRequestException({ code: 'FOLLOW_UP_DUE_AT_INVALID', message: 'The next task must be due in the future.' });
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, canManageAll, completedAt, dto, request.correlationId));
+    const access = this.access(context.organizationId, context.userId, context.role);
+    const task = await this.repository.completeTask(new TaskRepositoryCompleteDto(context.organizationId, taskId, context.userId, access, completedAt, dto, request.correlationId));
     if (!task) throw new NotFoundException({ code: 'TASK_NOT_FOUND', message: 'Open task was not found in the active organization.' });
     return task;
   }
@@ -70,7 +70,8 @@ export class LeadsService {
   }
   async create(request: ApiRequestDto, dto: CreateLeadDto): Promise<LeadRecordDto> {
     const context = await this.tenantAccess.require(request, 'create');
-    const result = await this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName?.trim() || null, dto.email || null, dto.phone?.trim() || null, dto.source, dto.duplicateOverrideReason ?? null, this.access(context.organizationId, context.userId, context.role), request.correlationId));
+    const result = await this.repository.create(new LeadRepositoryCreateDto(context.organizationId, context.userId, dto.accountName, dto.contactName?.trim() || null, dto.email || null, dto.phone?.trim() || null, dto.source, dto.duplicateOverrideReason ?? null, this.access(context.organizationId, context.userId, context.role), request.correlationId, dto.businessLineId));
+    if (result === 'business_line_unavailable') throw new NotFoundException({ code: 'BUSINESS_LINE_UNAVAILABLE', message: 'The selected business line is unavailable.' });
     if (result instanceof LeadDuplicateCheckResponseDto) throw new ConflictException({ code: 'LEAD_POSSIBLE_DUPLICATES', message: 'Review the possible matching leads before creating this record.', candidates: result.candidates });
     return result;
   }

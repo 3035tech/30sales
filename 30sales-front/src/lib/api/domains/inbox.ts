@@ -6,9 +6,10 @@ import { type ConversationDto, channelSchema, conversationPageSchema, conversati
 
 export const inboxApi = {
     subscribe: () => apiEventSource('/api/v1/conversations/events'),
-    conversations: (params: { conversationId?: string; status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
+    conversations: (params: { conversationId?: string; businessLineId?: string; status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.conversationId) search.set('conversationId', params.conversationId);
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.status) search.set('status', params.status);
       if (params.channelId) search.set('channelId', params.channelId);
       if (params.tagId) search.set('tagId', params.tagId);

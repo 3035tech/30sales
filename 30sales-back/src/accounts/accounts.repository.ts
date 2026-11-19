@@ -1,30 +1,43 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, exists, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accountSegments, accounts, auditEvents, leadContacts, leads, opportunities, people } from '../db/schema';
+import { accountSegments, accounts, auditEvents, businessLineMembers, businessLines, leadContacts, leads, opportunities, people } from '../db/schema';
+import { member as authMember } from '../db/auth-schema';
 import { ACCOUNT_PROFILE_AUDIT, ACCOUNT_PROFILE_ERROR_CODE } from './accounts.constants';
 import { ACCOUNT_SEGMENT_AUDIT, ACCOUNT_SEGMENT_RESULT, DATABASE_UNIQUE_VIOLATION_CODE, AccountPageDto, AccountProfileRepositoryUpdateDto, AccountRecordDto, AccountSegmentDto, AccountSegmentRepositoryAssignDto, AccountSegmentRepositoryCreateDto, AccountsRepositoryListDto } from './accounts.dto';
 import type { SQL } from 'drizzle-orm';
 import { UNASSIGNED_SEGMENT_FILTER } from '../leads/constants';
 
-function visibleLeadCondition(input: AccountsRepositoryListDto): SQL | undefined {
-  if (input.canManageAll) return undefined;
-  const assignedLead = eq(leads.assignedToUserId, input.userId);
-  if (!input.includeOwnedOpportunities) return assignedLead;
-  const ownedOpportunity = exists(database.select({ id: opportunities.id }).from(opportunities)
-    .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, input.userId))));
-  return or(assignedLead, ownedOpportunity) ?? assignedLead;
+type AccountVisibilityScope = Pick<AccountsRepositoryListDto, 'organizationId' | 'userId' | 'canManageAll' | 'includeOwnedOpportunities'> & { query?: Pick<AccountsRepositoryListDto['query'], 'businessLineId'> };
+
+function leadLineMembershipCondition(input: AccountVisibilityScope): SQL {
+  return exists(database.select({ id: businessLineMembers.memberId }).from(businessLineMembers)
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, leads.businessLineId), eq(authMember.userId, input.userId), eq(businessLines.status, 'active'))));
 }
 
-function accountAccessCondition(input: AccountsRepositoryListDto): SQL | undefined {
+function visibleLeadCondition(input: AccountVisibilityScope): SQL | undefined {
+  if (input.canManageAll) return input.query?.businessLineId ? eq(leads.businessLineId, input.query.businessLineId) : undefined;
+  const lineMembership = leadLineMembershipCondition(input);
+  const selectedLine = input.query?.businessLineId ? eq(leads.businessLineId, input.query.businessLineId) : undefined;
+  const assignedLead = eq(leads.assignedToUserId, input.userId);
+  if (!input.includeOwnedOpportunities) return and(lineMembership, selectedLine, assignedLead);
+  const ownedOpportunity = exists(database.select({ id: opportunities.id }).from(opportunities)
+    .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, input.userId))));
+  return and(lineMembership, selectedLine, or(assignedLead, ownedOpportunity));
+}
+
+function accountAccessCondition(input: AccountVisibilityScope): SQL | undefined {
   if (input.canManageAll) return undefined;
-  const assignedLead = exists(database.select({ id: leads.id }).from(leads)
-    .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), eq(leads.assignedToUserId, input.userId))));
-  const ownedOpportunity = input.includeOwnedOpportunities
-    ? exists(database.select({ id: opportunities.id }).from(opportunities)
-      .where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.accountId, accounts.id), eq(opportunities.ownerUserId, input.userId))))
-    : undefined;
-  return ownedOpportunity ? or(assignedLead, ownedOpportunity) ?? assignedLead : assignedLead;
+  return exists(database.select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input))));
+}
+
+function visibleOwnedOpportunityCondition(input: AccountsRepositoryListDto): SQL {
+  const visibleLead = exists(database.select({ id: leads.id }).from(leads)
+    .where(and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, input.organizationId), leadLineMembershipCondition(input))));
+  return sql`${opportunities.ownerUserId} = ${input.userId} and ${visibleLead}`;
 }
 
 @Injectable()
@@ -33,11 +46,9 @@ export class AccountsRepository {
     return database.transaction(async (transaction) => {
       const scopeConditions: SQL[] = [eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId)];
       if (!input.canManageAll) {
-        const visibleLead = exists(transaction.select({ id: leads.id }).from(leads).where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), eq(leads.assignedToUserId, input.userId))));
-        const visibleOpportunity = input.includeOwnedOpportunities
-          ? exists(transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.accountId, accounts.id), eq(opportunities.ownerUserId, input.userId))) )
-          : undefined;
-        scopeConditions.push(visibleOpportunity ? or(visibleLead, visibleOpportunity) ?? visibleLead : visibleLead);
+        const visibleLead = exists(transaction.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input))));
+        scopeConditions.push(visibleLead);
       }
       const [account] = await transaction.select({ marketSegment: accounts.marketSegment, studentCount: accounts.studentCount }).from(accounts).where(and(...scopeConditions)).for('update').limit(1);
       if (!account) return ACCOUNT_PROFILE_ERROR_CODE.notFound;
@@ -116,12 +127,12 @@ export class AccountsRepository {
     const opportunityCount = input.canManageAll
       ? sql<number>`(select count(*)::int from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id})`
       : input.includeOwnedOpportunities
-        ? sql<number>`(select count(*)::int from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id} and ${opportunities.ownerUserId} = ${input.userId})`
+        ? sql<number>`(select count(*)::int from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id} and ${visibleOwnedOpportunityCondition(input)})`
         : sql<number>`0`;
     const latestOpportunityAt = input.canManageAll
       ? sql<Date | null>`(select max(${opportunities.updatedAt}) from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id})`
       : input.includeOwnedOpportunities
-        ? sql<Date | null>`(select max(${opportunities.updatedAt}) from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id} and ${opportunities.ownerUserId} = ${input.userId})`
+        ? sql<Date | null>`(select max(${opportunities.updatedAt}) from ${opportunities} where ${opportunities.organizationId} = ${input.organizationId} and ${opportunities.accountId} = ${accounts.id} and ${visibleOwnedOpportunityCondition(input)})`
         : sql<Date | null>`null`;
     const latestActivityAt = sql<Date | null>`greatest(max(${leads.updatedAt}), ${latestOpportunityAt})`;
     const sortExpressions = {

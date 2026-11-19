@@ -7,6 +7,7 @@ import {
   boolean,
   uuid,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export const authSchema = pgSchema("auth");
@@ -121,6 +122,7 @@ export const member = authSchema.table(
     createdAt: timestamp("created_at").notNull(),
   },
   (table) => [
+    unique("member_organization_id_id_unique").on(table.organizationId, table.id),
     index("member_organizationId_idx").on(table.organizationId),
     index("member_userId_idx").on(table.userId),
   ],

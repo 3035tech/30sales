@@ -6,7 +6,7 @@ import { type ActivityType, type OpportunityStage, activitySchema, opportunityAs
 export const opportunitiesApi = {
     pipelines: {
       list: () => request('/api/v1/opportunities/pipelines', pipelinesSchema),
-      create: (name: string) => request('/api/v1/opportunities/pipelines', pipelinesSchema, { method: 'POST', body: JSON.stringify({ name }) }),
+      create: (name: string, businessLineId?: string) => request('/api/v1/opportunities/pipelines', pipelinesSchema, { method: 'POST', body: JSON.stringify({ name, businessLineId }) }),
       rename: (id: string, name: string) => request(`/api/v1/opportunities/pipelines/${encodeURIComponent(id)}`, pipelinesSchema, { method: 'PATCH', body: JSON.stringify({ name }) }),
       setDefault: (id: string) => request(`/api/v1/opportunities/pipelines/${encodeURIComponent(id)}/default`, pipelinesSchema, { method: 'PATCH' }),
       archive: (id: string) => request(`/api/v1/opportunities/pipelines/${encodeURIComponent(id)}`, pipelinesSchema, { method: 'DELETE' }),
@@ -20,8 +20,9 @@ export const opportunitiesApi = {
     },
     assignees: () => request('/api/v1/opportunities/assignees', z.array(opportunityAssigneeSchema)),
     assignOwner: (id: string, ownerUserId: string | null) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/owner`, opportunitySchema, { method: 'PATCH', body: JSON.stringify({ ownerUserId }) }),
-    list: (params: { view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string; opportunityId?: string; limit?: number; offset?: number } = {}) => {
+    list: (params: { businessLineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string; opportunityId?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.view) search.set('view', params.view);
       if (params.stage) search.set('stage', params.stage);
       if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);
@@ -35,8 +36,9 @@ export const opportunitiesApi = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/opportunities?${search.toString()}`, z.array(opportunitySchema));
     },
-    listPage: (params: { pipelineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; opportunityId?: string; search?: string; sortBy: 'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt' | 'opportunityName' | 'stage' | 'ownerName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
+    listPage: (params: { businessLineId?: string; pipelineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; opportunityId?: string; search?: string; sortBy: 'nextActionAt' | 'accountName' | 'contactName' | 'stageChangedAt' | 'opportunityName' | 'stage' | 'ownerName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
       const search = new URLSearchParams({ view: params.view ?? 'mine', sortBy: params.sortBy, sortDirection: params.sortDirection, limit: String(params.limit), offset: String(params.offset) });
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.stage) search.set('stage', params.stage);
       if (params.pipelineId) search.set('pipelineId', params.pipelineId);
       if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);
@@ -48,8 +50,9 @@ export const opportunitiesApi = {
       if (params.search) search.set('search', params.search);
       return request(`/api/v1/opportunities/page?${search.toString()}`, opportunityPageSchema);
     },
-    summary: (params: { pipelineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string }) => {
+    summary: (params: { businessLineId?: string; pipelineId?: string; view?: 'mine' | 'all' | 'unassigned' | 'no_next_action' | 'overdue' | 'stale'; stage?: OpportunityStage; pipelineStageKey?: string; assignedToUserId?: string; dueAfter?: string; dueBefore?: string; noNextAction?: boolean; search?: string }) => {
       const search = new URLSearchParams({ view: params.view ?? 'mine' });
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.pipelineId) search.set('pipelineId', params.pipelineId);
       if (params.stage) search.set('stage', params.stage);
       if (params.pipelineStageKey) search.set('pipelineStageKey', params.pipelineStageKey);

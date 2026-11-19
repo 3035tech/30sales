@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
+import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
 import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactReconcileResultDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, conversationAutomationModeSchema, conversationStatusUpdateSchema, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
-import { ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.constants';
+import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
@@ -19,30 +19,79 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
-  async findConversationOwner(organizationId: string, conversationId: string): Promise<string | null | undefined> {
-    const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
-      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.id, conversationId))).limit(1);
-    return conversation?.ownerUserId;
+  async canAccessConversationLine(organizationId: string, conversationId: string, userId: string): Promise<boolean> {
+    const [membership] = await database.select({ role: authMember.role }).from(authMember)
+      .where(and(eq(authMember.organizationId, organizationId), eq(authMember.userId, userId))).limit(1);
+    if (!membership) return false;
+    if (hasOrganizationRole(membership.role, ORGANIZATION_MANAGEMENT_ROLES)) {
+      const [conversation] = await database.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+      return Boolean(conversation);
+    }
+    const [lineAccess] = await database.select({ id: conversations.id }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+      .innerJoin(businessLineMembers, and(eq(businessLineMembers.businessLineId, businessLines.id), eq(businessLineMembers.organizationId, businessLines.organizationId)))
+      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))).limit(1);
+    return Boolean(lineAccess);
   }
 
-  async reconcileContact(input: ConversationContactReconcileDto): Promise<ConversationContactReconcileResultDto | 'not_found' | 'missing_contact' | 'invalid_phone' | 'not_owner'> {
+  private async canAssignToLine(organizationId: string, conversationId: string, assigneeUserId: string): Promise<boolean> {
+    const [line] = await database.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    if (!line?.businessLineId) return false;
+    const [membership] = await database.select({ businessLineId: businessLineMembers.businessLineId }).from(businessLineMembers)
+      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, line.businessLineId), eq(authMember.userId, assigneeUserId), eq(businessLines.status, 'active'))).limit(1);
+    return Boolean(membership);
+  }
+
+  async reconcileContact(input: ConversationContactReconcileDto): Promise<ConversationContactReconcileResultDto | 'not_found' | 'missing_contact' | 'invalid_phone' | 'not_owner' | 'contact_shared_across_lines'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     const phone = input.phone?.trim();
     const digits = phone?.replace(/\D/g, '') ?? '';
     if (phone && (!/^\+[1-9][0-9\s().-]*$/.test(phone) || digits.length < 8 || digits.length > 15)) return INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone;
     return database.transaction(async (transaction) => {
-      const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, ownerUserId: conversations.ownerUserId }).from(conversations)
+      const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status }).from(conversations)
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
       if (conversation.ownerUserId !== input.actorUserId) return INBOX_CONTACT_RECONCILIATION_RESULT.notOwner;
+      const [actor] = await transaction.select({ id: authMember.id, role: authMember.role }).from(authMember)
+        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).limit(1);
+      if (!actor || !conversation.businessLineId || conversation.lineStatus !== 'active') return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
+      if (!hasOrganizationRole(actor.role, ORGANIZATION_MANAGEMENT_ROLES)) {
+        const [lineMembership] = await transaction.select({ id: businessLineMembers.memberId }).from(businessLineMembers)
+          .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, conversation.businessLineId), eq(businessLineMembers.memberId, actor.id), eq(businessLines.status, 'active'))).limit(1);
+        if (!lineMembership) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
+      }
       if (!conversation.personId) return INBOX_CONTACT_RECONCILIATION_RESULT.missingContact;
-      const [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId }).from(leads)
+      const [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, businessLineId: leads.businessLineId }).from(leads)
         .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId))).for('update').limit(1);
-      if (!lead) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
+      if (!lead || lead.businessLineId !== conversation.businessLineId) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
       const [person] = await transaction.select({ id: people.id, name: people.name, phone: people.phone }).from(people)
         .where(and(eq(people.id, conversation.personId), eq(people.organizationId, input.organizationId))).limit(1);
       if (!person) return INBOX_CONTACT_RECONCILIATION_RESULT.missingContact;
       const updatedName = input.name ?? person.name;
       const updatedPhone = phone ? digits : person.phone;
+      if (updatedName !== person.name || updatedPhone !== person.phone) {
+        const otherLineLead = exists(transaction.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.personId, person.id), sql`${leads.businessLineId} <> ${conversation.businessLineId}`)));
+        const otherLineContact = exists(transaction.select({ id: leadContacts.id }).from(leadContacts)
+          .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.personId, person.id), sql`${leads.businessLineId} <> ${conversation.businessLineId}`)));
+        const otherLineConversation = exists(transaction.select({ id: conversations.id }).from(conversations)
+          .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, person.id), sql`${messagingChannels.businessLineId} <> ${conversation.businessLineId}`)));
+        const [sharing] = await transaction.select({ isShared: sql<boolean>`${otherLineLead} or ${otherLineContact} or ${otherLineConversation}` })
+          .from(people).where(and(eq(people.id, person.id), eq(people.organizationId, input.organizationId))).limit(1);
+        if (sharing?.isShared) return INBOX_CONTACT_RECONCILIATION_RESULT.contactSharedAcrossLines;
+      }
       await transaction.update(people).set({ name: updatedName, phone: updatedPhone, updatedAt: new Date() })
         .where(and(eq(people.id, person.id), eq(people.organizationId, input.organizationId)));
       await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: person.id, createdByUserId: input.actorUserId })
@@ -60,9 +109,17 @@ export class InboxRepository {
       return new ConversationContactReconcileResultDto(conversation.id, lead.id, account?.name ?? '', updatedName, updatedPhone);
     });
   }
-  async isAssistantEnabled(organizationId: string): Promise<boolean> {
+  async isAssistantEnabled(organizationId: string, conversationId: string): Promise<boolean> {
+    const [channel] = await database.select({ businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.id, conversationId))).limit(1);
+    if (!channel || (channel.businessLineId && channel.lineStatus !== 'active')) return false;
+    const [lineSettings] = channel.businessLineId ? await database.select({ enabled: agentSettings.enabled }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.businessLineId, channel.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+    if (lineSettings) return lineSettings.enabled;
     const [settings] = await database.select({ enabled: agentSettings.enabled }).from(agentSettings)
-      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+      .where(and(eq(agentSettings.organizationId, organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
     return settings?.enabled ?? false;
   }
 
@@ -74,8 +131,10 @@ export class InboxRepository {
 
   async list(input: ConversationRepositoryListDto): Promise<ConversationPageDto> {
     const conditions = [eq(conversations.organizationId, input.organizationId)];
+    const accessibleBusinessLineIds = input.canManageAll ? null : await this.accessibleBusinessLineIds(input.organizationId, input.userId);
     const unreadExists = sql<boolean>`exists (select 1 from messages unread_message where unread_message.organization_id = ${input.organizationId} and unread_message.conversation_id = ${conversations.id} and unread_message.direction = 'inbound' and unread_message.created_at > coalesce((select conversation_read.last_read_at from conversation_reads conversation_read where conversation_read.organization_id = ${input.organizationId} and conversation_read.conversation_id = ${conversations.id} and conversation_read.user_id = ${input.userId}), 'epoch'::timestamptz))`;
-    if (!input.canManageAll) conditions.push(eq(conversations.ownerUserId, input.userId));
+    if (input.query.businessLineId) conditions.push(eq(messagingChannels.businessLineId, input.query.businessLineId));
+    if (accessibleBusinessLineIds) conditions.push(inArray(messagingChannels.businessLineId, accessibleBusinessLineIds));
     if (input.query.status) conditions.push(eq(conversations.status, input.query.status));
     if (input.query.conversationId) conditions.push(eq(conversations.id, input.query.conversationId));
     if (input.query.channelId) conditions.push(eq(conversations.channelId, input.query.channelId));
@@ -90,12 +149,14 @@ export class InboxRepository {
     const [{ total }] = await database.select({ total: count() }).from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .leftJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .where(and(...conditions));
-    const rows = await database.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personEmail: people.email, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.assistantQualificationIntent, qualificationSummary: conversations.assistantQualificationSummary, confirmedFacts: conversations.assistantConfirmedFacts, unknowns: conversations.assistantUnknowns, nextStep: conversations.assistantNextStep, qualificationUpdatedAt: conversations.assistantQualificationUpdatedAt, unread: unreadExists })
+    const rows = await database.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personEmail: people.email, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, businessLineId: messagingChannels.businessLineId, businessLineName: businessLines.name, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.assistantQualificationIntent, qualificationSummary: conversations.assistantQualificationSummary, confirmedFacts: conversations.assistantConfirmedFacts, unknowns: conversations.assistantUnknowns, nextStep: conversations.assistantNextStep, qualificationUpdatedAt: conversations.assistantQualificationUpdatedAt, unread: unreadExists })
       .from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .leftJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
       .leftJoin(authMember, and(eq(authMember.organizationId, conversations.organizationId), eq(authMember.userId, conversations.ownerUserId)))
       .leftJoin(authUser, eq(authUser.id, authMember.userId))
       .where(and(...conditions))
@@ -117,8 +178,16 @@ export class InboxRepository {
       if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name));
       else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name)]);
     }
-    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null); });
+    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName); });
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
+  }
+
+  private async accessibleBusinessLineIds(organizationId: string, userId: string): Promise<string[]> {
+    const rows = await database.select({ businessLineId: businessLineMembers.businessLineId }).from(businessLineMembers)
+      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active')));
+    return rows.map((row) => row.businessLineId);
   }
 
   async listTags(organizationId: string): Promise<ConversationTagDto[]> {
@@ -128,6 +197,7 @@ export class InboxRepository {
   }
 
   async addTag(input: ConversationTagMutationDto): Promise<ConversationTagDto | 'not_found' | 'not_owner'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -146,6 +216,7 @@ export class InboxRepository {
   }
 
   async removeTag(input: ConversationTagRemoveDto): Promise<'ok' | 'not_found' | 'not_owner'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -158,6 +229,7 @@ export class InboxRepository {
   }
 
   async claim(input: ConversationControlDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -173,6 +245,7 @@ export class InboxRepository {
   }
 
   async release(input: ConversationControlDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -188,6 +261,8 @@ export class InboxRepository {
   }
 
   async assign(input: ConversationAssignDto): Promise<ConversationControlResultDto | 'owned' | 'not_found' | 'invalid_assignee'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+    if (!await this.canAssignToLine(input.organizationId, input.conversationId, input.ownerUserId)) return 'invalid_assignee';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -207,6 +282,7 @@ export class InboxRepository {
   }
 
   async setAutomationMode(input: ConversationAutomationUpdateDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -223,6 +299,7 @@ export class InboxRepository {
   }
 
   async setStatus(input: ConversationStatusUpdateDto): Promise<{ id: string; status: 'open' | 'resolved' } | 'not_owner' | 'not_found'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, status: conversations.status, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -238,15 +315,17 @@ export class InboxRepository {
     });
   }
 
-  async listChannels(organizationId: string): Promise<ChannelRecordDto[]> {
-    const rows = await database.select().from(messagingChannels).where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.isActive, true))).orderBy(messagingChannels.displayName, messagingChannels.id);
-    return rows.map((row) => new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, 0, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag)));
+  async listChannels(organizationId: string, userId: string, canManageAll: boolean): Promise<ChannelRecordDto[]> {
+    const accessibleBusinessLineIds = canManageAll ? null : await this.accessibleBusinessLineIds(organizationId, userId);
+    const rows = await database.select({ channel: messagingChannels, businessLineName: businessLines.name }).from(messagingChannels)
+      .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+      .where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.isActive, true), accessibleBusinessLineIds ? inArray(messagingChannels.businessLineId, accessibleBusinessLineIds) : undefined))
+      .orderBy(messagingChannels.displayName, messagingChannels.id);
+    return rows.map(({ channel, businessLineName }) => new ChannelRecordDto(channel.id, channelProviderSchema.parse(channel.provider), channel.displayName, channel.phoneNumber, channel.providerChannelId, channel.providerAccountId, channel.isActive, channel.dailyMessageLimit, channel.dailyLimitTimeZone, 0, channel.createdAt.toISOString(), channel.updatedAt.toISOString(), Boolean(channel.credentialsCiphertext && channel.credentialsIv && channel.credentialsAuthTag), null, null, channelOperationModeSchema.parse(channel.operationMode), channelAssistantScheduleModeSchema.parse(channel.assistantScheduleMode), [], channel.businessLineId, businessLineName));
   }
 
   async listMessages(input: ConversationMessagesQueryDto): Promise<MessageRecordDto[] | null> {
-    const [conversation] = await database.select({ id: conversations.id }).from(conversations)
-      .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), input.canManageAll ? undefined : eq(conversations.ownerUserId, input.userId))).limit(1);
-    if (!conversation) return null;
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId)) return null;
     const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, transcriptText: messages.transcriptText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
       .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
@@ -262,10 +341,8 @@ export class InboxRepository {
   }
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId)) return 'not_found';
     return database.transaction(async (transaction) => {
-      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
-        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), input.canManageAll ? undefined : eq(conversations.ownerUserId, input.userId))).for('update').limit(1);
-      if (!conversation) return 'not_found';
       if (!input.lastInboundMessageId) {
         const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
           .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
@@ -289,6 +366,7 @@ export class InboxRepository {
   }
 
   async addNote(input: ConversationNoteCreateDto): Promise<MessageRecordDto | 'not_found' | 'not_owner'> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -308,6 +386,7 @@ export class InboxRepository {
   }
 
   async prepareMessageSend(input: ConversationMessageSendDto): Promise<MessageSendResult> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, channelId: conversations.channelId, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
@@ -327,9 +406,10 @@ export class InboxRepository {
       const [person] = await transaction.select({ phone: people.phone }).from(people).where(and(eq(people.id, conversation.personId), eq(people.organizationId, input.organizationId))).limit(1);
       const recipientPhone = (person?.phone ?? '').replace(/\D/g, '');
       if (recipientPhone.length < 8 || recipientPhone.length > 15 || recipientPhone[0] === '0') return 'recipient_missing';
-      const [channel] = await transaction.select({ provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
+      const [channel] = await transaction.select({ provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, lineStatus: businessLines.status, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
+        .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('update').limit(1);
-      if (!channel?.isActive) return 'channel_unavailable';
+      if (!channel?.isActive || (channel.lineStatus && channel.lineStatus !== 'active')) return 'channel_unavailable';
       if (!channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'credentials_missing';
       const channelProvider = channelProviderSchema.safeParse(channel.provider);
       if (!channelProvider.success) return 'channel_unavailable';

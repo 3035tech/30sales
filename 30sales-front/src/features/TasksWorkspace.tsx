@@ -15,6 +15,7 @@ export function TasksWorkspace() {
   const { t, i18n } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const taskId = searchParams.get('taskId') ?? undefined
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [view, setView] = useState<TaskView>(() => taskId ? 'overdue' : 'today')
   const [tasks, setTasks] = useState<TaskDto[]>([])
   const [total, setTotal] = useState(0)
@@ -52,19 +53,19 @@ export function TasksWorkspace() {
     const revision = ++requestRevision.current
     setLoading(true); setError('')
     try {
-      const page = await api.tasks.listPage({ ...(taskId ? { taskId } : { ...range, status: 'open' as const }), search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset })
+      const page = await api.tasks.listPage({ ...(taskId ? { taskId } : { ...range, status: 'open' as const }), businessLineId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset })
       if (revision === requestRevision.current) { setTasks(page.data); setTotal(page.pagination.total); setHasNextPage(page.pagination.hasNextPage) }
     }
     catch { if (revision === requestRevision.current) setError(t('errors.loadTasks')) }
     finally { if (revision === requestRevision.current) setLoading(false) }
-  }, [debouncedSearch, offset, pageSize, range, refreshTick, sortBy, sortDirection, t, taskId])
+  }, [businessLineId, debouncedSearch, offset, pageSize, range, refreshTick, sortBy, sortDirection, t, taskId])
   useEffect(() => { if (taskId) setView('overdue') }, [taskId])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
     const timeout = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0) }, 250)
     return () => window.clearTimeout(timeout)
   }, [search])
-  useEffect(() => { api.leads.list({ limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [])
+  useEffect(() => { api.leads.list({ businessLineId, limit: 100 }).then(setLeads).catch(() => setLeads([])) }, [businessLineId])
 
   const createTask = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')

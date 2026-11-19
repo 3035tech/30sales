@@ -33,6 +33,7 @@ export const PLATFORM_ADMIN_ACCOUNT_MISSING = 'The account does not exist; creat
 export const PLATFORM_ADMIN_EMAIL_UNVERIFIED = 'The platform administrator account must have a verified email.';
 export const PLATFORM_INVITATION_PATH = '/accept-invitation';
 export const PLATFORM_ORGANIZATION_API_PATH = '/api/v1/platform/organizations';
+export const BUSINESS_LINES_API_PATH = '/api/v1/business-lines';
 export const PLATFORM_ORGANIZATION_CONTEXT_HEADER = 'x-platform-organization-id';
 export const PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION = '23505';
 export const PLATFORM_ERROR_CODE = {
@@ -45,10 +46,12 @@ export const PLATFORM_AUDIT_ACTION = {
   organizationCreated: 'organization.created',
   invitationCreated: 'invitation.created',
   organizationAccessed: 'organization.accessed',
+  evolutionConfigurationUpdated: 'integration.evolution.configuration_updated',
 } as const;
 export const PLATFORM_AUDIT_ENTITY_TYPE = {
   organization: 'organization',
   invitation: 'invitation',
   platformAccess: 'platform_access',
+  platformIntegration: 'platform_integration',
 } as const;
 export const AUDIT_ACTOR_TYPE = { user: 'user', system: 'system' } as const;

@@ -2,6 +2,7 @@ import { Button } from '../components/ui/FormControls'
 import { useCallback, useEffect, useState } from 'react'
 import { ArrowRight, CalendarClock, CheckCircle2, Clock3, MessageCircle, RefreshCw, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto, type OpportunityDto, type TaskDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './TodayWorkspace.css'
@@ -18,6 +19,8 @@ const isOpen = (opportunity: OpportunityDto) => opportunity.stage !== 'won' && o
 
 export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userId: string }) {
   const { t, i18n } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [data, setData] = useState<TodayData>(noTodayData)
   const [availability, setAvailability] = useState<TodayAvailability>(noTodayAvailability)
   const [hasLoaded, setHasLoaded] = useState(false)
@@ -29,12 +32,12 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
     setLoading(true); setPartial(false); setFailed(false)
     const today = startOfDay(new Date())
     const [overdueResult, dueTodayResult, handoffsResult, respondedResult, unassignedRespondedResult, opportunitiesResult] = await Promise.allSettled([
-      api.tasks.list({ to: today.toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
-      api.tasks.list({ from: today.toISOString(), to: addDays(today, 1).toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
-      api.handoffs.list('requested'),
-      api.leads.list({ status: 'responded', assignedToUserId: userId, limit: 100 }),
-      api.leads.list({ status: 'responded', assignedToUserId: 'unassigned', limit: 100 }),
-      api.opportunities.list({ view: 'mine', limit: 100 }),
+      api.tasks.list({ businessLineId, to: today.toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
+      api.tasks.list({ businessLineId, from: today.toISOString(), to: addDays(today, 1).toISOString(), assignedToUserId: userId, status: 'open', limit: 100 }),
+      api.handoffs.list('requested', { businessLineId }),
+      api.leads.list({ businessLineId, status: 'responded', assignedToUserId: userId, limit: 100 }),
+      api.leads.list({ businessLineId, status: 'responded', assignedToUserId: 'unassigned', limit: 100 }),
+      api.opportunities.list({ businessLineId, view: 'mine', limit: 100 }),
     ] as const)
     const value = <T,>(result: PromiseSettledResult<T>): T | null => result.status === 'fulfilled' ? result.value : null
     const overdue = value(overdueResult), dueToday = value(dueTodayResult), handoffs = value(handoffsResult), responded = value(respondedResult), unassignedResponded = value(unassignedRespondedResult), opportunities = value(opportunitiesResult)
@@ -43,7 +46,7 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
     setPartial(loaded > 0 && loaded < 6); setFailed(loaded === 0); setHasLoaded(true); setAvailability(loaded === 0 ? noTodayAvailability : nextAvailability)
     if (loaded > 0) setData((previous) => ({ overdue: overdue ?? previous.overdue, dueToday: dueToday ?? previous.dueToday, handoffs: handoffs ?? previous.handoffs, responded: responded ?? previous.responded, unassignedResponded: unassignedResponded ?? previous.unassignedResponded, opportunities: opportunities ?? previous.opportunities }))
     setLoading(false)
-  }, [userId])
+  }, [businessLineId, userId])
 
   useEffect(() => { void refresh() }, [refresh])
   const riskyDeals = data.opportunities.filter((item) => isOpen(item) && (!item.nextActionAt || new Date(item.nextActionAt).getTime() < Date.now() || Date.now() - new Date(item.stageChangedAt).getTime() > 7 * 86400000))

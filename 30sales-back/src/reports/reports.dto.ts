@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const funnelReportQuerySchema = z.object({
   from: z.string().date(),
   to: z.string().date(),
+  businessLineId: z.string().uuid().optional(),
 }).strict().refine((query) => query.from <= query.to, { message: 'The start date must be before or equal to the end date.', path: ['from'] });
 export type FunnelReportQueryDto = z.infer<typeof funnelReportQuerySchema>;
 
@@ -54,7 +55,7 @@ export class FunnelReportDto {
     readonly generatedAt: string,
   ) {}
 }
-export class FunnelReportRepositoryQueryDto { constructor(readonly organizationId: string, readonly query: FunnelReportQueryDto) {} }
+export class FunnelReportRepositoryQueryDto { constructor(readonly organizationId: string, readonly query: FunnelReportQueryDto, readonly businessLineIds: readonly string[] | null) {} }
 export class AiUsagePointDto {
   constructor(readonly date: string, readonly operation: string, readonly status: string, readonly runCount: number, readonly averageLatencyMs: number | null, readonly estimatedCostUsd: string | null, readonly audioDurationMs: number, readonly inputTokens: number, readonly outputTokens: number) {}
 }

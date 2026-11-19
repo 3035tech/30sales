@@ -1,11 +1,12 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
-import { organization as authOrganization, user as authUser } from './auth-schema';
+import { member as authMember, organization as authOrganization, user as authUser } from './auth-schema';
 import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
 import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS } from '../leads/constants';
 import { CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_OPENING_MESSAGE_DEFAULT } from '../campaigns/campaigns.constants';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT, CHANNEL_OPERATION_MODES } from '../channels/channels.constants';
+import { BUSINESS_LINE_STATUSES } from '../business-lines/business-lines.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
@@ -34,6 +35,7 @@ export const assistantIntent = pgEnum('assistant_intent', ASSISTANT_INTENT_VALUE
 export const assistantRunProvider = pgEnum('assistant_run_provider', ASSISTANT_RUN_PROVIDER_VALUES);
 export const assistantRunOperation = pgEnum('assistant_run_operation', ASSISTANT_RUN_OPERATION_VALUES);
 export const assistantDeliveryOutcome = pgEnum('assistant_delivery_outcome', ASSISTANT_DELIVERY_OUTCOME_VALUES);
+export const businessLineStatus = pgEnum('business_line_status', BUSINESS_LINE_STATUSES);
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
 export const accountSegments = pgTable('account_segments', {
@@ -46,6 +48,40 @@ export const accountSegments = pgTable('account_segments', {
   unique('account_segments_id_organization_unique').on(table.id, table.organizationId),
   uniqueIndex('account_segments_org_name_unique').on(table.organizationId, sql`lower(trim(${table.name}))`),
   check('account_segments_name_length_check', sql`length(trim(${table.name})) between 2 and 80`),
+]);
+
+export const businessLines = pgTable('business_lines', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  slug: text('slug').notNull(),
+  description: text('description'),
+  status: businessLineStatus('status').default('active').notNull(),
+  isDefault: boolean('is_default').default(false).notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('business_lines_id_organization_unique').on(table.id, table.organizationId),
+  uniqueIndex('business_lines_org_slug_unique').on(table.organizationId, table.slug),
+  uniqueIndex('business_lines_org_default_unique').on(table.organizationId).where(sql`${table.isDefault} = true`),
+  check('business_lines_name_length_check', sql`length(trim(${table.name})) between 2 and 100`),
+  check('business_lines_slug_check', sql`${table.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' and length(${table.slug}) <= 80`),
+  check('business_lines_description_length_check', sql`${table.description} is null or length(${table.description}) <= 500`),
+  index('business_lines_org_status_name_idx').on(table.organizationId, table.status, table.name),
+]);
+
+export const businessLineMembers = pgTable('business_line_members', {
+  organizationId: uuid('organization_id').notNull(),
+  businessLineId: uuid('business_line_id').notNull(),
+  memberId: uuid('member_id').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'business_line_members_pk', columns: [table.organizationId, table.businessLineId, table.memberId] }),
+  foreignKey({ name: 'business_line_members_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('cascade'),
+  foreignKey({ name: 'business_line_members_member_tenant_fk', columns: [table.organizationId, table.memberId], foreignColumns: [authMember.organizationId, authMember.id] }).onDelete('cascade'),
+  index('business_line_members_org_member_idx').on(table.organizationId, table.memberId),
 ]);
 
 export const accounts = pgTable('accounts', {
@@ -78,6 +114,7 @@ export const people = pgTable('people', {
 export const leads = pgTable('leads', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  businessLineId: uuid('business_line_id'),
   accountId: uuid('account_id').notNull(),
   personId: uuid('person_id'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
@@ -89,9 +126,11 @@ export const leads = pgTable('leads', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'leads_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'leads_business_line_tenant_fk', columns: [table.businessLineId, table.organizationId], foreignColumns: [businessLines.id, businessLines.organizationId] }).onDelete('restrict'),
   foreignKey({ name: 'leads_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
   unique('leads_id_organization_unique').on(table.id, table.organizationId),
   index('leads_org_status_next_action_idx').on(table.organizationId, table.status, table.nextActionAt),
+  index('leads_org_business_line_status_idx').on(table.organizationId, table.businessLineId, table.status),
   index('leads_org_created_idx').on(table.organizationId, table.createdAt),
   index('leads_org_assignee_status_idx').on(table.organizationId, table.assignedToUserId, table.status),
 ]);
@@ -168,6 +207,7 @@ export const tasks = pgTable('tasks', {
 export const pipelines = pgTable('pipelines', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  businessLineId: uuid('business_line_id'),
   name: text('name').notNull(),
   isDefault: boolean('is_default').default(false).notNull(),
   isActive: boolean('is_active').default(true).notNull(),
@@ -176,9 +216,11 @@ export const pipelines = pgTable('pipelines', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   unique('pipelines_organization_id_unique').on(table.organizationId, table.id),
-  uniqueIndex('pipelines_org_active_name_unique').on(table.organizationId, sql`lower(${table.name})`).where(sql`${table.isActive} = true`),
-  uniqueIndex('pipelines_org_default_unique').on(table.organizationId).where(sql`${table.isDefault} = true`),
+  foreignKey({ name: 'pipelines_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('restrict'),
+  uniqueIndex('pipelines_org_line_active_name_unique').on(table.organizationId, table.businessLineId, sql`lower(${table.name})`).where(sql`${table.isActive} = true`),
+  uniqueIndex('pipelines_org_line_default_unique').on(table.organizationId, table.businessLineId).where(sql`${table.isDefault} = true`),
   index('pipelines_org_active_idx').on(table.organizationId, table.isActive, table.name),
+  index('pipelines_org_line_active_idx').on(table.organizationId, table.businessLineId, table.isActive, table.name),
 ]);
 
 export const pipelineStages = pgTable('pipeline_stages', {
@@ -321,6 +363,7 @@ export const handoffHistory = pgTable('handoff_history', {
 export const messagingChannels = pgTable('messaging_channels', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  businessLineId: uuid('business_line_id'),
   provider: text('provider').notNull(),
   displayName: text('display_name').notNull(),
   phoneNumber: text('phone_number').notNull(),
@@ -348,10 +391,12 @@ export const messagingChannels = pgTable('messaging_channels', {
   check('messaging_channels_daily_limit_time_zone_check', sql`length(${table.dailyLimitTimeZone}) between 1 and 80`),
   check('messaging_channels_connection_status_check', sql`${table.connectionStatus} is null or ${table.connectionStatus} in (${sql.raw(CHANNEL_CONNECTION_STATUSES.map((status) => `'${status}'`).join(', '))})`),
   unique('messaging_channels_id_organization_unique').on(table.id, table.organizationId),
+  foreignKey({ name: 'messaging_channels_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('restrict'),
   unique('messaging_channels_org_phone_unique').on(table.organizationId, table.phoneNumber),
   unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
   unique('messaging_channels_org_chatwoot_inbox_unique').on(table.organizationId, table.chatwootInboxId),
   index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
+  index('messaging_channels_org_line_active_idx').on(table.organizationId, table.businessLineId, table.isActive),
 ]);
 
 export const channelBusinessHours = pgTable('channel_business_hours', {
@@ -440,6 +485,7 @@ export const campaignNoSendDates = pgTable('campaign_no_send_dates', {
 export const agentSettings = pgTable('agent_settings', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  businessLineId: uuid('business_line_id'),
   agentKey: text('agent_key').notNull(),
   enabled: boolean('enabled').default(false).notNull(),
   model: text('model').default('claude-haiku-5-5').notNull(),
@@ -449,7 +495,9 @@ export const agentSettings = pgTable('agent_settings', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
-  unique('agent_settings_org_agent_unique').on(table.organizationId, table.agentKey),
+  foreignKey({ name: 'agent_settings_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('cascade'),
+  uniqueIndex('agent_settings_org_agent_global_unique').on(table.organizationId, table.agentKey).where(sql`${table.businessLineId} is null`),
+  uniqueIndex('agent_settings_org_line_agent_unique').on(table.organizationId, table.businessLineId, table.agentKey).where(sql`${table.businessLineId} is not null`),
   check('agent_settings_agent_key_check', sql`${table.agentKey} in ('assistant')`),
   check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5')`),
   check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
@@ -822,4 +870,30 @@ export const auditEvents = pgTable('audit_events', {
 }, (table) => [
   index('audit_events_org_entity_time_idx').on(table.organizationId, table.entityType, table.entityId, table.occurredAt),
   index('audit_events_org_actor_time_idx').on(table.organizationId, table.actorUserId, table.occurredAt),
+]);
+
+export const platformEvolutionConfiguration = pgTable('platform_evolution_configuration', {
+  id: text('id').primaryKey(),
+  displayName: text('display_name').notNull(),
+  baseUrl: text('base_url').notNull(),
+  credentialsCiphertext: text('credentials_ciphertext').notNull(),
+  credentialsIv: text('credentials_iv').notNull(),
+  credentialsAuthTag: text('credentials_auth_tag').notNull(),
+  updatedByUserId: uuid('updated_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [check('platform_evolution_configuration_id_check', sql`${table.id} = 'default'`)]);
+
+export const platformAuditEvents = pgTable('platform_audit_events', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  action: text('action').notNull(),
+  entityType: text('entity_type').notNull(),
+  entityId: text('entity_id'),
+  beforeState: jsonb('before_state').$type<JsonValue>(),
+  afterState: jsonb('after_state').$type<JsonValue>(),
+  correlationId: text('correlation_id'),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  index('platform_audit_events_entity_time_idx').on(table.entityType, table.entityId, table.occurredAt),
+  index('platform_audit_events_actor_time_idx').on(table.actorUserId, table.occurredAt),
 ]);

@@ -1,15 +1,47 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, auditEvents, closerEventSlaPolicies, closerEvents, conversations, people, userNotifications } from '../db/schema';
+import { accounts, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, leads, messagingChannels, opportunities, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { CloserEventDto, CloserEventMutationDto, CloserEventStateDto, CloserEventsListDto, CloserEventsPageDto, CloserEventAssigneeDto, CloserEventSlaPoliciesSaveDto, CloserEventSlaPolicyDto, CloserSlaNotificationsListDto, CloserSlaNotificationDto, CloserSlaNotificationReadDto } from './closer-events.dto';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 
+function closerEventLineAccessCondition(organizationId: string, userId: string): SQL | undefined {
+  const conversationAccess = exists(database.select({ id: conversations.id }).from(conversations)
+    .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+    .innerJoin(businessLineMembers, and(eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(businessLineMembers.organizationId, messagingChannels.organizationId)))
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))));
+  const opportunityAccess = exists(database.select({ id: opportunities.id }).from(opportunities)
+    .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+    .innerJoin(businessLineMembers, and(eq(businessLineMembers.businessLineId, leads.businessLineId), eq(businessLineMembers.organizationId, leads.organizationId)))
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(opportunities.id, closerEvents.opportunityId), eq(opportunities.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))));
+  return and(or(isNull(closerEvents.conversationId), conversationAccess), or(isNull(closerEvents.opportunityId), opportunityAccess), or(isNotNull(closerEvents.conversationId), isNotNull(closerEvents.opportunityId)));
+}
+
 @Injectable()
 export class CloserEventsRepository {
+  async accessibleBusinessLineIds(organizationId: string, userId: string): Promise<string[]> {
+    const rows = await database.select({ id: businessLineMembers.businessLineId }).from(businessLineMembers)
+      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active')));
+    return rows.map((row) => row.id);
+  }
+
   async list(input: CloserEventsListDto): Promise<CloserEventsPageDto> {
-    const conditions = and(eq(closerEvents.organizationId, input.organizationId), input.canManageAll ? undefined : eq(closerEvents.assignedToUserId, input.userId), sql`(${closerEvents.status} = 'new' or (${closerEvents.status} = 'snoozed' and (${closerEvents.snoozedUntil} is null or ${closerEvents.snoozedUntil} <= now())))`);
+    const eventLineCondition = input.query.businessLineId ? or(
+      exists(database.select({ id: conversations.id }).from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId))).where(and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, input.organizationId), eq(messagingChannels.businessLineId, input.query.businessLineId)))),
+      exists(database.select({ id: opportunities.id }).from(opportunities).innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId))).where(and(eq(opportunities.id, closerEvents.opportunityId), eq(opportunities.organizationId, input.organizationId), eq(leads.businessLineId, input.query.businessLineId)))),
+    ) : undefined;
+    const conditions = and(eq(closerEvents.organizationId, input.organizationId), eventLineCondition, input.accessibleBusinessLineIds ? or(
+      exists(database.select({ id: conversations.id }).from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId))).where(and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, input.organizationId), inArray(messagingChannels.businessLineId, input.accessibleBusinessLineIds)))),
+      exists(database.select({ id: opportunities.id }).from(opportunities).innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId))).where(and(eq(opportunities.id, closerEvents.opportunityId), eq(opportunities.organizationId, input.organizationId), inArray(leads.businessLineId, input.accessibleBusinessLineIds)))),
+    ) : undefined, input.canManageAll ? undefined : and(eq(closerEvents.assignedToUserId, input.userId), closerEventLineAccessCondition(input.organizationId, input.userId)), sql`(${closerEvents.status} = 'new' or (${closerEvents.status} = 'snoozed' and (${closerEvents.snoozedUntil} is null or ${closerEvents.snoozedUntil} <= now())))`);
     const rows = await database.select({ id: closerEvents.id, eventType: closerEvents.eventType, priority: closerEvents.priority, status: closerEvents.status, conversationId: closerEvents.conversationId, opportunityId: closerEvents.opportunityId, assignedToUserId: closerEvents.assignedToUserId, accountName: accounts.name, contactName: people.name, summary: closerEvents.summary, evidence: closerEvents.evidence, occurredAt: closerEvents.occurredAt, dueAt: closerEvents.dueAt, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil })
       .from(closerEvents).leftJoin(conversations, and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, closerEvents.organizationId))).leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, closerEvents.organizationId))).leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, closerEvents.organizationId))).where(conditions).orderBy(desc(closerEvents.occurredAt), desc(closerEvents.id)).limit(input.query.limit).offset(input.query.offset);
     const [count] = await database.select({ total: sql<number>`count(*)::int` }).from(closerEvents).where(conditions);
@@ -142,7 +174,7 @@ export class CloserEventsRepository {
       .innerJoin(closerEvents, and(eq(closerEvents.id, userNotifications.closerEventId), eq(closerEvents.organizationId, userNotifications.organizationId)))
       .innerJoin(conversations, and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, closerEvents.organizationId)))
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
-      .where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId), isNull(userNotifications.readAt)))
+      .where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.recipientUserId, input.userId), isNull(userNotifications.readAt), input.canManageAll ? undefined : closerEventLineAccessCondition(input.organizationId, input.userId)))
       .orderBy(desc(userNotifications.createdAt), desc(userNotifications.id)).limit(input.limit);
     return rows.flatMap((row) => row.dueAt ? [new CloserSlaNotificationDto(row.id, row.closerEventId, row.conversationId, row.notificationType, row.eventType, row.summary, row.accountName, row.dueAt.toISOString(), row.createdAt.toISOString())] : []);
   }
@@ -165,8 +197,13 @@ export class CloserEventsRepository {
 
   async act(input: CloserEventMutationDto): Promise<CloserEventStateDto | 'not_found' | 'not_owner' | 'invalid_assignee'> {
     return database.transaction(async (transaction) => {
-      const [current] = await transaction.select({ id: closerEvents.id, status: closerEvents.status, assignedToUserId: closerEvents.assignedToUserId, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil, resolvedAt: closerEvents.resolvedAt })
-        .from(closerEvents).where(and(eq(closerEvents.id, input.eventId), eq(closerEvents.organizationId, input.organizationId))).for('update').limit(1);
+      const [current] = await transaction.select({ id: closerEvents.id, status: closerEvents.status, assignedToUserId: closerEvents.assignedToUserId, acknowledgedAt: closerEvents.acknowledgedAt, snoozedUntil: closerEvents.snoozedUntil, resolvedAt: closerEvents.resolvedAt, conversationBusinessLineId: messagingChannels.businessLineId, opportunityBusinessLineId: leads.businessLineId })
+        .from(closerEvents)
+        .leftJoin(conversations, and(eq(conversations.id, closerEvents.conversationId), eq(conversations.organizationId, closerEvents.organizationId)))
+        .leftJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .leftJoin(opportunities, and(eq(opportunities.id, closerEvents.opportunityId), eq(opportunities.organizationId, closerEvents.organizationId)))
+        .leftJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .where(and(eq(closerEvents.id, input.eventId), eq(closerEvents.organizationId, input.organizationId), input.canManageAll ? undefined : closerEventLineAccessCondition(input.organizationId, input.actorUserId))).for('update', { of: closerEvents }).limit(1);
       if (!current) return 'not_found';
       if (current.assignedToUserId !== input.actorUserId && !input.canManageAll) return 'not_owner';
 
@@ -189,7 +226,11 @@ export class CloserEventsRepository {
         if (!['new', 'snoozed'].includes(current.status)) return 'not_found';
         const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
           .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
-        if (!membership) return 'invalid_assignee';
+        const businessLineIds = [...new Set([current.conversationBusinessLineId, current.opportunityBusinessLineId].filter((id): id is string => id !== null))];
+        const lineMemberships = businessLineIds.length ? await transaction.select({ businessLineId: businessLineMembers.businessLineId }).from(businessLineMembers)
+          .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(authMember.userId, input.input.assignedToUserId), inArray(businessLineMembers.businessLineId, businessLineIds))) : [];
+        if (!membership || businessLineIds.length === 0 || businessLineIds.some((businessLineId) => !lineMemberships.some((row) => row.businessLineId === businessLineId))) return 'invalid_assignee';
         assignedToUserId = input.input.assignedToUserId;
         status = 'new'; snoozedUntil = null;
       }

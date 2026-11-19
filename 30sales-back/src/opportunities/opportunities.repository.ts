@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, activities, auditEvents, leads, opportunities, opportunityConversationContexts, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
+import { accounts, activities, auditEvents, businessLineMembers, businessLines, leads, opportunities, opportunityConversationContexts, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
 import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityConversationContextDto, type OpportunityLastActivityDto, OpportunityConversationContextsQueryDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
@@ -24,6 +24,8 @@ function mapOpportunity(row: OpportunityRow, canUpdate = false) {
 export class OpportunitiesRepository {
   private conditions(input: OpportunityRepositoryListDto): SQL[] {
     const conditions: SQL[] = [eq(opportunities.organizationId, input.organizationId)];
+    if (input.accessibleBusinessLineIds) conditions.push(inArray(opportunities.pipelineId, database.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.organizationId, input.organizationId), inArray(pipelines.businessLineId, input.accessibleBusinessLineIds)))));
+    if (input.query.businessLineId) conditions.push(inArray(opportunities.pipelineId, database.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.businessLineId, input.query.businessLineId)))));
     if (input.query.opportunityId) conditions.push(eq(opportunities.id, input.query.opportunityId));
     if (input.query.pipelineId) conditions.push(eq(opportunities.pipelineId, input.query.pipelineId));
     if (input.query.view !== 'all') conditions.push(notInArray(opportunities.stage, ['won', 'lost']));
@@ -44,6 +46,21 @@ export class OpportunitiesRepository {
       conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.email, pattern), ilike(people.phone, pattern), ilike(opportunities.name, pattern), ilike(opportunities.nextAction, pattern), ilike(owner.name, pattern))!);
     }
     return conditions;
+  }
+
+  async canAccessOpportunity(organizationId: string, opportunityId: string, userId: string, canManageAll: boolean): Promise<boolean> {
+    const base = database.select({ id: opportunities.id }).from(opportunities)
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+      .where(and(eq(opportunities.organizationId, organizationId), eq(opportunities.id, opportunityId), eq(businessLines.status, 'active')));
+    if (canManageAll) return (await base.limit(1)).length > 0;
+    const rows = await database.select({ id: opportunities.id }).from(opportunities)
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+      .innerJoin(businessLineMembers, and(eq(businessLineMembers.organizationId, pipelines.organizationId), eq(businessLineMembers.businessLineId, pipelines.businessLineId)))
+      .innerJoin(member, and(eq(member.id, businessLineMembers.memberId), eq(member.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+      .where(and(eq(opportunities.organizationId, organizationId), eq(opportunities.id, opportunityId), eq(member.userId, userId), eq(businessLines.status, 'active'))).limit(1);
+    return rows.length > 0;
   }
 
   private async selectRows(input: OpportunityRepositoryListDto, conditions: SQL[]) {
@@ -75,13 +92,35 @@ export class OpportunitiesRepository {
   async conversationContexts(input: OpportunityConversationContextsQueryDto): Promise<OpportunityConversationContextDto[] | null> {
     const opportunityConditions = [eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId)];
     if (!input.canManageAll) opportunityConditions.push(eq(opportunities.ownerUserId, input.userId));
-    const [opportunity] = await database.select({ id: opportunities.id }).from(opportunities).where(and(...opportunityConditions)).limit(1);
+    if (!input.canManageAll) opportunityConditions.push(this.lineMembershipCondition(input.organizationId, input.userId));
+    const [opportunity] = await database.select({ id: opportunities.id }).from(opportunities)
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+      .where(and(...opportunityConditions, eq(businessLines.status, 'active'))).limit(1);
     if (!opportunity) return null;
     const rows = await database.select({ conversationId: opportunityConversationContexts.conversationId, summary: opportunityConversationContexts.summary, confirmedFacts: opportunityConversationContexts.confirmedFacts, unknowns: opportunityConversationContexts.unknowns, capturedAt: opportunityConversationContexts.capturedAt })
       .from(opportunityConversationContexts)
       .where(and(eq(opportunityConversationContexts.organizationId, input.organizationId), eq(opportunityConversationContexts.opportunityId, opportunity.id)))
       .orderBy(desc(opportunityConversationContexts.capturedAt));
     return rows.map((row) => ({ ...row, capturedAt: row.capturedAt.toISOString() }));
+  }
+
+  private lineMembershipCondition(organizationId: string, userId: string): SQL {
+    return exists(database.select({ id: businessLineMembers.businessLineId }).from(businessLineMembers)
+      .innerJoin(member, and(eq(member.id, businessLineMembers.memberId), eq(member.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId), eq(pipelines.businessLineId, businessLineMembers.businessLineId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(member.userId, userId), eq(businessLines.status, 'active'))));
+  }
+
+  private async lockLineMembership(transaction: Parameters<Parameters<typeof database.transaction>[0]>[0], organizationId: string, businessLineId: string | null, userId: string): Promise<boolean> {
+    if (!businessLineId) return false;
+    const [membership] = await transaction.select({ businessLineId: businessLineMembers.businessLineId }).from(businessLineMembers)
+      .innerJoin(member, and(eq(member.id, businessLineMembers.memberId), eq(member.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, businessLineId), eq(member.userId, userId), eq(businessLines.status, 'active')))
+      .for('share', { of: [businessLineMembers, businessLines] }).limit(1);
+    return Boolean(membership);
   }
 
   async list(input: OpportunityRepositoryListDto): Promise<OpportunityRecordDto[]> {
@@ -179,16 +218,20 @@ export class OpportunitiesRepository {
     return row ? mapOpportunity(row, true) : null;
   }
 
-  async transition(input: OpportunityRepositoryTransitionDto): Promise<OpportunityRecordDto | null> {
+  async transition(input: OpportunityRepositoryTransitionDto): Promise<OpportunityRecordDto | null | 'different_business_line'> {
     return database.transaction(async (transaction) => {
-      const [current] = await transaction.select({ pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey }).from(opportunities)
+      const [current] = await transaction.select({ pipelineId: opportunities.pipelineId, businessLineId: pipelines.businessLineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey }).from(opportunities)
+        .leftJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
         .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
       if (!current || current.stage !== input.input.expectedStage || current.pipelineStageKey !== (input.input.expectedPipelineStageKey ?? null) || (input.input.expectedPipelineId && current.pipelineId !== input.input.expectedPipelineId)) return null;
+      if (!input.canManageAll && !await this.lockLineMembership(transaction, input.organizationId, current.businessLineId, input.actorUserId)) return null;
       const targetPipelineId = input.input.pipelineId ?? current.pipelineId;
       if (!targetPipelineId) return null;
-      const [targetPipeline] = await transaction.select({ id: pipelines.id }).from(pipelines)
-        .where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.id, targetPipelineId), eq(pipelines.isActive, true))).for('share').limit(1);
+      const [targetPipeline] = await transaction.select({ id: pipelines.id, businessLineId: pipelines.businessLineId }).from(pipelines)
+        .leftJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+        .where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.id, targetPipelineId), eq(pipelines.isActive, true), or(isNull(pipelines.businessLineId), eq(businessLines.status, 'active')))).for('share').limit(1);
       if (!targetPipeline) return null;
+      if (targetPipeline.businessLineId !== current.businessLineId) return 'different_business_line';
       if (input.input.stage === 'custom') {
         const pipelineStageKey = input.input.pipelineStageKey;
         if (!pipelineStageKey) return null;
@@ -213,7 +256,7 @@ export class OpportunitiesRepository {
         lossReason: input.input.stage === 'lost' ? input.input.lossReason ?? null : null,
       };
       const conditions = [eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId), eq(opportunities.stage, current.stage)];
-      if (!input.canManageAll) conditions.push(eq(opportunities.ownerUserId, input.actorUserId));
+      if (!input.canManageAll) conditions.push(eq(opportunities.ownerUserId, input.actorUserId), this.lineMembershipCondition(input.organizationId, input.actorUserId));
       const [updated] = await transaction.update(opportunities).set(values).where(and(...conditions)).returning({ id: opportunities.id });
       if (!updated) return null;
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: updated.id, fromStage: current.stage, fromPipelineId: current.pipelineId, fromPipelineStageKey: current.pipelineStageKey, toStage: input.input.stage, toPipelineId: targetPipelineId, toPipelineStageKey: input.input.pipelineStageKey ?? null, actorUserId: input.actorUserId, reason: input.input.reason ?? input.input.lossReason ?? null });
@@ -227,10 +270,11 @@ export class OpportunitiesRepository {
   async history(input: OpportunityRepositoryHistoryDto): Promise<OpportunityHistoryRecordDto[]> {
     const rows = await database.select({ id: opportunityStageHistory.id, fromStage: opportunityStageHistory.fromStage, fromPipelineStageKey: opportunityStageHistory.fromPipelineStageKey, fromPipelineStageName: fromCustomStage.name, toStage: opportunityStageHistory.toStage, toPipelineStageKey: opportunityStageHistory.toPipelineStageKey, toPipelineStageName: toCustomStage.name, actorName: historyActor.name, reason: opportunityStageHistory.reason, occurredAt: opportunityStageHistory.occurredAt })
       .from(opportunityStageHistory).innerJoin(opportunities, and(eq(opportunities.id, opportunityStageHistory.opportunityId), eq(opportunities.organizationId, opportunityStageHistory.organizationId)))
+      .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
       .innerJoin(historyActor, eq(historyActor.id, opportunityStageHistory.actorUserId))
       .leftJoin(fromCustomStage, and(eq(fromCustomStage.organizationId, opportunityStageHistory.organizationId), eq(fromCustomStage.key, opportunityStageHistory.fromPipelineStageKey)))
       .leftJoin(toCustomStage, and(eq(toCustomStage.organizationId, opportunityStageHistory.organizationId), eq(toCustomStage.key, opportunityStageHistory.toPipelineStageKey)))
-      .where(and(eq(opportunityStageHistory.organizationId, input.organizationId), eq(opportunityStageHistory.opportunityId, input.opportunityId), input.canManageAll ? undefined : eq(opportunities.ownerUserId, input.userId))).orderBy(desc(opportunityStageHistory.occurredAt));
+      .where(and(eq(opportunityStageHistory.organizationId, input.organizationId), eq(opportunityStageHistory.opportunityId, input.opportunityId), input.canManageAll ? undefined : and(eq(opportunities.ownerUserId, input.userId), this.lineMembershipCondition(input.organizationId, input.userId)))).orderBy(desc(opportunityStageHistory.occurredAt));
     return rows.map((row) => new OpportunityHistoryRecordDto(row.id, row.fromStage, row.fromPipelineStageKey, row.fromPipelineStageName, row.toStage, row.toPipelineStageKey, row.toPipelineStageName, row.actorName, row.reason, row.occurredAt.toISOString()));
   }
 }

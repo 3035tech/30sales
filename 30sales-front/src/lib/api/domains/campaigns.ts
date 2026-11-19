@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type CreateCampaignDraftInput, campaignAudiencePreviewSchema, campaignAudienceSaveSchema, campaignDeliveryConfirmSchema, campaignDeliveryReviewPageSchema, campaignDraftPageSchema, campaignDraftSchema, campaignNoSendDateSchema, campaignOperationalReadinessSchema, campaignPerformanceSchema, campaignStartResultSchema, campaignStatusChangeSchema } from '../contracts';
+import { type CreateCampaignDraftInput, campaignAudiencePreviewSchema, campaignAudienceSaveSchema, campaignDeliveryConfirmSchema, campaignDeliveryReviewPageSchema, campaignDraftPageSchema, campaignDraftSchema, campaignLeadPerformancePageSchema, campaignNoSendDateSchema, campaignOperationalReadinessSchema, campaignPerformanceSchema, campaignStartResultSchema, campaignStatusChangeSchema } from '../contracts';
 
 
 export const campaignsApi = {
@@ -10,6 +10,7 @@ export const campaignsApi = {
     saveAudience: (id: string, leadIds: string[]) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/audience`, campaignAudienceSaveSchema, { method: 'PUT', body: JSON.stringify({ leadIds }) }),
     operationalReadiness: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/operational-readiness`, campaignOperationalReadinessSchema),
     performance: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/performance`, campaignPerformanceSchema),
+    performanceLeads: (id: string, params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/performance/leads?${query.toString()}`, campaignLeadPerformancePageSchema); },
     startDraft: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/start`, campaignStartResultSchema, { method: 'POST' }),
     pauseDraft: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/pause`, campaignStatusChangeSchema, { method: 'POST' }),
     resumeDraft: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/resume`, campaignStatusChangeSchema, { method: 'POST' }),

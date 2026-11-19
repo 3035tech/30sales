@@ -19,6 +19,7 @@ export class AccountSegmentRepositoryAssignDto { constructor(readonly organizati
 export class AccountProfileRepositoryUpdateDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly marketSegment: UpdateAccountProfileDto['marketSegment'], readonly studentCount: number | null, readonly correlationId: string | null) {} }
 
 export const listAccountsSchema = z.object({
+  businessLineId: z.string().uuid().optional(),
   search: z.string().trim().max(200).optional(),
   leadStatus: z.enum(LEAD_STATUSES).optional(),
   segmentId: z.union([z.string().uuid(), z.literal(UNASSIGNED_SEGMENT_FILTER)]).optional(),

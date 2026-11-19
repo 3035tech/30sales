@@ -49,6 +49,7 @@ const previewRecordSchema = externalIdentitySchema.extend({
 });
 
 export const previewImportsSchema = z.object({
+  businessLineId: z.string().uuid().optional(),
   provider: z.enum(IMPORT_PROVIDERS),
   records: z.array(previewRecordSchema).min(1).max(100).superRefine((records, context) => {
     const seen = new Set<string>();
@@ -63,7 +64,7 @@ export const previewImportsSchema = z.object({
 export type PreviewImportsInputDto = z.infer<typeof previewImportsSchema>;
 export type PreviewImportRecordDto = PreviewImportsInputDto['records'][number];
 export class ImportRepositoryPreviewDto {
-  constructor(readonly organizationId: string, readonly input: PreviewImportsInputDto) {}
+  constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly input: PreviewImportsInputDto) {}
 }
 export type ImportMatchField = 'external_id' | 'account_name' | 'email' | 'phone';
 export type ImportPreviewStatus = (typeof IMPORT_PREVIEW_STATUS)[keyof typeof IMPORT_PREVIEW_STATUS];
@@ -94,6 +95,7 @@ const leadImportRecordSchema = externalIdentitySchema.extend({
 });
 
 export const importLeadsSchema = z.object({
+  businessLineId: z.string().uuid().optional(),
   provider: z.enum(IMPORT_PROVIDERS),
   records: z.array(leadImportRecordSchema).min(1).max(100).superRefine((records, context) => {
     const seen = new Set<string>();
@@ -106,7 +108,7 @@ export const importLeadsSchema = z.object({
 }).strict();
 
 export type ImportLeadsInputDto = z.infer<typeof importLeadsSchema>;
-export class ImportRepositoryLeadsDto { constructor(readonly organizationId: string, readonly userId: string, readonly correlationId: string | null, readonly input: ImportLeadsInputDto) {} }
+export class ImportRepositoryLeadsDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly correlationId: string | null, readonly input: ImportLeadsInputDto) {} }
 export type LeadImportRecordStatus = (typeof LEAD_IMPORT_RESULT_STATUS)[keyof typeof LEAD_IMPORT_RESULT_STATUS];
 export class LeadImportRecordResultDto { constructor(readonly recordType: string, readonly externalId: string, readonly status: LeadImportRecordStatus, readonly leadId: string | null) {} }
 export class ImportLeadsResultDto { constructor(readonly provider: ImportLeadsInputDto['provider'], readonly records: LeadImportRecordResultDto[]) {} }

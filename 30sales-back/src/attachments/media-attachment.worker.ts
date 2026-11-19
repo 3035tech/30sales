@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
+import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { AttachmentsRepository } from './attachments.repository';
 import { MediaDownloadProvider } from './media-download.provider';
 import { MEDIA_STORAGE, type MediaStorage } from './media-storage';
@@ -13,7 +14,8 @@ export class MediaAttachmentWorker implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: AttachmentsRepository, private readonly credentials: ChannelCredentialCryptoService,
+  constructor(private readonly repository: AttachmentsRepository, private readonly credentialCrypto: ChannelCredentialCryptoService,
+    private readonly credentialResolver: ChannelCredentialResolverService,
     private readonly provider: MediaDownloadProvider, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
 
   onModuleInit(): void {
@@ -42,10 +44,10 @@ export class MediaAttachmentWorker implements OnModuleInit, OnModuleDestroy {
   private async processOne(attachment: Awaited<ReturnType<AttachmentsRepository['claimPending']>>[number]): Promise<void> {
     try {
       if (attachment.sizeBytes !== null && attachment.sizeBytes > MAX_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
-      const credentials = this.credentials.decrypt(attachment.organizationId, attachment.channelId, {
+      const credentials = await this.credentialResolver.resolve(attachment.organizationId, attachment.channelId, {
         ciphertext: attachment.credentialsCiphertext, iv: attachment.credentialsIv, authTag: attachment.credentialsAuthTag,
       });
-      const sourcePayload = this.credentials.decryptPayload(attachment.organizationId, attachment.channelId, {
+      const sourcePayload = this.credentialCrypto.decryptPayload(attachment.organizationId, attachment.channelId, {
         ciphertext: attachment.sourceCiphertext, iv: attachment.sourceIv, authTag: attachment.sourceAuthTag,
       });
       const media = await this.provider.download({ provider: attachment.provider, providerChannelId: attachment.providerChannelId,

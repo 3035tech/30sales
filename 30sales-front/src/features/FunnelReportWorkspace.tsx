@@ -2,6 +2,7 @@ import { Button, CalendarField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
 import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, ASSISTANT_RUN_OPERATION, ASSISTANT_RUN_STATUS, OPPORTUNITY_STAGE, type AiUsageReportDto, type FunnelReportDto, type LeadStatus } from '../lib/api'
 import './FunnelReportWorkspace.css'
@@ -21,6 +22,8 @@ function durationLabel(minutes: number, locale: string) {
 
 export function FunnelReportWorkspace() {
   const { t, i18n } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const today = dateInput(new Date())
   const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 29)
   const [from, setFrom] = useState(dateInput(monthAgo))
@@ -35,15 +38,15 @@ export function FunnelReportWorkspace() {
   const refresh = async () => {
     setLoading(true); setError('')
     try {
-      const [nextReport, stageSettings] = await Promise.all([api.reports.funnel(from, to), api.opportunities.pipelineStages.list()])
+      const [nextReport, stageSettings] = await Promise.all([api.reports.funnel(from, to, businessLineId), api.opportunities.pipelineStages.list()])
       setReport(nextReport); setPipelineStages(stageSettings.stages)
-      try { setAiUsage(await api.reports.aiUsage(from, to)); setAiUsageUnavailable(false) }
+      try { setAiUsage(await api.reports.aiUsage(from, to, businessLineId)); setAiUsageUnavailable(false) }
       catch { setAiUsage(null); setAiUsageUnavailable(true) }
     }
     catch { setError(t('funnelReport.loadFailed')) }
     finally { setLoading(false) }
   }
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh() }, [businessLineId])
   const closedCount = (report?.wonInPeriodCount ?? 0) + (report?.lostInPeriodCount ?? 0)
   const winRate = report && closedCount ? Math.round((report.wonInPeriodCount / closedCount) * 100) : null
   const currentLeadCount = report?.leadCountsByStatus.reduce((total, item) => total + item.count, 0) ?? 0

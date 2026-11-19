@@ -18,6 +18,7 @@ export function HandoffsWorkspace() {
   const { t, i18n } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const handoffId = searchParams.get('handoffId') ?? undefined
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [status, setStatus] = useState<HandoffStatus>(() => {
     const requestedStatus = searchParams.get('status')
     const validStatus = statuses.find((candidate) => candidate === requestedStatus)
@@ -56,12 +57,12 @@ export function HandoffsWorkspace() {
     const revision = ++requestRevision.current
     setLoading(true); setError('')
     try {
-      const page = await api.handoffs.listPage(status, { handoffId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset })
+      const page = await api.handoffs.listPage(status, { handoffId, businessLineId, search: debouncedSearch || undefined, sortBy, sortDirection, limit: pageSize, offset })
       if (revision === requestRevision.current) { setHandoffs(page.data); setTotal(page.pagination.total); setHasNextPage(page.pagination.hasNextPage) }
     }
     catch { if (revision === requestRevision.current) setError(t('errors.loadHandoffs')) }
     finally { if (revision === requestRevision.current) setLoading(false) }
-  }, [debouncedSearch, handoffId, offset, pageSize, refreshTick, sortBy, sortDirection, status, t])
+  }, [businessLineId, debouncedSearch, handoffId, offset, pageSize, refreshTick, sortBy, sortDirection, status, t])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
     const timeout = window.setTimeout(() => { setDebouncedSearch(search.trim()); setOffset(0) }, 250)
@@ -69,11 +70,11 @@ export function HandoffsWorkspace() {
   }, [search])
   useEffect(() => {
     let active = true
-    api.leads.list({ status: 'responded', limit: 100 })
+    api.leads.list({ businessLineId, status: 'responded', limit: 100 })
       .then((result) => { if (active) { setLeads(result); setLeadOptionsState('ready') } })
       .catch(() => { if (active) setLeadOptionsState('error') })
     return () => { active = false }
-  }, [])
+  }, [businessLineId])
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')

@@ -4,9 +4,10 @@ import { type TaskDto, taskPageSchema, taskResult, taskSchema } from '../contrac
 
 
 export const tasksApi = {
-    list: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy?: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
+    list: (params: { taskId?: string; businessLineId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy?: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.taskId) search.set('taskId', params.taskId);
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.from) search.set('from', params.from);
       if (params.to) search.set('to', params.to);
       if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
@@ -18,9 +19,10 @@ export const tasksApi = {
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/leads/tasks?${search.toString()}`, z.array(taskSchema));
     },
-    listPage: (params: { taskId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
+    listPage: (params: { taskId?: string; businessLineId?: string; from?: string; to?: string; assignedToUserId?: string; status?: TaskDto['status']; search?: string; sortBy: 'dueAt' | 'title' | 'accountName' | 'contactName'; sortDirection: 'asc' | 'desc'; limit: number; offset: number }) => {
       const search = new URLSearchParams();
       if (params.taskId) search.set('taskId', params.taskId);
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.from) search.set('from', params.from);
       if (params.to) search.set('to', params.to);
       if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);

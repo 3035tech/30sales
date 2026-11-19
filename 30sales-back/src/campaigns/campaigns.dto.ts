@@ -6,7 +6,7 @@ import type { ChannelHealthStatus } from '../channels/channels.dto';
 
 export const listCampaignDraftsSchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListCampaignDraftsDto = z.infer<typeof listCampaignDraftsSchema>;
-export class CampaignDraftListRepositoryDto { constructor(readonly organizationId: string, readonly query: ListCampaignDraftsDto) {} }
+export class CampaignDraftListRepositoryDto { constructor(readonly organizationId: string, readonly access: LeadRepositoryAccessDto, readonly query: ListCampaignDraftsDto) {} }
 
 export const createCampaignDraftSchema = z.object({
   name: z.string().trim().min(2).max(CAMPAIGN_DRAFT_LIMITS.name),
@@ -37,19 +37,22 @@ export class CampaignAudiencePreviewRepositoryDto { constructor(readonly organiz
 export class CampaignAudienceSaveRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string, readonly userId: string, readonly correlationId: string | null, readonly access: LeadRepositoryAccessDto, readonly input: SaveCampaignAudienceDto) {} }
 
 export class CampaignDraftCreateRepositoryDto {
-  constructor(readonly organizationId: string, readonly userId: string, readonly correlationId: string | null, readonly input: CreateCampaignDraftDto) {}
+  constructor(readonly organizationId: string, readonly userId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null, readonly input: CreateCampaignDraftDto) {}
 }
-export class CampaignStartRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null, readonly availableChannelIds: string[]) {} }
+export class CampaignStartRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly campaignDraftId: string, readonly correlationId: string | null, readonly availableChannelIds: string[]) {} }
 export class CampaignStartResultDto { constructor(readonly campaignDraftId: string, readonly queuedCount: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
-export class CampaignDeliveryReviewRepositoryDto { constructor(readonly organizationId: string, readonly limit: number, readonly offset: number) {} }
-export class CampaignPerformanceRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string) {} }
+export class CampaignDeliveryReviewRepositoryDto { constructor(readonly organizationId: string, readonly access: LeadRepositoryAccessDto, readonly limit: number, readonly offset: number) {} }
+export class CampaignPerformanceRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string, readonly access: LeadRepositoryAccessDto) {} }
 export class CampaignChannelPerformanceDto { constructor(readonly channelId: string, readonly channelLabel: string, readonly queued: number, readonly accepted: number, readonly delivered: number, readonly replied: number, readonly needsReview: number) {} }
 export class CampaignPerformanceDto { constructor(readonly campaignDraftId: string, readonly total: number, readonly channels: CampaignChannelPerformanceDto[]) {} }
+export class CampaignLeadPerformanceRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string, readonly access: LeadRepositoryAccessDto, readonly query: ListCampaignDraftsDto) {} }
+export class CampaignLeadPerformanceItemDto { constructor(readonly leadId: string, readonly accountName: string, readonly contactName: string | null, readonly phone: string | null, readonly channelId: string, readonly channelLabel: string, readonly outboxStatus: 'pending' | 'published' | 'failed', readonly deliveryState: string | null, readonly replied: boolean) {} }
+export class CampaignLeadPerformancePageDto { constructor(readonly campaignDraftId: string, readonly data: CampaignLeadPerformanceItemDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class CampaignDeliveryReviewItemDto { constructor(readonly outboxEventId: string, readonly campaignDraftId: string, readonly campaignName: string, readonly leadId: string, readonly accountName: string, readonly contactName: string | null, readonly phone: string | null, readonly deliveryState: string | null, readonly lastErrorCode: string | null, readonly attempts: number, readonly createdAt: string) {} }
 export class CampaignDeliveryReviewPageDto { constructor(readonly data: CampaignDeliveryReviewItemDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
-export class CampaignDeliveryConfirmRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly correlationId: string | null, readonly outboxEventId: string) {} }
+export class CampaignDeliveryConfirmRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null, readonly outboxEventId: string) {} }
 export class CampaignDeliveryConfirmDto { constructor(readonly outboxEventId: string, readonly status: 'published') {} }
-export class CampaignStatusChangeRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly campaignDraftId: string, readonly correlationId: string | null, readonly fromStatus: 'active' | 'paused', readonly toStatus: 'active' | 'paused') {} }
+export class CampaignStatusChangeRepositoryDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly campaignDraftId: string, readonly correlationId: string | null, readonly fromStatus: 'active' | 'paused', readonly toStatus: 'active' | 'paused') {} }
 export class CampaignStatusChangeDto { constructor(readonly campaignDraftId: string, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number]) {} }
 export class CampaignDraftDto {
   constructor(readonly id: string, readonly name: string, readonly openingMessage: string, readonly channelId: string, readonly channelName: string, readonly channelPhoneNumber: string, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly dailyMessageLimit: number, readonly minimumDelaySeconds: number, readonly status: (typeof CAMPAIGN_DRAFT_STATUSES)[number], readonly audienceLeadCount: number, readonly createdAt: string, readonly channelIds: string[] = [channelId], readonly channelLabels: string[] = [channelName]) {}
@@ -71,7 +74,7 @@ export class CampaignChannelQuotaSnapshotDto { constructor(readonly channelId: s
 export class CampaignOperationalSnapshotDto {
   constructor(readonly channelId: string, readonly provider: 'evolution' | 'whatsapp_cloud_api', readonly audienceCount: number, readonly channelActive: boolean, readonly channelConfigured: boolean, readonly agentReady: boolean, readonly windowStart: string, readonly windowEnd: string, readonly timeZone: string, readonly campaignDailyMessageLimit: number, readonly channelDailyMessageLimit: number, readonly channelDailyMessageCount: number, readonly openingMessage: string, readonly noSendDates: Array<{ readonly date: string; readonly name: string }>, readonly channelQuotas: CampaignChannelQuotaSnapshotDto[]) {}
 }
-export class CampaignOperationalSnapshotRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string) {} }
+export class CampaignOperationalSnapshotRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string, readonly access: LeadRepositoryAccessDto) {} }
 export class CampaignSelectedChannelsRepositoryDto { constructor(readonly organizationId: string, readonly campaignDraftId: string) {} }
 export class CampaignSelectedChannelDto { constructor(readonly id: string, readonly provider: 'evolution' | 'whatsapp_cloud_api', readonly active: boolean, readonly configured: boolean, readonly operationMode: 'inbound' | 'outbound' | 'hybrid') {} }
 export const createCampaignNoSendDateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), name: z.string().trim().min(2).max(CAMPAIGN_NO_SEND_DATE_LIMITS.name) }).strict().superRefine((input, context) => {

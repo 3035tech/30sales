@@ -3,7 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES, hasOrganizationRole } from '../auth/authorization.constants';
 import { LeadRepositoryAccessDto } from '../leads/leads.dto';
-import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
+import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
 import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';
@@ -19,17 +19,24 @@ export class CampaignsService {
   }
   async list(request: ApiRequestDto, query: ListCampaignDraftsDto): Promise<CampaignDraftPageDto> {
     const context = await this.tenantAccess.require(request, 'read');
-    return this.repository.list(new CampaignDraftListRepositoryDto(context.organizationId, query));
+    return this.repository.list(new CampaignDraftListRepositoryDto(context.organizationId, this.access(context.organizationId, context.userId, context.role), query));
   }
   async performance(request: ApiRequestDto, campaignDraftId: string): Promise<CampaignPerformanceDto> {
     const context = await this.tenantAccess.require(request, 'read');
-    const result = await this.repository.performance(new CampaignPerformanceRepositoryDto(context.organizationId, campaignDraftId));
+    const result = await this.repository.performance(new CampaignPerformanceRepositoryDto(context.organizationId, campaignDraftId, this.access(context.organizationId, context.userId, context.role)));
+    if (!result) throw new NotFoundException();
+    return result;
+  }
+  async performanceLeads(request: ApiRequestDto, campaignDraftId: string, query: ListCampaignDraftsDto): Promise<CampaignLeadPerformancePageDto> {
+    const context = await this.tenantAccess.require(request, 'read');
+    const result = await this.repository.performanceLeads(new CampaignLeadPerformanceRepositoryDto(context.organizationId, campaignDraftId, this.access(context.organizationId, context.userId, context.role), query));
     if (!result) throw new NotFoundException();
     return result;
   }
   async create(request: ApiRequestDto, dto: CreateCampaignDraftDto): Promise<CampaignDraftDto> {
     const context = await this.tenantAccess.require(request, 'create');
-    const draft = await this.repository.create(new CampaignDraftCreateRepositoryDto(context.organizationId, context.userId, request.correlationId, dto));
+    const draft = await this.repository.create(new CampaignDraftCreateRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), request.correlationId, dto));
+    if (draft === 'cross_line_channels') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.crossLineChannels, message: 'All selected campaign channels must belong to the same business line.' });
     if (!draft) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.channelUnavailable, message: 'The selected channel is not active and configured in the active organization.' });
     return draft;
   }
@@ -47,13 +54,13 @@ export class CampaignsService {
   }
   async checkOperationalReadiness(request: ApiRequestDto, campaignDraftId: string): Promise<CampaignOperationalReadinessDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId));
+    const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId, this.access(context.organizationId, context.userId, context.role)));
     if (!snapshot) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     const checkedAt = new Date();
     const selectedChannels = await this.repository.selectedChannels(new CampaignSelectedChannelsRepositoryDto(context.organizationId, campaignDraftId)) ?? [];
     const eligibleChannels = selectedChannels.filter((channel) => channel.active && channel.configured && channel.operationMode !== 'inbound');
     const healthChecks = snapshot.channelActive && snapshot.channelConfigured
-      ? await Promise.all(eligibleChannels.map(async (channel) => ({ channel, result: await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, request.correlationId) })))
+      ? await Promise.all(eligibleChannels.map(async (channel) => ({ channel, result: await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), request.correlationId) })))
       : [];
     const readyChecks = healthChecks.filter(({ channel, result }) => channel.provider === 'evolution' ? result?.status === CHANNEL_HEALTH_STATUS.connected : result?.status === CHANNEL_HEALTH_STATUS.reachable);
     const health = readyChecks.find(({ channel }) => channel.id === snapshot.channelId)?.result ?? readyChecks[0]?.result ?? healthChecks[0]?.result ?? null;
@@ -79,19 +86,19 @@ export class CampaignsService {
 
   async start(request: ApiRequestDto, campaignDraftId: string) {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId));
+    const snapshot = await this.repository.operationalSnapshot(new CampaignOperationalSnapshotRepositoryDto(context.organizationId, campaignDraftId, this.access(context.organizationId, context.userId, context.role)));
     if (!snapshot) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     if (!snapshot.channelActive || !snapshot.channelConfigured) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'The campaign channel is inactive or missing credentials.' });
     const selectedChannels = await this.repository.selectedChannels(new CampaignSelectedChannelsRepositoryDto(context.organizationId, campaignDraftId));
     if (!selectedChannels?.length) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
     const availableChannelIds: string[] = [];
     for (const channel of selectedChannels.filter((candidate) => candidate.active && candidate.configured && candidate.operationMode !== 'inbound')) {
-      const health = await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, request.correlationId);
+      const health = await this.channelsService.checkHealthForOrganization(context.organizationId, channel.id, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), request.correlationId);
       const providerReady = channel.provider === 'evolution' ? health?.status === CHANNEL_HEALTH_STATUS.connected : health?.status === CHANNEL_HEALTH_STATUS.reachable;
       if (providerReady) availableChannelIds.push(channel.id);
     }
     if (!availableChannelIds.length) throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.notReady, message: 'No selected messaging provider is connected and ready.' });
-    const result = await this.repository.start(new CampaignStartRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, availableChannelIds));
+    const result = await this.repository.start(new CampaignStartRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), campaignDraftId, request.correlationId, availableChannelIds));
     if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign draft was not found in the active organization.' });
     if (result === 'already_started') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.alreadyStarted, message: 'This campaign has already started.' });
     if (result === 'ineligible') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.audienceIneligible, message: 'One or more selected leads are no longer eligible. Refresh the audience preview.' });
@@ -102,7 +109,7 @@ export class CampaignsService {
 
   async pause(request: ApiRequestDto, campaignDraftId: string) {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, 'active', 'paused'));
+    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), campaignDraftId, request.correlationId, 'active', 'paused'));
     if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
     if (result === 'invalid_state') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.invalidState });
     return result;
@@ -110,7 +117,7 @@ export class CampaignsService {
 
   async resume(request: ApiRequestDto, campaignDraftId: string) {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, campaignDraftId, request.correlationId, 'paused', 'active'));
+    const result = await this.repository.changeStatus(new CampaignStatusChangeRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), campaignDraftId, request.correlationId, 'paused', 'active'));
     if (result === 'not_found') throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound });
     if (result === 'invalid_state') throw new ConflictException({ code: CAMPAIGN_ERROR_CODE.invalidState });
     return result;
@@ -118,12 +125,12 @@ export class CampaignsService {
 
   async deliveryReview(request: ApiRequestDto, query: ListCampaignDraftsDto): Promise<CampaignDeliveryReviewPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    return this.repository.listDeliveryReview(new CampaignDeliveryReviewRepositoryDto(context.organizationId, query.limit, query.offset));
+    return this.repository.listDeliveryReview(new CampaignDeliveryReviewRepositoryDto(context.organizationId, this.access(context.organizationId, context.userId, context.role), query.limit, query.offset));
   }
 
   async confirmDelivery(request: ApiRequestDto, outboxEventId: string): Promise<CampaignDeliveryConfirmDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const result = await this.repository.confirmDelivery(new CampaignDeliveryConfirmRepositoryDto(context.organizationId, context.userId, request.correlationId, outboxEventId));
+    const result = await this.repository.confirmDelivery(new CampaignDeliveryConfirmRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), request.correlationId, outboxEventId));
     if (!result) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign delivery review was not found in the active organization.' });
     return result;
   }

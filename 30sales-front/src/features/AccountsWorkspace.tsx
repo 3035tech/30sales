@@ -2,6 +2,7 @@ import { Button, IconButton, NumericField, SelectField, TextField } from '../com
 import { useEffect, useState } from 'react'
 import { ArrowRight, Building2, RefreshCw, Search, SlidersHorizontal, Tags } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_FILTER, api, ApiError, type AccountMarketSegment, type AccountSegmentDto, type AccountSortBy, type LeadStatus } from '../lib/api'
@@ -16,6 +17,8 @@ const statuses: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contac
 
 export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdateProfile }: { onOpenLeads: (accountName: string) => void; canManageSegments: boolean; canUpdateProfile: boolean }) {
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [rows, setRows] = useState<AccountRow[]>([])
   const [query, setQuery] = useState('')
   const [search, setSearch] = useState('')
@@ -49,11 +52,11 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     let active = true
     if (studentRangeInvalid) { setRows([]); setTotal(0); setHasNextPage(false); setLoading(false); setError(false); return () => { active = false } }
     setLoading(true); setError(false)
-    api.accounts.listPage({ search: search || undefined, leadStatus: leadStatus || undefined, segmentId: segmentFilter || undefined, marketSegment: ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === marketFilter), withoutMarketSegment: marketFilter === ACCOUNT_MARKET_FILTER.unclassified || undefined, studentCountMin: studentCountMin ?? undefined, studentCountMax: studentCountMax ?? undefined, sortBy, sortDirection, limit, offset })
+    api.accounts.listPage({ businessLineId, search: search || undefined, leadStatus: leadStatus || undefined, segmentId: segmentFilter || undefined, marketSegment: ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === marketFilter), withoutMarketSegment: marketFilter === ACCOUNT_MARKET_FILTER.unclassified || undefined, studentCountMin: studentCountMin ?? undefined, studentCountMax: studentCountMax ?? undefined, sortBy, sortDirection, limit, offset })
       .then((page) => { if (active) { setRows(page.data); setTotal(page.pagination.total); setHasNextPage(page.pagination.hasNextPage) } })
       .catch(() => { if (active) setError(true) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [search, leadStatus, segmentFilter, marketFilter, studentCountMin, studentCountMax, studentRangeInvalid, sortBy, sortDirection, limit, offset, refresh])
+  }, [businessLineId, search, leadStatus, segmentFilter, marketFilter, studentCountMin, studentCountMax, studentRangeInvalid, sortBy, sortDirection, limit, offset, refresh])
   useEffect(() => { api.accounts.segments().then(setSegments).catch(() => setSegmentError(t('accounts.segmentsLoadFailed'))) }, [t])
 
   const saveSegment = async (event: React.FormEvent) => {

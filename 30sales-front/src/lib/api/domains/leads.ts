@@ -4,8 +4,9 @@ import { type AccountMarketSegment, type CreateLeadContactInput, type CreateLead
 
 
 
-function listLeadPage(params: { status?: LeadStatus; source?: CreateLeadInput['source']; assignedToUserId?: string; segmentId?: string; marketSegment?: AccountMarketSegment; withoutMarketSegment?: boolean; studentCountMin?: number; studentCountMax?: number; search?: string; sortBy?: LeadSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) {
+function listLeadPage(params: { businessLineId?: string; status?: LeadStatus; source?: CreateLeadInput['source']; assignedToUserId?: string; segmentId?: string; marketSegment?: AccountMarketSegment; withoutMarketSegment?: boolean; studentCountMin?: number; studentCountMax?: number; search?: string; sortBy?: LeadSortBy; sortDirection?: 'asc' | 'desc'; limit?: number; offset?: number } = {}) {
   const search = new URLSearchParams();
+  if (params.businessLineId) search.set('businessLineId', params.businessLineId);
   if (params.status) search.set('status', params.status);
   if (params.source) search.set('source', params.source);
   if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
@@ -26,12 +27,13 @@ export const leadsApi = {
     listPage: listLeadPage,
     sdrReadiness: (id: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/sdr-readiness`, sdrReadinessSchema),
     sdrPreviewChannels: () => request('/api/v1/leads/sdr-preview/channels', z.array(sdrPreviewChannelSchema)),
-    sdrPreview: (params: { channelId?: string; limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.channelId) query.set('channelId', params.channelId); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/leads/sdr-preview?${query.toString()}`, sdrPreviewSchema) },
-    checkDuplicates: (input: Pick<CreateLeadInput, 'accountName' | 'email' | 'phone'>) => request('/api/v1/leads/duplicate-check', leadDuplicateCheckSchema, { method: 'POST', body: JSON.stringify({ accountName: input.accountName, email: input.email, phone: input.phone }) }),
+    sdrPreview: (params: { channelId?: string; businessLineId?: string; limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.channelId) query.set('channelId', params.channelId); if (params.businessLineId) query.set('businessLineId', params.businessLineId); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/leads/sdr-preview?${query.toString()}`, sdrPreviewSchema) },
+    checkDuplicates: (input: Pick<CreateLeadInput, 'businessLineId' | 'accountName' | 'email' | 'phone'>) => request('/api/v1/leads/duplicate-check', leadDuplicateCheckSchema, { method: 'POST', body: JSON.stringify({ businessLineId: input.businessLineId, accountName: input.accountName, email: input.email, phone: input.phone }) }),
     assignees: () => request('/api/v1/leads/assignees', z.array(leadAssigneeSchema)),
     assign: (id: string, assignedToUserId: string | null) => request(`/api/v1/leads/${encodeURIComponent(id)}/assignee`, leadSchema, { method: 'PATCH', body: JSON.stringify({ assignedToUserId }) }),
-    list: (params: { status?: LeadStatus; assignedToUserId?: string; limit?: number; offset?: number } = {}) => {
+    list: (params: { businessLineId?: string; status?: LeadStatus; assignedToUserId?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.status) search.set('status', params.status);
       if (params.assignedToUserId) search.set('assignedToUserId', params.assignedToUserId);
       if (params.limit !== undefined) search.set('limit', String(params.limit));

@@ -1,15 +1,56 @@
 import { Injectable } from '@nestjs/common';
-import { asc, count, eq, ilike, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, or } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents } from '../db/schema';
+import { auditEvents, platformAuditEvents, platformEvolutionConfiguration } from '../db/schema';
 import { invitation, member, organization, user } from '../db/auth-schema';
 import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_OWNER_INVITATION_VALIDITY_DAYS, PLATFORM_ROLE } from '../auth/authorization.constants';
-import { PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto } from './platform.dto';
+import { PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 
 type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto; invitationId: string };
 
 @Injectable()
 export class PlatformRepository {
+  async getEvolutionConfiguration(): Promise<PlatformEvolutionConfigurationDto> {
+    const [row] = await database.select({ displayName: platformEvolutionConfiguration.displayName, baseUrl: platformEvolutionConfiguration.baseUrl, updatedAt: platformEvolutionConfiguration.updatedAt }).from(platformEvolutionConfiguration).where(eq(platformEvolutionConfiguration.id, 'default')).limit(1);
+    return new PlatformEvolutionConfigurationDto(Boolean(row), row?.displayName ?? null, row?.baseUrl ?? null, row?.updatedAt.toISOString() ?? null);
+  }
+
+  async saveEvolutionConfiguration(input: SavePlatformEvolutionConfigurationDto, encrypted: { ciphertext: string; iv: string; authTag: string }, actorUserId: string, correlationId: string | null): Promise<PlatformEvolutionConfigurationDto> {
+    const baseUrl = input.baseUrl.replace(/\/+$/, '');
+    return database.transaction(async (transaction) => {
+      const [previous] = await transaction.select({ displayName: platformEvolutionConfiguration.displayName, baseUrl: platformEvolutionConfiguration.baseUrl })
+        .from(platformEvolutionConfiguration).where(eq(platformEvolutionConfiguration.id, 'default')).limit(1);
+      const updatedAt = new Date();
+      const [row] = await transaction.insert(platformEvolutionConfiguration).values({ id: 'default', displayName: input.displayName, baseUrl, credentialsCiphertext: encrypted.ciphertext, credentialsIv: encrypted.iv, credentialsAuthTag: encrypted.authTag, updatedByUserId: actorUserId, updatedAt })
+        .onConflictDoUpdate({ target: platformEvolutionConfiguration.id, set: { displayName: input.displayName, baseUrl, credentialsCiphertext: encrypted.ciphertext, credentialsIv: encrypted.iv, credentialsAuthTag: encrypted.authTag, updatedByUserId: actorUserId, updatedAt } })
+        .returning({ displayName: platformEvolutionConfiguration.displayName, baseUrl: platformEvolutionConfiguration.baseUrl, updatedAt: platformEvolutionConfiguration.updatedAt });
+      await transaction.insert(platformAuditEvents).values({
+        actorUserId,
+        action: PLATFORM_AUDIT_ACTION.evolutionConfigurationUpdated,
+        entityType: PLATFORM_AUDIT_ENTITY_TYPE.platformIntegration,
+        entityId: 'evolution',
+        correlationId,
+        beforeState: previous ? { displayName: previous.displayName, baseUrl: previous.baseUrl } : null,
+        afterState: { displayName: row.displayName, baseUrl: row.baseUrl },
+        occurredAt: row.updatedAt,
+      });
+      return new PlatformEvolutionConfigurationDto(true, row.displayName, row.baseUrl, row.updatedAt.toISOString());
+    });
+  }
+
+  async getEvolutionCredentials(): Promise<{ baseUrl: string; ciphertext: string; iv: string; authTag: string } | null> {
+    const [row] = await database.select({ baseUrl: platformEvolutionConfiguration.baseUrl, ciphertext: platformEvolutionConfiguration.credentialsCiphertext, iv: platformEvolutionConfiguration.credentialsIv, authTag: platformEvolutionConfiguration.credentialsAuthTag }).from(platformEvolutionConfiguration).where(eq(platformEvolutionConfiguration.id, 'default')).limit(1);
+    return row ?? null;
+  }
+
+  async listEvolutionAudit(query: PlatformAuditQueryDto): Promise<PlatformAuditEventDto[]> {
+    const rows = await database.select({ id: platformAuditEvents.id, action: platformAuditEvents.action, actorName: user.name, beforeState: platformAuditEvents.beforeState, afterState: platformAuditEvents.afterState, occurredAt: platformAuditEvents.occurredAt })
+      .from(platformAuditEvents).leftJoin(user, eq(user.id, platformAuditEvents.actorUserId))
+      .where(and(eq(platformAuditEvents.entityType, PLATFORM_AUDIT_ENTITY_TYPE.platformIntegration), eq(platformAuditEvents.entityId, 'evolution')))
+      .orderBy(desc(platformAuditEvents.occurredAt), desc(platformAuditEvents.id)).limit(query.limit).offset(query.offset);
+    return rows.map((row) => new PlatformAuditEventDto(row.id, row.action, row.actorName, row.beforeState ?? null, row.afterState ?? null, row.occurredAt.toISOString()));
+  }
+
   async isSuperAdmin(userId: string): Promise<boolean> {
     const [account] = await database.select({ platformRole: user.platformRole }).from(user).where(eq(user.id, userId)).limit(1);
     return account?.platformRole === PLATFORM_ROLE.superAdmin;

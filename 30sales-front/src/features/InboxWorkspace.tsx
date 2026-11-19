@@ -2,7 +2,8 @@ import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaFiel
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
+import { useSearchParams } from 'react-router-dom'
+import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'
@@ -17,6 +18,8 @@ const inboxStreamUpdateSchema = z.object({ conversationId: z.string().uuid() }).
 
 export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [messages, setMessages] = useState<MessageDto[]>([])
@@ -34,11 +37,13 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [sendingMessage, setSendingMessage] = useState(false)
   const [messageSendError, setMessageSendError] = useState('')
   const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
   const [assignees, setAssignees] = useState<Array<{ id: string; name: string; role: string }>>([])
   const [assigneeTarget, setAssigneeTarget] = useState('')
   const [currentUserId, setCurrentUserId] = useState('')
   const [controlling, setControlling] = useState(false)
   const [channelFilter, setChannelFilter] = useState('')
+  const [businessLineFilter, setBusinessLineFilter] = useState('')
   const [conversationSearch, setConversationSearch] = useState(initialSearch)
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ConversationDto['status'] | ''>('')
@@ -56,6 +61,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [leadSearch, setLeadSearch] = useState('')
   const [leadOptions, setLeadOptions] = useState<Array<{ id: string; accountName: string; contactName: string | null; phone: string | null }>>([])
+
+  useEffect(() => { setBusinessLineFilter(globalBusinessLineId); setChannelFilter(''); setOffset(0) }, [globalBusinessLineId])
   const [reconcileLeadId, setReconcileLeadId] = useState('')
   const [reconcileLead, setReconcileLead] = useState<{ id: string; accountName: string; contactName: string | null; phone: string | null } | null>(null)
   const [leadSearchLoading, setLeadSearchLoading] = useState(false)
@@ -78,7 +85,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     const sequence = ++refreshSequence.current
     if (!quiet) { setLoading(true); setError('') }
     try {
-      const result = await api.inbox.conversations({ conversationId: conversationIdFilter || undefined, channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
+      const result = await api.inbox.conversations({ conversationId: conversationIdFilter || undefined, businessLineId: businessLineFilter || undefined, channelId: channelFilter || undefined, tagId: tagFilter || undefined, status: statusFilter || undefined, ownerUserId: ownerFilter || undefined, search: debouncedSearch || undefined, unreadOnly, limit: pageSize, offset })
       if (sequence !== refreshSequence.current) return
       setConversations(result.data)
       setConversationTotal(result.pagination.total)
@@ -99,10 +106,11 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     } finally {
       if (sequence === refreshSequence.current) setLoading(false)
     }
-  }, [conversationIdFilter, channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
+  }, [conversationIdFilter, businessLineFilter, channelFilter, tagFilter, statusFilter, ownerFilter, debouncedSearch, unreadOnly, pageSize, offset, t])
   refreshRef.current = refresh
 
   useEffect(() => { api.inbox.channels().then(setChannels).catch(() => setChannels([])) }, [])
+  useEffect(() => { api.businessLines.list().then((result) => setBusinessLines(result.data.filter((line) => line.status === 'active'))).catch(() => setBusinessLines([])) }, [])
   useEffect(() => { api.inbox.tags().then(setTags).catch(() => setTags([])) }, [])
   useEffect(() => { api.inbox.assignees().then(setAssignees).catch(() => setAssignees([])) }, [])
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
@@ -184,14 +192,14 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   }, [messages, messagesConversationId, selectedId, unreadOnly, refresh])
 
   const selected = conversations.find((conversation) => conversation.id === selectedId)
-  const hasConversationFilters = Boolean(conversationIdFilter || channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
+  const hasConversationFilters = Boolean(conversationIdFilter || businessLineFilter || channelFilter || tagFilter || statusFilter || ownerFilter || unreadOnly || conversationSearch.trim())
   const quickView = unreadOnly ? 'unread' : currentUserId && ownerFilter === currentUserId ? 'mine' : ownerFilter === 'unassigned' ? 'unassigned' : 'all'
   const applyQuickView = (view: 'all' | 'mine' | 'unassigned' | 'unread') => {
     setUnreadOnly(view === 'unread')
     setOwnerFilter(view === 'mine' ? currentUserId : view === 'unassigned' ? 'unassigned' : '')
     setOffset(0)
   }
-  const clearConversationFilters = () => { setConversationIdFilter(''); setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setChannelFilter(''); setTagFilter(''); setOffset(0) }
+  const clearConversationFilters = () => { setConversationIdFilter(''); setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setBusinessLineFilter(''); setChannelFilter(''); setTagFilter(''); setOffset(0) }
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
@@ -265,9 +273,9 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     if (!reconcileOpen || leadSearch.trim().length < 2) { setLeadOptions([]); setLeadSearchLoading(false); setLeadSearchFailed(false); return }
     let active = true
     setLeadSearchLoading(true); setLeadSearchFailed(false)
-    const timer = window.setTimeout(() => { void api.leads.listPage({ search: leadSearch.trim(), limit: 10, offset: 0 }).then((result) => { if (active) setLeadOptions(result.data.map((lead) => ({ id: lead.id, accountName: lead.accountName, contactName: lead.contactName, phone: lead.phone }))) }).catch(() => { if (active) { setLeadOptions([]); setLeadSearchFailed(true) } }).finally(() => { if (active) setLeadSearchLoading(false) }) }, 250)
+    const timer = window.setTimeout(() => { void api.leads.listPage({ businessLineId: selected?.businessLineId ?? undefined, search: leadSearch.trim(), limit: 10, offset: 0 }).then((result) => { if (active) setLeadOptions(result.data.map((lead) => ({ id: lead.id, accountName: lead.accountName, contactName: lead.contactName, phone: lead.phone }))) }).catch(() => { if (active) { setLeadOptions([]); setLeadSearchFailed(true) } }).finally(() => { if (active) setLeadSearchLoading(false) }) }, 250)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [reconcileOpen, leadSearch])
+  }, [reconcileOpen, leadSearch, selected?.businessLineId])
   const saveContactReconciliation = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!selected || !reconcileLeadId) return
@@ -339,7 +347,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       </aside>
       <section className="inbox-thread" aria-label={t('inbox.thread')}>
         {!selected ? <WorkspaceState kind={loading ? 'loading' : 'empty'} message={loading ? t('common.loading') : t('inbox.selectConversation')} detail={t('inbox.readOnly')} /> : <>
-          <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
+          <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.businessLineName && <small>{t('businessLines.title')}: {selected.businessLineName}</small>}{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
             <Button type="button" className="inbox-context-toggle" aria-controls="inbox-contact-context" aria-expanded={contactContextOpen} onClick={() => setContactContextOpen((open) => !open)}><UserRound size={15} />{t('inbox.leadDetails')}</Button>
             {(!selected.ownerUserId || selected.ownerUserId === currentUserId) && assignees.length > 0 && <><label className="inbox-assignee-select"><span>{t('inbox.assignTo')}</span><SelectField value={assigneeTarget} onChange={(event) => setAssigneeTarget(event.target.value)} disabled={controlling}><option value="" disabled>{t('inbox.selectAssignee')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label><Button type="button" disabled={controlling || !assigneeTarget} onClick={() => void controlConversation('assign')}>{t('inbox.assign')}</Button></>}
             {!selected.ownerUserId && <Button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</Button>}
@@ -374,9 +382,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           {(['all', 'mine', 'unassigned', 'unread'] as const).map((view) => <Button key={view} type="button" className={quickView === view ? 'selected' : ''} aria-pressed={quickView === view} disabled={view === 'mine' && !currentUserId} onClick={() => applyQuickView(view)}>{t(`inboxQuickViews.${view}`)}</Button>)}
         </div>
         <div className="inbox-conversation-filters"><label className="inbox-channel-filter">{t('inbox.searchConversations')}<TextField value={conversationSearch} onChange={(event) => { setConversationSearch(event.target.value); setOffset(0) }} maxLength={120} placeholder={t('inbox.searchPlaceholder')} /></label><Button className="inbox-filter-toggle" type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((open) => !open)}><SlidersHorizontal size={15} />{t(filtersOpen ? 'inbox.hideFilters' : 'inbox.showFilters')}</Button>
-          {filtersOpen && <div className="inbox-advanced-filters"><label className="inbox-channel-filter">{t('inbox.filterStatus')}<SelectField value={statusFilter} onChange={(event) => { setStatusFilter((['open','pending','resolved','snoozed'] as const).find((status) => status === event.target.value) ?? ''); setOffset(0) }}><option value="">{t('inbox.allStatuses')}</option>{(['open','pending','resolved','snoozed'] as const).map((status) => <option key={status} value={status}>{t(`inbox.status.${status}`)}</option>)}</SelectField></label>
+          {filtersOpen && <div className="inbox-advanced-filters"><label className="inbox-channel-filter">{t('businessLines.title')}<SelectField value={businessLineFilter} onChange={(event) => { const nextLineId = event.target.value; setBusinessLineFilter(nextLineId); setChannelFilter(''); setOffset(0); setSearchParams((current) => { const next = new URLSearchParams(current); if (nextLineId) next.set('businessLineId', nextLineId); else next.delete('businessLineId'); return next }) }}><option value="">{t('businessLines.allLines')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
+            <label className="inbox-channel-filter">{t('inbox.filterStatus')}<SelectField value={statusFilter} onChange={(event) => { setStatusFilter((['open','pending','resolved','snoozed'] as const).find((status) => status === event.target.value) ?? ''); setOffset(0) }}><option value="">{t('inbox.allStatuses')}</option>{(['open','pending','resolved','snoozed'] as const).map((status) => <option key={status} value={status}>{t(`inbox.status.${status}`)}</option>)}</SelectField></label>
             <label className="inbox-channel-filter">{t('inbox.filterOwner')}<SelectField value={ownerFilter} onChange={(event) => { setOwnerFilter(event.target.value); setOffset(0) }}><option value="">{t('inbox.allOwners')}</option><option value="unassigned">{t('inbox.unassigned')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label>
-            <label className="inbox-channel-filter">{t('channels.inboxFilter')}<SelectField value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</SelectField></label>
+            <label className="inbox-channel-filter">{t('channels.inboxFilter')}<SelectField value={channelFilter} onChange={(event) => { setChannelFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('channels.allInboxChannels')}</option>{channels.filter((channel) => !businessLineFilter || channel.businessLineId === businessLineFilter).map((channel) => <option key={channel.id} value={channel.id}>{channel.displayName} · {channel.phoneNumber}</option>)}</SelectField></label>
             <label className="inbox-channel-filter">{t('inboxComposer.tagFilter')}<SelectField value={tagFilter} onChange={(event) => { setTagFilter(event.target.value); setOffset(0) }} disabled={sendingMessage}><option value="">{t('inboxComposer.allTags')}</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</SelectField></label>
             {conversationIdFilter && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}
           </div>}
@@ -387,7 +396,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         {loading && conversations.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : conversations.length === 0 ? error ? <WorkspaceState kind="error" compact message={error} /> : <WorkspaceState kind="empty" compact message={hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')} detail={hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}>{hasConversationFilters && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}</WorkspaceState> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
           return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong>{conversation.unread && <span className="inbox-unread-badge">{t('inbox.unread')}</span>}<small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small className="inbox-conversation-time">{formatConversationTime(conversation.lastMessageAt ?? conversation.createdAt)}</small><small>{t(`inbox.status.${conversation.status}`)} · {t(`inbox.modes.${conversation.automationMode}`)}</small></span>
+            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong>{conversation.unread && <span className="inbox-unread-badge">{t('inbox.unread')}</span>}{conversation.businessLineName && <small>{conversation.businessLineName}</small>}<small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small className="inbox-conversation-time">{formatConversationTime(conversation.lastMessageAt ?? conversation.createdAt)}</small><small>{t(`inbox.status.${conversation.status}`)} · {t(`inbox.modes.${conversation.automationMode}`)}</small></span>
           </Button>
         })}
         </div>

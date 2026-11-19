@@ -11,7 +11,7 @@ export const createHandoffSchema = z.object({
 }).strict();
 export type CreateHandoffDto = z.infer<typeof createHandoffSchema>;
 
-export const listHandoffsSchema = z.object({ status: z.enum(['requested', 'accepted', 'returned']).default('requested'), handoffId: z.string().uuid().optional(), search: z.string().trim().max(200).optional(), sortBy: z.enum(['requestedAt', 'accountName', 'contactName', 'nextStepAt']).default('requestedAt'), sortDirection: z.enum(['asc', 'desc']).default('desc'), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listHandoffsSchema = z.object({ status: z.enum(['requested', 'accepted', 'returned']).default('requested'), handoffId: z.string().uuid().optional(), businessLineId: z.string().uuid().optional(), search: z.string().trim().max(200).optional(), sortBy: z.enum(['requestedAt', 'accountName', 'contactName', 'nextStepAt']).default('requestedAt'), sortDirection: z.enum(['asc', 'desc']).default('desc'), limit: z.coerce.number().int().min(1).max(100).default(50), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListHandoffsQueryDto = z.infer<typeof listHandoffsSchema>;
 export const returnHandoffSchema = z.object({ reason: z.string().trim().min(3).max(1000), nextStep: z.string().trim().min(3).max(500), dueAt: z.string().datetime({ offset: true }) }).strict();
 export type ReturnHandoffDto = z.infer<typeof returnHandoffSchema>;
@@ -43,7 +43,7 @@ export class HandoffRecordDto {
   ) {}
 }
 export class HandoffPageDto { constructor(readonly data: HandoffRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
-export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateHandoffDto, readonly correlationId: string | null = null) {} }
+export class HandoffRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: CreateHandoffDto, readonly correlationId: string | null = null) {} }
 export class HandoffRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly isCloser: boolean, readonly query: ListHandoffsQueryDto) {} }
-export class HandoffRepositoryAcceptDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
+export class HandoffRepositoryAcceptDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly correlationId: string | null = null) {} }
 export class HandoffRepositoryReturnDto { constructor(readonly organizationId: string, readonly handoffId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: ReturnHandoffDto, readonly correlationId: string | null = null) {} }

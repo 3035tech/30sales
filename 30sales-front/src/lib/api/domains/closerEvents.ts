@@ -4,8 +4,9 @@ import { type CloserEventSlaSettingsDto, closerEventSlaSettingsSchema, closerEve
 
 
 export const closerEventsApi = {
-    list: (params: { limit?: number; offset?: number } = {}) => {
+    list: (params: { businessLineId?: string; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       return request(`/api/v1/closer-events?${search.toString()}`, closerEventsPageSchema);

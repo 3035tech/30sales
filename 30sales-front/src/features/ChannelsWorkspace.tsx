@@ -1,14 +1,16 @@
-import { Button, CheckboxField, IconButton, NumericField, PhoneField, SelectField, TextField } from '../components/ui/FormControls'
+import { Button, CheckboxField, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
+import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
+import { ApiError, api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
 import './ChannelsWorkspace.css'
 
-type SortKey = 'displayName' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
+type SortKey = 'displayName' | 'businessLine' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
 type ChannelsView = 'channels' | 'monitoring'
 function parseChannelOperationMode(value: string): ChannelDto['operationMode'] | null { return value === 'inbound' || value === 'outbound' || value === 'hybrid' ? value : null }
 function parseAssistantScheduleMode(value: string): ChannelDto['assistantScheduleMode'] | null { return value === 'always' || value === 'business_hours' || value === 'after_hours' || value === 'disabled' ? value : null }
@@ -17,7 +19,7 @@ const MONITORING_CHECK_BATCH_SIZE = 20
 const MONITORING_SIGNAL_STALE_MS = 5 * 60_000
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const
 type EditableBusinessHour = { dayOfWeek: number; enabled: boolean; startTime: string; endTime: string }
-const emptyForm: CreateChannelInput = { provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
+const emptyForm: CreateChannelInput = { businessLineId: '', provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 function WhatsAppMark({ size = 18 }: { size?: number }) {
   return <svg className="whatsapp-mark" width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.198-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.273.297-1.04 1.016-1.04 2.479s1.065 2.876 1.213 3.074c.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.693.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 0 1-5.031-1.378l-.361-.214-3.741.982.999-3.648-.235-.374a9.832 9.832 0 0 1-1.51-5.26c.002-5.45 4.436-9.884 9.89-9.884 2.64 0 5.122 1.03 6.985 2.897a9.825 9.825 0 0 1 2.89 6.99c-.003 5.45-4.437 9.889-9.882 9.889m8.413-18.297A11.815 11.815 0 0 0 12.05 0C5.495 0 .16 5.335.157 11.893c-.001 2.096.547 4.142 1.588 5.946L.057 24l6.304-1.654a11.882 11.882 0 0 0 5.684 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.82 11.82 0 0 0-3.479-8.413Z" /></svg>
@@ -32,8 +34,11 @@ function toMonitoringConnectionStatus(liveStatus: ChannelMonitoringCheckDto['dat
 
 export function ChannelsWorkspace() {
   const { t, i18n } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const apiBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '')
   const [channels, setChannels] = useState<ChannelDto[]>([])
+  const [businessLines, setBusinessLines] = useState<Awaited<ReturnType<typeof api.businessLines.list>>['data']>([])
   const [form, setForm] = useState<CreateChannelInput>(emptyForm)
   const [query, setQuery] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('displayName')
@@ -63,8 +68,6 @@ export function ChannelsWorkspace() {
   const [connectionError, setConnectionError] = useState(false)
   const pairingRequestId = useRef(0)
   const [credentialsChannelId, setCredentialsChannelId] = useState('')
-  const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
-  const [evolutionApiKey, setEvolutionApiKey] = useState('')
   const [evolutionWebhookSecret, setEvolutionWebhookSecret] = useState('')
   const [cloudAccessToken, setCloudAccessToken] = useState('')
   const [cloudSignalSecret, setCloudSignalSecret] = useState('')
@@ -91,8 +94,6 @@ export function ChannelsWorkspace() {
 
   const clearCredentialForm = () => {
     setCredentialsChannelId('')
-    setEvolutionBaseUrl('')
-    setEvolutionApiKey('')
     setEvolutionWebhookSecret('')
     setCloudAccessToken('')
     setCloudSignalSecret('')
@@ -106,9 +107,19 @@ export function ChannelsWorkspace() {
   useEffect(() => {
     let active = true
     setLoading(true); setError('')
-    api.channels.list().then((result) => { if (active) setChannels(result) }).catch(() => { if (active) setError(t('channels.loadFailed')) }).finally(() => { if (active) setLoading(false) })
+    Promise.all([api.channels.list(businessLineId), api.businessLines.list()]).then(([channelResult, lineResult]) => {
+      if (!active) return
+      setChannels(channelResult)
+      const activeLines = lineResult.data.filter((line) => line.status === 'active')
+      setBusinessLines(activeLines)
+      setForm((current) => businessLineId && activeLines.some((line) => line.id === businessLineId)
+        ? { ...current, businessLineId }
+        : current.businessLineId && activeLines.some((line) => line.id === current.businessLineId)
+        ? current
+        : { ...current, businessLineId: activeLines.find((line) => line.isDefault)?.id ?? activeLines[0]?.id ?? '' })
+    }).catch(() => { if (active) setError(t('channels.loadFailed')) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [refresh, t])
+  }, [businessLineId, refresh, t])
 
   const monitoringChannels = useMemo(() => channels.filter((channel) => channel.provider === 'evolution'), [channels])
   const eligibleMonitoringChannels = useMemo(() => monitoringChannels.filter((channel) => channel.isActive && channel.isConfigured), [monitoringChannels])
@@ -158,11 +169,11 @@ export function ChannelsWorkspace() {
 
   const rows = useMemo(() => {
     const search = query.trim().toLocaleLowerCase()
-    const filtered = channels.filter((channel) => `${channel.displayName} ${channel.phoneNumber} ${channel.provider} ${channel.providerChannelId} ${channel.providerAccountId ?? ''}`.toLocaleLowerCase().includes(search))
+    const filtered = channels.filter((channel) => `${channel.displayName} ${channel.businessLineName ?? ''} ${channel.phoneNumber} ${channel.provider} ${channel.providerChannelId} ${channel.providerAccountId ?? ''}`.toLocaleLowerCase().includes(search))
     const direction = sortDirection === 'asc' ? 1 : -1
     return filtered.sort((left, right) => {
       const values: Record<SortKey, [string, string]> = {
-        displayName: [left.displayName, right.displayName], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], providerChannelId: [left.providerChannelId, right.providerChannelId], status: [`${left.isActive ? '0' : '1'}-${left.isConfigured ? '0' : '1'}-${healthChecks[left.id]?.status ?? 'z'}`, `${right.isActive ? '0' : '1'}-${right.isConfigured ? '0' : '1'}-${healthChecks[right.id]?.status ?? 'z'}`], dailyMessageCount: [String(left.dailyMessageCount).padStart(8, '0'), String(right.dailyMessageCount).padStart(8, '0')],
+        displayName: [left.displayName, right.displayName], businessLine: [left.businessLineName ?? '', right.businessLineName ?? ''], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], providerChannelId: [left.providerChannelId, right.providerChannelId], status: [`${left.isActive ? '0' : '1'}-${left.isConfigured ? '0' : '1'}-${healthChecks[left.id]?.status ?? 'z'}`, `${right.isActive ? '0' : '1'}-${right.isConfigured ? '0' : '1'}-${healthChecks[right.id]?.status ?? 'z'}`], dailyMessageCount: [String(left.dailyMessageCount).padStart(8, '0'), String(right.dailyMessageCount).padStart(8, '0')],
       }
       return values[sortKey][0].localeCompare(values[sortKey][1]) * direction || left.id.localeCompare(right.id)
     })
@@ -173,11 +184,11 @@ export function ChannelsWorkspace() {
     try {
       const created = await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
       setChannels((current) => [created, ...current.filter((channel) => channel.id !== created.id)])
-      setForm(emptyForm)
+      setForm({ ...emptyForm, businessLineId: created.businessLineId ?? '' })
       clearCredentialForm()
       setCredentialsChannelId(created.id)
       setQuery(''); setOffset(0); setRefresh((version) => version + 1)
-    } catch { setError(t('channels.saveFailed')) }
+    } catch (caught) { setError(caught instanceof ApiError && caught.code === 'PLATFORM_EVOLUTION_NOT_CONFIGURED' ? t('channels.platformEvolutionMissing') : caught instanceof ApiError && caught.code === 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID' ? t('channels.platformEvolutionInvalid') : t('channels.saveFailed')) }
     finally { setSaving(false) }
   }
   const updateProvider = (provider: string) => {
@@ -225,7 +236,8 @@ export function ChannelsWorkspace() {
   }
   const prefillDiscoveredInstance = (instance: NonNullable<EvolutionInstanceListDto['instances'][number]>) => {
     if (!instance.phoneNumber) return
-    setForm({ provider: 'evolution', displayName: instance.displayName, phoneNumber: instance.phoneNumber, providerChannelId: instance.instanceName, providerAccountId: '' })
+    const phoneNumber = instance.phoneNumber
+    setForm((current) => ({ ...current, provider: 'evolution', displayName: instance.displayName, phoneNumber, providerChannelId: instance.instanceName, providerAccountId: '' }))
     setDiscoveryChannel(null); setDiscovery(null); setCredentialsChannelId('')
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -236,13 +248,13 @@ export function ChannelsWorkspace() {
     setSavingCredentials(true); setError('')
     try {
       await api.channels.setCredentials(channel.id, channel.provider === 'evolution'
-        ? { provider: 'evolution', baseUrl: evolutionBaseUrl, apiKey: evolutionApiKey, webhookSecret: evolutionWebhookSecret }
+        ? { provider: 'evolution', webhookSecret: evolutionWebhookSecret }
         : { provider: 'whatsapp_cloud_api', accessToken: cloudAccessToken, signalSecret: cloudSignalSecret })
       setHealthChecks((current) => { const next = { ...current }; delete next[channel.id]; return next })
       setHealthCheckErrors((current) => { const next = { ...current }; delete next[channel.id]; return next })
       clearCredentialForm(); setRefresh((version) => version + 1)
       if (channel.provider === 'evolution') void requestEvolutionConnection(channel)
-    } catch { setError(t('channels.credentialsFailed')) }
+    } catch (caught) { setError(caught instanceof ApiError && caught.code === 'PLATFORM_EVOLUTION_NOT_CONFIGURED' ? t('channels.platformEvolutionMissing') : caught instanceof ApiError && caught.code === 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID' ? t('channels.platformEvolutionInvalid') : t('channels.credentialsFailed')) }
     finally { setSavingCredentials(false) }
   }
 
@@ -296,6 +308,7 @@ export function ChannelsWorkspace() {
 
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><WhatsAppMark size={19} /><strong>{channel.displayName}</strong></div> },
+    { id: 'businessLine', label: t('businessLines.title'), render: (channel) => channel.businessLineName ?? '' },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => <span className="channel-provider-cell"><WhatsAppMark size={16} />{t(`channels.providers.${channel.provider}`)}</span> },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
     { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}</div> },
@@ -397,19 +410,20 @@ export function ChannelsWorkspace() {
       <ol className="channel-setup-progress" aria-label={t('channels.setupSteps')}><li aria-current="step"><span>1</span>{t('channels.setupDetails')}</li><li><span>2</span>{t('channels.setupConnection')}</li></ol>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.addTitle')}</strong><small>{t('channels.addHint')}</small></div></div>
       <div className="channel-form-grid">
+        <label>{t('businessLines.title')}<SelectField value={form.businessLineId} required disabled={businessLines.length === 0} onChange={(event) => setForm((current) => ({ ...current, businessLineId: event.target.value }))}>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
         <label>{t('channels.provider')}<SelectField value={form.provider} onChange={(event) => updateProvider(event.target.value)}><option value="evolution">{t('channels.providers.evolution')}</option><option value="whatsapp_cloud_api">{t('channels.providers.whatsapp_cloud_api')}</option></SelectField></label>
         <label><span className="channel-form-label">{t('channels.name')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} minLength={2} maxLength={120} pattern=".*\S.*" required /></label>
         <label><span className="channel-form-label">{t('channels.phone')}<span className="channel-required-mark" aria-hidden="true">*</span></span><PhoneField requireInternational value={form.phoneNumber} onValueChange={(phoneNumber) => setForm((current) => ({ ...current, phoneNumber }))} hint={t('channels.phoneHint')} placeholder="+55 (11) 99999-9999" required /></label>
-        <label><span className="channel-form-label">{t(form.provider === 'evolution' ? 'channels.evolutionInstance' : 'channels.phoneNumberId')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>
+        <label><span className="channel-form-label">{t(form.provider === 'evolution' ? 'channels.evolutionInstance' : 'channels.phoneNumberId')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} minLength={1} maxLength={200} pattern={form.provider === 'evolution' ? '[A-Za-z0-9][A-Za-z0-9-]{0,199}' : '.*\\S.*'} required hint={form.provider === 'evolution' ? t('channels.evolutionInstanceHint') : undefined} /></label>
         {form.provider === 'whatsapp_cloud_api' && <label><span className="channel-form-label">{t('channels.businessAccount')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerAccountId ?? ''} onChange={(event) => setForm((current) => ({ ...current, providerAccountId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>}
       </div>
-      <div className="channel-form-footer"><p>{t('channels.credentialsNote')}</p><Button className="primary" disabled={saving}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.continueToConnection')}</>}</Button></div>
+      <div className="channel-form-footer"><p>{businessLines.length === 0 ? t('businessLines.empty') : t('channels.credentialsNote')}</p><Button className="primary" disabled={saving || !form.businessLineId}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.continueToConnection')}</>}</Button></div>
     </form>}
     {viewMode === 'channels' && credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
       <ol className="channel-setup-progress" aria-label={t('channels.setupSteps')}><li className="is-complete"><span><Check size={13} /></span>{t('channels.setupDetails')}</li><li aria-current="step"><span>2</span>{t('channels.setupConnection')}</li></ol>
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
       <div className="channel-form-grid">
-        {channel.provider === 'evolution' ? <><label>{t('channels.evolutionBaseUrl')}<TextField value={evolutionBaseUrl} onChange={(event) => setEvolutionBaseUrl(event.target.value)} type="url" maxLength={2048} placeholder="https://evolution.example.com" required /></label><label>{t('channels.evolutionApiKey')}<TextField value={evolutionApiKey} onChange={(event) => setEvolutionApiKey(event.target.value)} type="password" autoComplete="new-password" maxLength={500} required /></label><label>{t('inboxComposer.evolutionWebhookSecret')}<TextField value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
+        {channel.provider === 'evolution' ? <><label>{t('inboxComposer.evolutionWebhookSecret')}<TextField value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><Button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</Button><Button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t(channel.provider === 'evolution' ? 'channels.saveAndPair' : 'channels.saveCredentials')}</Button></div>
     </form> : null })()}

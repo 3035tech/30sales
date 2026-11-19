@@ -4,7 +4,8 @@ import { useTranslation } from 'react-i18next'
 import { Button, TextField } from '../components/ui/FormControls'
 import { Modal } from '../components/ui/Modal'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
-import { api, type PlatformOrganizationDto } from '../lib/api'
+import type { PlatformOrganizationDto } from '../lib/api/contracts'
+import { platformApi } from '../lib/api/domains/platform'
 import { PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
 import './PlatformOrganizationPicker.css'
 
@@ -36,7 +37,7 @@ export function PlatformOrganizationPicker({ activeOrganizationId, activeOrganiz
     setLoading(true)
     setLoadError(false)
     const timer = window.setTimeout(() => {
-      api.platform.organizations({ search: query.trim() || undefined, limit: PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, offset })
+      platformApi.organizations({ search: query.trim() || undefined, limit: PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, offset })
         .then((result) => {
           if (!active) return
           setCompanies(result.data)

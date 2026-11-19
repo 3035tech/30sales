@@ -2,6 +2,7 @@ import { Button, IconButton, SelectField, TextField } from '../components/ui/For
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Check, Clock3, ListTodo, MessageCircle, RefreshCw, Search, ShieldAlert, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type CloserEventDto, type CloserSlaNotificationDto, type ConversationDto, type HandoffDto, type OpportunityDto, type TaskDto } from '../lib/api'
@@ -36,51 +37,51 @@ function CloserEventActions({ event, assignees, acceptingId, eventAssignId, even
   </div>
 }
 
-async function listAllOwnedOpportunities(): Promise<OpportunityDto[]> {
+async function listAllOwnedOpportunities(businessLineId?: string): Promise<OpportunityDto[]> {
   const pageSize = 100
-  const firstPage = await api.opportunities.list({ view: 'mine', limit: pageSize, offset: 0 })
+  const firstPage = await api.opportunities.list({ businessLineId, view: 'mine', limit: pageSize, offset: 0 })
   const pages: OpportunityPage[] = [firstPage]
   for (let offset = pageSize; pages[pages.length - 1].length === pageSize; offset += pageSize) {
-    pages.push(await api.opportunities.list({ view: 'mine', limit: pageSize, offset }))
+    pages.push(await api.opportunities.list({ businessLineId, view: 'mine', limit: pageSize, offset }))
   }
   return pages.flat()
 }
 
-async function listAllHandoffs(status: HandoffDto['status']): Promise<HandoffDto[]> {
+async function listAllHandoffs(status: HandoffDto['status'], businessLineId?: string): Promise<HandoffDto[]> {
   const pageSize = 100
   const records: HandoffDto[] = []
   for (let offset = 0; ; offset += pageSize) {
-    const page = await api.handoffs.list(status, { limit: pageSize, offset })
+    const page = await api.handoffs.list(status, { businessLineId, limit: pageSize, offset })
     records.push(...page)
     if (page.length < pageSize) return records
   }
 }
 
-async function listAllCloserEvents(): Promise<CloserEventDto[]> {
+async function listAllCloserEvents(businessLineId?: string): Promise<CloserEventDto[]> {
   const pageSize = 100
   const events: CloserEventDto[] = []
   for (let offset = 0; ; offset += pageSize) {
-    const page = await api.closerEvents.list({ limit: pageSize, offset })
+    const page = await api.closerEvents.list({ businessLineId, limit: pageSize, offset })
     events.push(...page.data)
     if (!page.pagination.hasNextPage) return events
   }
 }
 
-async function listAllOpenTasks(): Promise<TaskDto[]> {
+async function listAllOpenTasks(businessLineId?: string): Promise<TaskDto[]> {
   const pageSize = 100
   const tasks: TaskDto[] = []
   for (let offset = 0; ; offset += pageSize) {
-    const page = await api.tasks.listPage({ status: 'open', sortBy: 'dueAt', sortDirection: 'asc', limit: pageSize, offset })
+    const page = await api.tasks.listPage({ businessLineId, status: 'open', sortBy: 'dueAt', sortDirection: 'asc', limit: pageSize, offset })
     tasks.push(...page.data)
     if (!page.pagination.hasNextPage) return tasks
   }
 }
 
-async function listAllUnreadActiveConversations(): Promise<ConversationDto[]> {
+async function listAllUnreadActiveConversations(businessLineId?: string): Promise<ConversationDto[]> {
   const pageSize = 100
   const conversations: ConversationDto[] = []
   for (let offset = 0; ; offset += pageSize) {
-    const page = await api.inbox.conversations({ unreadOnly: true, limit: pageSize, offset })
+    const page = await api.inbox.conversations({ businessLineId, unreadOnly: true, limit: pageSize, offset })
     conversations.push(...page.data)
     if (!page.pagination.hasNextPage) return conversations.filter((conversation) => ACTIVE_CONVERSATION_STATUSES.some((status) => status === conversation.status))
   }
@@ -88,6 +89,8 @@ async function listAllUnreadActiveConversations(): Promise<ConversationDto[]> {
 
 export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOpenTask }: { userId: string; onOpenPipeline: () => void; onOpenInbox: (conversationId: string) => void; onOpenTask: (taskId: string) => void }) {
   const { t } = useTranslation()
+  const [searchParams] = useSearchParams()
+  const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
   const [acceptedHandoffs, setAcceptedHandoffs] = useState<HandoffDto[]>([])
   const [opportunities, setOpportunities] = useState<OpportunityDto[]>([])
@@ -151,7 +154,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
     if (!hasLoadedQueueRef.current) setLoading(true)
     else setRefreshing(true)
     setError(''); setPartial(false); setQueueLoadFailed(false)
-    Promise.allSettled([listAllHandoffs('requested'), listAllHandoffs('accepted'), listAllOwnedOpportunities(), listAllCloserEvents(), listAllOpenTasks(), listAllUnreadActiveConversations(), api.closerEvents.assignees(), api.closerEvents.slaNotifications()]).then(([handoffResult, acceptedResult, opportunityResult, eventResult, taskResult, conversationResult, assigneeResult, notificationResult]) => {
+    Promise.allSettled([listAllHandoffs('requested', businessLineId), listAllHandoffs('accepted', businessLineId), listAllOwnedOpportunities(businessLineId), listAllCloserEvents(businessLineId), listAllOpenTasks(businessLineId), listAllUnreadActiveConversations(businessLineId), api.closerEvents.assignees(), api.closerEvents.slaNotifications()]).then(([handoffResult, acceptedResult, opportunityResult, eventResult, taskResult, conversationResult, assigneeResult, notificationResult]) => {
       if (!active) return
       if (handoffResult.status === 'fulfilled') setHandoffs(handoffResult.value)
       if (acceptedResult.status === 'fulfilled') setAcceptedHandoffs(acceptedResult.value)
@@ -179,7 +182,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
       }
     })
     return () => { active = false }
-  }, [refresh, t, requestRefresh])
+  }, [businessLineId, refresh, t, requestRefresh])
 
   const acceptHandoff = async (handoff: HandoffDto) => {
     setAcceptingId(handoff.id); setError('')

@@ -8,7 +8,7 @@ export const closerEventSlaPoliciesInputSchema = z.object({
   .refine((input) => input.policies.every((policy) => policy.targetMinutes !== null || !policy.escalateToManagers), { message: 'Manager escalation requires an SLA target.' });
 export type CloserEventSlaPoliciesInputDto = z.infer<typeof closerEventSlaPoliciesInputSchema>;
 
-export const listCloserEventsSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const listCloserEventsSchema = z.object({ businessLineId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListCloserEventsQueryDto = z.infer<typeof listCloserEventsSchema>;
 export const listCloserSlaNotificationsSchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(20) }).strict();
 export type ListCloserSlaNotificationsQueryDto = z.infer<typeof listCloserSlaNotificationsSchema>;
@@ -19,14 +19,14 @@ export const closerEventActionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('resolve') }).strict(),
 ]);
 export type CloserEventActionInputDto = z.infer<typeof closerEventActionSchema>;
-export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListCloserEventsQueryDto) {} }
+export class CloserEventsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListCloserEventsQueryDto, readonly accessibleBusinessLineIds: string[] | null) {} }
 export class CloserEventDto {
   constructor(readonly id: string, readonly eventType: string, readonly priority: string, readonly status: string, readonly conversationId: string, readonly opportunityId: string, readonly assignedToUserId: string, readonly accountName: string | null, readonly contactName: string | null, readonly summary: string, readonly evidence: string | null, readonly occurredAt: string, readonly dueAt: string | null, readonly acknowledgedAt: string | null, readonly snoozedUntil: string | null) {}
 }
 export class CloserEventSlaPolicyDto { constructor(readonly eventType: string, readonly targetMinutes: number | null, readonly escalateToManagers = false) {} }
 export class CloserEventSlaSettingsDto { constructor(readonly policies: CloserEventSlaPolicyDto[], readonly canManage: boolean) {} }
 export class CloserEventSlaPoliciesSaveDto { constructor(readonly organizationId: string, readonly userId: string, readonly input: CloserEventSlaPoliciesInputDto, readonly correlationId: string | null) {} }
-export class CloserSlaNotificationsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly limit: number) {} }
+export class CloserSlaNotificationsListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly limit: number) {} }
 export class CloserSlaNotificationDto { constructor(readonly id: string, readonly closerEventId: string, readonly conversationId: string, readonly notificationType: string, readonly eventType: string, readonly summary: string, readonly accountName: string | null, readonly dueAt: string, readonly createdAt: string) {} }
 export class CloserSlaNotificationReadDto { constructor(readonly id: string, readonly organizationId: string, readonly userId: string) {} }
 export class CloserEventsPageDto { constructor(readonly data: CloserEventDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }

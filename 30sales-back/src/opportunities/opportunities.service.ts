@@ -14,14 +14,15 @@ export class OpportunitiesService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository, private readonly activitiesRepository: OpportunityActivitiesRepository, private readonly pipelineStagesRepository: PipelineStagesRepository, private readonly pipelinesRepository: PipelinesRepository) {}
   async pipelines(request: ApiRequestDto): Promise<PipelinesDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
-    return this.pipelinesRepository.list(context.organizationId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));
+    return this.pipelinesRepository.list(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));
   }
   async createPipeline(request: ApiRequestDto, dto: CreatePipelineDto): Promise<PipelinesDto> {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');
     if (!hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)) throw new ForbiddenException({ code: 'PIPELINE_MANAGEMENT_FORBIDDEN', message: 'Only sales managers can manage pipelines.' });
-    const result = await this.pipelinesRepository.create(new PipelineRepositoryCreateDto(context.organizationId, context.userId, dto.name, request.correlationId));
+    const result = await this.pipelinesRepository.create(new PipelineRepositoryCreateDto(context.organizationId, context.userId, dto.name, request.correlationId, dto.businessLineId));
     if (result === 'duplicate_name') throw new ConflictException({ code: 'PIPELINE_NAME_EXISTS', message: 'A pipeline with this name already exists.' });
     if (result === 'limit_reached') throw new ConflictException({ code: 'PIPELINE_LIMIT_REACHED', message: 'The organization has reached its active pipeline limit.' });
+    if (result === 'business_line_not_found') throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'Business line was not found in the active organization.' });
     return result;
   }
   async updatePipeline(request: ApiRequestDto, pipelineId: string, dto: UpdatePipelineDto): Promise<PipelinesDto> {
@@ -50,7 +51,12 @@ export class OpportunitiesService {
   }
   async pipelineStages(request: ApiRequestDto, pipelineId?: string): Promise<PipelineStagesDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
-    const result = await this.pipelineStagesRepository.list(context.organizationId, pipelineId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));
+    const canManage = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const resolvedPipelineId = pipelineId ?? await this.pipelinesRepository.ensureDefault(context.organizationId);
+    if (!await this.pipelinesRepository.canAccessPipeline(context.organizationId, resolvedPipelineId, context.userId, canManage)) {
+      throw new NotFoundException({ code: 'PIPELINE_NOT_FOUND', message: 'Pipeline was not found in the active business line.' });
+    }
+    const result = await this.pipelineStagesRepository.list(context.organizationId, resolvedPipelineId, canManage);
     if (result === 'not_found') throw new NotFoundException({ code: 'PIPELINE_NOT_FOUND', message: 'Pipeline was not found in the active organization.' });
     return result;
   }
@@ -113,19 +119,28 @@ export class OpportunitiesService {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
     await this.pipelinesRepository.ensureDefault(context.organizationId);
-    return this.repository.list(new OpportunityRepositoryListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query)));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const lineIds = canManageAll ? null : await this.pipelinesRepository.accessibleBusinessLineIds(context.organizationId, context.userId);
+    if (query.businessLineId && lineIds && !lineIds.includes(query.businessLineId)) throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'Business line was not found in the active organization.' });
+    return this.repository.list(new OpportunityRepositoryListDto(context.organizationId, context.userId, canManageAll, hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query), lineIds));
   }
   async page(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
     await this.pipelinesRepository.ensureDefault(context.organizationId);
-    return this.repository.page(new OpportunityRepositoryListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query)));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const lineIds = canManageAll ? null : await this.pipelinesRepository.accessibleBusinessLineIds(context.organizationId, context.userId);
+    if (query.businessLineId && lineIds && !lineIds.includes(query.businessLineId)) throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'Business line was not found in the active organization.' });
+    return this.repository.page(new OpportunityRepositoryListDto(context.organizationId, context.userId, canManageAll, hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query), lineIds));
   }
   async summary(request: ApiRequestDto, query: ListOpportunitiesQueryDto): Promise<OpportunityPipelineSummaryDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
     await this.pipelinesRepository.ensureDefault(context.organizationId);
-    return this.repository.summary(new OpportunityRepositoryListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query)));
+    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const lineIds = canManageAll ? null : await this.pipelinesRepository.accessibleBusinessLineIds(context.organizationId, context.userId);
+    if (query.businessLineId && lineIds && !lineIds.includes(query.businessLineId)) throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'Business line was not found in the active organization.' });
+    return this.repository.summary(new OpportunityRepositoryListDto(context.organizationId, context.userId, canManageAll, hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), this.scopeOpportunityQuery(context.role, query), lineIds));
   }
   private scopeOpportunityQuery(role: string, query: ListOpportunitiesQueryDto): ListOpportunitiesQueryDto {
     return hasOrganizationRole(role, ORGANIZATION_CLOSER_ROLES) ? { ...query, view: 'mine', assignedToUserId: undefined } : query;
@@ -133,9 +148,15 @@ export class OpportunitiesService {
   private requireOpportunityRecordAccess(role: string): void {
     if (!hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES) && !hasOrganizationRole(role, ORGANIZATION_CLOSER_ROLES)) throw new ForbiddenException({ code: 'OPPORTUNITY_RECORD_ACCESS_FORBIDDEN', message: 'This role cannot access individual opportunity records.' });
   }
+  private async requireOpportunityLineAccess(organizationId: string, userId: string, role: string, opportunityId: string): Promise<void> {
+    if (!await this.repository.canAccessOpportunity(organizationId, opportunityId, userId, hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES))) {
+      throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active business line.' });
+    }
+  }
   async transition(request: ApiRequestDto, opportunityId: string, dto: TransitionOpportunityDto): Promise<OpportunityRecordDto> {
     const context = await this.tenantAccess.require(request, 'update', 'pipeline');
     if (!hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES) && !hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES)) throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only closers and sales managers can update opportunity stages.' });
+    await this.requireOpportunityLineAccess(context.organizationId, context.userId, context.role, opportunityId);
     if (dto.pipelineId && dto.expectedPipelineId && dto.pipelineId !== dto.expectedPipelineId && !hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)) throw new ForbiddenException({ code: 'PIPELINE_TRANSFER_FORBIDDEN', message: 'Only sales managers can move opportunities between pipelines.' });
     await this.pipelinesRepository.ensureDefault(context.organizationId);
     if (dto.pipelineId && dto.expectedPipelineId && dto.pipelineId !== dto.expectedPipelineId) {
@@ -151,17 +172,20 @@ export class OpportunitiesService {
       if (dto.stage === dto.expectedStage && !dto.reason?.trim()) throw new ConflictException({ code: 'PIPELINE_MOVE_REASON_REQUIRED', message: 'Explain why the opportunity is moving to another pipeline.' });
     } else if (!sameOpenStage && !customTransition && !OPPORTUNITY_TRANSITIONS[dto.expectedStage].includes(dto.stage)) throw new ConflictException({ code: 'INVALID_OPPORTUNITY_TRANSITION', message: 'This opportunity cannot move to the selected stage.' });
     const result = await this.repository.transition(new OpportunityRepositoryTransitionDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), dto, request.correlationId));
+    if (result === 'different_business_line') throw new ConflictException({ code: 'OPPORTUNITY_CROSS_BUSINESS_LINE_MOVE_FORBIDDEN', message: 'An opportunity cannot be moved to a pipeline from another business line.' });
     if (!result) throw new ConflictException({ code: 'OPPORTUNITY_CHANGED', message: 'The opportunity changed or is not assigned to you. Refresh the pipeline and retry.' });
     return result;
   }
   async history(request: ApiRequestDto, opportunityId: string): Promise<OpportunityHistoryRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
+    await this.requireOpportunityLineAccess(context.organizationId, context.userId, context.role, opportunityId);
     return this.repository.history(new OpportunityRepositoryHistoryDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)));
   }
   async conversationContexts(request: ApiRequestDto, opportunityId: string): Promise<OpportunityConversationContextDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
+    await this.requireOpportunityLineAccess(context.organizationId, context.userId, context.role, opportunityId);
     const contexts = await this.repository.conversationContexts(new OpportunityConversationContextsQueryDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)));
     if (!contexts) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active organization.' });
     return contexts;
@@ -169,12 +193,14 @@ export class OpportunitiesService {
   async activities(request: ApiRequestDto, opportunityId: string): Promise<ActivityRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     this.requireOpportunityRecordAccess(context.role);
+    await this.requireOpportunityLineAccess(context.organizationId, context.userId, context.role, opportunityId);
     return this.activitiesRepository.list(new ActivityRepositoryListDto(context.organizationId, opportunityId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)));
   }
   async createActivity(request: ApiRequestDto, opportunityId: string, dto: CreateActivityDto): Promise<ActivityRecordDto> {
     const context = await this.tenantAccess.require(request, 'create', 'activities');
     const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
     if (!canManageAll && !hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES)) throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only the opportunity owner and sales managers can add opportunity activities.' });
+    await this.requireOpportunityLineAccess(context.organizationId, context.userId, context.role, opportunityId);
     const activity = await this.activitiesRepository.create(new ActivityRepositoryCreateDto(context.organizationId, opportunityId, context.userId, canManageAll, dto, request.correlationId));
     if (!activity) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found or is not assigned to you in the active organization.' });
     return activity;

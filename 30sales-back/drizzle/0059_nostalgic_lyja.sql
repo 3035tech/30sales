@@ -1,0 +1,1 @@
+ALTER TABLE "auth"."member" ADD CONSTRAINT "member_organization_id_id_unique" UNIQUE("organization_id","id");

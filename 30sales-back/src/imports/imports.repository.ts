@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, eq, exists, inArray, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, auditEvents, externalRecords, leadContacts, leadStatusHistory, leads, opportunities, people } from '../db/schema';
+import { member as authMember } from '../db/auth-schema';
+import { accounts, auditEvents, businessLineMembers, businessLines, externalRecords, leadContacts, leadStatusHistory, leads, opportunities, people } from '../db/schema';
 import { LEAD_SOURCE, LEAD_STATUS } from '../leads/constants';
 import { IMPORT_PREVIEW_STATUS, IMPORT_TARGET_TYPE, LEAD_IMPORT_AUDIT_ACTION, LEAD_IMPORT_RESULT_STATUS } from './imports.constants';
 import { CanonicalEntityType, ExternalIdentityCheckResultDto, ImportLeadsResultDto, ImportMatchField, ImportPreviewCandidateDto, ImportPreviewLinkDto, ImportPreviewRecordResultDto, ImportRepositoryIdentityCheckDto, ImportRepositoryLeadsDto, ImportRepositoryPreviewDto, ImportsPreviewDto, LeadImportRecordResultDto, PreviewImportRecordDto } from './imports.dto';
@@ -14,19 +15,36 @@ function unique<T extends string>(values: T[]): T[] { return [...new Set(values.
 
 @Injectable()
 export class ImportsRepository {
-  async importLeads(input: ImportRepositoryLeadsDto): Promise<ImportLeadsResultDto> {
+  async importLeads(input: ImportRepositoryLeadsDto): Promise<ImportLeadsResultDto | 'business_line_unavailable'> {
     const records = await database.transaction(async (transaction) => {
       const results: LeadImportRecordResultDto[] = [];
       const accountCache = new Map<string, { id: string; ambiguous: boolean }>();
       const leadCache = new Map<string, { id: string; primaryPersonId: string | null }>();
       const personCache = new Map<string, string>();
       const seenContacts = new Set<string>();
+      const [businessLine] = await transaction.select({ id: businessLines.id }).from(businessLines)
+        .where(and(eq(businessLines.organizationId, input.organizationId), input.input.businessLineId ? eq(businessLines.id, input.input.businessLineId) : eq(businessLines.isDefault, true), eq(businessLines.status, 'active'))).limit(1);
+      if (!businessLine) return 'business_line_unavailable';
+      if (!input.canManageAll) {
+        const [lineMembership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+          .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, businessLine.id), eq(authMember.userId, input.userId))).limit(1);
+        if (!lineMembership) return 'business_line_unavailable';
+      }
 
       for (const record of input.input.records) {
         const [external] = await transaction.select({ accountId: externalRecords.accountId, personId: externalRecords.personId, leadId: externalRecords.leadId, opportunityId: externalRecords.opportunityId })
           .from(externalRecords).where(and(eq(externalRecords.organizationId, input.organizationId), eq(externalRecords.provider, input.input.provider), eq(externalRecords.recordType, record.recordType), eq(externalRecords.externalId, record.externalId))).limit(1);
         if (external) {
           const linkedLeadId = external.leadId;
+          if (linkedLeadId) {
+            const [linkedLead] = await transaction.select({ id: leads.id }).from(leads)
+              .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), eq(leads.id, linkedLeadId))).limit(1);
+            if (!linkedLead) {
+              results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
+              continue;
+            }
+          }
           results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, linkedLeadId ? LEAD_IMPORT_RESULT_STATUS.alreadyLinked : LEAD_IMPORT_RESULT_STATUS.typeConflict, linkedLeadId));
           continue;
         }
@@ -40,7 +58,7 @@ export class ImportsRepository {
         }
         const existingLeads = await transaction.select({ id: leads.id }).from(leads)
           .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-          .where(and(eq(leads.organizationId, input.organizationId), or(
+        .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), or(
             ...(email ? [sql<boolean>`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
             ...(phone ? [sql<boolean>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone}`] : []),
           ))).limit(1);
@@ -65,7 +83,7 @@ export class ImportsRepository {
         let leadRef = leadCache.get(accountKey);
         if (!leadRef && account) {
           const companyLeads = await transaction.select({ id: leads.id, personId: leads.personId }).from(leads)
-            .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, account.id))).limit(2);
+            .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), eq(leads.accountId, account.id))).limit(2);
           if (companyLeads.length > 1) {
             results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
             continue;
@@ -82,10 +100,15 @@ export class ImportsRepository {
           results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
           continue;
         }
+        const primaryLineLead = exists(transaction.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), eq(leads.personId, people.id))));
+        const linkedLineLead = exists(transaction.select({ id: leadContacts.id }).from(leadContacts)
+          .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.personId, people.id), eq(leads.businessLineId, businessLine.id))));
         const personMatches = await transaction.select({ id: people.id }).from(people).where(and(eq(people.organizationId, input.organizationId), or(
           ...(email ? [sql<boolean>`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
           ...(phone ? [sql<boolean>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone}`] : []),
-        ))).limit(2);
+        ), or(primaryLineLead, linkedLineLead))).limit(2);
         const matchedIds = [...new Set([...cachedPersonIds, ...personMatches.map((person) => person.id)])];
         if (matchedIds.length > 1) {
           results.push(new LeadImportRecordResultDto(record.recordType, record.externalId, LEAD_IMPORT_RESULT_STATUS.reviewRequired, null));
@@ -106,7 +129,7 @@ export class ImportsRepository {
 
         const isNewLead = !leadRef;
         if (!leadRef) {
-          const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, accountId: account.id, personId, createdByUserId: input.userId, source: LEAD_SOURCE.import, status: LEAD_STATUS.new }).returning({ id: leads.id });
+          const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, businessLineId: businessLine.id, accountId: account.id, personId, createdByUserId: input.userId, source: LEAD_SOURCE.import, status: LEAD_STATUS.new }).returning({ id: leads.id });
           leadRef = { id: lead.id, primaryPersonId: personId };
           leadCache.set(accountKey, leadRef);
           await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: leadRef.id, fromStatus: null, toStatus: LEAD_STATUS.new, changedByUserId: input.userId });
@@ -129,22 +152,38 @@ export class ImportsRepository {
       }
       return results;
     });
+    if (records === 'business_line_unavailable') return records;
     return new ImportLeadsResultDto(input.input.provider, records);
   }
 
-  async preview(input: ImportRepositoryPreviewDto): Promise<ImportsPreviewDto> {
+  async preview(input: ImportRepositoryPreviewDto): Promise<ImportsPreviewDto | 'business_line_unavailable'> {
+    const [businessLine] = await database.select({ id: businessLines.id }).from(businessLines)
+      .where(and(eq(businessLines.organizationId, input.organizationId), input.input.businessLineId ? eq(businessLines.id, input.input.businessLineId) : eq(businessLines.isDefault, true), eq(businessLines.status, 'active'))).limit(1);
+    if (!businessLine) return 'business_line_unavailable';
+    if (!input.canManageAll) {
+      const [lineMembership] = await database.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+        .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+        .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, businessLine.id), eq(authMember.userId, input.userId))).limit(1);
+      if (!lineMembership) return 'business_line_unavailable';
+    }
     const recordTypes = unique(input.input.records.map((record) => record.recordType));
     const externalIds = unique(input.input.records.map((record) => record.externalId));
     const [externalRows, accountRows, personRows, leadRows, opportunityRows] = await Promise.all([
       database.select({ recordType: externalRecords.recordType, externalId: externalRecords.externalId, accountId: externalRecords.accountId, personId: externalRecords.personId, leadId: externalRecords.leadId, opportunityId: externalRecords.opportunityId })
         .from(externalRecords).where(and(eq(externalRecords.organizationId, input.organizationId), eq(externalRecords.provider, input.input.provider), inArray(externalRecords.recordType, recordTypes), inArray(externalRecords.externalId, externalIds))),
       this.findAccounts(input),
-      this.findPeople(input),
-      this.findLeads(input),
-      this.findOpportunities(input),
+      this.findPeople(input, businessLine.id),
+      this.findLeads(input, businessLine.id),
+      this.findOpportunities(input, businessLine.id),
     ]);
+    const linkedLeadIds = unique(externalRows.map((row) => row.leadId).filter((id): id is string => Boolean(id)));
+    const visibleLinkedLeads = linkedLeadIds.length ? await database.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), inArray(leads.id, linkedLeadIds))) : [];
+    const visibleLinkedLeadIds = new Set(visibleLinkedLeads.map((lead) => lead.id));
+    const visibleLinkedPersonIds = new Set(personRows.map((person) => person.id));
+    const visibleLinkedOpportunityIds = new Set(opportunityRows.map((opportunity) => opportunity.id));
     const externalMap = new Map(externalRows.map((row) => {
-      const target = row.accountId ? { targetType: 'account' as const, targetId: row.accountId } : row.personId ? { targetType: 'person' as const, targetId: row.personId } : row.leadId ? { targetType: 'lead' as const, targetId: row.leadId } : row.opportunityId ? { targetType: 'opportunity' as const, targetId: row.opportunityId } : null;
+      const target = row.leadId ? visibleLinkedLeadIds.has(row.leadId) ? { targetType: 'lead' as const, targetId: row.leadId } : null : row.accountId ? { targetType: 'account' as const, targetId: row.accountId } : row.personId ? visibleLinkedPersonIds.has(row.personId) ? { targetType: 'person' as const, targetId: row.personId } : null : row.opportunityId ? visibleLinkedOpportunityIds.has(row.opportunityId) ? { targetType: 'opportunity' as const, targetId: row.opportunityId } : null : null;
       return [`${row.recordType}\u0000${row.externalId}`, target] as const;
     }));
     const results = input.input.records.map((record) => this.mapPreviewRecord(record, externalMap, accountRows, personRows, leadRows, opportunityRows));
@@ -174,7 +213,7 @@ export class ImportsRepository {
       .from(accounts).where(and(eq(accounts.organizationId, input.organizationId), inArray(sql<string>`lower(trim(${accounts.name}))`, names)));
   }
 
-  private async findPeople(input: ImportRepositoryPreviewDto) {
+  private async findPeople(input: ImportRepositoryPreviewDto, businessLineId: string) {
     const records = input.input.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.person || record.targetType === IMPORT_TARGET_TYPE.lead);
     const emails = unique(records.map((record) => normalizedEmail(record.email)));
     const phones = unique(records.map((record) => normalizedPhone(record.phone)));
@@ -182,11 +221,16 @@ export class ImportsRepository {
     if (emails.length) matches.push(inArray(sql<string>`lower(trim(coalesce(${people.email}, '')))`, emails));
     if (phones.length) matches.push(inArray(sql<string>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g')`, phones));
     if (!matches.length) return [];
+    const primaryLead = exists(database.select({ id: leads.id }).from(leads)
+      .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLineId), eq(leads.personId, people.id))));
+    const linkedLeadContact = exists(database.select({ id: leadContacts.id }).from(leadContacts)
+      .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
+      .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.personId, people.id), eq(leads.businessLineId, businessLineId))));
     return database.select({ id: people.id, name: people.name, email: people.email, phone: people.phone, normalizedEmail: sql<string>`lower(trim(coalesce(${people.email}, '')))`, normalizedPhone: sql<string>`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g')` })
-      .from(people).where(and(eq(people.organizationId, input.organizationId), or(...matches)));
+      .from(people).where(and(eq(people.organizationId, input.organizationId), or(...matches), or(primaryLead, linkedLeadContact)));
   }
 
-  private async findLeads(input: ImportRepositoryPreviewDto) {
+  private async findLeads(input: ImportRepositoryPreviewDto, businessLineId: string) {
     const records = input.input.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.lead);
     const emails = unique(records.map((record) => normalizedEmail(record.email)));
     const phones = unique(records.map((record) => normalizedPhone(record.phone)));
@@ -198,15 +242,16 @@ export class ImportsRepository {
       .from(leads)
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
       .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-      .where(and(eq(leads.organizationId, input.organizationId), or(...matches)));
+      .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLineId), or(...matches)));
   }
 
-  private async findOpportunities(input: ImportRepositoryPreviewDto) {
+  private async findOpportunities(input: ImportRepositoryPreviewDto, businessLineId: string) {
     const names = unique(input.input.records.filter((record) => record.targetType === 'opportunity').map((record) => normalizedName(record.accountName)));
     if (!names.length) return [];
     return database.select({ id: opportunities.id, name: opportunities.name, accountName: accounts.name, normalizedName: sql<string>`lower(trim(${accounts.name}))` })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-      .where(and(eq(opportunities.organizationId, input.organizationId), inArray(sql<string>`lower(trim(${accounts.name}))`, names)));
+      .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+      .where(and(eq(opportunities.organizationId, input.organizationId), eq(leads.businessLineId, businessLineId), inArray(sql<string>`lower(trim(${accounts.name}))`, names)));
   }
 
   private mapPreviewRecord(

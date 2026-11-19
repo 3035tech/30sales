@@ -4,10 +4,10 @@ import { type CreateChannelInput, channelHealthCheckSchema, channelMonitoringChe
 
 
 export const channelsApi = {
-    list: () => request('/api/v1/channels', z.array(channelSchema)),
+    list: (businessLineId?: string) => request(`/api/v1/channels${businessLineId ? `?${new URLSearchParams({ businessLineId })}` : ''}`, z.array(channelSchema)),
     create: (input: CreateChannelInput) => request('/api/v1/channels', channelSchema, { method: 'POST', body: JSON.stringify(input) }),
     update: (id: string, input: { displayName?: string; isActive?: boolean; dailyMessageLimit?: number; dailyLimitTimeZone?: string; operationMode?: 'inbound' | 'outbound' | 'hybrid'; assistantScheduleMode?: 'always' | 'business_hours' | 'after_hours' | 'disabled'; businessHours?: Array<{ dayOfWeek: number; startTime: string; endTime: string }> }) => request(`/api/v1/channels/${encodeURIComponent(id)}`, channelSchema, { method: 'PATCH', body: JSON.stringify(input) }),
-    setCredentials: (id: string, input: { provider: 'evolution'; baseUrl: string; apiKey: string; webhookSecret: string } | { provider: 'whatsapp_cloud_api'; accessToken: string; signalSecret: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
+    setCredentials: (id: string, input: { provider: 'evolution'; webhookSecret: string } | { provider: 'evolution'; baseUrl: string; apiKey: string; webhookSecret: string } | { provider: 'whatsapp_cloud_api'; accessToken: string; signalSecret: string }) => request(`/api/v1/channels/${encodeURIComponent(id)}/credentials`, channelSchema, { method: 'PUT', body: JSON.stringify(input) }),
     healthCheck: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/health-check`, channelHealthCheckSchema, { method: 'POST' }),
     monitoringCheck: (channelIds: string[]) => request('/api/v1/channels/monitoring/check', channelMonitoringCheckSchema, { method: 'POST', body: JSON.stringify({ channelIds }) }),
     discoverEvolutionInstances: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-instances`, evolutionInstanceListSchema),

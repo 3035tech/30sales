@@ -18,5 +18,6 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { PlatformModule } from './platform/platform.module';
 import { CampaignsModule } from './campaigns/campaigns.module';
 import { AuthRedisService } from './auth/auth-redis.service';
-@Module({ imports: [TenantAccessModule, LeadsModule, CampaignsModule, SessionModule, PlatformModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule, NotificationsModule, AgentsModule], controllers: [HealthController], providers: [AuthRedisService] })
+import { BusinessLinesModule } from './business-lines/business-lines.module';
+@Module({ imports: [TenantAccessModule, LeadsModule, CampaignsModule, SessionModule, PlatformModule, BusinessLinesModule, HandoffsModule, OpportunitiesModule, InboxModule, AuditModule, ImportsModule, ReportsModule, AccountsModule, ChannelsModule, WebhooksModule, CloserEventsModule, NotificationsModule, AgentsModule], controllers: [HealthController], providers: [AuthRedisService] })
 export class AppModule {}

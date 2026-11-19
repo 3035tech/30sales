@@ -9,6 +9,7 @@ export const opportunityStageSchema = z.enum(OPPORTUNITY_STAGES);
 const stageSchema = opportunityStageSchema;
 
 export const listOpportunitiesSchema = z.object({
+  businessLineId: z.string().uuid().optional(),
   pipelineId: z.string().uuid().optional(),
   stage: stageSchema.optional(),
   pipelineStageKey: z.string().uuid().optional(),
@@ -100,18 +101,18 @@ export class OpportunityPipelineSummaryDto {
   ) {}
 }
 export class OpportunityHistoryRecordDto { constructor(readonly id: string, readonly fromStage: OpportunityStage | null, readonly fromPipelineStageKey: string | null, readonly fromPipelineStageName: string | null, readonly toStage: OpportunityStage, readonly toPipelineStageKey: string | null, readonly toPipelineStageName: string | null, readonly actorName: string, readonly reason: string | null, readonly occurredAt: string) {} }
-export class OpportunityRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly canEditOwned: boolean, readonly query: ListOpportunitiesQueryDto) {} }
+export class OpportunityRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly canEditOwned: boolean, readonly query: ListOpportunitiesQueryDto, readonly accessibleBusinessLineIds: string[] | null = null) {} }
 export class OpportunityRepositoryTransitionDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly actorUserId: string, readonly canManageAll: boolean, readonly input: TransitionOpportunityDto, readonly correlationId: string | null = null) {} }
 export class OpportunityAssigneeDto { constructor(readonly id: string, readonly name: string) {} }
 export class OpportunityRepositoryAssignOwnerDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly ownerUserId: string | null, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
 export class OpportunityRepositoryHistoryDto { constructor(readonly organizationId: string, readonly opportunityId: string, readonly userId: string, readonly canManageAll: boolean) {} }
-export const createPipelineSchema = z.object({ name: z.string().trim().min(2).max(80) }).strict();
+export const createPipelineSchema = z.object({ name: z.string().trim().min(2).max(80), businessLineId: z.string().uuid().optional() }).strict();
 export type CreatePipelineDto = z.infer<typeof createPipelineSchema>;
 export const updatePipelineSchema = z.object({ name: z.string().trim().min(2).max(80) }).strict();
 export type UpdatePipelineDto = z.infer<typeof updatePipelineSchema>;
-export class PipelineRecordDto { constructor(readonly id: string, readonly name: string, readonly isDefault: boolean, readonly isActive: boolean) {} }
+export class PipelineRecordDto { constructor(readonly id: string, readonly name: string, readonly isDefault: boolean, readonly isActive: boolean, readonly businessLineId: string | null, readonly businessLineName: string | null) {} }
 export class PipelinesDto { constructor(readonly pipelines: PipelineRecordDto[], readonly defaultPipelineId: string, readonly canManage: boolean) {} }
-export class PipelineRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null) {} }
+export class PipelineRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null, readonly businessLineId?: string) {} }
 export class PipelineRepositoryUpdateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly pipelineId: string, readonly name: string, readonly correlationId: string | null) {} }
 export class PipelineRepositoryArchiveDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly pipelineId: string, readonly correlationId: string | null) {} }
 export const createPipelineStageSchema = z.object({ pipelineId: z.string().uuid().optional(), name: z.string().trim().min(2).max(64), afterStageKey: z.string().min(1).max(64) }).strict();

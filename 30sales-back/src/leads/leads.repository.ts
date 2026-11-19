@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, min, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
-import { accountSegments, accounts, agentSettings, auditEvents, conversations, leadContacts, leadStatusHistory, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
+import { accountSegments, accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversations, leadContacts, leadStatusHistory, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactOutreachReviewRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, SdrPreviewChannelDto, SdrPreviewDto, SdrPreviewLeadDto, SdrPreviewRepositoryInputDto, SdrReadinessDto, SdrReadinessRepositoryInputDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, taskCompletionResultSchema } from './leads.dto';
 import { CONTACT_OUTREACH_AUDIT_ACTION, CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
@@ -48,9 +48,15 @@ function mapLead(row: { leadId: string; accountId: string; accountName: string; 
 function leadAccessCondition(access: LeadRepositoryAccessDto): SQL | undefined {
   if (access.canManageAll) return undefined;
   const assignedToUser = eq(leads.assignedToUserId, access.userId);
-  if (!access.includeOwnedOpportunities) return assignedToUser;
-  return or(assignedToUser, exists(database.select({ id: opportunities.id }).from(opportunities)
-    .where(and(eq(opportunities.organizationId, access.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, access.userId)))));
+  const lineMembership = exists(database.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(businessLineMembers.organizationId, access.organizationId), eq(businessLineMembers.businessLineId, leads.businessLineId), eq(authMember.userId, access.userId), eq(businessLines.status, 'active'))));
+  const ownership = access.includeOwnedOpportunities
+    ? or(assignedToUser, exists(database.select({ id: opportunities.id }).from(opportunities)
+      .where(and(eq(opportunities.organizationId, access.organizationId), eq(opportunities.leadId, leads.id), eq(opportunities.ownerUserId, access.userId)))))
+    : assignedToUser;
+  return and(lineMembership, ownership);
 }
 function contactLeadAccessCondition(access: LeadRepositoryAccessDto): SQL {
   return exists(database.select({ id: leads.id }).from(leads).where(and(
@@ -59,33 +65,59 @@ function contactLeadAccessCondition(access: LeadRepositoryAccessDto): SQL {
 }
 @Injectable()
 export class LeadsRepository {
-  async listSdrPreviewChannels(organizationId: string): Promise<SdrPreviewChannelDto[]> {
-    const rows = await database.select({ id: messagingChannels.id, displayName: messagingChannels.displayName, phoneNumber: messagingChannels.phoneNumber, isActive: messagingChannels.isActive, isConfigured: sql<boolean>`${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null` }).from(messagingChannels)
-      .where(eq(messagingChannels.organizationId, organizationId)).orderBy(asc(messagingChannels.displayName), asc(messagingChannels.id));
-    return rows.map((channel) => new SdrPreviewChannelDto(channel.id, channel.displayName, channel.phoneNumber, channel.isActive, channel.isConfigured));
+  async listSdrPreviewChannels(access: LeadRepositoryAccessDto): Promise<SdrPreviewChannelDto[]> {
+    const rows = await database.select({ id: messagingChannels.id, displayName: messagingChannels.displayName, phoneNumber: messagingChannels.phoneNumber, isActive: messagingChannels.isActive, isConfigured: sql<boolean>`${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null`, businessLineId: messagingChannels.businessLineId, businessLineName: businessLines.name }).from(messagingChannels)
+      .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+      .where(and(eq(messagingChannels.organizationId, access.organizationId), eq(businessLines.status, 'active'), access.canManageAll ? undefined : exists(database.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+        .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+        .where(and(eq(businessLineMembers.organizationId, access.organizationId), eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(authMember.userId, access.userId), eq(businessLines.status, 'active')))))).orderBy(asc(messagingChannels.displayName), asc(messagingChannels.id));
+    return rows.map((channel) => new SdrPreviewChannelDto(channel.id, channel.displayName, channel.phoneNumber, channel.isActive, channel.isConfigured, channel.businessLineId, channel.businessLineName));
   }
 
   async getSdrPreview(input: SdrPreviewRepositoryInputDto): Promise<SdrPreviewDto> {
     const conditions = [eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready)];
     const accessCondition = leadAccessCondition(input.access);
     if (accessCondition) conditions.push(accessCondition);
-    const [rows, [countRow], [channel], [agent]] = await Promise.all([
-      database.select({ leadId: leads.id, accountName: accounts.name, source: leads.source, contactName: people.name, phone: people.phone, contactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
+    const requestedChannelId = input.query.channelId;
+    const [channel] = requestedChannelId ? await database.select({ id: messagingChannels.id, businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
+      .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+      .where(and(
+        eq(messagingChannels.organizationId, input.organizationId),
+        eq(messagingChannels.id, requestedChannelId),
+        eq(messagingChannels.isActive, true),
+        eq(businessLines.status, 'active'),
+        input.access.canManageAll ? undefined : exists(database.select({ id: businessLineMembers.memberId }).from(businessLineMembers)
+          .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(authMember.userId, input.access.userId)))),
+        sql`${messagingChannels.credentialsCiphertext} is not null`,
+        sql`${messagingChannels.credentialsIv} is not null`,
+        sql`${messagingChannels.credentialsAuthTag} is not null`,
+      )).limit(1) : [];
+    const requestedLineId = input.query.businessLineId ?? channel?.businessLineId;
+    if (requestedLineId) conditions.push(eq(leads.businessLineId, requestedLineId));
+    if (input.query.channelId && (!channel || (input.query.businessLineId && channel.businessLineId !== input.query.businessLineId))) conditions.push(sql`false`);
+    const [rows, [countRow]] = await Promise.all([
+      database.select({ leadId: leads.id, businessLineId: leads.businessLineId, accountName: accounts.name, source: leads.source, contactName: people.name, phone: people.phone, contactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
         hasConversation: exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
       }).from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
         .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
         .where(and(...conditions)).orderBy(desc(leads.createdAt), asc(leads.id)).limit(input.query.limit).offset(input.query.offset),
       database.select({ total: count() }).from(leads).where(and(...conditions)),
-      database.select({ id: messagingChannels.id }).from(messagingChannels).where(and(eq(messagingChannels.organizationId, input.organizationId), input.query.channelId ? eq(messagingChannels.id, input.query.channelId) : sql`false`, eq(messagingChannels.isActive, true), sql`${messagingChannels.credentialsCiphertext} is not null`, sql`${messagingChannels.credentialsIv} is not null`, sql`${messagingChannels.credentialsAuthTag} is not null`)).limit(1),
-      database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1),
     ]);
+    const lineIds = [...new Set(rows.map((lead) => lead.businessLineId).filter((id): id is string => id !== null))];
+    const settings = await database.select({ businessLineId: agentSettings.businessLineId, enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY), or(isNull(agentSettings.businessLineId), lineIds.length ? inArray(agentSettings.businessLineId, lineIds) : sql`false`)));
+    const settingsByLine = new Map<string, (typeof settings)[number]>();
+    for (const setting of settings) if (setting.businessLineId) settingsByLine.set(setting.businessLineId, setting);
+    const globalAgent = settings.find((setting) => setting.businessLineId === null);
     const leadsWithBlockers = rows.map((lead) => {
       const blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]> = [];
       if (!lead.contactId) blockers.push(SDR_READINESS_BLOCKER.primaryContactMissing);
       const digits = lead.phone?.replace(/\D/g, '') ?? '';
       if (digits.length < 8 || digits.length > 15) blockers.push(SDR_READINESS_BLOCKER.phoneMissing);
-      if (!channel) blockers.push(SDR_READINESS_BLOCKER.activeChannelMissing);
+      if (!channel || channel.businessLineId !== lead.businessLineId) blockers.push(SDR_READINESS_BLOCKER.activeChannelMissing);
+      const agent = settingsByLine.get(lead.businessLineId ?? '') ?? globalAgent;
       if (!agent?.enabled || !agent.hasPrompt) blockers.push(SDR_READINESS_BLOCKER.assistantDisabled);
       if (lead.hasConversation) blockers.push(SDR_READINESS_BLOCKER.existingConversation);
       if (lead.outreachDecision === CONTACT_OUTREACH_DECISION.pending) blockers.push(SDR_READINESS_BLOCKER.contactPermissionUnverified);
@@ -98,17 +130,21 @@ export class LeadsRepository {
   }
 
   async getSdrReadiness(input: SdrReadinessRepositoryInputDto): Promise<SdrReadinessDto | null> {
-    const [lead] = await database.select({ id: leads.id, status: leads.status, phone: people.phone, primaryContactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
+    const [lead] = await database.select({ id: leads.id, businessLineId: leads.businessLineId, status: leads.status, phone: people.phone, primaryContactId: leadContacts.id, outreachDecision: leadContacts.outreachDecision,
       hasConversation: exists(database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES)))),
-    }).from(leads)
+    }).from(leads).innerJoin(businessLines, and(eq(businessLines.id, leads.businessLineId), eq(businessLines.organizationId, leads.organizationId), eq(businessLines.status, 'active')))
       .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
       .leftJoin(people, and(eq(people.organizationId, leadContacts.organizationId), eq(people.id, leadContacts.personId)))
       .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).limit(1);
     if (!lead) return null;
+    if (!lead.businessLineId) return null;
     const [channel] = await database.select({ id: messagingChannels.id, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
-      .where(and(eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.isActive, true))).limit(1);
-    const [agent] = await database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings)
-      .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+      .where(and(eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.businessLineId, lead.businessLineId), eq(messagingChannels.isActive, true))).limit(1);
+    const [lineAgent] = await database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.businessLineId, lead.businessLineId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+    const [globalAgent] = lineAgent ? [] : await database.select({ enabled: agentSettings.enabled, hasPrompt: sql<boolean>`length(trim(${agentSettings.systemPrompt})) > 0` }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1);
+    const agent = lineAgent ?? globalAgent;
     const blockers: Array<(typeof SDR_READINESS_BLOCKERS)[number]> = [];
     if (!lead.primaryContactId) blockers.push(SDR_READINESS_BLOCKER.primaryContactMissing);
     const phoneDigits = lead.phone?.replace(/\D/g, '') ?? '';
@@ -148,7 +184,13 @@ export class LeadsRepository {
   private taskConditions(input: TaskRepositoryListDto): SQL[] {
     const conditions: SQL[] = [eq(tasks.organizationId, input.organizationId)];
     if (input.query.taskId) conditions.push(eq(tasks.id, input.query.taskId));
-    if (!input.canManageAll) conditions.push(eq(tasks.assignedToUserId, input.userId));
+    if (input.query.businessLineId) conditions.push(eq(leads.businessLineId, input.query.businessLineId));
+    if (!input.access.canManageAll) {
+      conditions.push(eq(tasks.assignedToUserId, input.userId));
+      conditions.push(exists(database.select({ id: leads.id }).from(leads).where(and(
+        eq(leads.id, tasks.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access),
+      ))));
+    }
     if (input.query.status) conditions.push(eq(tasks.status, input.query.status));
     else if (!input.query.taskId) conditions.push(eq(tasks.status, 'open'));
     if (input.query.from) conditions.push(gte(tasks.dueAt, new Date(input.query.from)));
@@ -176,7 +218,7 @@ export class LeadsRepository {
     const rows = await database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, status: leads.status, source: leads.source }).from(leads)
       .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
       .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-      .where(and(eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access), duplicateMatch(input.input))).orderBy(desc(leads.updatedAt)).limit(10);
+      .where(and(eq(leads.organizationId, input.organizationId), input.input.businessLineId ? eq(leads.businessLineId, input.input.businessLineId) : undefined, leadAccessCondition(input.access), duplicateMatch(input.input))).orderBy(desc(leads.updatedAt)).limit(10);
     return mapDuplicates(rows, input.input);
   }
   async createTask(input: TaskRepositoryCreateDto): Promise<TaskRecordDto | null> {
@@ -193,7 +235,12 @@ export class LeadsRepository {
   async completeTask(input: TaskRepositoryCompleteDto): Promise<TaskRecordDto | null> {
     return database.transaction(async (transaction) => {
       const taskConditions = [eq(tasks.id, input.taskId), eq(tasks.organizationId, input.organizationId), eq(tasks.status, 'open')];
-      if (!input.canManageAll) taskConditions.push(eq(tasks.assignedToUserId, input.actorUserId));
+      if (!input.access.canManageAll) {
+        taskConditions.push(eq(tasks.assignedToUserId, input.actorUserId));
+        taskConditions.push(exists(database.select({ id: leads.id }).from(leads).where(and(
+          eq(leads.id, tasks.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access),
+        ))));
+      }
       const [task] = await transaction.update(tasks).set({ status: 'completed', completedAt: input.completedAt, completionResult: input.input.result, completionNote: input.input.resultNote ?? null, updatedAt: input.completedAt }).where(and(...taskConditions)).returning();
       if (!task) return null;
       await transaction.update(userNotifications).set({ readAt: input.completedAt }).where(and(eq(userNotifications.organizationId, input.organizationId), eq(userNotifications.taskId, task.id), isNull(userNotifications.readAt)));
@@ -214,6 +261,7 @@ export class LeadsRepository {
     const conditions: SQL[] = [eq(leads.organizationId, input.organizationId)];
     const accessCondition = leadAccessCondition(input.access);
     if (accessCondition) conditions.push(accessCondition);
+    if (input.query.businessLineId) conditions.push(eq(leads.businessLineId, input.query.businessLineId));
     if (input.query.status) conditions.push(eq(leads.status, input.query.status));
     if (input.query.source) conditions.push(eq(leads.source, input.query.source));
     if (input.query.segmentId === UNASSIGNED_SEGMENT_FILTER) conditions.push(isNull(accounts.segmentId));
@@ -257,23 +305,33 @@ export class LeadsRepository {
     const total = totals[0]?.total ?? 0;
     return new LeadPageDto(rows.map(mapLead), { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
   }
-  async create(input: LeadRepositoryCreateDto): Promise<LeadRecordDto | LeadDuplicateCheckResponseDto> {
+  async create(input: LeadRepositoryCreateDto): Promise<LeadRecordDto | LeadDuplicateCheckResponseDto | 'business_line_unavailable'> {
     return database.transaction(async (transaction) => {
+      const [businessLine] = await transaction.select({ id: businessLines.id }).from(businessLines)
+        .where(and(eq(businessLines.organizationId, input.organizationId), input.businessLineId ? eq(businessLines.id, input.businessLineId) : eq(businessLines.isDefault, true), eq(businessLines.status, 'active'))).limit(1);
+      if (!businessLine) return 'business_line_unavailable';
+      if (!input.access.canManageAll) {
+        const [membership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+          .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+          .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, businessLine.id), eq(authMember.userId, input.createdByUserId), eq(businessLines.status, 'active'))).limit(1);
+        if (!membership) return 'business_line_unavailable';
+      }
       const duplicateInput: LeadDuplicateCheckDto = { accountName: input.accountName, email: input.email ?? undefined, phone: input.phone ?? undefined };
       for (const lockKey of duplicateLockKeys(input.organizationId, duplicateInput)) {
         await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
       }
       const [duplicate] = await transaction.select({ id: leads.id }).from(leads)
-        .where(and(eq(leads.organizationId, input.organizationId), duplicateMatch(duplicateInput))).limit(1);
+        .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), duplicateMatch(duplicateInput))).limit(1);
       const duplicateRows = await transaction.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, email: people.email, phone: people.phone, status: leads.status, source: leads.source }).from(leads)
         .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-        .where(and(eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access), duplicateMatch(duplicateInput))).orderBy(desc(leads.updatedAt)).limit(10);
+        .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, businessLine.id), leadAccessCondition(input.access), duplicateMatch(duplicateInput))).orderBy(desc(leads.updatedAt)).limit(10);
       const duplicates = mapDuplicates(duplicateRows, duplicateInput);
       if (duplicate && !input.duplicateOverrideReason) return duplicates;
       const [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: input.accountName }).returning();
       const [person] = input.contactName ? await transaction.insert(people).values({ organizationId: input.organizationId, name: input.contactName, email: input.email, phone: input.phone }).returning() : [null];
-      const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, accountId: account.id, personId: person?.id ?? null, createdByUserId: input.createdByUserId, assignedToUserId: input.createdByUserId, source: input.source, status: 'new' }).returning();
+      const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, businessLineId: businessLine.id, accountId: account.id, personId: person?.id ?? null, createdByUserId: input.createdByUserId, assignedToUserId: input.createdByUserId, source: input.source, status: 'new' }).returning();
       if (person) await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: person.id, isPrimary: true, createdByUserId: input.createdByUserId });
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: null, toStatus: 'new', changedByUserId: input.createdByUserId });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.createdByUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: lead.id, correlationId: input.correlationId, reason: input.duplicateOverrideReason ?? null, afterState: { status: 'new', source: input.source, assignedToUserId: input.createdByUserId, duplicateOverride: Boolean(input.duplicateOverrideReason), possibleDuplicateIds: duplicates.candidates.map((candidate) => candidate.id) } });
@@ -292,7 +350,7 @@ export class LeadsRepository {
   }
   async listContacts(input: LeadContactRepositoryDto): Promise<LeadContactRecordDto[] | null> {
     return database.transaction(async (transaction) => {
-      const [lead] = await transaction.select({ personId: leads.personId }).from(leads)
+      const [lead] = await transaction.select({ personId: leads.personId, businessLineId: leads.businessLineId }).from(leads)
         .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
       if (!lead) return null;
       if (lead.personId) {
@@ -308,8 +366,9 @@ export class LeadsRepository {
         .leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
         .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId))).orderBy(desc(leadContacts.isPrimary), asc(people.name));
       const personIds = rows.map((row) => row.personId);
-      const activeConversationRows = personIds.length ? await transaction.select({ personId: conversations.personId }).from(conversations)
-        .where(and(eq(conversations.organizationId, input.organizationId), inArray(conversations.personId, personIds), inArray(conversations.status, ['open', 'pending', 'snoozed']))) : [];
+      const activeConversationRows = personIds.length && lead.businessLineId ? await transaction.select({ personId: conversations.personId }).from(conversations)
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(messagingChannels.businessLineId, lead.businessLineId), inArray(conversations.personId, personIds), inArray(conversations.status, ['open', 'pending', 'snoozed']))) : [];
       const peopleInConversation = new Set(activeConversationRows.map((row) => row.personId));
       return rows.map((row) => new LeadContactRecordDto(row.id, row.name, row.email, row.phone, row.jobTitle, row.isPrimary, row.isInterested, peopleInConversation.has(row.personId), row.referralNote, row.notes, row.outreachDecision, row.outreachBasis, row.outreachEvidence, row.outreachReviewedAt?.toISOString() ?? null, row.outreachReviewedByName));
     });
@@ -361,20 +420,26 @@ export class LeadsRepository {
       return true;
     });
     if (!updated) return null;
-    const [contact] = await database.select({ id: leadContacts.id, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, personId: leadContacts.personId, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name })
+    const [contact] = await database.select({ id: leadContacts.id, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isPrimary: leadContacts.isPrimary, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, personId: leadContacts.personId, businessLineId: leads.businessLineId, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name })
       .from(leadContacts).innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId))).leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
+      .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
       .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).limit(1);
     if (!contact) return null;
-    const [active] = await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, contact.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))).limit(1);
+    if (!contact.businessLineId) return null;
+    const [active] = await database.select({ id: conversations.id }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.organizationId, input.organizationId), eq(messagingChannels.businessLineId, contact.businessLineId), eq(conversations.personId, contact.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))).limit(1);
     return new LeadContactRecordDto(contact.id, contact.name, contact.email, contact.phone, contact.jobTitle, contact.isPrimary, contact.isInterested, Boolean(active), contact.referralNote, contact.notes, contact.outreachDecision, contact.outreachBasis, contact.outreachEvidence, contact.outreachReviewedAt?.toISOString() ?? null, contact.outreachReviewedByName);
   }
   async setPrimaryContact(input: LeadContactPrimaryRepositoryDto): Promise<LeadContactRecordDto | null> {
     return database.transaction(async (transaction) => {
-      const [contact] = await transaction.select({ personId: leadContacts.personId, isPrimary: leadContacts.isPrimary, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name }).from(leadContacts)
+      const [contact] = await transaction.select({ personId: leadContacts.personId, isPrimary: leadContacts.isPrimary, name: people.name, email: people.email, phone: people.phone, jobTitle: leadContacts.jobTitle, isInterested: leadContacts.isInterested, referralNote: leadContacts.referralNote, notes: leadContacts.notes, businessLineId: leads.businessLineId, outreachDecision: leadContacts.outreachDecision, outreachBasis: leadContacts.outreachBasis, outreachEvidence: leadContacts.outreachEvidence, outreachReviewedAt: leadContacts.outreachReviewedAt, outreachReviewedByName: authUser.name }).from(leadContacts)
         .innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
         .leftJoin(authUser, eq(authUser.id, leadContacts.outreachReviewedByUserId))
         .where(and(eq(leadContacts.id, input.contactId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.organizationId, input.organizationId), contactLeadAccessCondition(input.access))).limit(1);
       if (!contact) return null;
+      if (!contact.businessLineId) return null;
       const [lead] = await transaction.select({ personId: leads.personId }).from(leads).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
       if (!lead) return null;
       if (!contact.isPrimary) {
@@ -383,7 +448,9 @@ export class LeadsRepository {
         await transaction.update(leads).set({ personId: contact.personId, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access)));
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.primary_contact_changed', entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, beforeState: { personId: lead.personId }, afterState: { personId: contact.personId } });
       }
-      const active = await transaction.select({ personId: conversations.personId }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, contact.personId), inArray(conversations.status, ['open', 'pending', 'snoozed']))).limit(1);
+      const active = await transaction.select({ personId: conversations.personId }).from(conversations)
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(messagingChannels.businessLineId, contact.businessLineId), eq(conversations.personId, contact.personId), inArray(conversations.status, ['open', 'pending', 'snoozed']))).limit(1);
       return new LeadContactRecordDto(input.contactId, contact.name, contact.email, contact.phone, contact.jobTitle, true, contact.isInterested, active.length > 0, contact.referralNote, contact.notes, contact.outreachDecision, contact.outreachBasis, contact.outreachEvidence, contact.outreachReviewedAt?.toISOString() ?? null, contact.outreachReviewedByName);
     });
   }

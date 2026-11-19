@@ -3,16 +3,20 @@ import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { useEffect, useState } from 'react'
 import { ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
+import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformAuditEventDto, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
 import { ORGANIZATION_SLUG_PATTERN, PLATFORM_ERROR_CODE, PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_ORGANIZATION_PAGE_SIZES, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
 import { PlatformOrganizationPicker } from './PlatformOrganizationPicker'
 import './PlatformWorkspace.css'
 
-type PlatformTab = 'companies' | 'create'
+type PlatformTab = 'companies' | 'create' | 'integrations'
 
 
 function slugFromName(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('en-US').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
+}
+
+function formatEvolutionAuditState(state: Record<string, unknown> | null) {
+  return [state?.displayName, state?.baseUrl].filter((value): value is string => typeof value === 'string').join(' · ')
 }
 
 export function PlatformWorkspace({ user, organizations, activeOrganizationId, activeOrganizationName, platformOrganizationContext, onSignOut, onOpenOrganization, onSelectOrganization }: { user: SessionDto['user']; organizations: SessionDto['organizations']; activeOrganizationId: string | null; activeOrganizationName: string; platformOrganizationContext: boolean; onSignOut: () => Promise<void>; onOpenOrganization: (organizationId: string) => void; onSelectOrganization: (organizationId: string) => Promise<boolean> }) {
@@ -39,6 +43,20 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const [slugEdited, setSlugEdited] = useState(false)
   const [ownerEmail, setOwnerEmail] = useState('')
   const [activeTab, setActiveTab] = useState<PlatformTab>('companies')
+  const [evolutionConfiguration, setEvolutionConfiguration] = useState<{ configured: boolean; displayName: string | null; baseUrl: string | null; updatedAt: string | null } | null>(null)
+  const [evolutionDisplayName, setEvolutionDisplayName] = useState('Evolution principal')
+  const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
+  const [evolutionApiKey, setEvolutionApiKey] = useState('')
+  const [evolutionSaving, setEvolutionSaving] = useState(false)
+  const [evolutionError, setEvolutionError] = useState<'load' | 'save' | 'encryption' | null>(null)
+  const [evolutionSaved, setEvolutionSaved] = useState(false)
+  const [evolutionChecking, setEvolutionChecking] = useState(false)
+  const [evolutionCheckResult, setEvolutionCheckResult] = useState<{ instanceCount: number; checkedAt: string } | null>(null)
+  const [evolutionCheckError, setEvolutionCheckError] = useState<'configuration' | 'encryption' | 'credentials' | 'endpoint' | 'target' | 'unavailable' | null>(null)
+  const [evolutionConfigRefresh, setEvolutionConfigRefresh] = useState(0)
+  const [evolutionAudit, setEvolutionAudit] = useState<PlatformAuditEventDto[]>([])
+  const [evolutionAuditError, setEvolutionAuditError] = useState(false)
+  const [evolutionAuditLoading, setEvolutionAuditLoading] = useState(true)
 
   useEffect(() => {
     let active = true
@@ -52,6 +70,17 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
     }, query ? PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS : 0)
     return () => { active = false; window.clearTimeout(timer) }
   }, [query, pageSize, offset, refreshVersion])
+
+  useEffect(() => {
+    let active = true
+    setEvolutionConfiguration(null)
+    setEvolutionError(null)
+    setEvolutionAuditLoading(true)
+    setEvolutionAuditError(false)
+    api.platform.evolutionConfiguration().then((result) => { if (active) { setEvolutionConfiguration(result); setEvolutionDisplayName(result.displayName ?? 'Evolution principal'); setEvolutionBaseUrl(result.baseUrl ?? '') } }).catch(() => { if (active) setEvolutionError('load') })
+    api.platform.evolutionAudit().then((result) => { if (active) setEvolutionAudit(result) }).catch(() => { if (active) setEvolutionAuditError(true) }).finally(() => { if (active) setEvolutionAuditLoading(false) })
+    return () => { active = false }
+  }, [evolutionConfigRefresh])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -95,10 +124,38 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const nextTab: PlatformTab = event.key === 'Home' ? 'companies' : event.key === 'End' ? 'create' : activeTab === 'companies' ? 'create' : 'companies'
+    const tabs: PlatformTab[] = ['companies', 'create', 'integrations']
+    const currentIndex = tabs.indexOf(activeTab)
+    const nextTab = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(currentIndex + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
     setActiveTab(nextTab)
     document.getElementById(`platform-tab-${nextTab}`)?.focus()
   }
+
+  const saveEvolutionConfiguration = async (event: React.FormEvent) => {
+    event.preventDefault(); setEvolutionSaving(true); setEvolutionError(null); setEvolutionSaved(false); setEvolutionCheckResult(null); setEvolutionCheckError(null)
+    try {
+      const result = await api.platform.saveEvolutionConfiguration({ displayName: evolutionDisplayName.trim(), baseUrl: evolutionBaseUrl.trim(), apiKey: evolutionApiKey.trim() })
+      setEvolutionConfiguration(result); setEvolutionApiKey(''); setEvolutionSaved(true); setEvolutionConfigRefresh((version) => version + 1)
+    } catch (caught) { setEvolutionError(caught instanceof ApiError && ['CHANNEL_CREDENTIALS_KEY_MISSING', 'CHANNEL_CREDENTIALS_KEY_INVALID'].includes(caught.code) ? 'encryption' : 'save') }
+    finally { setEvolutionSaving(false) }
+  }
+
+  const checkEvolutionConfiguration = async () => {
+    setEvolutionChecking(true); setEvolutionCheckResult(null); setEvolutionCheckError(null)
+    try {
+      const result = await api.platform.checkEvolutionConfiguration()
+      setEvolutionCheckResult({ instanceCount: result.instanceCount, checkedAt: result.checkedAt })
+    } catch (caught) {
+      if (caught instanceof ApiError && ['CHANNEL_CREDENTIALS_KEY_MISSING', 'CHANNEL_CREDENTIALS_KEY_INVALID'].includes(caught.code)) setEvolutionCheckError('encryption')
+      else if (caught instanceof ApiError && ['PLATFORM_EVOLUTION_NOT_CONFIGURED', 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID'].includes(caught.code)) setEvolutionCheckError('configuration')
+      else if (caught instanceof ApiError && caught.code === 'EVOLUTION_API_KEY_REJECTED') setEvolutionCheckError('credentials')
+      else if (caught instanceof ApiError && caught.code === 'EVOLUTION_DISCOVERY_ENDPOINT_NOT_FOUND') setEvolutionCheckError('endpoint')
+      else if (caught instanceof ApiError && caught.code === 'EVOLUTION_DISCOVERY_TARGET_BLOCKED') setEvolutionCheckError('target')
+      else setEvolutionCheckError('unavailable')
+    } finally { setEvolutionChecking(false) }
+  }
+
+  const evolutionCanCheck = Boolean(evolutionConfiguration?.configured && evolutionBaseUrl.trim() === evolutionConfiguration.baseUrl && evolutionApiKey.length === 0)
 
   return <main className="platform-shell">
     <header className="platform-topbar"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /><div className="platform-user"><PlatformOrganizationPicker activeOrganizationId={activeOrganizationId} activeOrganizationName={activeOrganizationName} platformOrganizationContext={platformOrganizationContext} disabled={false} onSelectOrganization={onSelectOrganization} /><span className="avatar">{user.name.slice(0, 1)}</span><span><strong>{user.name}</strong><small>{user.email}</small></span><Button type="button" className="platform-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} />{t('platform.signOut')}</Button></div></header>
@@ -107,6 +164,35 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
       <div className="platform-tabs" role="tablist" aria-label={t('platform.sections')}>
         <Button type="button" role="tab" id="platform-tab-companies" aria-controls="platform-panel-companies" aria-selected={activeTab === 'companies'} tabIndex={activeTab === 'companies' ? 0 : -1} className={activeTab === 'companies' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('companies')}>{t('platform.companiesTab')}</Button>
         <Button type="button" role="tab" id="platform-tab-create" aria-controls="platform-panel-create" aria-selected={activeTab === 'create'} tabIndex={activeTab === 'create' ? 0 : -1} className={activeTab === 'create' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('create')}><Plus size={15} aria-hidden="true" />{t('platform.createTab')}</Button>
+        <Button type="button" role="tab" id="platform-tab-integrations" aria-controls="platform-panel-integrations" aria-selected={activeTab === 'integrations'} tabIndex={activeTab === 'integrations' ? 0 : -1} className={activeTab === 'integrations' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('integrations')}>{t('platform.integrationsTab')}</Button>
+      </div>
+      <div role="tabpanel" id="platform-panel-integrations" aria-labelledby="platform-tab-integrations" hidden={activeTab !== 'integrations'}>
+        <section className="platform-panel platform-create-panel">
+          <div className="platform-panel-heading"><span className="card-icon"><Building2 size={18} /></span><div><h2>{t('platform.evolutionSettingsTitle')}</h2><p>{t('platform.evolutionSettingsHint')}</p></div></div>
+          {evolutionConfiguration && <p className={`platform-evolution-status ${evolutionConfiguration.configured ? 'configured' : 'missing'}`} role="status">{evolutionConfiguration.configured ? t('platform.evolutionConfigured') : t('platform.evolutionNotConfigured')}</p>}
+          <form className="platform-company-form" onSubmit={(event) => void saveEvolutionConfiguration(event)}>
+            <label>{t('platform.evolutionName')}<TextField value={evolutionDisplayName} onChange={(event) => setEvolutionDisplayName(event.target.value)} maxLength={100} required disabled={!evolutionConfiguration || evolutionSaving} /></label>
+            <label>{t('channels.evolutionBaseUrl')}<TextField type="url" value={evolutionBaseUrl} onChange={(event) => { setEvolutionBaseUrl(event.target.value); setEvolutionCheckResult(null); setEvolutionCheckError(null) }} maxLength={2048} placeholder="https://evolution.example.com" required disabled={!evolutionConfiguration || evolutionSaving} /></label>
+            <label>{t('platform.evolutionKey')}<TextField type="password" value={evolutionApiKey} onChange={(event) => { setEvolutionApiKey(event.target.value); setEvolutionCheckResult(null); setEvolutionCheckError(null) }} autoComplete="new-password" maxLength={500} required hint={t('platform.evolutionKeyHint')} disabled={!evolutionConfiguration || evolutionSaving} /></label>
+            <Button className="primary" disabled={!evolutionConfiguration || evolutionSaving}>{evolutionSaving ? t('common.saving') : t('platform.evolutionSave')}</Button>
+          </form>
+          <div className="platform-evolution-check-row"><div><Button type="button" disabled={!evolutionCanCheck || evolutionChecking || evolutionSaving} onClick={() => void checkEvolutionConfiguration()}>{evolutionChecking ? t('platform.evolutionChecking') : t('platform.evolutionCheck')}</Button><small>{t('platform.evolutionCheckHint')}</small></div>{evolutionCheckResult && <p className="platform-evolution-success" role="status">{t('platform.evolutionCheckSuccess', { count: evolutionCheckResult.instanceCount, date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evolutionCheckResult.checkedAt)) })}</p>}</div>
+          {evolutionCheckError && <WorkspaceState kind="error" compact message={t(evolutionCheckError === 'encryption' ? 'platform.evolutionEncryptionUnavailable' : evolutionCheckError === 'configuration' ? 'platform.evolutionCheckConfigurationFailed' : evolutionCheckError === 'credentials' ? 'platform.evolutionCheckCredentialsRejected' : evolutionCheckError === 'endpoint' ? 'platform.evolutionCheckEndpointNotFound' : evolutionCheckError === 'target' ? 'platform.evolutionCheckTargetBlocked' : 'platform.evolutionCheckFailed')} />}
+          {evolutionError && <><WorkspaceState kind="error" compact message={t(evolutionError === 'load' ? 'platform.evolutionLoadFailed' : evolutionError === 'encryption' ? 'platform.evolutionEncryptionUnavailable' : 'platform.evolutionSaveFailed')} />{evolutionError === 'load' && <Button type="button" onClick={() => setEvolutionConfigRefresh((version) => version + 1)}>{t('platform.retry')}</Button>}</>}
+          {evolutionSaved && <p className="platform-evolution-success" role="status">{t('platform.evolutionSaved')}</p>}
+          {!evolutionConfiguration && !evolutionError && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
+          <section className="platform-audit-history" aria-labelledby="platform-evolution-audit-title">
+            <h3 id="platform-evolution-audit-title">{t('platformAudit.history')}</h3>
+            {evolutionAuditLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
+            {evolutionAuditError && <><WorkspaceState kind="error" compact message={t('platformAudit.loadFailed')} /><Button type="button" onClick={() => setEvolutionConfigRefresh((version) => version + 1)}>{t('platform.retry')}</Button></>}
+            {!evolutionAuditLoading && !evolutionAuditError && evolutionAudit.length === 0 && <p>{t('platformAudit.empty')}</p>}
+            {!evolutionAuditError && evolutionAudit.length > 0 && <ol>{evolutionAudit.map((event) => <li key={event.id}>
+              <div><strong>{event.actorName ?? '—'}</strong><span>{t('platformAudit.updated')}</span></div>
+              <time dateTime={event.occurredAt}>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.occurredAt))}</time>
+              <small>{event.beforeState ? `${formatEvolutionAuditState(event.beforeState)} → ` : ''}{formatEvolutionAuditState(event.afterState)}</small>
+            </li>)}</ol>}
+          </section>
+        </section>
       </div>
       <div role="tabpanel" id="platform-panel-companies" aria-labelledby="platform-tab-companies" hidden={activeTab !== 'companies'}>
       <section className="platform-panel platform-workspaces-panel">

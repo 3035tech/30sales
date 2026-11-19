@@ -4,15 +4,17 @@ import { type HandoffDto, handoffPageSchema, handoffSchema } from '../contracts'
 
 
 export const handoffsApi = {
-    list: (status: HandoffDto['status'] = 'requested', params: { limit?: number; offset?: number; handoffId?: string } = {}) => {
+    list: (status: HandoffDto['status'] = 'requested', params: { limit?: number; offset?: number; handoffId?: string; businessLineId?: string } = {}) => {
       const search = new URLSearchParams({ status, limit: String(params.limit ?? 100) });
       if (params.offset !== undefined) search.set('offset', String(params.offset));
       if (params.handoffId) search.set('handoffId', params.handoffId);
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       return request(`/api/v1/handoffs?${search.toString()}`, z.array(handoffSchema));
     },
-    listPage: (status: HandoffDto['status'], params: { limit: number; offset: number; handoffId?: string; search?: string; sortBy: 'requestedAt' | 'accountName' | 'contactName' | 'nextStepAt'; sortDirection: 'asc' | 'desc' }) => {
+    listPage: (status: HandoffDto['status'], params: { limit: number; offset: number; handoffId?: string; businessLineId?: string; search?: string; sortBy: 'requestedAt' | 'accountName' | 'contactName' | 'nextStepAt'; sortDirection: 'asc' | 'desc' }) => {
       const search = new URLSearchParams({ status, limit: String(params.limit), offset: String(params.offset), sortBy: params.sortBy, sortDirection: params.sortDirection });
       if (params.handoffId) search.set('handoffId', params.handoffId);
+      if (params.businessLineId) search.set('businessLineId', params.businessLineId);
       if (params.search) search.set('search', params.search);
       return request(`/api/v1/handoffs/page?${search.toString()}`, handoffPageSchema);
     },

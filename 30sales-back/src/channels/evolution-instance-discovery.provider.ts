@@ -15,10 +15,11 @@ export class EvolutionInstanceDiscoveryDto {
 
 @Injectable()
 export class EvolutionInstanceDiscoveryProvider {
-  async list(credentials: Extract<ChannelCredentialsDto, { provider: 'evolution' }>): Promise<EvolutionInstanceDiscoveryDto[]> {
+  async list(credentials: Pick<Extract<ChannelCredentialsDto, { provider: 'evolution' }>, 'baseUrl' | 'apiKey'>): Promise<EvolutionInstanceDiscoveryDto[]> {
     try { await assertPublicEvolutionTarget(credentials.baseUrl); }
     catch (error) {
-      throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_UNAVAILABLE', message: error instanceof UnsafeExternalTargetError ? 'The Evolution API host is not available for discovery.' : 'The Evolution API could not be reached.' });
+      if (error instanceof UnsafeExternalTargetError) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_TARGET_BLOCKED', message: 'The Evolution API URL resolves to a private or reserved network address.' });
+      throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_UNAVAILABLE', message: 'The Evolution API could not be reached.' });
     }
 
     let response: Response;
@@ -27,6 +28,8 @@ export class EvolutionInstanceDiscoveryProvider {
     } catch {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_UNAVAILABLE', message: 'The Evolution API could not be reached.' });
     }
+    if (response.status === 401 || response.status === 403) throw new ServiceUnavailableException({ code: 'EVOLUTION_API_KEY_REJECTED', message: 'The Evolution API rejected the API key or its instance-list permission.' });
+    if (response.status === 404) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_ENDPOINT_NOT_FOUND', message: 'The Evolution instance discovery endpoint was not found at the configured URL.' });
     if (!response.ok) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_UNAVAILABLE', message: 'The Evolution API rejected the discovery request.' });
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > EVOLUTION_DISCOVERY_LIMITS.responseBytes) throw new ServiceUnavailableException({ code: 'EVOLUTION_DISCOVERY_RESPONSE_TOO_LARGE', message: 'The Evolution API response exceeded the discovery limit.' });

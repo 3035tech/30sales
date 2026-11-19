@@ -1,0 +1,3 @@
+ALTER TABLE "messaging_channels" ADD COLUMN "business_line_id" uuid;--> statement-breakpoint
+ALTER TABLE "messaging_channels" ADD CONSTRAINT "messaging_channels_business_line_tenant_fk" FOREIGN KEY ("organization_id","business_line_id") REFERENCES "public"."business_lines"("organization_id","id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "messaging_channels_org_line_active_idx" ON "messaging_channels" USING btree ("organization_id","business_line_id","is_active");

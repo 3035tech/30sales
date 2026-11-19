@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionContactUpdateDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
-import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES } from '../auth/authorization.constants';
+import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
@@ -129,7 +129,7 @@ export class WebhooksRepository {
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
-      const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode }).from(messagingChannels)
+      const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode, businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
         .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
       if (!channel) throw new Error('Inbound message channel is unavailable in the active organization.');
 
@@ -171,7 +171,9 @@ export class WebhooksRepository {
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       let notificationRecipientUserId = conversation?.ownerUserId ?? lead?.assignedToUserId ?? null;
       if (!conversationId) {
-        const [agent] = await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+        const [lineAgent] = channel.businessLineId ? await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.businessLineId, channel.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+        const [globalAgent] = lineAgent ? [] : await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+        const agent = lineAgent ?? globalAgent;
         const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: channel.operationMode === 'outbound' || !agent?.enabled ? 'paused' : 'assistant', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
         conversationId = createdConversation.id;
         notificationRecipientUserId = createdConversation.ownerUserId ?? lead?.assignedToUserId ?? null;
@@ -250,17 +252,15 @@ export class WebhooksRepository {
             if (closerEvent) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: 'system', action: 'closer_event.created', entityType: 'closer_event', entityId: closerEvent.id, afterState: { eventType, priority, conversationId, opportunityId, sourceMessageId: message.id, assignedToUserId } });
           }
         }
-        let notificationRecipients: string[] = [];
-        if (notificationRecipientUserId) {
-          const [recipientMembership] = await transaction.select({ userId: authMember.userId }).from(authMember)
-            .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, notificationRecipientUserId))).limit(1);
-          if (recipientMembership) notificationRecipients = [recipientMembership.userId];
-        }
-        if (notificationRecipients.length === 0) {
-          const memberships = await transaction.select({ userId: authMember.userId, role: authMember.role }).from(authMember)
-            .where(eq(authMember.organizationId, input.organizationId));
-          notificationRecipients = memberships.filter(({ role }) => hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)).map(({ userId }) => userId);
-        }
+        const memberships = await transaction.select({ userId: authMember.userId, role: authMember.role, businessLineId: businessLineMembers.businessLineId, lineStatus: businessLines.status }).from(authMember)
+          .leftJoin(businessLineMembers, and(eq(businessLineMembers.memberId, authMember.id), eq(businessLineMembers.organizationId, authMember.organizationId), channel.businessLineId ? eq(businessLineMembers.businessLineId, channel.businessLineId) : sql`false`))
+          .leftJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId), eq(businessLines.status, 'active')))
+          .where(eq(authMember.organizationId, input.organizationId));
+        const eligibleRecipients = memberships.filter(({ role, businessLineId, lineStatus }) => hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES)
+          || (Boolean(channel.businessLineId) && businessLineId === channel.businessLineId && lineStatus === 'active'
+            && hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)));
+        const assignedRecipient = notificationRecipientUserId ? eligibleRecipients.find(({ userId }) => userId === notificationRecipientUserId) : undefined;
+        const notificationRecipients = assignedRecipient ? [assignedRecipient.userId] : eligibleRecipients.map(({ userId }) => userId);
         if (notificationRecipients.length) await transaction.insert(userNotifications).values(notificationRecipients.map((recipientUserId) => ({
             organizationId: input.organizationId,
             recipientUserId,
@@ -275,8 +275,9 @@ export class WebhooksRepository {
 
   async recordMessageStatus(input: WhatsappMessageStatusDto): Promise<'updated' | 'duplicate' | 'unmatched' | 'unchanged'> {
     return database.transaction(async (transaction) => {
-      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId })
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId })
         .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.externalMessageId), eq(messages.direction, 'outbound'), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId)))
         .for('update').limit(1);
       if (!message) return 'unmatched';
@@ -291,17 +292,15 @@ export class WebhooksRepository {
       await transaction.update(messages).set({ deliveryState: next })
         .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
       if (next === 'failed') {
-        let recipientUserIds: string[] = [];
-        if (message.ownerUserId) {
-          const [recipient] = await transaction.select({ userId: authMember.userId }).from(authMember)
-            .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, message.ownerUserId))).limit(1);
-          if (recipient) recipientUserIds = [recipient.userId];
-        }
-        if (recipientUserIds.length === 0) {
-          const members = await transaction.select({ userId: authMember.userId, role: authMember.role }).from(authMember)
-            .where(eq(authMember.organizationId, input.organizationId));
-          recipientUserIds = members.filter(({ role }) => hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)).map(({ userId }) => userId);
-        }
+        const members = await transaction.select({ userId: authMember.userId, role: authMember.role, businessLineId: businessLineMembers.businessLineId, lineStatus: businessLines.status }).from(authMember)
+          .leftJoin(businessLineMembers, and(eq(businessLineMembers.memberId, authMember.id), eq(businessLineMembers.organizationId, authMember.organizationId), message.businessLineId ? eq(businessLineMembers.businessLineId, message.businessLineId) : sql`false`))
+          .leftJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId), eq(businessLines.status, 'active')))
+          .where(eq(authMember.organizationId, input.organizationId));
+        const eligibleRecipients = members.filter(({ role, businessLineId, lineStatus }) => hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES)
+          || (Boolean(message.businessLineId) && businessLineId === message.businessLineId && lineStatus === 'active'
+            && hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES)));
+        const assignedRecipient = message.ownerUserId ? eligibleRecipients.find(({ userId }) => userId === message.ownerUserId) : undefined;
+        const recipientUserIds = assignedRecipient ? [assignedRecipient.userId] : eligibleRecipients.map(({ userId }) => userId);
         if (recipientUserIds.length) await transaction.insert(userNotifications).values(recipientUserIds.map((recipientUserId) => ({
           organizationId: input.organizationId,
           recipientUserId,

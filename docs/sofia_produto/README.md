@@ -20,6 +20,7 @@ Esta documentação define o blueprint de produto para o **30Sales**, aplicaçã
 5. [Integrações, API, segurança e operação](05_integracoes_api_seguranca.md)
 6. [Backlog, critérios de aceite e plano de entrega](06_backlog_aceite_entrega.md)
 7. [Oportunidades de produto pelo olhar de quem usa](07_oportunidades_e_valor_para_usuario.md)
+8. [Portfólio e linhas de negócio](11_portfolio_linhas_negocio.md)
 
 ## Premissas adotadas
 

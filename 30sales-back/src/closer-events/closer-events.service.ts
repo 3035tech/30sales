@@ -11,7 +11,9 @@ export class CloserEventsService {
   async list(request: ApiRequestDto, query: ListCloserEventsQueryDto): Promise<CloserEventsPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    return this.repository.list(new CloserEventsListDto(context.organizationId, context.userId, canManageAll, query));
+    const accessibleBusinessLineIds = canManageAll ? null : await this.repository.accessibleBusinessLineIds(context.organizationId, context.userId);
+    if (query.businessLineId && accessibleBusinessLineIds && !accessibleBusinessLineIds.includes(query.businessLineId)) throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'Business line was not found in the active organization.' });
+    return this.repository.list(new CloserEventsListDto(context.organizationId, context.userId, canManageAll, query, accessibleBusinessLineIds));
   }
   async assignees(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
@@ -53,7 +55,7 @@ export class CloserEventsService {
   }
   async listSlaNotifications(request: ApiRequestDto, query: ListCloserSlaNotificationsQueryDto) {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
-    return this.repository.listSlaNotifications(new CloserSlaNotificationsListDto(context.organizationId, context.userId, query.limit));
+    return this.repository.listSlaNotifications(new CloserSlaNotificationsListDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), query.limit));
   }
   async markSlaNotificationRead(request: ApiRequestDto, notificationId: string) {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');

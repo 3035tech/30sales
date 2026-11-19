@@ -1,11 +1,13 @@
-import { Button, CalendarField, CheckboxField, IconButton, NumericField, PhoneField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { Button, CalendarField, CheckboxField, IconButton, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
+import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Bot, CalendarDays, Megaphone, Plus, RefreshCw, Search, Star, Trash2, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type CreateLeadContactInput, type CreateLeadInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
+import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type BusinessLineDto, type CreateLeadContactInput, type CreateLeadInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
 import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS } from '../lib/accountConstants'
 import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_NO_SEND_DATE_MAX, CAMPAIGN_TIME_ZONE_DEFAULT, api as campaignsApi, type CampaignAudiencePreviewDto, type CampaignDraftDto, type CampaignDraftPageDto, type CampaignNoSendDateDto, type CampaignOperationalReadinessDto, type CreateCampaignDraftInput } from '../lib/api'
 import i18n from '../lib/i18n'
@@ -153,6 +155,8 @@ function CampaignHolidayCalendar() {
 
 export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string }) {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [total, setTotal] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
@@ -170,6 +174,8 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [studentCountMax, setStudentCountMax] = useState<number | null>(null)
   const [assignees, setAssignees] = useState<LeadAssigneeDto[] | null>(null)
   const [segments, setSegments] = useState<AccountSegmentDto[]>([])
+  const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
+  const [businessLineFilter, setBusinessLineFilter] = useState('')
   const [sortBy, setSortBy] = useState<LeadSortBy>('nextActionAt')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [pageSize, setPageSize] = useState(25)
@@ -179,12 +185,14 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [statusUpdate, setStatusUpdate] = useState<{ lead: LeadDto; status: LeadStatus } | null>(null)
   const [statusReason, setStatusReason] = useState('')
   const [statusSaving, setStatusSaving] = useState(false)
-  const [form, setForm] = useState<CreateLeadInput>({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
+  const [form, setForm] = useState<CreateLeadInput>({ businessLineId: '', accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
   const [duplicateCandidates, setDuplicateCandidates] = useState<LeadDuplicateCandidateDto[] | null>(null)
   const [duplicateOverrideReason, setDuplicateOverrideReason] = useState('')
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
   const [contactsLead, setContactsLead] = useState<LeadDto | null>(null)
   const [leadContacts, setLeadContacts] = useState<LeadContactDto[]>([])
+
+  useEffect(() => { setBusinessLineFilter(globalBusinessLineId); setOffset(0) }, [globalBusinessLineId])
   const [contactsLoading, setContactsLoading] = useState(false)
   const [contactsSaving, setContactsSaving] = useState(false)
   const [contactsError, setContactsError] = useState('')
@@ -206,9 +214,12 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   const [campaignReadinessDraft, setCampaignReadinessDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignDrafts, setCampaignDrafts] = useState<CampaignDraftPageDto | null>(null)
   const [campaignPerformance, setCampaignPerformance] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.performance>> | null>(null)
+  const [campaignLeadPerformance, setCampaignLeadPerformance] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.performanceLeads>> | null>(null)
   const [campaignPerformanceDraftId, setCampaignPerformanceDraftId] = useState('')
   const [campaignPerformanceLoadingId, setCampaignPerformanceLoadingId] = useState('')
   const [campaignPerformanceError, setCampaignPerformanceError] = useState(false)
+  const [campaignLeadPerformanceLoading, setCampaignLeadPerformanceLoading] = useState(false)
+  const [campaignLeadPerformanceError, setCampaignLeadPerformanceError] = useState(false)
   const [campaignDeliveryReview, setCampaignDeliveryReview] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.listDeliveryReview>> | null>(null)
   const [campaignReviewLoading, setCampaignReviewLoading] = useState(false)
   const [campaignReviewError, setCampaignReviewError] = useState('')
@@ -232,7 +243,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   }
   const loadSdrPreview = async (offset = 0, channelId = sdrPreviewChannelId) => {
     setSdrPreviewLoading(true); setSdrPreviewError(false)
-    try { setSdrPreview(await api.leads.sdrPreview({ channelId: channelId || undefined, limit: SDR_PREVIEW_PAGE_SIZE, offset })) }
+    try { setSdrPreview(await api.leads.sdrPreview({ channelId: channelId || undefined, businessLineId: businessLineFilter || undefined, limit: SDR_PREVIEW_PAGE_SIZE, offset })) }
     catch { setSdrPreviewError(true) }
     finally { setSdrPreviewLoading(false) }
   }
@@ -240,9 +251,10 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     setSdrPreviewOpen(true); setSdrPreview(null); setSdrPreviewError(false); setSdrPreviewLoading(true)
     try {
       const channels = await api.leads.sdrPreviewChannels()
-      const defaultChannelId = channels.find((channel) => channel.isActive && channel.isConfigured)?.id ?? ''
-      setSdrPreviewChannels(channels); setSdrPreviewChannelId(defaultChannelId)
-      setSdrPreview(await api.leads.sdrPreview({ channelId: defaultChannelId || undefined, limit: SDR_PREVIEW_PAGE_SIZE, offset: 0 }))
+      const visibleChannels = businessLineFilter ? channels.filter((channel) => channel.businessLineId === businessLineFilter) : channels
+      const defaultChannelId = visibleChannels.find((channel) => channel.isActive && channel.isConfigured)?.id ?? ''
+      setSdrPreviewChannels(visibleChannels); setSdrPreviewChannelId(defaultChannelId)
+      setSdrPreview(await api.leads.sdrPreview({ channelId: defaultChannelId || undefined, businessLineId: businessLineFilter || undefined, limit: SDR_PREVIEW_PAGE_SIZE, offset: 0 }))
     } catch { setSdrPreviewError(true) }
     finally { setSdrPreviewLoading(false) }
   }
@@ -268,7 +280,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
       await api.campaigns.createDraft({ ...campaignDraftForm, channelId: campaignDraftForm.channelIds[0] ?? '', channelIds: campaignDraftForm.channelIds })
       setCampaignDraftForm((current) => ({ ...current, name: '' }))
       await loadCampaignDrafts(0)
-    } catch { setCampaignDraftError(t('campaignDrafts.saveFailed')) }
+    } catch (error) { setCampaignDraftError(error instanceof ApiError && error.code === 'CAMPAIGN_CHANNELS_MUST_SHARE_BUSINESS_LINE' ? t('campaignDrafts.crossLineChannels') : t('campaignDrafts.saveFailed')) }
     finally { setCampaignDraftSaving(false) }
   }
   const startCampaign = async (draft: CampaignDraftDto) => {
@@ -292,10 +304,18 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
   }
 
   const loadCampaignPerformance = async (campaignDraftId: string) => {
-    setCampaignPerformanceDraftId(campaignDraftId); setCampaignPerformanceLoadingId(campaignDraftId); setCampaignPerformanceError(false)
+    setCampaignPerformanceDraftId(campaignDraftId); setCampaignPerformanceLoadingId(campaignDraftId); setCampaignPerformanceError(false); setCampaignLeadPerformance(null); setCampaignLeadPerformanceError(false)
+    void loadCampaignPerformanceLeads(campaignDraftId, 0)
     try { setCampaignPerformance(await campaignsApi.campaigns.performance(campaignDraftId)) }
     catch { setCampaignPerformance(null); setCampaignPerformanceError(true) }
     finally { setCampaignPerformanceLoadingId('') }
+  }
+
+  const loadCampaignPerformanceLeads = async (campaignDraftId: string, offset: number) => {
+    setCampaignLeadPerformanceLoading(true); setCampaignLeadPerformanceError(false)
+    try { setCampaignLeadPerformance(await campaignsApi.campaigns.performanceLeads(campaignDraftId, { limit: 25, offset })) }
+    catch { setCampaignLeadPerformance(null); setCampaignLeadPerformanceError(true) }
+    finally { setCampaignLeadPerformanceLoading(false) }
   }
 
   const loadCampaignDeliveryReview = async (offset = 0) => {
@@ -344,15 +364,25 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     setLoading(true)
     setError('')
     if (studentRangeInvalid) { setLeads([]); setTotal(0); setHasNextPage(false); setLoading(false); return () => { active = false } }
-    api.leads.listPage({ status: statusFilter || undefined, source: sourceFilter || undefined, assignedToUserId: assigneeFilter || undefined, segmentId: segmentFilter || undefined, marketSegment: ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === marketFilter), withoutMarketSegment: marketFilter === ACCOUNT_MARKET_FILTER.unclassified || undefined, studentCountMin: studentCountMin ?? undefined, studentCountMax: studentCountMax ?? undefined, search: search || undefined, sortBy, sortDirection, limit: pageSize, offset })
+    api.leads.listPage({ businessLineId: businessLineFilter || undefined, status: statusFilter || undefined, source: sourceFilter || undefined, assignedToUserId: assigneeFilter || undefined, segmentId: segmentFilter || undefined, marketSegment: ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === marketFilter), withoutMarketSegment: marketFilter === ACCOUNT_MARKET_FILTER.unclassified || undefined, studentCountMin: studentCountMin ?? undefined, studentCountMax: studentCountMax ?? undefined, search: search || undefined, sortBy, sortDirection, limit: pageSize, offset })
       .then((result) => { if (active) { setLeads(result.data); setTotal(result.pagination.total); setHasNextPage(result.pagination.hasNextPage) } })
       .catch(() => { if (active) setError(t('errors.loadLeads')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [statusFilter, sourceFilter, assigneeFilter, segmentFilter, marketFilter, studentCountMin, studentCountMax, studentRangeInvalid, search, sortBy, sortDirection, pageSize, offset, refreshVersion, t])
+  }, [businessLineFilter, statusFilter, sourceFilter, assigneeFilter, segmentFilter, marketFilter, studentCountMin, studentCountMax, studentRangeInvalid, search, sortBy, sortDirection, pageSize, offset, refreshVersion, t])
 
   useEffect(() => { api.leads.assignees().then(setAssignees).catch(() => setAssignees(null)) }, [])
   useEffect(() => { api.accounts.segments().then(setSegments).catch(() => setSegments([])) }, [])
+  useEffect(() => {
+    let active = true
+    api.businessLines.list().then((result) => {
+      if (!active) return
+      const lines = result.data.filter((line) => line.status === 'active')
+      setBusinessLines(lines)
+      setForm((current) => ({ ...current, businessLineId: lines.some((line) => line.id === globalBusinessLineId) ? globalBusinessLineId : lines.some((line) => line.id === current.businessLineId) ? current.businessLineId : lines.find((line) => line.isDefault)?.id ?? lines[0]?.id ?? '' }))
+    }).catch(() => { if (active) setBusinessLines([]) })
+    return () => { active = false }
+  }, [globalBusinessLineId])
 
   const updateLeadForm = (update: Partial<CreateLeadInput>) => {
     setForm((current) => ({ ...current, ...update }))
@@ -365,7 +395,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     setError('')
     try {
       await api.leads.create({ ...form, duplicateOverrideReason: overrideReason })
-      setForm({ accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
+      setForm({ businessLineId: form.businessLineId, accountName: '', contactName: '', email: '', phone: '', source: 'manual' })
       setDuplicateCandidates(null)
       setDuplicateOverrideReason('')
       setShowForm(false)
@@ -485,6 +515,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
 
   const filters = <>
     <label className="lead-search"><Search size={15} /><TextField value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('leads.search')} aria-label={t('leads.searchFields')} /></label>
+    <label className="lead-filter-label">{t('businessLines.title')}<SelectField value={businessLineFilter} onChange={(event) => { const nextLineId = event.target.value; setBusinessLineFilter(nextLineId); setOffset(0); setSearchParams((current) => { const next = new URLSearchParams(current); if (nextLineId) next.set('businessLineId', nextLineId); else next.delete('businessLineId'); return next }) }}><option value="">{t('businessLines.allLines')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
     <label className="lead-filter-label">{t('common.status')}<SelectField value={statusFilter} onChange={(event) => { const value = parseLeadStatus(event.target.value); setStatusFilter(value ?? ''); setOffset(0) }}><option value="">{t('leads.allStatuses')}</option>{statusOrder.map((status) => <option key={status} value={status}>{t(`leadStatuses.${status}`)}</option>)}</SelectField></label>
     <label className="lead-filter-label">{t('leads.source')}<SelectField value={sourceFilter} onChange={(event) => { setSourceFilter(sourceOrder.find((source) => source === event.target.value) ?? ''); setOffset(0) }}><option value="">{t('leads.allSources')}</option>{sourceOrder.map((source) => <option key={source} value={source}>{t(`leads.sources.${source}`)}</option>)}</SelectField></label>
     <label className="lead-filter-label">{t('accounts.columns.segment')}<SelectField value={segmentFilter} onChange={(event) => { setSegmentFilter(event.target.value); setOffset(0) }}><option value="">{t('accounts.allSegments')}</option><option value={ACCOUNT_SEGMENT_FILTER.unassigned}>{t('accounts.unsegmented')}</option>{segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}</SelectField></label>
@@ -495,11 +526,11 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     {assignees && <label className="lead-filter-label">{t('leadAssignment.assignee')}<SelectField value={assigneeFilter} onChange={(event) => { setAssigneeFilter(event.target.value); setOffset(0) }}><option value="">{t('leadAssignment.allAssignees')}</option><option value="unassigned">{t('leadAssignment.unassigned')}</option>{assignees.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</SelectField></label>}
   </>
 
-  const emptyState = error ? <div><strong>{error}</strong></div> : search || statusFilter || sourceFilter || assigneeFilter || segmentFilter || marketFilter !== ACCOUNT_MARKET_FILTER.all || studentCountMin !== null || studentCountMax !== null ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><Button className="text-button" onClick={() => { setQuery(''); setSearch(''); setStatusFilter(''); setSourceFilter(''); setAssigneeFilter(''); setSegmentFilter(''); setMarketFilter(ACCOUNT_MARKET_FILTER.all); setStudentCountMin(null); setStudentCountMax(null); setOffset(0) }}>{t('leads.clearFilters')}</Button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><Button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</Button></div>
+  const emptyState = error ? <div><strong>{error}</strong></div> : search || businessLineFilter || statusFilter || sourceFilter || assigneeFilter || segmentFilter || marketFilter !== ACCOUNT_MARKET_FILTER.all || studentCountMin !== null || studentCountMax !== null ? <div><strong>{t('leads.noSearchResults')}</strong><p>{t('leads.noSearchHint')}</p><Button className="text-button" onClick={() => { setQuery(''); setSearch(''); setBusinessLineFilter(''); setStatusFilter(''); setSourceFilter(''); setAssigneeFilter(''); setSegmentFilter(''); setMarketFilter(ACCOUNT_MARKET_FILTER.all); setStudentCountMin(null); setStudentCountMax(null); setOffset(0); setSearchParams((current) => { const next = new URLSearchParams(current); next.delete('businessLineId'); return next }) }}>{t('leads.clearFilters')}</Button></div> : <div><strong>{t('leads.emptyTitle')}</strong><p>{t('leads.emptyHint')}</p><Button className="text-button" onClick={() => setShowForm(true)}>{t('leads.addFirstLead')}</Button></div>
 
   return <section className="leads-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
-      <div className="lead-actions"><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button><Button type="button" className="primary add-lead" onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</Button></div>
+      <div className="lead-actions"><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button><Button type="button" className="primary add-lead" disabled={businessLines.length === 0} onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</Button></div>
     </header>
     <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab('campaigns') } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
@@ -513,7 +544,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
         <form className="campaign-draft-form" onSubmit={(event) => void createCampaignDraft(event)}>
           <div className="campaign-draft-form-heading"><strong>{t('campaignDrafts.newDraft')}</strong><p>{t('campaignDrafts.formHint')}</p></div>
           <label>{t('campaignDrafts.name')}<TextField value={campaignDraftForm.name} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, name: event.target.value }))} minLength={2} maxLength={120} required /></label>
-          <fieldset className="campaign-channel-options"><legend>{t('campaignDrafts.channels')}</legend><p className="form-hint">{t('campaignDrafts.channelsHint')}</p>{campaignChannels.map((channel) => <label key={channel.id}><CheckboxField checked={campaignDraftForm.channelIds.includes(channel.id)} disabled={!channel.isActive || !channel.isConfigured} onChange={(event) => setCampaignDraftForm((current) => { const nextIds = event.target.checked ? [...current.channelIds, channel.id] : current.channelIds.filter((id) => id !== channel.id); return { ...current, channelIds: nextIds, channelId: nextIds[0] ?? '' } })} /><span>{channel.displayName} · {channel.phoneNumber}{!channel.isActive ? ` · ${t('sdrPreview.channelInactive')}` : !channel.isConfigured ? ` · ${t('sdrPreview.channelUnconfigured')}` : ''}</span></label>)}</fieldset>
+          <fieldset className="campaign-channel-options"><legend>{t('campaignDrafts.channels')}</legend><p className="form-hint">{t('campaignDrafts.channelsHint')}</p>{campaignChannels.map((channel) => { const selectedLineId = campaignChannels.find((candidate) => candidate.id === campaignDraftForm.channelIds[0])?.businessLineId; const belongsToAnotherLine = campaignDraftForm.channelIds.length > 0 && selectedLineId !== channel.businessLineId; return <label key={channel.id}><CheckboxField checked={campaignDraftForm.channelIds.includes(channel.id)} disabled={!channel.isActive || !channel.isConfigured || belongsToAnotherLine} onChange={(event) => setCampaignDraftForm((current) => { const nextIds = event.target.checked ? [...current.channelIds, channel.id] : current.channelIds.filter((id) => id !== channel.id); return { ...current, channelIds: nextIds, channelId: nextIds[0] ?? '' } })} /><span>{channel.displayName} · {channel.phoneNumber}{channel.businessLineName ? ` · ${t('campaignDrafts.channelBusinessLine', { name: channel.businessLineName })}` : ''}{!channel.isActive ? ` · ${t('sdrPreview.channelInactive')}` : !channel.isConfigured ? ` · ${t('sdrPreview.channelUnconfigured')}` : ''}</span></label> })}</fieldset>
           {campaignChannels.length === 0 && <p className="form-hint">{t('sdrPreview.noChannels')}</p>}
           <label>{t('campaignDrafts.openingMessage')}<TextareaField value={campaignDraftForm.openingMessage} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, openingMessage: event.target.value }))} minLength={1} maxLength={4096} rows={4} required /></label>
           <div className="campaign-draft-fields">
@@ -530,7 +561,28 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
           <div className="campaign-draft-list-heading"><div><strong>{t('campaignDrafts.savedDrafts')}</strong><span>{t('campaignDrafts.count', { count: campaignDrafts?.pagination.total ?? 0 })}</span></div></div>
           <p className="form-hint">{t('campaignDrafts.pauseHint')}</p>
           {campaignStartedCount !== null && <p className="success-message" role="status">{t('campaignDrafts.started', { count: campaignStartedCount })}</p>}
-          {!campaignDraftsLoading && campaignDrafts?.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.empty')} /> : <ul>{campaignDrafts?.data.map((draft) => <li key={draft.id}><div><strong>{draft.name}</strong><span>{draft.channelLabels.join(', ')}</span><small>{t('campaignDrafts.schedule', { start: draft.windowStart, end: draft.windowEnd, timeZone: draft.timeZone })}</small></div><div><span>{t('campaignDrafts.dailyLimitValue', { count: draft.dailyMessageLimit })}</span><span>{t('campaignDrafts.delayValue', { count: draft.minimumDelaySeconds })}</span><span>{t('campaignAudience.savedCount', { count: draft.audienceLeadCount })}</span><b>{t(`campaignDrafts.status.${draft.status}`)}</b><Button type="button" onClick={() => setCampaignReadinessDraft(draft)}>{t('campaignDrafts.checkReadiness')}</Button>{draft.status !== CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" onClick={() => { if (campaignPerformanceDraftId === draft.id) { setCampaignPerformance(null); setCampaignPerformanceDraftId('') } else void loadCampaignPerformance(draft.id) }}>{campaignPerformanceLoadingId === draft.id ? t('common.loading') : t('campaignDrafts.performance')}</Button>}<Button type="button" onClick={() => setCampaignAudienceDraft(draft)} disabled={draft.status !== CAMPAIGN_DRAFT_STATUS.draft}>{t('campaignAudience.select')}</Button>{draft.status === CAMPAIGN_DRAFT_STATUS.active && <Button type="button" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'pause')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.pause')}</Button>}{draft.status === CAMPAIGN_DRAFT_STATUS.paused && <Button type="button" variant="primary" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'resume')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.resume')}</Button>}{draft.status === CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" variant="primary" disabled={draft.audienceLeadCount === 0 || campaignStartingId !== ''} onClick={() => void startCampaign(draft)}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.start')}</Button>}</div>{campaignPerformanceDraftId === draft.id && <div className="campaign-performance" role="region" aria-label={t('campaignDrafts.performance')}>{campaignPerformanceLoadingId === draft.id ? <span>{t('common.loading')}</span> : campaignPerformanceError ? <span role="alert">{t('campaignDrafts.performanceFailed')}</span> : campaignPerformance && <><strong>{t('campaignDrafts.performanceTotal', { count: campaignPerformance.total })}</strong>{campaignPerformance.channels.map((channel) => <div key={channel.channelId}><b>{channel.channelLabel}</b><span>{t('campaignDrafts.performanceCounts', { queued: channel.queued, accepted: channel.accepted, delivered: channel.delivered, replied: channel.replied, review: channel.needsReview })}</span></div>)}</>}</div>}</li>)}</ul>}
+          {!campaignDraftsLoading && campaignDrafts?.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.empty')} /> : <ul>{campaignDrafts?.data.map((draft) => <li key={draft.id}>
+            <div><strong>{draft.name}</strong><span>{draft.channelLabels.join(', ')}</span><small>{t('campaignDrafts.schedule', { start: draft.windowStart, end: draft.windowEnd, timeZone: draft.timeZone })}</small></div>
+            <div><span>{t('campaignDrafts.dailyLimitValue', { count: draft.dailyMessageLimit })}</span><span>{t('campaignDrafts.delayValue', { count: draft.minimumDelaySeconds })}</span><span>{t('campaignAudience.savedCount', { count: draft.audienceLeadCount })}</span><b>{t(`campaignDrafts.status.${draft.status}`)}</b>
+              <Button type="button" onClick={() => setCampaignReadinessDraft(draft)}>{t('campaignDrafts.checkReadiness')}</Button>
+              {draft.status !== CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" onClick={() => { if (campaignPerformanceDraftId === draft.id) { setCampaignPerformance(null); setCampaignLeadPerformance(null); setCampaignPerformanceDraftId('') } else void loadCampaignPerformance(draft.id) }}>{campaignPerformanceLoadingId === draft.id ? t('common.loading') : t('campaignPerformanceReport.performance')}</Button>}
+              <Button type="button" onClick={() => setCampaignAudienceDraft(draft)} disabled={draft.status !== CAMPAIGN_DRAFT_STATUS.draft}>{t('campaignAudience.select')}</Button>
+              {draft.status === CAMPAIGN_DRAFT_STATUS.active && <Button type="button" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'pause')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.pause')}</Button>}
+              {draft.status === CAMPAIGN_DRAFT_STATUS.paused && <Button type="button" variant="primary" disabled={campaignStartingId !== ''} onClick={() => void changeCampaignStatus(draft, 'resume')}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.resume')}</Button>}
+              {draft.status === CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" variant="primary" disabled={draft.audienceLeadCount === 0 || campaignStartingId !== ''} onClick={() => void startCampaign(draft)}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.start')}</Button>}
+            </div>
+            {campaignPerformanceDraftId === draft.id && <div className="campaign-performance" role="region" aria-label={t('campaignPerformanceReport.performance')}>
+              {campaignPerformanceLoadingId === draft.id ? <span>{t('common.loading')}</span> : campaignPerformanceError ? <span role="alert">{t('campaignPerformanceReport.performanceFailed')}</span> : campaignPerformance && <>
+                <strong>{t('campaignPerformanceReport.performanceTotal', { count: campaignPerformance.total })}</strong>
+                {campaignPerformance.channels.map((channel) => <div key={channel.channelId}><b>{channel.channelLabel}</b><span>{t('campaignPerformanceReport.performanceCounts', { queued: channel.queued, accepted: channel.accepted, delivered: channel.delivered, replied: channel.replied, review: channel.needsReview })}</span></div>)}
+                <strong>{t('campaignPerformanceReport.leadAssignments')}</strong>
+                {campaignLeadPerformanceLoading ? <span>{t('common.loading')}</span> : campaignLeadPerformanceError ? <span role="alert">{t('campaignPerformanceReport.leadsFailed')}</span> : campaignLeadPerformance && <>
+                  <ul>{campaignLeadPerformance.data.map((item) => <li key={item.leadId}><div><b>{item.accountName}</b><span>{item.contactName ?? t('campaignPerformanceReport.unknownContact')} · {item.phone ?? '—'}</span></div><div><b>{item.channelLabel}</b><span>{t(`campaignPerformanceReport.outbox.${item.outboxStatus}`)} · {item.deliveryState ? t(`campaignPerformanceReport.delivery.${item.deliveryState}`) : t('campaignPerformanceReport.noMessage')}{item.replied ? ` · ${t('campaignPerformanceReport.repliedLabel')}` : ''}</span></div></li>)}</ul>
+                  <div className="campaign-performance-pagination"><Button type="button" disabled={campaignLeadPerformanceLoading || campaignLeadPerformance.pagination.offset === 0} onClick={() => void loadCampaignPerformanceLeads(draft.id, Math.max(0, campaignLeadPerformance.pagination.offset - campaignLeadPerformance.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignLeadPerformance.pagination.offset / campaignLeadPerformance.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignLeadPerformance.pagination.total / campaignLeadPerformance.pagination.limit)) })}</span><Button type="button" disabled={campaignLeadPerformanceLoading || !campaignLeadPerformance.pagination.hasNextPage} onClick={() => void loadCampaignPerformanceLeads(draft.id, campaignLeadPerformance.pagination.offset + campaignLeadPerformance.pagination.limit)}>{t('common.nextPage')}</Button></div>
+                </>}
+              </>}
+            </div>}
+          </li>)}</ul>}
           {campaignDrafts && <div className="sdr-preview-pagination"><Button type="button" disabled={campaignDrafts.pagination.offset === 0 || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(Math.max(0, campaignDrafts.pagination.offset - campaignDrafts.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignDrafts.pagination.offset / campaignDrafts.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignDrafts.pagination.total / campaignDrafts.pagination.limit)) })}</span><Button type="button" disabled={!campaignDrafts.pagination.hasNextPage || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(campaignDrafts.pagination.offset + campaignDrafts.pagination.limit)}>{t('common.nextPage')}</Button></div>}
         </section>
       </div>
@@ -548,7 +600,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     {campaignReadinessDraft && <CampaignOperationalReadinessModal draft={campaignReadinessDraft} onClose={() => setCampaignReadinessDraft(null)} />}
     <Modal open={sdrPreviewOpen} onOpenChange={(open) => { setSdrPreviewOpen(open); if (!open) { setSdrPreview(null); setSdrPreviewError(false); setSdrPreviewChannels([]); setSdrPreviewChannelId('') } }} title={t('sdrPreview.title')} description={t('sdrPreview.description')} closeLabel={t('common.close')} className="sdr-preview-modal">
       {sdrPreviewError ? <WorkspaceState kind="error" compact message={t('sdrPreview.loadFailed')}><Button onClick={() => void loadSdrPreview(sdrPreview?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState> : sdrPreviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : sdrPreview && <>
-        <label className="sdr-preview-channel">{t('sdrPreview.channel')}<SelectField value={sdrPreviewChannelId} onChange={(event) => { const channelId = event.target.value; setSdrPreviewChannelId(channelId); void loadSdrPreview(0, channelId) }}><option value="">{t('sdrPreview.chooseChannel')}</option>{sdrPreviewChannels.map((channel) => <option key={channel.id} value={channel.id} disabled={!channel.isActive || !channel.isConfigured}>{channel.displayName} · {channel.phoneNumber} · {t(channel.isActive ? channel.isConfigured ? 'sdrPreview.channelReady' : 'sdrPreview.channelUnconfigured' : 'sdrPreview.channelInactive')}</option>)}</SelectField></label>
+        <label className="sdr-preview-channel">{t('sdrPreview.channel')}<SelectField value={sdrPreviewChannelId} onChange={(event) => { const channelId = event.target.value; setSdrPreviewChannelId(channelId); void loadSdrPreview(0, channelId) }}><option value="">{t('sdrPreview.chooseChannel')}</option>{sdrPreviewChannels.map((channel) => <option key={channel.id} value={channel.id} disabled={!channel.isActive || !channel.isConfigured}>{channel.displayName}{channel.businessLineName ? ` · ${channel.businessLineName}` : ''} · {channel.phoneNumber} · {t(channel.isActive ? channel.isConfigured ? 'sdrPreview.channelReady' : 'sdrPreview.channelUnconfigured' : 'sdrPreview.channelInactive')}</option>)}</SelectField></label>
         {sdrPreviewChannels.length === 0 && <p className="form-hint">{t('sdrPreview.noChannels')}</p>}
         <div className="sdr-preview-summary"><strong>{t('sdrPreview.pageCount', { count: sdrPreview.leads.length, total: sdrPreview.pagination.total })}</strong><span>{t('sdrPreview.withoutBlockers', { count: sdrPreview.pageSummary.withoutBlockers })}</span><span>{t('sdrPreview.blocked', { count: sdrPreview.pageSummary.blocked })}</span></div>
         {sdrPreview.leads.length === 0 ? <WorkspaceState kind="empty" message={t('sdrPreview.empty')} /> : <ul className="sdr-preview-list">{sdrPreview.leads.map((lead) => <li key={lead.leadId}><div><strong>{lead.accountName}</strong><small>{lead.contactName ?? t('leadContacts.noPrimary')} · {t(`leads.sources.${lead.source}`)}</small></div>{lead.blockers.length === 0 ? <span className="sdr-preview-ready">{t('sdrPreview.ready')}</span> : <ul>{lead.blockers.map((blocker) => <li key={blocker}>{t(`sdrReadiness.blockers.${blocker}`)}</li>)}</ul>}</li>)}</ul>}
@@ -558,15 +610,16 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
     </Modal>
     {showForm && <form className="lead-form" onSubmit={createLead}>
       <div className="lead-form-title"><Users size={18} /><div><strong>{t('leads.newLead')}</strong><small>{t('leads.newLeadHint')}</small></div></div>
-      <div className="lead-fields">
+      {businessLines.length === 0 ? <WorkspaceState kind="empty" compact message={t('businessLines.empty')} /> : <div className="lead-fields">
+        <label>{t('businessLines.title')}<SelectField value={form.businessLineId} onChange={(event) => updateLeadForm({ businessLineId: event.target.value })} required><option value="" disabled>{t('businessLines.selectLine')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
         <label>{t('leads.company')}<TextField value={form.accountName} onChange={(event) => updateLeadForm({ accountName: event.target.value })} minLength={2} maxLength={160} required /></label>
         <label>{t('leads.contactName')}<TextField value={form.contactName ?? ''} onChange={(event) => updateLeadForm({ contactName: event.target.value })} minLength={2} maxLength={160} /></label>
         <label>{t('common.email')}<TextField type="email" normalize="email" value={form.email ?? ''} onChange={(event) => updateLeadForm({ email: event.target.value })} /></label>
         <label>{t('common.phone')}<PhoneField value={form.phone ?? ''} onValueChange={(phone) => updateLeadForm({ phone })} /></label>
-      </div>
+      </div>}
       <p className="form-hint">{t('leads.contactChannelHint')}</p>
       {duplicateCandidates && <section className="lead-duplicate-review" aria-live="polite"><div><strong>{t('leadDuplicateReview.title')}</strong><p>{t('leadDuplicateReview.hint')}</p></div><ul>{duplicateCandidates.map((candidate) => <li key={candidate.id}><span><strong>{candidate.accountName}{candidate.contactName ? ` · ${candidate.contactName}` : ''}</strong><small>{t(`leadStatuses.${candidate.status}`)} · {candidate.matchedBy.map((match) => t(`leadDuplicateReview.matchedBy.${match}`)).join(', ')}</small></span></li>)}</ul><label>{t('leadDuplicateReview.overrideReason')}<TextareaField value={duplicateOverrideReason} onChange={(event) => setDuplicateOverrideReason(event.target.value)} minLength={3} maxLength={500} required /></label><div className="lead-duplicate-actions"><Button type="button" className="status-change-cancel" disabled={saving} onClick={() => { setDuplicateCandidates(null); setDuplicateOverrideReason('') }}>{t('common.cancel')}</Button><Button type="button" className="primary" disabled={saving || duplicateOverrideReason.trim().length < 3} onClick={() => void saveLead(duplicateOverrideReason.trim())}>{saving ? t('common.saving') : t('leadDuplicateReview.createAnyway')}</Button></div></section>}
-      {!duplicateCandidates && <Button className="primary" disabled={saving || checkingDuplicates}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</Button>}
+      {!duplicateCandidates && <Button className="primary" disabled={saving || checkingDuplicates || businessLines.length === 0}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</Button>}
     </form>}
     <Modal open={contactsLead !== null} onOpenChange={(open) => { if (!open) { setContactsLead(null); setContactsError(''); setContactForm({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' }) } }} title={t('leadContacts.title', { company: contactsLead?.accountName ?? '' })} description={t('leadContacts.description')} closeLabel={t('common.close')} className="lead-contacts-modal">
       {contactsError && <WorkspaceState kind="error" compact message={contactsError} />}

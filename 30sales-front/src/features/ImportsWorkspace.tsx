@@ -1,8 +1,9 @@
 import { Button, FileField, SelectField } from '../components/ui/FormControls'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, FileUp, RefreshCw, SearchCheck, ShieldCheck, UserRoundPlus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { api } from '../lib/api'
+import { useSearchParams } from 'react-router-dom'
+import { api, type BusinessLineDto } from '../lib/api'
 import { IMPORT_CSV_HEADERS, IMPORT_CSV_MAX_BYTES, IMPORT_PREVIEW_STATUS, IMPORT_PROVIDERS, IMPORT_TARGET_TYPE, IMPORT_TARGET_TYPES, LEAD_IMPORT_RESULT_STATUS } from '../lib/importConstants'
 import './ImportsWorkspace.css'
 
@@ -53,6 +54,7 @@ function readRecords(text: string): ImportRecord[] {
 
 export function ImportsWorkspace() {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [provider, setProvider] = useState<Provider>('twenty')
   const [records, setRecords] = useState<ImportRecord[]>([])
   const [fileName, setFileName] = useState('')
@@ -61,6 +63,19 @@ export function ImportsWorkspace() {
   const [commitResult, setCommitResult] = useState<Awaited<ReturnType<typeof api.imports.importLeads>> | null>(null)
   const [loading, setLoading] = useState<'preview' | 'import' | null>(null)
   const [requestError, setRequestError] = useState(false)
+  const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
+  const [businessLineId, setBusinessLineId] = useState('')
+  useEffect(() => { setBusinessLineId(searchParams.get('businessLineId') ?? '') }, [searchParams])
+  useEffect(() => {
+    let active = true
+    api.businessLines.list().then((response) => {
+      if (!active) return
+      const available = response.data.filter((line) => line.status === 'active')
+      setBusinessLines(available)
+      setBusinessLineId((current) => available.some((line) => line.id === current) ? current : available.find((line) => line.id === searchParams.get('businessLineId'))?.id ?? available.find((line) => line.isDefault)?.id ?? available[0]?.id ?? '')
+    }).catch(() => { if (active) setBusinessLines([]) })
+    return () => { active = false }
+  }, [searchParams])
   const counts = useMemo(() => Object.fromEntries(Object.values(IMPORT_PREVIEW_STATUS).map((status) => [status, result?.records.filter((record) => record.status === status).length ?? 0])), [result])
 
   const selectFile = async (file?: File) => {
@@ -76,7 +91,7 @@ export function ImportsWorkspace() {
   }
   const preview = async () => {
     setLoading('preview'); setRequestError(false); setCommitResult(null)
-    try { setResult(await api.imports.preview({ provider, records })) }
+    try { setResult(await api.imports.preview({ businessLineId: businessLineId || undefined, provider, records })) }
     catch { setRequestError(true) }
     finally { setLoading(null) }
   }
@@ -86,7 +101,7 @@ export function ImportsWorkspace() {
     const leadRecords = records.filter(isImportableLeadRecord).filter((record) => identities.has(`${record.recordType}\u0000${record.externalId}`))
     if (!leadRecords.length) return
     setLoading('import'); setRequestError(false)
-    try { setCommitResult(await api.imports.importLeads({ provider, records: leadRecords.map((record) => ({ ...record, targetType: IMPORT_TARGET_TYPE.lead })) })) }
+    try { setCommitResult(await api.imports.importLeads({ businessLineId: businessLineId || undefined, provider, records: leadRecords.map((record) => ({ ...record, targetType: IMPORT_TARGET_TYPE.lead })) })) }
     catch { setRequestError(true) }
     finally { setLoading(null) }
   }
@@ -96,18 +111,19 @@ export function ImportsWorkspace() {
     <div className="imports-safety"><ShieldCheck size={18} /><span>{t('imports.readOnly')}</span></div>
     <section className="imports-upload">
       <label>{t('imports.provider')}<SelectField value={provider} onChange={(event) => { const selectedProvider = IMPORT_PROVIDERS.find((candidate) => candidate === event.target.value); if (selectedProvider) setProvider(selectedProvider); setResult(null); setCommitResult(null) }}><option value={IMPORT_PROVIDERS[0]}>Twenty</option><option value={IMPORT_PROVIDERS[1]}>Chatwoot</option><option value={IMPORT_PROVIDERS[2]}>Legacy PostgreSQL</option></SelectField></label>
+      <label>{t('businessLines.title')}<SelectField value={businessLineId} onChange={(event) => { const nextLineId = event.target.value; setBusinessLineId(nextLineId); setCommitResult(null); setSearchParams((current) => { const next = new URLSearchParams(current); if (nextLineId) next.set('businessLineId', nextLineId); else next.delete('businessLineId'); return next }) }} required><option value="" disabled>{t('businessLines.selectLine')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
       <div className="imports-file"><span>{t('imports.csvFile')}</span><FileField accept=".csv,text/csv" onChange={(event) => void selectFile(event.target.files?.[0])} /><small>{fileName || t('imports.fileHint')}</small></div>
       <p className="imports-format">{t('imports.format')}<code>{headers.join(', ')}</code></p>
       {parseError && <p className="error imports-error">{t(`imports.errors.${parseError}`, { defaultValue: t('imports.errors.invalidCsv') })}</p>}
       {requestError && <p className="error imports-error">{t('imports.requestFailed')}</p>}
-      <div className="imports-actions"><span>{t('imports.recordsLoaded', { count: records.length })}</span><Button className="primary" disabled={!records.length || loading !== null} onClick={() => void preview()}>{loading === 'preview' ? t('imports.analyzing') : t('imports.preview')}<SearchCheck size={16} /></Button></div>
+      <div className="imports-actions"><span>{t('imports.recordsLoaded', { count: records.length })}</span><Button className="primary" disabled={!businessLineId || !records.length || loading !== null} onClick={() => void preview()}>{loading === 'preview' ? t('imports.analyzing') : t('imports.preview')}<SearchCheck size={16} /></Button></div>
     </section>
     {result && <section className="lead-list-panel imports-results">
       <div className="lead-list-toolbar"><div><h3>{t('imports.results')}</h3><p>{t('imports.resultsHint', { count: result.records.length })}</p></div><AlertTriangle size={18} /></div>
       {commitResult && <p className="imports-outcome" role="status">{t('imports.importOutcome', { imported: commitResult.records.filter((record) => record.status === LEAD_IMPORT_RESULT_STATUS.imported).length, linked: commitResult.records.filter((record) => record.status === LEAD_IMPORT_RESULT_STATUS.alreadyLinked).length, review: commitResult.records.filter((record) => record.status === LEAD_IMPORT_RESULT_STATUS.reviewRequired || record.status === LEAD_IMPORT_RESULT_STATUS.typeConflict).length })}</p>}
       <div className="imports-summary">{Object.entries(counts).map(([status, count]) => <div key={status}><strong>{count}</strong><span>{t(`imports.status.${status}`)}</span></div>)}</div>
       <div className="imports-table-wrap"><table className="imports-table"><thead><tr>{['source', 'record', 'target', 'status', 'candidates'].map((key) => <th key={key}>{t(`imports.columns.${key}`)}</th>)}</tr></thead><tbody>{result.records.map((record, index) => { const committed = commitResult?.records.find((item) => item.recordType === record.recordType && item.externalId === record.externalId); const targetId = committed?.leadId ?? record.linkedTarget?.targetId; const targetType = committed?.leadId ? IMPORT_TARGET_TYPE.lead : record.linkedTarget?.targetType; return <tr key={`${record.recordType}-${record.externalId}-${index}`}><td><strong>{record.externalId}</strong><small>{record.recordType}{record.sourceStatus ? ` · ${record.sourceStatus}` : ''}</small></td><td>{t(`imports.targetType.${record.targetType}`)}</td><td>{targetId && targetType ? `${t(`imports.targetType.${targetType}`)} · ${targetId}` : '—'}</td><td><span className={`imports-status ${committed?.status ?? record.status}`}>{committed ? t(`imports.commitStatus.${committed.status}`) : t(`imports.status.${record.status}`)}</span></td><td>{record.candidates.length ? record.candidates.map((candidate) => <div className="imports-candidate" key={candidate.targetId}><strong>{candidate.label}</strong><small>{candidate.matchedBy.map((field) => t(`imports.matchField.${field}`)).join(', ')}</small></div>) : '—'}</td></tr> })}</tbody></table></div>
-      <div className="imports-actions imports-commit"><span>{t('imports.reviewOnlyHint')}</span><Button className="primary" disabled={!result.records.some((record) => record.targetType === IMPORT_TARGET_TYPE.lead && record.status === IMPORT_PREVIEW_STATUS.noMatch) || loading !== null || Boolean(commitResult)} onClick={() => void importUnmatchedLeads()}>{loading === 'import' ? t('imports.importing') : t('imports.importLeads', { count: result.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.lead && record.status === IMPORT_PREVIEW_STATUS.noMatch).length })}<UserRoundPlus size={16} /></Button></div>
+      <div className="imports-actions imports-commit"><span>{t('imports.reviewOnlyHint')}</span><Button className="primary" disabled={!businessLineId || !result.records.some((record) => record.targetType === IMPORT_TARGET_TYPE.lead && record.status === IMPORT_PREVIEW_STATUS.noMatch) || loading !== null || Boolean(commitResult)} onClick={() => void importUnmatchedLeads()}>{loading === 'import' ? t('imports.importing') : t('imports.importLeads', { count: result.records.filter((record) => record.targetType === IMPORT_TARGET_TYPE.lead && record.status === IMPORT_PREVIEW_STATUS.noMatch).length })}<UserRoundPlus size={16} /></Button></div>
     </section>}
     <div className="imports-footnote"><FileUp size={15} />{t('imports.noWriteNotice')}</div>
   </section>

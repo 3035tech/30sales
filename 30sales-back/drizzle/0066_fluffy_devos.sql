@@ -1,0 +1,5 @@
+ALTER TABLE "agent_settings" DROP CONSTRAINT "agent_settings_org_agent_unique";--> statement-breakpoint
+ALTER TABLE "agent_settings" ADD COLUMN "business_line_id" uuid;--> statement-breakpoint
+ALTER TABLE "agent_settings" ADD CONSTRAINT "agent_settings_business_line_tenant_fk" FOREIGN KEY ("organization_id","business_line_id") REFERENCES "public"."business_lines"("organization_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_settings_org_agent_global_unique" ON "agent_settings" USING btree ("organization_id","agent_key") WHERE "agent_settings"."business_line_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "agent_settings_org_line_agent_unique" ON "agent_settings" USING btree ("organization_id","business_line_id","agent_key") WHERE "agent_settings"."business_line_id" is not null;

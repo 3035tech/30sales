@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, ilike, inArray, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, auditEvents, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
+import { accounts, auditEvents, businessLineMembers, businessLines, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user } from '../db/auth-schema';
 import { handoffStatusSchema, HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto } from './handoffs.dto';
 
@@ -12,6 +12,24 @@ const closer = alias(user, 'handoff_closer');
 type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string; status: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
 function mapHandoff(row: HandoffRow): HandoffRecordDto {
   return new HandoffRecordDto(row.id, row.opportunityId, row.conversationId, row.leadId, row.opportunityName, row.accountName, row.contactName, handoffStatusSchema.parse(row.status), row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
+}
+
+function leadLineMembershipCondition(organizationId: string, userId: string, canManageAll: boolean): SQL | undefined {
+  if (canManageAll) return undefined;
+  return exists(database.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, leads.businessLineId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))));
+}
+
+function handoffLineMembershipCondition(organizationId: string, userId: string, canManageAll: boolean): SQL | undefined {
+  if (canManageAll) return undefined;
+  return exists(database.select({ opportunityId: opportunities.id }).from(opportunities)
+    .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+    .innerJoin(businessLineMembers, and(eq(businessLineMembers.businessLineId, leads.businessLineId), eq(businessLineMembers.organizationId, leads.organizationId)))
+    .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+    .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+    .where(and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))));
 }
 
 const firstCustomerActivityAt = sql<Date | null>`(
@@ -45,8 +63,11 @@ const handoffRecordSelection = {
 
 function handoffConditions(input: HandoffRepositoryListDto): SQL[] {
   const conditions: SQL[] = [eq(handoffs.organizationId, input.organizationId)];
+  const lineAccess = handoffLineMembershipCondition(input.organizationId, input.userId, input.canManageAll);
+  if (lineAccess) conditions.push(lineAccess);
   if (input.query.handoffId) conditions.push(eq(handoffs.id, input.query.handoffId));
   else conditions.push(eq(handoffs.status, input.query.status));
+  if (input.query.businessLineId) conditions.push(eq(leads.businessLineId, input.query.businessLineId));
   if (!input.canManageAll) {
     const allowedStatuses: SQL[] = [and(eq(handoffs.requestedByUserId, input.userId), eq(handoffs.status, 'requested'))!];
     if (input.isCloser) allowedStatuses.push(eq(handoffs.status, 'requested'));
@@ -83,6 +104,7 @@ export class HandoffsRepository {
       this.findRows(input),
       database.select({ total: count() }).from(handoffs)
         .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
         .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .where(and(...conditions)),
@@ -110,7 +132,7 @@ export class HandoffsRepository {
     return database.transaction(async (transaction) => {
       const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name })
         .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
-        .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId))).for('update', { of: leads }).limit(1);
+        .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), leadLineMembershipCondition(input.organizationId, input.actorUserId, input.canManageAll))).for('update', { of: leads }).limit(1);
       if (!lead || !lead.personId || !['responded', 'converted_to_sdr'].includes(lead.status)) return null;
       const [activeHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
         .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
@@ -142,7 +164,7 @@ export class HandoffsRepository {
   async accept(input: HandoffRepositoryAcceptDto): Promise<HandoffRecordDto | null> {
     const acceptedAt = new Date();
     const updated = await database.transaction(async (transaction) => {
-      const [handoff] = await transaction.update(handoffs).set({ status: 'accepted', acceptedByUserId: input.actorUserId, acceptedAt, updatedAt: acceptedAt }).where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'requested'))).returning({ id: handoffs.id, opportunityId: handoffs.opportunityId, requestedByUserId: handoffs.requestedByUserId });
+      const [handoff] = await transaction.update(handoffs).set({ status: 'accepted', acceptedByUserId: input.actorUserId, acceptedAt, updatedAt: acceptedAt }).where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'requested'), handoffLineMembershipCondition(input.organizationId, input.actorUserId, input.canManageAll))).returning({ id: handoffs.id, opportunityId: handoffs.opportunityId, requestedByUserId: handoffs.requestedByUserId });
       if (!handoff) return null;
       const [opportunity] = await transaction.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey }).from(opportunities).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
       await transaction.update(opportunities).set({ ownerUserId: input.actorUserId, stage: 'closer_contact_pending', pipelineStageKey: null, stageChangedAt: acceptedAt, updatedAt: acceptedAt }).where(and(eq(opportunities.id, handoff.opportunityId), eq(opportunities.organizationId, input.organizationId)));
@@ -166,7 +188,8 @@ export class HandoffsRepository {
     const returnedId = await database.transaction(async (transaction) => {
       const [existing] = await transaction.select({ id: handoffs.id, opportunityId: handoffs.opportunityId, leadId: opportunities.leadId, requestedByUserId: handoffs.requestedByUserId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey })
         .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
-        .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'), input.canManageAll ? undefined : eq(handoffs.acceptedByUserId, input.actorUserId))).for('update', { of: handoffs }).limit(1);
+        .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
+        .where(and(eq(handoffs.id, input.handoffId), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted'), input.canManageAll ? undefined : eq(handoffs.acceptedByUserId, input.actorUserId), leadLineMembershipCondition(input.organizationId, input.actorUserId, input.canManageAll))).for('update', { of: handoffs }).limit(1);
       if (!existing) return null;
       await transaction.update(handoffs).set({ status: 'returned', returnReason: input.input.reason, nextStep: input.input.nextStep, nextStepAt: new Date(input.input.dueAt), updatedAt: returnedAt, returnedAt }).where(and(eq(handoffs.id, existing.id), eq(handoffs.organizationId, input.organizationId), eq(handoffs.status, 'accepted')));
       await transaction.update(opportunities).set({ ownerUserId: null, stage: 'qualification', pipelineStageKey: null, stageChangedAt: returnedAt, updatedAt: returnedAt }).where(and(eq(opportunities.id, existing.opportunityId), eq(opportunities.organizationId, input.organizationId)));

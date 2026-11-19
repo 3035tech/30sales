@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
@@ -14,7 +15,7 @@ const knownEvolutionEvents: ReadonlySet<string> = new Set(Object.values(EVOLUTIO
 
 @Injectable()
 export class WebhooksService {
-  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly channelsService: ChannelsService) {}
+  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly channelsService: ChannelsService) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
     if (mode !== 'subscribe' || !challenge || !this.matchesSecret(token, env.META_WEBHOOK_VERIFY_TOKEN)) throw new UnauthorizedException();
@@ -24,7 +25,7 @@ export class WebhooksService {
   async ingestEvolution(channelId: string, presentedWebhookSecret: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {
     const channel = await this.repository.findEvolutionChannel(channelId);
     if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
-    const credentials = this.credentialCrypto.decrypt(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
+    const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
     if (credentials.provider !== 'evolution' || !this.matchesSecret(presentedWebhookSecret, credentials.webhookSecret)) throw new UnauthorizedException();
 
     const event = this.record(payload);
@@ -82,7 +83,7 @@ export class WebhooksService {
   async ingestInterpretationFailure(channelId: string, webhookSecret: string | undefined, input: InterpretationFailureSignalInputDto, rawBody: Buffer): Promise<{ accepted: true; outcome: string }> {
     const channel = await this.repository.findChannel(channelId);
     if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
-    const credentials = this.credentialCrypto.decrypt(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
+    const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
     const signalSecret = credentials.provider === 'evolution' ? credentials.webhookSecret : credentials.signalSecret;
     if (!this.matchesSecret(webhookSecret, signalSecret)) throw new UnauthorizedException();
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');

@@ -1,52 +1,60 @@
 import { Button, CheckboxField, SelectField, TextField } from './components/ui/FormControls'
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, BarChart3, Bell, Building2, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
-import { api, USER_NOTIFICATION_TYPE, type SessionDto, type UserNotificationDto } from './lib/api'
+import { api } from './lib/api'
+import type { BusinessLineDto, SessionDto, UserNotificationDto } from './lib/api/contracts'
+import { USER_NOTIFICATION_TYPE } from './lib/api/notificationConstants'
 import { setPlatformOrganizationContext } from './lib/api/client'
 import i18n from './lib/i18n'
 import { getOrganizationRoles, ORGANIZATION_PROFILE_UPDATE_ROLES, ORGANIZATION_ROLE, ORGANIZATION_SEGMENT_MANAGEMENT_ROLES, PLATFORM_ROLE } from './lib/authorizationConstants'
-import { TeamSettings } from './features/TeamSettings'
-import { LeadsWorkspace } from './features/LeadsWorkspace'
-import { TasksWorkspace } from './features/TasksWorkspace'
-import { HandoffsWorkspace } from './features/HandoffsWorkspace'
-import { PipelineWorkspace } from './features/PipelineWorkspace'
-import { InboxWorkspace } from './features/InboxWorkspace'
-import { AuditWorkspace } from './features/AuditWorkspace'
-import { ImportsWorkspace } from './features/ImportsWorkspace'
-import { TodayWorkspace } from './features/TodayWorkspace'
-import { FunnelReportWorkspace } from './features/FunnelReportWorkspace'
-import { AccountsWorkspace } from './features/AccountsWorkspace'
-import { CloserQueueWorkspace } from './features/CloserQueueWorkspace'
-import { ChannelsWorkspace } from './features/ChannelsWorkspace'
-import { AssistantSettingsWorkspace } from './features/AssistantSettingsWorkspace'
-import { CloserSlaSettingsWorkspace } from './features/CloserSlaSettingsWorkspace'
-import { PipelineStagesWorkspace } from './features/PipelineStagesWorkspace'
-import { PlatformWorkspace } from './features/PlatformWorkspace'
-import { PlatformOrganizationPicker } from './features/PlatformOrganizationPicker'
 import './App.css'
 import './polish.css'
 
-type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team'
-const pagePathEntries = [
-  ['home', '/today'], ['closerQueue', '/closer'], ['closerSla', '/settings/closer-sla'], ['pipelineStages', '/settings/pipeline'],
-  ['inbox', '/inbox'], ['leads', '/leads'], ['accounts', '/accounts'], ['channels', '/settings/channels'],
-  ['assistant', '/settings/assistant'], ['tasks', '/tasks'], ['handoffs', '/handoffs'], ['pipeline', '/pipeline'],
-  ['reports', '/reports/funnel'], ['audit', '/settings/audit'], ['imports', '/settings/imports'], ['team', '/settings/team'],
-] as const satisfies readonly (readonly [Page, string])[]
-const pagePaths: Record<Page, string> = Object.fromEntries(pagePathEntries)
-const pagesByPath: Record<string, Page> = Object.fromEntries(pagePathEntries.map(([page, path]) => [path, page] as const))
+const TeamSettings = lazy(() => import('./features/TeamSettings').then((module) => ({ default: module.TeamSettings })))
+const LeadsWorkspace = lazy(() => import('./features/LeadsWorkspace').then((module) => ({ default: module.LeadsWorkspace })))
+const TasksWorkspace = lazy(() => import('./features/TasksWorkspace').then((module) => ({ default: module.TasksWorkspace })))
+const HandoffsWorkspace = lazy(() => import('./features/HandoffsWorkspace').then((module) => ({ default: module.HandoffsWorkspace })))
+const PipelineWorkspace = lazy(() => import('./features/PipelineWorkspace').then((module) => ({ default: module.PipelineWorkspace })))
+const InboxWorkspace = lazy(() => import('./features/InboxWorkspace').then((module) => ({ default: module.InboxWorkspace })))
+const AuditWorkspace = lazy(() => import('./features/AuditWorkspace').then((module) => ({ default: module.AuditWorkspace })))
+const ImportsWorkspace = lazy(() => import('./features/ImportsWorkspace').then((module) => ({ default: module.ImportsWorkspace })))
+const TodayWorkspace = lazy(() => import('./features/TodayWorkspace').then((module) => ({ default: module.TodayWorkspace })))
+const FunnelReportWorkspace = lazy(() => import('./features/FunnelReportWorkspace').then((module) => ({ default: module.FunnelReportWorkspace })))
+const AccountsWorkspace = lazy(() => import('./features/AccountsWorkspace').then((module) => ({ default: module.AccountsWorkspace })))
+const CloserQueueWorkspace = lazy(() => import('./features/CloserQueueWorkspace').then((module) => ({ default: module.CloserQueueWorkspace })))
+const ChannelsWorkspace = lazy(() => import('./features/ChannelsWorkspace').then((module) => ({ default: module.ChannelsWorkspace })))
+const AssistantSettingsWorkspace = lazy(() => import('./features/AssistantSettingsWorkspace').then((module) => ({ default: module.AssistantSettingsWorkspace })))
+const CloserSlaSettingsWorkspace = lazy(() => import('./features/CloserSlaSettingsWorkspace').then((module) => ({ default: module.CloserSlaSettingsWorkspace })))
+const PipelineStagesWorkspace = lazy(() => import('./features/PipelineStagesWorkspace').then((module) => ({ default: module.PipelineStagesWorkspace })))
+const PlatformWorkspace = lazy(() => import('./features/PlatformWorkspace').then((module) => ({ default: module.PlatformWorkspace })))
+const BusinessLinesWorkspace = lazy(() => import('./features/BusinessLinesWorkspace').then((module) => ({ default: module.BusinessLinesWorkspace })))
+const PlatformOrganizationPicker = lazy(() => import('./features/PlatformOrganizationPicker').then((module) => ({ default: module.PlatformOrganizationPicker })))
+
+type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team' | 'businessLines'
+const pagePaths: Record<Page, string> = {
+  home: '/today', closerQueue: '/closer', closerSla: '/settings/closer-sla', pipelineStages: '/settings/pipeline',
+  inbox: '/inbox', leads: '/leads', accounts: '/accounts', channels: '/settings/channels',
+  assistant: '/settings/assistant', tasks: '/tasks', handoffs: '/handoffs', pipeline: '/pipeline',
+  reports: '/reports/funnel', audit: '/settings/audit', imports: '/settings/imports', team: '/settings/team', businessLines: '/settings/business-lines',
+}
+const pagesByPath: Record<string, Page> = {
+  '/today': 'home', '/closer': 'closerQueue', '/settings/closer-sla': 'closerSla', '/settings/pipeline': 'pipelineStages',
+  '/inbox': 'inbox', '/leads': 'leads', '/accounts': 'accounts', '/settings/channels': 'channels',
+  '/settings/assistant': 'assistant', '/tasks': 'tasks', '/handoffs': 'handoffs', '/pipeline': 'pipeline',
+  '/reports/funnel': 'reports', '/settings/audit': 'audit', '/settings/imports': 'imports', '/settings/team': 'team', '/settings/business-lines': 'businessLines',
+}
 const navigationPageGroups = {
   daily: ['home', 'tasks'], customers: ['inbox', 'leads', 'accounts'], sales: ['closerQueue', 'handoffs', 'pipeline'],
-  management: ['channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team'],
+  management: ['channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team', 'businessLines'],
 } as const satisfies Record<'daily' | 'customers' | 'sales' | 'management', readonly Page[]>
 const rolePages: Record<string, readonly Page[]> = {
-  [ORGANIZATION_ROLE.owner]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
-  [ORGANIZATION_ROLE.admin]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
-  [ORGANIZATION_ROLE.manager]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team'],
+  [ORGANIZATION_ROLE.owner]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team', 'businessLines'],
+  [ORGANIZATION_ROLE.admin]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team', 'businessLines'],
+  [ORGANIZATION_ROLE.manager]: ['home', 'closerQueue', 'closerSla', 'pipelineStages', 'inbox', 'leads', 'accounts', 'channels', 'assistant', 'tasks', 'handoffs', 'pipeline', 'reports', 'audit', 'imports', 'team', 'businessLines'],
   [ORGANIZATION_ROLE.closer]: ['closerQueue', 'tasks', 'inbox', 'handoffs', 'pipeline'],
   [ORGANIZATION_ROLE.bdr]: ['home', 'tasks', 'leads', 'accounts'],
   [ORGANIZATION_ROLE.sdr]: ['home', 'tasks', 'inbox', 'leads', 'handoffs'],
@@ -61,7 +69,7 @@ const roleDefaultPages: Record<string, Page> = {
 const pageTranslationKeys: Record<Page, string> = {
   home: 'today', closerQueue: 'closerQueue', closerSla: 'closerSlaSettings', pipelineStages: 'pipelineStageSettings', inbox: 'inbox', leads: 'leads',
   accounts: 'accounts', channels: 'channels', assistant: 'assistantSettings', tasks: 'tasks', handoffs: 'handoffs',
-  pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team',
+  pipeline: 'pipeline', reports: 'funnelReport', audit: 'audit', imports: 'imports', team: 'team', businessLines: 'businessLines',
 }
 const notificationTitleKeys: Record<UserNotificationDto['notificationType'], string> = {
   closer_event_sla_overdue: 'closerSlaSettings.notifications.overdue',
@@ -78,7 +86,7 @@ const notificationTitleKeys: Record<UserNotificationDto['notificationType'], str
 const breadcrumbGroupKeys: Partial<Record<Page, string>> = {
   home: 'common.navGroups.daily', tasks: 'common.navGroups.daily', inbox: 'common.navGroups.customers', leads: 'common.navGroups.customers', accounts: 'common.navGroups.customers',
   closerQueue: 'common.navGroups.sales', handoffs: 'common.navGroups.sales', pipeline: 'common.navGroups.sales', pipelineStages: 'common.navGroups.sales',
-  channels: 'common.navGroups.management', assistant: 'common.navGroups.management', closerSla: 'common.navGroups.management', reports: 'common.navGroups.management', audit: 'common.navGroups.management', imports: 'common.navGroups.management', team: 'common.navGroups.management',
+  channels: 'common.navGroups.management', assistant: 'common.navGroups.management', closerSla: 'common.navGroups.management', reports: 'common.navGroups.management', audit: 'common.navGroups.management', imports: 'common.navGroups.management', team: 'common.navGroups.management', businessLines: 'common.navGroups.management',
 }
 
 export default function App() {
@@ -86,11 +94,14 @@ export default function App() {
   const location = useLocation()
   const navigate = useNavigate()
   const [current, setCurrent] = useState<SessionDto | null>(null)
+  const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
+  const [businessLinesLoaded, setBusinessLinesLoaded] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const page = pagesByPath[location.pathname] ?? 'home'
   const activeRole = current?.activeOrganizationRole ?? ''
   const activeRoles = getOrganizationRoles(activeRole)
+  const canViewAllBusinessLines = activeRoles.some((role) => ORGANIZATION_SEGMENT_MANAGEMENT_ROLES.some((managerRole) => managerRole === role))
   const canManageSegments = activeRoles.some((role) => ORGANIZATION_SEGMENT_MANAGEMENT_ROLES.some((managementRole) => managementRole === role))
   const canUpdateAccountProfile = activeRoles.some((role) => ORGANIZATION_PROFILE_UPDATE_ROLES.some((updateRole) => updateRole === role))
   const activeDefaultPage = activeRoles.map((role) => roleDefaultPages[role]).find((defaultPage) => defaultPage !== undefined) ?? 'home'
@@ -121,9 +132,12 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [changingOrganization, setChangingOrganization] = useState(false)
   const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
+  const activeBusinessLineId = searchParams.get('businessLineId') ?? ''
 
-  const navigateToPage = (targetPage: Page, query: Record<string, string | undefined> = {}, options: { replace?: boolean } = {}) => {
+  const navigateToPage = (targetPage: Page, query: Record<string, string | null | undefined> = {}, options: { replace?: boolean } = {}) => {
     const params = new URLSearchParams()
+    const lineId = query.businessLineId === undefined ? activeBusinessLineId : query.businessLineId ?? ''
+    if (lineId) params.set('businessLineId', lineId)
     Object.entries(query).forEach(([key, value]) => { if (value) params.set(key, value) })
     const queryString = params.toString()
     navigate({ pathname: pagePaths[targetPage], search: queryString ? `?${queryString}` : '' }, options)
@@ -136,6 +150,30 @@ export default function App() {
       setCurrent(session)
     }).catch(() => setError('authRequired')).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!current || (!current.activeOrganizationId && !current.platformOrganization?.id)) { setBusinessLines([]); setBusinessLinesLoaded(true); return }
+    setBusinessLinesLoaded(false)
+    let active = true
+    api.businessLines.list().then((result) => { if (active) setBusinessLines(result.data.filter((line) => line.status === 'active')) })
+      .catch(() => { if (active) setBusinessLines([]) }).finally(() => { if (active) setBusinessLinesLoaded(true) })
+    return () => { active = false }
+  }, [current?.activeOrganizationId, current?.platformOrganization?.id])
+
+  useEffect(() => {
+    if (businessLinesLoaded && activeBusinessLineId && !businessLines.some((line) => line.id === activeBusinessLineId)) {
+      const params = new URLSearchParams(location.search)
+      params.delete('businessLineId')
+      navigate({ pathname: location.pathname, search: params.toString() ? `?${params}` : '' }, { replace: true })
+    }
+  }, [activeBusinessLineId, businessLines, businessLinesLoaded, location.pathname, location.search, navigate])
+
+  useEffect(() => {
+    if (!businessLinesLoaded || canViewAllBusinessLines || activeBusinessLineId || businessLines.length === 0) return
+    const params = new URLSearchParams(location.search)
+    params.set('businessLineId', businessLines[0].id)
+    navigate({ pathname: location.pathname, search: `?${params}` }, { replace: true })
+  }, [activeBusinessLineId, businessLines, businessLinesLoaded, canViewAllBusinessLines, location.pathname, location.search, navigate])
 
   useEffect(() => {
     if (!current) return
@@ -266,12 +304,19 @@ export default function App() {
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
       setUnreadNotificationCount((count) => Math.max(0, count - 1))
       setNotificationsOpen(false)
-      if (notification.taskId) navigateToPage('tasks', { taskId: notification.taskId })
-      else if (notification.handoffId) navigateToPage('handoffs', { handoffId: notification.handoffId, status: notification.notificationType === 'handoff_returned' ? 'returned' : 'accepted' })
-      else if (notification.opportunityId) navigateToPage('pipeline', { opportunityId: notification.opportunityId })
-      else if (notification.channelId) navigateToPage('channels')
-      else if (notification.conversationId) navigateToPage('inbox', { conversationId: notification.conversationId })
+      if (notification.taskId) navigateToPage('tasks', { businessLineId: null, taskId: notification.taskId })
+      else if (notification.handoffId) navigateToPage('handoffs', { businessLineId: null, handoffId: notification.handoffId, status: notification.notificationType === 'handoff_returned' ? 'returned' : 'accepted' })
+      else if (notification.opportunityId) navigateToPage('pipeline', { businessLineId: null, opportunityId: notification.opportunityId })
+      else if (notification.channelId) navigateToPage('channels', { businessLineId: null })
+      else if (notification.conversationId) navigateToPage('inbox', { businessLineId: null, conversationId: notification.conversationId })
     } catch { setNotificationsError(true) }
+  }
+
+  const chooseBusinessLine = (businessLineId: string) => {
+    const params = new URLSearchParams(location.search)
+    if (businessLineId) params.set('businessLineId', businessLineId)
+    else params.delete('businessLineId')
+    navigate({ pathname: location.pathname, search: params.toString() ? `?${params}` : '' })
   }
 
   if (loading) return <main className="access-shell">
@@ -292,7 +337,7 @@ export default function App() {
 
   const isPlatformAdmin = current.user.platformRole === PLATFORM_ROLE.superAdmin
   const hasActiveMembership = current.activeOrganizationId !== null && current.organizations.some((organization) => organization.id === current.activeOrganizationId)
-  if (isPlatformAdmin && (location.pathname === '/platform' || (!hasActiveMembership && !current.platformOrganizationContext))) return <PlatformWorkspace user={current.user} organizations={current.organizations} activeOrganizationId={current.platformOrganizationContext ? current.platformOrganization?.id ?? null : null} activeOrganizationName={current.platformOrganizationContext ? current.platformOrganization?.name ?? '' : ''} platformOrganizationContext={current.platformOrganizationContext} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSelectOrganization={openPlatformOrganization} onSignOut={async () => { setPlatformOrganizationContext(null); await api.auth.signOut(); window.location.reload() }} />
+  if (isPlatformAdmin && (location.pathname === '/platform' || (!hasActiveMembership && !current.platformOrganizationContext))) return <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}><PlatformWorkspace user={current.user} organizations={current.organizations} activeOrganizationId={current.platformOrganizationContext ? current.platformOrganization?.id ?? null : null} activeOrganizationName={current.platformOrganizationContext ? current.platformOrganization?.name ?? '' : ''} platformOrganizationContext={current.platformOrganizationContext} onOpenOrganization={(organizationId) => void chooseOrganization(organizationId)} onSelectOrganization={openPlatformOrganization} onSignOut={async () => { setPlatformOrganizationContext(null); await api.auth.signOut(); window.location.reload() }} /></Suspense>
 
   if (!current.activeOrganizationId) return <main className="access-shell">
     <section className="access-card" aria-labelledby="access-title">
@@ -336,6 +381,7 @@ export default function App() {
           {canViewPage('audit') && <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>}
           {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}
           {canViewPage('team') && <Button className={`nav ${page === 'team' ? 'active' : ''}`} aria-current={page === 'team' ? 'page' : undefined} onClick={() => navigateToPage('team')}><Users size={18} />{t('common.teamNav')}</Button>}
+          {canViewPage('businessLines') && <Button className={`nav ${page === 'businessLines' ? 'active' : ''}`} aria-current={page === 'businessLines' ? 'page' : undefined} onClick={() => navigateToPage('businessLines')}><Briefcase size={18} />{t('businessLines.title')}</Button>}
           {isPlatformAdmin && <Button className="nav" type="button" onClick={returnToPlatformConsole}><ShieldCheck size={18} />{t('platform.nav')}</Button>}
         </div> : null}
       </nav>
@@ -368,21 +414,24 @@ export default function App() {
           </div>}
           {activeOrganization && <div className="workspace-selector-wrap">
             {isPlatformAdmin
-              ? <PlatformOrganizationPicker activeOrganizationId={activeOrganization.id} activeOrganizationName={activeOrganization.name} platformOrganizationContext={current.platformOrganizationContext} disabled={changingOrganization} onSelectOrganization={openPlatformOrganization} />
+              ? <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}><PlatformOrganizationPicker activeOrganizationId={activeOrganization.id} activeOrganizationName={activeOrganization.name} platformOrganizationContext={current.platformOrganizationContext} disabled={changingOrganization} onSelectOrganization={openPlatformOrganization} /></Suspense>
               : <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
                 {current.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
               </SelectField></div>}
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}
+          {activeOrganization && businessLinesLoaded && businessLines.length > 0 && <div className="workspace workspace-selector business-line-global-selector"><Briefcase size={16} aria-hidden="true" /><SelectField aria-label={t('businessLines.currentLine')} value={activeBusinessLineId} onChange={(event) => chooseBusinessLine(event.target.value)}>{canViewAllBusinessLines && <option value="">{t('businessLines.allLines')}</option>}{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>
       {current.platformOrganizationContext && activeOrganization && <div className="platform-context-banner" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{t('platform.contextBanner', { company: activeOrganization.name })}</span><Button type="button" onClick={returnToPlatformConsole}>{t('platform.returnToCompanies')}<ArrowRight size={14} aria-hidden="true" /></Button></div>}
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
         <Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />
+        <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}>
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
           : page === 'pipelineStages' ? <PipelineStagesWorkspace onBack={() => navigateToPage('pipeline')} />
           : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
+          : page === 'businessLines' && current?.activeOrganizationId ? <BusinessLinesWorkspace organizationId={current.activeOrganizationId} />
           : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} onOpenTask={(taskId) => navigateToPage('tasks', { taskId })} />
           : page === 'channels' ? <ChannelsWorkspace />
           : page === 'assistant' ? <AssistantSettingsWorkspace />
@@ -396,6 +445,7 @@ export default function App() {
                 : page === 'audit' ? <AuditWorkspace />
                   : page === 'imports' ? <ImportsWorkspace />
             : <TodayWorkspace userId={current.user.id} navigate={navigateToPage} />}
+        </Suspense>
       </div>
     </section>
   </main>
@@ -415,7 +465,7 @@ function Login({ onError }: { onError: (message: string) => void }) {
     onError('')
     try {
       if (requestingReset) {
-        const result = await api.auth.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` })
+      const result = await api.auth.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` })
         if (result.error) onError(t('auth.resetRequestFailed'))
         else setResetRequested(true)
         return

@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
-import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
+import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ConfigureChannelCredentialsDto } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
@@ -11,46 +11,78 @@ import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, EvolutionIns
 import { CHANNEL_CONNECTION_STATUS, CHANNEL_PROVIDER } from './channels.constants';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 import { EvolutionConnectionProvider, EvolutionConnectionResultDto } from './evolution-connection.provider';
+import { ChannelCredentialResolverService } from './channel-credential-resolver.service';
+import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 
 @Injectable()
 export class ChannelsService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: ChannelsRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly healthProvider: ChannelConnectionHealthProvider, private readonly evolutionDiscovery: EvolutionInstanceDiscoveryProvider, private readonly evolutionWebhookConfiguration: EvolutionWebhookConfigurationProvider, private readonly evolutionConnection: EvolutionConnectionProvider) {}
-  async list(request: ApiRequestDto): Promise<ChannelRecordDto[]> {
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: ChannelsRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly healthProvider: ChannelConnectionHealthProvider, private readonly evolutionDiscovery: EvolutionInstanceDiscoveryProvider, private readonly evolutionWebhookConfiguration: EvolutionWebhookConfigurationProvider, private readonly evolutionConnection: EvolutionConnectionProvider) {}
+  async list(request: ApiRequestDto, businessLineId?: string): Promise<ChannelRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    return this.repository.list(context.organizationId);
+    return this.repository.list(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), businessLineId);
+  }
+  private async requireChannelAccess(organizationId: string, channelId: string, userId: string, role: string): Promise<void> {
+    const canManageAllLines = hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES);
+    if (!await this.repository.canAccessChannel(organizationId, channelId, userId, canManageAllLines)) {
+      throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in an active business line available to you.' });
+    }
   }
   async create(request: ApiRequestDto, input: CreateChannelDto): Promise<ChannelRecordDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const result = await this.repository.create(new ChannelRepositoryCreateDto(context.organizationId, context.userId, input, request.correlationId));
+    if (input.provider === CHANNEL_PROVIDER.evolution) await this.assertPlatformEvolutionConfigured();
+    const result = await this.repository.create(new ChannelRepositoryCreateDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input, request.correlationId));
     if (result === 'duplicate') throw new ConflictException({ code: 'CHANNEL_ALREADY_CONFIGURED', message: 'The phone number or provider channel is already configured in this organization.' });
+    if (result === 'business_line_not_found') throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'The selected business line was not found in the active organization.' });
+    if (result === 'business_line_forbidden') throw new ForbiddenException({ code: 'BUSINESS_LINE_ACCESS_FORBIDDEN', message: 'You are not assigned to the selected business line.' });
     return result;
   }
   async update(request: ApiRequestDto, channelId: string, input: UpdateChannelDto): Promise<ChannelRecordDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const result = await this.repository.update(new ChannelRepositoryUpdateDto(context.organizationId, channelId, context.userId, input, request.correlationId));
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const result = await this.repository.update(new ChannelRepositoryUpdateDto(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input, request.correlationId));
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (result === 'schedule_required') throw new BadRequestException({ code: 'CHANNEL_SCHEDULE_REQUIRED', message: 'Configure at least one business-hours window before enabling scheduled assistant replies.' });
     return result;
   }
-  async configureCredentials(request: ApiRequestDto, channelId: string, credentials: ChannelCredentialsDto): Promise<ChannelRecordDto> {
+  async configureCredentials(request: ApiRequestDto, channelId: string, input: ConfigureChannelCredentialsDto): Promise<ChannelRecordDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const encrypted = this.credentialCrypto.encrypt(context.organizationId, channelId, credentials);
-    const result = await this.repository.saveCredentials(new ChannelRepositoryCredentialsDto(context.organizationId, channelId, context.userId, credentials.provider, encrypted, request.correlationId));
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const usesPlatformEvolutionConfiguration = input.provider === CHANNEL_PROVIDER.evolution && !('baseUrl' in input);
+    if (usesPlatformEvolutionConfiguration) await this.assertPlatformEvolutionConfigured();
+    const encrypted = usesPlatformEvolutionConfiguration
+      ? this.credentialCrypto.encryptPayload(context.organizationId, channelId, JSON.stringify(input))
+      : this.credentialCrypto.encrypt(context.organizationId, channelId, channelCredentialsSchema.parse(input));
+    const result = await this.repository.saveCredentials(new ChannelRepositoryCredentialsDto(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input.provider, encrypted, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (result === 'provider_mismatch') throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The credentials do not match this channel provider.' });
     return result;
   }
 
+  private async assertPlatformEvolutionConfigured(): Promise<void> {
+    const configuration = await this.repository.platformEvolutionCredentials();
+    if (!configuration) throw new ConflictException({ code: 'PLATFORM_EVOLUTION_NOT_CONFIGURED', message: 'The platform administrator must configure the Evolution API before connecting this channel.' });
+    try {
+      platformEvolutionSecretsSchema.parse(JSON.parse(this.credentialCrypto.decryptPayload('platform', 'evolution', configuration)) as unknown);
+    } catch {
+      throw new ConflictException({ code: 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID', message: 'The platform Evolution API configuration is invalid or could not be decrypted.' });
+    }
+  }
+
   async healthCheck(request: ApiRequestDto, channelId: string): Promise<ChannelHealthCheckDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const result = await this.checkHealthForOrganization(context.organizationId, channelId, context.userId, request.correlationId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const result = await this.checkHealthForOrganization(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), request.correlationId);
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return result;
   }
 
   async checkMonitoring(request: ApiRequestDto, input: ChannelMonitoringCheckInputDto): Promise<ChannelMonitoringCheckDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const targets = await this.repository.evolutionMonitoringTargets(context.organizationId, input.channelIds);
+    const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const inaccessibleChannels = await Promise.all(input.channelIds.map((channelId) => this.repository.canAccessChannel(context.organizationId, channelId, context.userId, canManageAllLines)));
+    if (inaccessibleChannels.some((accessible) => !accessible)) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'One or more channels were not found in an active business line available to you.' });
+    const targets = await this.repository.evolutionMonitoringTargets(context.organizationId, input.channelIds, context.userId, canManageAllLines);
+    if (targets.length !== input.channelIds.length) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'One or more channels are unavailable or do not use Evolution API.' });
     const checkedAt = new Date();
     const failureCounts = await this.repository.recentFailedDeliveryCounts(context.organizationId, targets.map((target) => target.id), new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000));
     const data = await Promise.all(targets.map(async (target) => {
@@ -59,7 +91,7 @@ export class ChannelsService {
       else if (!target.credentials) status = CHANNEL_HEALTH_STATUS.notConfigured;
       else {
         try {
-          const credentials = this.credentialCrypto.decrypt(context.organizationId, target.id, target.credentials);
+          const credentials = await this.credentialResolver.resolve(context.organizationId, target.id, target.credentials);
           status = credentials.provider === CHANNEL_PROVIDER.evolution
             ? await this.healthProvider.check(target, credentials)
             : CHANNEL_HEALTH_STATUS.configurationError;
@@ -74,12 +106,13 @@ export class ChannelsService {
 
   async discoverEvolutionInstances(request: ApiRequestDto, channelId: string): Promise<EvolutionInstanceListDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'EVOLUTION_DISCOVERY_PROVIDER_REQUIRED', message: 'Instance discovery requires an Evolution API channel.' });
     if (!target.credentials) throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure Evolution API credentials before discovering instances.' });
     let credentials: ChannelCredentialsDto;
-    try { credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials); }
+    try { credentials = await this.credentialResolver.resolve(context.organizationId, channelId, target.credentials); }
     catch { throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_INVALID', message: 'Evolution API credentials could not be decrypted.' }); }
     if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The stored credentials do not match the Evolution API provider.' });
     const instances = await this.evolutionDiscovery.list(credentials);
@@ -88,43 +121,50 @@ export class ChannelsService {
 
   async configureEvolutionWebhook(request: ApiRequestDto, channelId: string): Promise<EvolutionWebhookConfigurationDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'EVOLUTION_WEBHOOK_PROVIDER_REQUIRED', message: 'Webhook configuration requires an Evolution API channel.' });
     if (!target.credentials) throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure Evolution API credentials before configuring its webhook.' });
     let credentials: ChannelCredentialsDto;
-    try { credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials); }
+    try { credentials = await this.credentialResolver.resolve(context.organizationId, channelId, target.credentials); }
     catch { throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_INVALID', message: 'Evolution API credentials could not be decrypted.' }); }
     if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The stored credentials do not match the Evolution API provider.' });
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
     await this.evolutionWebhookConfiguration.configure(credentials, target.providerChannelId, channelId);
     const configuredAt = new Date();
-    const audited = await this.repository.auditEvolutionWebhookConfigured(context.organizationId, channelId, context.userId, configuredAt, request.correlationId);
+    const audited = await this.repository.auditEvolutionWebhookConfigured(context.organizationId, channelId, context.userId, canManageAllLines, configuredAt, request.correlationId);
     if (!audited) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return new EvolutionWebhookConfigurationDto(true, configuredAt.toISOString());
   }
 
   async connectEvolution(request: ApiRequestDto, channelId: string): Promise<EvolutionConnectionResultDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (!target.isActive) throw new ConflictException({ code: 'CHANNEL_DISABLED', message: 'Enable the channel before connecting its Evolution instance.' });
     if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'EVOLUTION_CONNECT_PROVIDER_REQUIRED', message: 'WhatsApp pairing requires an Evolution API channel.' });
     if (!target.credentials) throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure Evolution API credentials before connecting its instance.' });
     let credentials: ChannelCredentialsDto;
-    try { credentials = this.credentialCrypto.decrypt(context.organizationId, channelId, target.credentials); }
+    try { credentials = await this.credentialResolver.resolve(context.organizationId, channelId, target.credentials); }
     catch { throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_INVALID', message: 'Evolution API credentials could not be decrypted.' }); }
     if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The stored credentials do not match the Evolution API provider.' });
     const instances = await this.evolutionDiscovery.list(credentials);
     const instanceExists = instances.some((instance) => instance.instanceName === target.providerChannelId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
     let providerResult = instanceExists
       ? await this.evolutionConnection.connect(target.providerChannelId, credentials)
       : await this.evolutionConnection.create(target.providerChannelId, credentials);
     let webhookConfigured = false;
     try {
+      await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
       await this.evolutionWebhookConfiguration.configure(credentials, target.providerChannelId, channelId);
       webhookConfigured = true;
       const configuredAt = new Date();
-      await this.repository.auditEvolutionWebhookConfigured(context.organizationId, channelId, context.userId, configuredAt, request.correlationId);
+      await this.repository.auditEvolutionWebhookConfigured(context.organizationId, channelId, context.userId, canManageAllLines, configuredAt, request.correlationId);
     } catch {
       webhookConfigured = false;
     }
@@ -136,31 +176,33 @@ export class ChannelsService {
     if (result.status !== CHANNEL_CONNECTION_STATUS.unknown) {
       await this.repository.setEvolutionConnectionStatus(new ChannelConnectionStatusUpdateDto(context.organizationId, channelId, result.status, requestedAt));
     }
-    const audited = await this.repository.auditEvolutionConnectionRequested(context.organizationId, channelId, context.userId, result.status, requestedAt, request.correlationId);
+    const audited = await this.repository.auditEvolutionConnectionRequested(context.organizationId, channelId, context.userId, canManageAllLines, result.status, requestedAt, request.correlationId);
     if (!audited) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return result;
   }
 
   async listWebhookEvents(request: ApiRequestDto, channelId: string, query: ChannelWebhookEventsQueryDto): Promise<ChannelWebhookEventsPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'integrations');
-    const target = await this.repository.healthCheckTarget(context.organizationId, channelId);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
-    return this.repository.listWebhookEvents(context.organizationId, channelId, query);
+    return this.repository.listWebhookEvents(context.organizationId, channelId, context.userId, canManageAllLines, query);
   }
 
   async recordEvolutionConnectionStatus(organizationId: string, channelId: string, status: ChannelConnectionStatus, updatedAt = new Date()): Promise<void> {
     await this.repository.setEvolutionConnectionStatus(new ChannelConnectionStatusUpdateDto(organizationId, channelId, status, updatedAt));
   }
 
-  async checkHealthForOrganization(organizationId: string, channelId: string, userId: string, correlationId: string | null): Promise<ChannelHealthCheckDto | null> {
-    const target = await this.repository.healthCheckTarget(organizationId, channelId);
+  async checkHealthForOrganization(organizationId: string, channelId: string, userId: string, canManageAllLines: boolean, correlationId: string | null): Promise<ChannelHealthCheckDto | null> {
+    const target = await this.repository.healthCheckTarget(organizationId, channelId, userId, canManageAllLines);
     if (!target) return null;
 
     let status: ChannelHealthStatus = CHANNEL_HEALTH_STATUS.notConfigured;
     if (target.credentials) {
       let credentials: ChannelCredentialsDto | null = null;
       try {
-        credentials = this.credentialCrypto.decrypt(organizationId, channelId, target.credentials);
+        credentials = await this.credentialResolver.resolve(organizationId, channelId, target.credentials);
       } catch {
         status = CHANNEL_HEALTH_STATUS.configurationError;
       }
@@ -176,7 +218,7 @@ export class ChannelsService {
     }
 
     const checkedAt = new Date();
-    const audited = await this.repository.auditHealthCheck(new ChannelHealthCheckAuditDto(organizationId, channelId, userId, status, checkedAt, correlationId));
+    const audited = await this.repository.auditHealthCheck(new ChannelHealthCheckAuditDto(organizationId, channelId, userId, canManageAllLines, status, checkedAt, correlationId));
     if (!audited) return null;
     return new ChannelHealthCheckDto(status, checkedAt.toISOString());
   }

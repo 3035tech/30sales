@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { env } from '../config/env';
-import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
+import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { WhatsappTextProviderService } from '../inbox/whatsapp-text-provider.service';
 import { AssistantLanguageModelService, AssistantRuntimeModelError } from './assistant-language-model.service';
 import { AssistantRuntimeRepository } from './assistant-runtime.repository';
@@ -23,7 +23,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: AssistantRuntimeRepository, private readonly model: AssistantLanguageModelService, private readonly transcription: AssistantAudioTranscriptionService, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
+  constructor(private readonly repository: AssistantRuntimeRepository, private readonly model: AssistantLanguageModelService, private readonly transcription: AssistantAudioTranscriptionService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
 
   onModuleInit(): void {
     if (!env.ANTHROPIC_API_KEY) {
@@ -51,7 +51,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
       if (!queueEvent) return;
       const context = await this.repository.loadContext(queueEvent);
       if (!context || !context.enabled || context.automationMode !== 'assistant' || context.ownerUserId || !context.systemPrompt.trim()) {
-        await this.repository.completeEvent(queueEvent.id);
+        await this.repository.completeEvent(queueEvent);
         return;
       }
       const messageType = context.event.messageType.toLowerCase();
@@ -106,7 +106,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         return;
       }
       if (!context.recipientPhone) {
-        await this.repository.completeEvent(queueEvent.id);
+        await this.repository.completeEvent(queueEvent);
         return;
       }
       if (context.messages.at(-1)?.role !== 'user') {
@@ -141,7 +141,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         context,
         result: execution.result,
         send: async (channel) => {
-          const credentials = this.credentialCrypto.decrypt(context.event.organizationId, channel.channelId, channel.credentials);
+          const credentials = await this.credentialResolver.resolve(context.event.organizationId, channel.channelId, channel.credentials);
           return this.textProvider.send({ provider: channel.provider, providerChannelId: channel.providerChannelId, recipientPhone: channel.recipientPhone, bodyText: execution.result.replyText, credentials });
         },
       });
@@ -152,7 +152,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         deliveryState: delivery.skipped ? null : delivery.deliveryState,
         skipped: delivery.skipped,
       });
-      await this.repository.completeEvent(queueEvent.id);
+      await this.repository.completeEvent(queueEvent);
     } catch (error) {
       if (!queueEvent) {
         this.logger.error(`Assistant queue polling failed: ${error instanceof Error ? error.message : 'unknown error'}`);

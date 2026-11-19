@@ -5,7 +5,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
-import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
+import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 import { WhatsappMediaProviderService } from './whatsapp-media-provider.service';
 import { MEDIA_STORAGE, type MediaStorage } from '../attachments/media-storage';
@@ -18,11 +18,10 @@ import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_R
 
 @Injectable()
 export class InboxService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly textProvider: WhatsappTextProviderService, private readonly mediaProvider: WhatsappMediaProviderService, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly mediaProvider: WhatsappMediaProviderService, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    return this.realtime.stream(context.organizationId, context.userId, canManageAll);
+    return this.realtime.stream(context.organizationId, context.userId);
   }
   async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -31,7 +30,7 @@ export class InboxService {
   }
   async channels(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    return this.repository.listChannels(context.organizationId);
+    return this.repository.listChannels(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));
   }
   async tags(request: ApiRequestDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -43,15 +42,13 @@ export class InboxService {
   }
   async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, canManageAll, query.limit, query.offset));
+    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, query.limit, query.offset));
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
   }
   async markRead(request: ApiRequestDto, conversationId: string, input: MarkConversationReadInputDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const canManageAll = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
-    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, canManageAll, input.lastInboundMessageId, request.correlationId));
+    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, input.lastInboundMessageId, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'invalid_message') throw new BadRequestException({ code: 'INVALID_READ_CURSOR', message: 'The read cursor must reference an inbound message in this conversation.' });
     return result;
@@ -80,7 +77,7 @@ export class InboxService {
   }
   async setAutomationMode(request: ApiRequestDto, conversationId: string, mode: ConversationAutomationMode) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    if (mode === 'assistant' && !await this.repository.isAssistantEnabled(context.organizationId)) throw new ConflictException({ code: 'ASSISTANT_AGENT_DISABLED', message: 'Enable Assistant in workspace settings before returning this conversation to automated handling.' });
+    if (mode === 'assistant' && !await this.repository.isAssistantEnabled(context.organizationId, conversationId)) throw new ConflictException({ code: 'ASSISTANT_AGENT_DISABLED', message: 'Enable Assistant for this business line before returning the conversation to automated handling.' });
     const result = await this.repository.setAutomationMode(new ConversationAutomationUpdateDto(context.organizationId, conversationId, context.userId, mode, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can change this conversation automation mode.' });
@@ -100,6 +97,7 @@ export class InboxService {
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.missingContact) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.missingContact, message: 'This conversation has no contact to associate.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone) throw new BadRequestException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.invalidPhone, message: 'Enter a valid international phone number.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notOwner) throw new ForbiddenException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.ownerRequired, message: 'Take ownership of the conversation before updating its contact.' });
+    if (result === INBOX_CONTACT_RECONCILIATION_RESULT.contactSharedAcrossLines) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.contactSharedAcrossLines, message: 'This contact is linked to another business line. Update the shared contact from an organization management workflow.' });
     return result;
   }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {
@@ -139,7 +137,7 @@ export class InboxService {
       }
     }
     try {
-      const credentials = this.credentialCrypto.decrypt(organizationId, prepared.channelId, prepared.credentials);
+      const credentials = await this.credentialResolver.resolve(organizationId, prepared.channelId, prepared.credentials);
       if (credentials.provider !== prepared.provider) throw new Error('Channel credential provider mismatch.');
       delivery = media
         ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })

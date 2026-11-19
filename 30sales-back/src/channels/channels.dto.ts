@@ -11,6 +11,26 @@ export const channelAssistantScheduleModeSchema = z.enum(CHANNEL_ASSISTANT_SCHED
 export type ChannelAssistantScheduleMode = z.infer<typeof channelAssistantScheduleModeSchema>;
 export const channelBusinessHourSchema = z.object({ dayOfWeek: z.number().int().min(0).max(6), startTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/), endTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/) }).strict().refine((hours) => hours.startTime !== hours.endTime);
 export type ChannelBusinessHourDto = z.infer<typeof channelBusinessHourSchema>;
+const scheduleExceptionDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value;
+});
+export const channelScheduleExceptionSchema = z.object({
+  fromDate: scheduleExceptionDateSchema,
+  toDate: scheduleExceptionDateSchema,
+  assistantEnabled: z.boolean(),
+  startTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(),
+  endTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(),
+}).strict().superRefine((exception, context) => {
+  const days = (Date.parse(`${exception.toDate}T00:00:00.000Z`) - Date.parse(`${exception.fromDate}T00:00:00.000Z`)) / 86_400_000 + 1;
+  if (days < 1 || days > 31) context.addIssue({ code: 'custom', path: ['toDate'], message: 'The exception date range must contain between one and 31 days.' });
+  const hasStart = exception.startTime !== null;
+  const hasEnd = exception.endTime !== null;
+  if (hasStart !== hasEnd || (!exception.assistantEnabled && (hasStart || hasEnd)) || (exception.startTime !== null && exception.endTime !== null && exception.startTime >= exception.endTime)) {
+    context.addIssue({ code: 'custom', path: ['startTime'], message: 'Provide a valid same-day interval only when the assistant is enabled.' });
+  }
+});
+export type ChannelScheduleExceptionInputDto = z.infer<typeof channelScheduleExceptionSchema>;
 export const createChannelSchema = z.object({
   provider: channelProviderSchema,
   displayName: z.string().trim().min(2).max(120),
@@ -76,8 +96,13 @@ export class ChannelConnectionStatusUpdateDto {
   constructor(readonly organizationId: string, readonly channelId: string, readonly status: ChannelConnectionStatus, readonly updatedAt: Date) {}
 }
 export class ChannelRecordDto {
-  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null, readonly operationMode: ChannelOperationMode = 'hybrid', readonly assistantScheduleMode: ChannelAssistantScheduleMode = 'always', readonly businessHours: ChannelBusinessHourDto[] = [], readonly businessLineId: string | null = null, readonly businessLineName: string | null = null) {}
+  constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null, readonly operationMode: ChannelOperationMode = 'hybrid', readonly assistantScheduleMode: ChannelAssistantScheduleMode = 'always', readonly businessHours: ChannelBusinessHourDto[] = [], readonly businessLineId: string | null = null, readonly businessLineName: string | null = null, readonly scheduleExceptions: ChannelScheduleExceptionDto[] = []) {}
 }
+export class ChannelScheduleExceptionDto {
+  constructor(readonly id: string, readonly localDate: string, readonly assistantEnabled: boolean, readonly startTime: string | null, readonly endTime: string | null) {}
+}
+export class ChannelRepositoryScheduleExceptionDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: ChannelScheduleExceptionInputDto, readonly correlationId: string | null) {} }
+export class ChannelRepositoryDeleteScheduleExceptionDto { constructor(readonly organizationId: string, readonly channelId: string, readonly exceptionId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly correlationId: string | null) {} }
 export class ChannelRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: CreateChannelDto, readonly correlationId: string | null = null) {} }
 export class ChannelRepositoryUpdateDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: UpdateChannelDto, readonly correlationId: string | null = null) {} }
 export class ChannelRepositoryCredentialsDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly provider: ChannelCredentialsDto['provider'], readonly encrypted: { ciphertext: string; iv: string; authTag: string }, readonly correlationId: string | null = null) {} }

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, exists, gte, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, inArray, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
-import { auditEvents, businessLineMembers, businessLines, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
-import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
+import { auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
+import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
@@ -54,20 +54,60 @@ export class ChannelsRepository {
   async list(organizationId: string, userId: string, canManageAllLines: boolean, businessLineId?: string): Promise<ChannelRecordDto[]> {
     const quotaMessages = alias(messages, 'quota_messages');
     const quotaConversations = alias(conversations, 'quota_conversations');
+    const dailyMessageCount = database.select({ value: sql<number>`count(*)::int` }).from(quotaMessages)
+      .innerJoin(quotaConversations, and(eq(quotaConversations.id, quotaMessages.conversationId), eq(quotaConversations.organizationId, quotaMessages.organizationId)))
+      .where(and(eq(quotaMessages.organizationId, messagingChannels.organizationId), eq(quotaConversations.channelId, messagingChannels.id), eq(quotaMessages.direction, CHANNEL_QUOTA_COUNTED_DIRECTION), sql`${quotaMessages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE}`, sql`(${quotaMessages.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = (now() at time zone ${messagingChannels.dailyLimitTimeZone})::date`));
     const lineMembership = exists(database.select({ id: businessLineMembers.businessLineId }).from(businessLineMembers)
       .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
       .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(authMember.userId, userId))));
-    const rows = await database.select({ channel: messagingChannels, businessLineName: businessLines.name, dailyMessageCount: sql<number>`(select count(*)::int from ${quotaMessages} inner join ${quotaConversations} on ${quotaConversations.id} = ${quotaMessages.conversationId} and ${quotaConversations.organizationId} = ${quotaMessages.organizationId} where ${quotaMessages.organizationId} = ${messagingChannels.organizationId} and ${quotaConversations.channelId} = ${messagingChannels.id} and ${quotaMessages.direction} = ${CHANNEL_QUOTA_COUNTED_DIRECTION} and ${quotaMessages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE} and (${quotaMessages.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = (now() at time zone ${messagingChannels.dailyLimitTimeZone})::date)` })
+    const rows = await database.select({ channel: messagingChannels, businessLineName: businessLines.name, dailyMessageCount: sql<number>`(${dailyMessageCount})` })
       .from(messagingChannels).leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
       .where(and(eq(messagingChannels.organizationId, organizationId), businessLineId ? eq(messagingChannels.businessLineId, businessLineId) : undefined, eq(businessLines.status, 'active'), canManageAllLines ? undefined : lineMembership)).orderBy(desc(messagingChannels.isActive), messagingChannels.displayName, messagingChannels.id);
     const hours = await database.select().from(channelBusinessHours).where(eq(channelBusinessHours.organizationId, organizationId));
+    const exceptions = rows.length ? await database.select().from(channelAssistantScheduleExceptions)
+      .where(and(eq(channelAssistantScheduleExceptions.organizationId, organizationId), inArray(channelAssistantScheduleExceptions.channelId, rows.map(({ channel }) => channel.id))))
+      .orderBy(asc(channelAssistantScheduleExceptions.localDate)) : [];
     const hoursByChannel = new Map<string, typeof hours>();
     for (const item of hours) {
       const channelHours = hoursByChannel.get(item.channelId);
       if (channelHours) channelHours.push(item);
       else hoursByChannel.set(item.channelId, [item]);
     }
-    return rows.map((row) => this.toDto(row.channel, row.dailyMessageCount, hoursByChannel.get(row.channel.id) ?? [], row.businessLineName));
+    const exceptionsByChannel = new Map<string, typeof exceptions>();
+    for (const item of exceptions) {
+      const channelExceptions = exceptionsByChannel.get(item.channelId);
+      if (channelExceptions) channelExceptions.push(item);
+      else exceptionsByChannel.set(item.channelId, [item]);
+    }
+    return rows.map((row) => this.toDto(row.channel, row.dailyMessageCount, hoursByChannel.get(row.channel.id) ?? [], row.businessLineName, (exceptionsByChannel.get(row.channel.id) ?? []).map((item) => new ChannelScheduleExceptionDto(item.id, item.localDate, item.assistantEnabled, item.startTime, item.endTime))));
+  }
+
+  async saveScheduleException(input: ChannelRepositoryScheduleExceptionDto): Promise<ChannelScheduleExceptionDto[] | null> {
+    return database.transaction(async (transaction) => {
+      const locked = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
+      if (!locked) return null;
+      const from = Date.parse(`${input.input.fromDate}T00:00:00.000Z`);
+      const to = Date.parse(`${input.input.toDate}T00:00:00.000Z`);
+      const dates = Array.from({ length: Math.floor((to - from) / 86_400_000) + 1 }, (_, index) => new Date(from + index * 86_400_000).toISOString().slice(0, 10));
+      const before = await transaction.select().from(channelAssistantScheduleExceptions)
+        .where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), inArray(channelAssistantScheduleExceptions.localDate, dates)));
+      const rows = await transaction.insert(channelAssistantScheduleExceptions).values(dates.map((localDate) => ({ organizationId: input.organizationId, channelId: input.channelId, localDate, assistantEnabled: input.input.assistantEnabled, startTime: input.input.startTime, endTime: input.input.endTime })))
+        .onConflictDoUpdate({ target: [channelAssistantScheduleExceptions.organizationId, channelAssistantScheduleExceptions.channelId, channelAssistantScheduleExceptions.localDate], set: { assistantEnabled: input.input.assistantEnabled, startTime: input.input.startTime, endTime: input.input.endTime, updatedAt: new Date() } }).returning();
+      const exceptions = rows.map((row) => new ChannelScheduleExceptionDto(row.id, row.localDate, row.assistantEnabled, row.startTime, row.endTime));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_range_saved', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: before.map(({ localDate, assistantEnabled, startTime, endTime }) => ({ localDate, assistantEnabled, startTime, endTime })), afterState: exceptions.map(({ localDate, assistantEnabled, startTime, endTime }) => ({ localDate, assistantEnabled, startTime, endTime })) });
+      return exceptions;
+    });
+  }
+
+  async deleteScheduleException(input: ChannelRepositoryDeleteScheduleExceptionDto): Promise<boolean | null> {
+    return database.transaction(async (transaction) => {
+      const locked = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
+      if (!locked) return null;
+      const [row] = await transaction.delete(channelAssistantScheduleExceptions).where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), eq(channelAssistantScheduleExceptions.id, input.exceptionId))).returning();
+      if (!row) return false;
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { localDate: row.localDate, assistantEnabled: row.assistantEnabled, startTime: row.startTime, endTime: row.endTime } });
+      return true;
+    });
   }
 
   async create(input: ChannelRepositoryCreateDto): Promise<ChannelRecordDto | 'duplicate' | 'business_line_not_found' | 'business_line_forbidden'> {
@@ -240,8 +280,8 @@ export class ChannelsRepository {
     return new ChannelWebhookEventsPageDto(data, { limit: query.limit, offset: query.offset, total: count.total, hasNextPage: query.offset + data.length < count.total });
   }
 
-  private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = [], businessLineName: string | null = null): ChannelRecordDto {
-    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName);
+  private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = [], businessLineName: string | null = null, scheduleExceptions: ChannelRecordDto['scheduleExceptions'] = []): ChannelRecordDto {
+    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName, scheduleExceptions);
   }
 
   private isUniqueViolation(error: unknown): boolean {

@@ -1,14 +1,17 @@
-import { StrictMode } from 'react'
+import { StrictMode, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import './index.css'
 import './lib/i18n'
 import App from './App.tsx'
-import { AcceptInvitation } from './features/AcceptInvitation'
-import { ResetPassword } from './features/ResetPassword'
+import { AcceptInvitationRoute, ResetPasswordRoute, RouteLoading } from './RouteEntrypoints'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {window.location.pathname === '/accept-invitation' ? <AcceptInvitation /> : window.location.pathname === '/reset-password' ? <ResetPassword /> : <HashRouter><App /></HashRouter>}
+    {window.location.pathname === '/accept-invitation'
+      ? <Suspense fallback={<RouteLoading />}><AcceptInvitationRoute /></Suspense>
+      : window.location.pathname === '/reset-password'
+        ? <Suspense fallback={<RouteLoading />}><ResetPasswordRoute /></Suspense>
+        : <HashRouter><App /></HashRouter>}
   </StrictMode>,
 )

@@ -7,7 +7,7 @@ export const funnelReportQuerySchema = z.object({
 }).strict().refine((query) => query.from <= query.to, { message: 'The start date must be before or equal to the end date.', path: ['from'] });
 export type FunnelReportQueryDto = z.infer<typeof funnelReportQuerySchema>;
 
-export class FunnelReportStageDto { constructor(readonly stage: string, readonly pipelineStageKey: string | null, readonly count: number) {} }
+export class FunnelReportStageDto { constructor(readonly stage: string, readonly pipelineStageKey: string | null, readonly pipelineStageName: string | null, readonly count: number) {} }
 export class FunnelReportStageAgingDto {
   constructor(
     readonly stage: string,
@@ -57,7 +57,7 @@ export class FunnelReportDto {
 }
 export class FunnelReportRepositoryQueryDto { constructor(readonly organizationId: string, readonly query: FunnelReportQueryDto, readonly businessLineIds: readonly string[] | null) {} }
 export class AiUsagePointDto {
-  constructor(readonly date: string, readonly operation: string, readonly status: string, readonly runCount: number, readonly averageLatencyMs: number | null, readonly estimatedCostUsd: string | null, readonly audioDurationMs: number, readonly inputTokens: number, readonly outputTokens: number) {}
+  constructor(readonly date: string, readonly operation: string, readonly status: string, readonly runCount: number, readonly averageLatencyMs: number | null, readonly latencySampleCount: number, readonly estimatedCostUsd: string | null, readonly audioDurationMs: number, readonly inputTokens: number, readonly outputTokens: number) {}
 }
 export class AiUsageReportDto {
   constructor(readonly from: string, readonly to: string, readonly points: AiUsagePointDto[], readonly generatedAt: string) {}

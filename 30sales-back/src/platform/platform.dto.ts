@@ -12,12 +12,18 @@ export const platformOrganizationIdSchema = z.string().uuid();
 export const platformAuditQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(10), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export type ListPlatformOrganizationsQueryDto = z.infer<typeof listPlatformOrganizationsSchema>;
 export type PlatformAuditQueryDto = z.infer<typeof platformAuditQuerySchema>;
-export const savePlatformEvolutionConfigurationSchema = z.object({ displayName: z.string().trim().min(2).max(100), baseUrl: z.string().url().max(2048), apiKey: z.string().trim().min(1).max(500) }).strict().superRefine((input, context) => {
-  const url = new URL(input.baseUrl);
+const validatePlatformEvolutionBaseUrl = (baseUrl: string, context: z.RefinementCtx) => {
+  const url = new URL(baseUrl);
   const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (!['https:', 'http:'].includes(url.protocol) || (process.env.NODE_ENV === 'production' && url.protocol !== 'https:') || url.username || url.password || url.search || url.hash || ['localhost', '127.0.0.1', '::1'].includes(hostname) || hostname.endsWith('.localhost') || hostname.endsWith('.local') || hostname.endsWith('.internal')) context.addIssue({ code: 'custom', path: ['baseUrl'], message: 'The Evolution API URL must be a secure HTTP(S) origin without credentials, query, or fragment.' });
-});
+};
+export const savePlatformEvolutionConfigurationSchema = z.object({ displayName: z.string().trim().min(2).max(100), baseUrl: z.string().url().max(2048), apiKey: z.string().trim().min(1).max(500) }).strict().superRefine((input, context) => validatePlatformEvolutionBaseUrl(input.baseUrl, context));
 export type SavePlatformEvolutionConfigurationDto = z.infer<typeof savePlatformEvolutionConfigurationSchema>;
+export const checkPlatformEvolutionConnectionSchema = z.object({ baseUrl: z.string().url().max(2048).optional(), apiKey: z.string().trim().min(1).max(500).optional() }).strict().superRefine((input, context) => {
+  if (Boolean(input.baseUrl) !== Boolean(input.apiKey)) context.addIssue({ code: 'custom', path: ['apiKey'], message: 'Provide both the Evolution API URL and API key to test an unsaved connection.' });
+  if (input.baseUrl) validatePlatformEvolutionBaseUrl(input.baseUrl, context);
+});
+export type CheckPlatformEvolutionConnectionDto = z.infer<typeof checkPlatformEvolutionConnectionSchema>;
 
 export class PlatformContextDto {
   constructor(readonly userId: string, readonly name: string, readonly email: string) {}

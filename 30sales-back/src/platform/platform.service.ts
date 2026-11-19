@@ -5,7 +5,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { toWebHeaders } from '../common/http-headers';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
-import { PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto } from './platform.dto';
+import { PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto } from './platform.dto';
 import { PlatformRepository } from './platform.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { PlatformEvolutionConfigurationDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
@@ -44,8 +44,12 @@ export class PlatformService {
     return this.repository.saveEvolutionConfiguration(input, encrypted, actor.userId, request.correlationId);
   }
 
-  async checkEvolutionConfiguration(request: ApiRequestDto): Promise<PlatformEvolutionConnectionCheckDto> {
+  async checkEvolutionConfiguration(request: ApiRequestDto, input: CheckPlatformEvolutionConnectionDto): Promise<PlatformEvolutionConnectionCheckDto> {
     await this.requireSuperAdmin(request);
+    if (input.baseUrl && input.apiKey) {
+      const instances = await this.evolutionDiscovery.list({ baseUrl: input.baseUrl, apiKey: input.apiKey });
+      return new PlatformEvolutionConnectionCheckDto(true, instances.length, new Date().toISOString());
+    }
     const configuration = await this.repository.getEvolutionCredentials();
     if (!configuration) throw new ConflictException({ code: 'PLATFORM_EVOLUTION_NOT_CONFIGURED', message: 'Configure the Evolution API before checking the connection.' });
     let plaintext: string;

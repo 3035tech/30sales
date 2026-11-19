@@ -1,5 +1,33 @@
 # Contexto de continuidade — 30Sales
 
+## Testar Evolution antes de salvar — 19/11/2026
+
+- A tela de integração agora permite testar URL e API key informadas antes de salvar. O request de teste envia os dados temporários ao backend e consulta somente a lista de instâncias; não persiste credenciais. Sem uma chave digitada, permanece disponível o teste da configuração salva quando a URL corresponde à atual.
+- A rota segue restrita ao super admin, valida URL segura e requer URL/chave juntas; provider preserva bloqueio SSRF, timeout, resposta limitada e erros tipados. Sucesso/falha não muda o estado salvo. UI pt-BR/en orienta os dois modos de teste.
+- Validação: build front/back passaram e 3 testes direcionados do schema passaram. Sem commit, push, deploy ou acesso AWS.
+
+## Onboarding de nova empresa e linha comercial — 19/11/2026
+
+- O provisionamento atual da empresa acontece no console de plataforma: o super admin informa empresa, slug e email do owner; o backend cria a organização e envia convite ao owner. Ainda não existe cadastro self-service de empresa.
+- Depois de aceitar o convite, o owner entra no workspace da empresa. A empresa é o tenant/espaço principal; produtos como 30Grow, 30Pay, 30Sales e 30Studio são cadastrados como linhas de negócio dentro dela. Cada linha recebe equipe, pipeline, assistente/prompt, canal WhatsApp, leads e métricas próprias, conforme o modo inbound/outbound.
+- UX adicionada: quando alguém com acesso de gestão entra em Hoje e a consulta de linhas carregou com sucesso sem nenhuma ativa, aparece um chamado para configurar a operação. Erro de carregamento não é apresentado como empresa sem linhas. Na tela de linhas, um guia explica a hierarquia empresa → linha/produto, dá exemplos e apresenta a sequência de configuração; o checklist de equipe, pipeline, assistente, canal e leads fica visível antes dos formulários e permite abrir cada área. A equipe também é um passo acionável por rolagem e foco.
+- O roteiro explica que leads são necessários para campanhas outbound e que inbound pode começar pelo canal conectado. É orientação progressiva: não bloqueia atendimento existente.
+- O formulário da plataforma agora explica que cadastrar a empresa cria o workspace e envia convite; as linhas de produtos/serviços são cadastradas depois pelo owner. Convites destinados ao owner também antecipam o que ele configurará após entrar.
+- Progresso da linha agora só considera WhatsApp pronto quando o canal está ativo e tem conexão configurada. Leads são etapa opcional para linhas sem canal outbound/híbrido; para canais de prospecção, continuam necessários. Isso evita deixar o onboarding inbound artificialmente incompleto.
+- Home distingue workspace sem nenhuma linha de empresa que possui apenas linhas pausadas/arquivadas. No segundo caso, direciona para revisar e reativar a operação em vez de sugerir que a empresa nunca foi configurada.
+- Builds de produção do frontend passaram após as alterações (`npm run build`, 19/11). `git diff --check` passou. Sem commit, push, deploy ou acesso AWS.
+
+## Continuação de UX, relatórios e bundle — 19/11/2026
+
+- Notificações: troca de organização/contexto agora centraliza o reset da lista, toast, contador, erros e estado de leitura. Ações assíncronas `markRead`/`markAllRead` capturam versão do escopo e não alteram UI de outra empresa após a troca; polling é travado por organização e por token de request para resposta antiga não remover o lock de uma nova chamada. Retorno do super admin ao console também limpa o contexto anterior.
+- `App.tsx`: carregamento das linhas usa resultado identificado pela organização para derivar loading/linhas, sem resets de estado dentro do efeito; autorização da rota depende do booleano efetivo da página. `npx oxlint src/App.tsx` não aponta avisos depois do ajuste.
+- Relatório de funil: requests são versionadas para respostas antigas não sobrescreverem filtros mais recentes; os dados ficam identificados pela linha antes de serem exibidos. Chaves de estágios customizados incluem nome e chave para não colidir em consolidados.
+- Cobertura adicionada em `reports.service.spec.ts`: analista só consulta linha vinculada; consulta de linha alheia falha com `ForbiddenException` antes do repository.
+- Convite e redefinição de senha agora carregam sob demanda por `RouteEntrypoints.tsx`, em vez de entrar no grafo inicial em `main.tsx`. Build medido: chunk de entrada caiu de 442.34 KB / 139.17 KB gzip para 431.86 KB / 136.12 KB gzip. `FormControls` (49.42 KB gzip) saiu do preload inicial; foi substituído pelo chunk compartilhado `Button` (20.26 KB gzip), redução aproximada de 32 KB gzip na transferência inicial total dos chunks pré-carregados.
+- `App.tsx` importa o runtime API sem passar pelo barrel que reexporta todos os schemas Zod. O chunk `contracts` (31.44 KB gzip) e `client` deixaram o preload inicial. Build atualizado: entrada 433.74 KB / 136.83 KB gzip; chunks de entrada pré-carregados somam aproximadamente 160.34 KB gzip, cerca de 32 KB a menos que antes dessa mudança.
+- Verificações: build front/back passaram; 12 testes unitários passaram; build frontend após as correções, oxlint focado em `App.tsx` (zero avisos) e `git diff --check` passaram. `test:business-lines` foi executado, mas pulou os cinco casos porque não há `BUSINESS_LINES_TEST_DATABASE_URL` configurada para banco descartável local. Sem commit, push, deploy ou acesso AWS.
+- Próximo passo: validar o fluxo no navegador se solicitado e executar o teste cross-line quando houver banco local descartável configurado. Não publicar sem solicitação.
+
 ## Validação do candidato de linhas — 19/11/2026
 
 - Builds de produção do Nest e Vite passaram após corrigir tipagens Drizzle, escopo nullable de `business_line_id`, filtro `businessLineId` do cliente de Leads e expressão de visibilidade de notificações.
@@ -618,3 +646,22 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - O recorte também foi conectado no backend e nos contratos paginados de tarefas, handoffs, oportunidades e eventos da fila do closer. A tela Hoje e a fila agregam apenas registros da linha escolhida. Opções de leads para criar tarefas/handoffs e reconciliar conversa seguem a linha alvo.
 - Pausa de linha bloqueia resposta manual no Inbox, envio do assistente e início/continuação de campanhas; campanhas pendentes são adiadas enquanto a linha estiver pausada. Histórico e eventos inbound continuam preservados.
 - Sem alteração/aplicação de migrations nesta continuação, sem AWS, commit, push ou deploy. `git diff --check` passou. Builds, testes e validação visual não foram executados. Próxima etapa para fechamento: gate explicitamente autorizado de compilação/testes, revisão das queries cross-line e validação visual/operacional após migrations em ambiente apropriado.
+
+### Relatório de latência de IA — correção de agregação (19/11/2026)
+
+- A média diária do gráfico ponderava a média de cada grupo (operação/status) por todas as execuções, embora `latency_ms` seja nullable. Incluído `latencySampleCount` no DTO/API usando `count(latency_ms)`; o frontend agora pondera apenas amostras efetivamente registradas. Sem migration.
+- Builds de backend (`npm run build`) e frontend (`npm run build`) passaram; `git diff --check` passou. Bundle principal continua com aviso de Vite acima de 500 kB. Sem testes automatizados, AWS, commit, push ou deploy nesta fatia.
+- Testes de `ReportsService` ampliados para cobrir usuário sem linhas ativas, consolidação para gestor, linha selecionada inativa e bloqueio de papel sem permissão. Suite direcionada passou (6 testes); build backend passou novamente.
+
+### Exceções inbound por número — feriados e períodos especiais (19/11/2026)
+
+- Canais inbound/híbridos podem receber exceções por intervalo de datas, de até 31 dias, para habilitar a assistente o dia todo, em uma janela diária ou desativá-la. Cada data do período vira um registro removível individualmente; salvar o intervalo e a auditoria acontece em transação única.
+- A exceção usa a data local no fuso do canal, substitui a agenda semanal e é consultada novamente antes do envio automático. A agenda outbound continua limitando apenas a primeira abordagem de campanha; respostas recebidas não são bloqueadas por essa janela.
+- API tenant-scoped e validação de intervalo/janela; interface localizada pt-BR/en para configurar datas inicial/final. Migration `0068_tiny_mindworm.sql` gerada, ainda não aplicada.
+- Builds de frontend/backend, 8 testes direcionados e `drizzle-kit check` passaram; `git diff --check` passou. Migration não aplicada. Sem AWS, commit, push ou deploy.
+
+### Correção da listagem de canais no PostgreSQL (19/11/2026)
+
+- Logs de produção mostraram `relation "quota_messages" does not exist` em `ChannelsRepository.list`. A consulta interpolava objetos Drizzle `alias()` dentro de SQL cru; isso emitia os nomes dos aliases no `FROM` sem declarar as tabelas físicas. Refatorada como subconsulta Drizzle tipada, que gera `FROM "messages" "quota_messages"` e `JOIN "conversations" "quota_conversations"`, preservando filtros por tenant, canal, envio, falha e data local.
+- Build backend passou; 8 testes direcionados passaram; SQL gerado foi inspecionado com `drizzle.mock()` e confirmou as tabelas e aliases corretos; `git diff --check` passou. Sem AWS, commit, push ou deploy.
+- O log também informa que `AssistantRuntimeWorker` fica desabilitado sem `ANTHROPIC_API_KEY`; isso depende de configurar o segredo do runtime e não foi alterado.

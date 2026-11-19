@@ -1,11 +1,11 @@
-import { Button, CheckboxField, SelectField, TextField } from './components/ui/FormControls'
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight, BarChart3, Bell, Building2, ListTodo, MessageSquareText, TrendingUp, UserRoundCheck, Users, ShieldCheck, Database, CalendarClock, Briefcase, Radio, Bot, Menu, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
+import { Button } from './components/ui/Button'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
-import { api } from './lib/api'
+import { api } from './lib/api/api'
 import type { BusinessLineDto, SessionDto, UserNotificationDto } from './lib/api/contracts'
 import { USER_NOTIFICATION_TYPE } from './lib/api/notificationConstants'
 import { setPlatformOrganizationContext } from './lib/api/client'
@@ -33,6 +33,7 @@ const PipelineStagesWorkspace = lazy(() => import('./features/PipelineStagesWork
 const PlatformWorkspace = lazy(() => import('./features/PlatformWorkspace').then((module) => ({ default: module.PlatformWorkspace })))
 const BusinessLinesWorkspace = lazy(() => import('./features/BusinessLinesWorkspace').then((module) => ({ default: module.BusinessLinesWorkspace })))
 const PlatformOrganizationPicker = lazy(() => import('./features/PlatformOrganizationPicker').then((module) => ({ default: module.PlatformOrganizationPicker })))
+const LoginWorkspace = lazy(() => import('./features/LoginWorkspace').then((module) => ({ default: module.LoginWorkspace })))
 
 type Page = 'home' | 'closerQueue' | 'closerSla' | 'pipelineStages' | 'inbox' | 'leads' | 'accounts' | 'channels' | 'assistant' | 'tasks' | 'handoffs' | 'pipeline' | 'reports' | 'audit' | 'imports' | 'team' | 'businessLines'
 const pagePaths: Record<Page, string> = {
@@ -47,6 +48,7 @@ const pagesByPath: Record<string, Page> = {
   '/settings/assistant': 'assistant', '/tasks': 'tasks', '/handoffs': 'handoffs', '/pipeline': 'pipeline',
   '/reports/funnel': 'reports', '/settings/audit': 'audit', '/settings/imports': 'imports', '/settings/team': 'team', '/settings/business-lines': 'businessLines',
 }
+const EMPTY_BUSINESS_LINES: BusinessLineDto[] = []
 const navigationPageGroups = {
   daily: ['home', 'tasks'], customers: ['inbox', 'leads', 'accounts'], sales: ['closerQueue', 'handoffs', 'pipeline'],
   management: ['channels', 'assistant', 'closerSla', 'reports', 'audit', 'imports', 'team', 'businessLines'],
@@ -94,8 +96,7 @@ export default function App() {
   const location = useLocation()
   const navigate = useNavigate()
   const [current, setCurrent] = useState<SessionDto | null>(null)
-  const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
-  const [businessLinesLoaded, setBusinessLinesLoaded] = useState(false)
+  const [businessLinesResult, setBusinessLinesResult] = useState<{ organizationId: string; data: BusinessLineDto[]; failed: boolean } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const page = pagesByPath[location.pathname] ?? 'home'
@@ -107,6 +108,7 @@ export default function App() {
   const activeDefaultPage = activeRoles.map((role) => roleDefaultPages[role]).find((defaultPage) => defaultPage !== undefined) ?? 'home'
   const allowedPages = [...new Set(activeRoles.flatMap((role) => rolePages[role] ?? []))]
   const canViewPage = (target: Page) => Boolean(current?.platformOrganizationContext || allowedPages.includes(target))
+  const canViewCurrentPage = canViewPage(page)
   const breadcrumbItems = page === 'home'
     ? []
     : [
@@ -115,6 +117,11 @@ export default function App() {
       ...(page === 'pipelineStages' ? [{ label: t('common.pipelineNav'), href: pagePaths.pipeline }] : []),
     ]
   const searchParams = new URLSearchParams(location.search)
+  const businessLinesOrganizationId = current?.activeOrganizationId ?? current?.platformOrganization?.id ?? ''
+  const businessLinesLoaded = !businessLinesOrganizationId || businessLinesResult?.organizationId === businessLinesOrganizationId
+  const allBusinessLines = businessLinesResult?.organizationId === businessLinesOrganizationId ? businessLinesResult.data : EMPTY_BUSINESS_LINES
+  const businessLines = allBusinessLines.filter((line) => line.status === 'active')
+  const businessLinesLoadFailed = businessLinesResult?.organizationId === businessLinesOrganizationId && businessLinesResult.failed
   const leadSearchSeed = page === 'leads' ? searchParams.get('search') ?? '' : ''
   const inboxSearchSeed = page === 'inbox' ? searchParams.get('search') ?? '' : ''
   const inboxConversationSeed = page === 'inbox' ? searchParams.get('conversationId') ?? '' : ''
@@ -124,11 +131,15 @@ export default function App() {
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
   const [notificationsActionError, setNotificationsActionError] = useState(false)
+  const [notificationOpenError, setNotificationOpenError] = useState(false)
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false)
   const notificationsLoadedRef = useRef(false)
   const notificationIdsRef = useRef<Set<string>>(new Set())
   const notificationRefreshRevision = useRef(0)
+  const notificationScopeRevision = useRef(0)
+  const notificationRequestId = useRef(0)
+  const notificationRequestsInFlight = useRef(new Map<string, number>())
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [changingOrganization, setChangingOrganization] = useState(false)
   const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
@@ -144,6 +155,23 @@ export default function App() {
     setMobileMenuOpen(false)
   }
 
+  const clearNotificationScope = () => {
+    notificationScopeRevision.current += 1
+    notificationRefreshRevision.current += 1
+    notificationRequestsInFlight.current.clear()
+    notificationsLoadedRef.current = false
+    notificationIdsRef.current = new Set()
+    setNotifications([])
+    setNotificationToast(null)
+    setUnreadNotificationCount(0)
+    setNotificationsOpen(false)
+    setNotificationsError(false)
+    setNotificationsActionError(false)
+    setNotificationOpenError(false)
+    setNotificationsLoading(false)
+    setMarkingNotificationsRead(false)
+  }
+
   useEffect(() => {
     api.session.get().then((session) => {
       if (!session.platformOrganizationContext) setPlatformOrganizationContext(null)
@@ -152,13 +180,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (!current || (!current.activeOrganizationId && !current.platformOrganization?.id)) { setBusinessLines([]); setBusinessLinesLoaded(true); return }
-    setBusinessLinesLoaded(false)
+    if (!businessLinesOrganizationId) return
     let active = true
-    api.businessLines.list().then((result) => { if (active) setBusinessLines(result.data.filter((line) => line.status === 'active')) })
-      .catch(() => { if (active) setBusinessLines([]) }).finally(() => { if (active) setBusinessLinesLoaded(true) })
+    api.businessLines.list().then((result) => { if (active) setBusinessLinesResult({ organizationId: businessLinesOrganizationId, data: result.data, failed: false }) })
+      .catch(() => { if (active) setBusinessLinesResult({ organizationId: businessLinesOrganizationId, data: [], failed: true }) })
     return () => { active = false }
-  }, [current?.activeOrganizationId, current?.platformOrganization?.id])
+  }, [businessLinesOrganizationId])
 
   useEffect(() => {
     if (businessLinesLoaded && activeBusinessLineId && !businessLines.some((line) => line.id === activeBusinessLineId)) {
@@ -178,8 +205,8 @@ export default function App() {
   useEffect(() => {
     if (!current) return
     if (location.pathname === '/platform' && current.user.platformRole === PLATFORM_ROLE.superAdmin) return
-    if (!pagesByPath[location.pathname] || !canViewPage(page)) navigate(pagePaths[activeDefaultPage], { replace: true })
-  }, [activeDefaultPage, current, location.pathname, navigate, page])
+    if (!pagesByPath[location.pathname] || !canViewCurrentPage) navigate(pagePaths[activeDefaultPage], { replace: true })
+  }, [activeDefaultPage, canViewCurrentPage, current, location.pathname, navigate])
 
   useEffect(() => {
     if (!mobileMenuOpen) return
@@ -192,7 +219,10 @@ export default function App() {
     if (!current?.activeOrganizationId) return
     let active = true
     const refresh = () => {
-      if (document.visibilityState !== 'visible') return
+      const organizationId = current.activeOrganizationId
+      if (!organizationId || document.visibilityState !== 'visible' || notificationRequestsInFlight.current.has(organizationId)) return
+      const requestId = ++notificationRequestId.current
+      notificationRequestsInFlight.current.set(organizationId, requestId)
       const revision = ++notificationRefreshRevision.current
       if (!notificationsLoadedRef.current) setNotificationsLoading(true)
       api.notifications.list().then((page) => {
@@ -204,7 +234,10 @@ export default function App() {
           notificationIdsRef.current = new Set(page.data.map((notification) => notification.id))
           setNotifications(page.data); setUnreadNotificationCount(page.unreadCount); setNotificationsError(false); notificationsLoadedRef.current = true
         }
-      }).catch(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsError(true) }).finally(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsLoading(false) })
+      }).catch(() => { if (active && revision === notificationRefreshRevision.current) setNotificationsError(true) }).finally(() => {
+        if (notificationRequestsInFlight.current.get(organizationId) === requestId) notificationRequestsInFlight.current.delete(organizationId)
+        if (active && revision === notificationRefreshRevision.current) setNotificationsLoading(false)
+      })
     }
     refresh()
     const interval = window.setInterval(refresh, 30_000)
@@ -228,12 +261,7 @@ export default function App() {
       if (result.error) throw new Error('Organization switch failed')
       const refreshedSession = await api.session.get()
       setCurrent(refreshedSession)
-      setNotifications([])
-      notificationIdsRef.current = new Set()
-      setUnreadNotificationCount(0)
-      setNotificationsActionError(false)
-      notificationRefreshRevision.current += 1
-      notificationsLoadedRef.current = false
+      clearNotificationScope()
       const defaultRoles = getOrganizationRoles(refreshedSession.activeOrganizationRole)
       const defaultPage = defaultRoles.map((role) => roleDefaultPages[role]).find((candidate) => candidate !== undefined) ?? 'home'
       navigateToPage(defaultPage, {}, { replace: true })
@@ -257,12 +285,7 @@ export default function App() {
       const refreshedSession = await api.session.get()
       if (!refreshedSession.platformOrganizationContext || refreshedSession.activeOrganizationId !== organizationId) throw new Error('Company context was not authorized')
       setCurrent(refreshedSession)
-      setNotifications([])
-      notificationIdsRef.current = new Set()
-      setUnreadNotificationCount(0)
-      setNotificationsActionError(false)
-      notificationRefreshRevision.current += 1
-      notificationsLoadedRef.current = false
+      clearNotificationScope()
       navigate(pagePaths.home, { replace: true })
       return true
     } catch {
@@ -275,6 +298,7 @@ export default function App() {
   }
 
   const returnToPlatformConsole = () => {
+    clearNotificationScope()
     setPlatformOrganizationContext(null)
     navigate('/platform')
     setMobileMenuOpen(false)
@@ -285,21 +309,26 @@ export default function App() {
   const toggleLocale = () => { void i18n.changeLanguage(i18n.language === 'pt-BR' ? 'en' : 'pt-BR') }
   const markAllNotificationsRead = async () => {
     if (markingNotificationsRead || unreadNotificationCount === 0) return
+    const scopeRevision = notificationScopeRevision.current
     setMarkingNotificationsRead(true)
     setNotificationsActionError(false)
     try {
       await api.notifications.markAllRead()
+      if (scopeRevision !== notificationScopeRevision.current) return
       notificationRefreshRevision.current += 1
       setNotifications([])
       setUnreadNotificationCount(0)
       setNotificationsError(false)
       notificationsLoadedRef.current = true
-    } catch { setNotificationsActionError(true) }
+    } catch { if (scopeRevision === notificationScopeRevision.current) setNotificationsActionError(true) }
     finally { setMarkingNotificationsRead(false) }
   }
   const openNotification = async (notification: UserNotificationDto) => {
+    const scopeRevision = notificationScopeRevision.current
+    setNotificationOpenError(false)
     try {
       await api.notifications.markRead(notification.id)
+      if (scopeRevision !== notificationScopeRevision.current) return
       notificationRefreshRevision.current += 1
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
       setUnreadNotificationCount((count) => Math.max(0, count - 1))
@@ -309,7 +338,7 @@ export default function App() {
       else if (notification.opportunityId) navigateToPage('pipeline', { businessLineId: null, opportunityId: notification.opportunityId })
       else if (notification.channelId) navigateToPage('channels', { businessLineId: null })
       else if (notification.conversationId) navigateToPage('inbox', { businessLineId: null, conversationId: notification.conversationId })
-    } catch { setNotificationsError(true) }
+    } catch { if (scopeRevision === notificationScopeRevision.current) setNotificationOpenError(true) }
   }
 
   const chooseBusinessLine = (businessLineId: string) => {
@@ -330,7 +359,7 @@ export default function App() {
     <section className="access-card" aria-labelledby="access-title">
       <div className="access-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div>
       <p className="eyebrow">{t('home.accessEyebrow')}</p>
-      <Login onError={setError} />
+      <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}><LoginWorkspace onError={setError} /></Suspense>
       {error !== 'authRequired' && error && <p className="access-error" role="alert">{error}</p>}
     </section>
   </main>
@@ -403,6 +432,7 @@ export default function App() {
             {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
               <div className="notification-panel-heading"><div className="notification-heading-copy"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>{unreadNotificationCount > 0 && <Button className="notification-mark-all" type="button" disabled={markingNotificationsRead} onClick={() => void markAllNotificationsRead()}>{markingNotificationsRead ? t('systemNotifications.markingAllRead') : t('systemNotifications.markAllRead')}</Button>}</div>
               {notificationsActionError && <WorkspaceState kind="error" compact message={t('systemNotifications.markAllFailed')} />}
+              {notificationOpenError && <WorkspaceState kind="error" compact message={t('systemNotifications.openFailed')} />}
               {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
               {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <Button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
                 <span className={`notification-item-title${notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? ' is-inbox' : notification.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notification.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? ' is-error' : ''}`}>{notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage ? t('systemNotifications.newMessage') : notification.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed ? t('systemNotifications.messageDeliveryFailed') : notification.notificationType === USER_NOTIFICATION_TYPE.taskOverdue ? t('systemNotifications.taskOverdue') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffAccepted ? t('systemNotifications.handoffAccepted') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffReturned ? t('systemNotifications.handoffReturned') : notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? t('systemNotifications.conversationAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.opportunityAssigned ? t('systemNotifications.opportunityAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? t('systemNotifications.channelDisconnected') : t(`closerSlaSettings.notifications.${notification.notificationType === USER_NOTIFICATION_TYPE.closerEventSlaEscalated ? 'escalated' : 'overdue'}`)}</span>
@@ -415,18 +445,23 @@ export default function App() {
           {activeOrganization && <div className="workspace-selector-wrap">
             {isPlatformAdmin
               ? <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}><PlatformOrganizationPicker activeOrganizationId={activeOrganization.id} activeOrganizationName={activeOrganization.name} platformOrganizationContext={current.platformOrganizationContext} disabled={changingOrganization} onSelectOrganization={openPlatformOrganization} /></Suspense>
-              : <div className="workspace workspace-selector"><Building2 size={16} /><SelectField aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+              : <div className="workspace workspace-selector"><Building2 size={16} /><select className="ui-select" aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
                 {current.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-              </SelectField></div>}
+              </select></div>}
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}
-          {activeOrganization && businessLinesLoaded && businessLines.length > 0 && <div className="workspace workspace-selector business-line-global-selector"><Briefcase size={16} aria-hidden="true" /><SelectField aria-label={t('businessLines.currentLine')} value={activeBusinessLineId} onChange={(event) => chooseBusinessLine(event.target.value)}>{canViewAllBusinessLines && <option value="">{t('businessLines.allLines')}</option>}{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></div>}
+          {activeOrganization && businessLinesLoaded && businessLines.length > 0 && <div className="workspace workspace-selector business-line-global-selector"><Briefcase size={16} aria-hidden="true" /><select className="ui-select" aria-label={t('businessLines.currentLine')} value={activeBusinessLineId} onChange={(event) => chooseBusinessLine(event.target.value)}>{canViewAllBusinessLines && <option value="">{t('businessLines.allLines')}</option>}{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</select></div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>
       {current.platformOrganizationContext && activeOrganization && <div className="platform-context-banner" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{t('platform.contextBanner', { company: activeOrganization.name })}</span><Button type="button" onClick={returnToPlatformConsole}>{t('platform.returnToCompanies')}<ArrowRight size={14} aria-hidden="true" /></Button></div>}
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
         <Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />
+        {page === 'home' && canViewPage('businessLines') && businessLinesLoaded && !businessLinesLoadFailed && businessLines.length === 0 && <section className="business-line-first-run" aria-labelledby="business-line-first-run-title">
+          <span className="business-line-first-run-icon"><Briefcase size={20} aria-hidden="true" /></span>
+          <div><h2 id="business-line-first-run-title">{t(allBusinessLines.length === 0 ? 'businessLines.homeSetupTitle' : 'businessLines.homeInactiveTitle')}</h2><p>{t(allBusinessLines.length === 0 ? 'businessLines.homeSetupDescription' : 'businessLines.homeInactiveDescription')}</p></div>
+          <Button type="button" onClick={() => navigateToPage('businessLines')}>{t(allBusinessLines.length === 0 ? 'businessLines.homeSetupAction' : 'businessLines.homeInactiveAction')}<ArrowRight size={15} aria-hidden="true" /></Button>
+        </section>}
         <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}>
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
           : page === 'pipelineStages' ? <PipelineStagesWorkspace onBack={() => navigateToPage('pipeline')} />
@@ -449,51 +484,4 @@ export default function App() {
       </div>
     </section>
   </main>
-}
-
-function Login({ onError }: { onError: (message: string) => void }) {
-  const { t } = useTranslation()
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [rememberMe, setRememberMe] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [requestingReset, setRequestingReset] = useState(false)
-  const [resetRequested, setResetRequested] = useState(false)
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    setBusy(true)
-    onError('')
-    try {
-      if (requestingReset) {
-      const result = await api.auth.requestPasswordReset({ email, redirectTo: `${window.location.origin}/reset-password` })
-        if (result.error) onError(t('auth.resetRequestFailed'))
-        else setResetRequested(true)
-        return
-      }
-      const result = await api.auth.signInEmail({ email, password, rememberMe })
-      if (result.error) onError(t('auth.failedSignIn'))
-      else window.location.reload()
-    } catch {
-      onError(requestingReset ? t('auth.resetRequestFailed') : t('auth.failedSignIn'))
-    } finally {
-      setBusy(false)
-    }
-  }
-  return <>
-    <h1 id="access-title">{requestingReset ? t('auth.resetRequestTitle') : t('home.signInTitle')}</h1>
-    <p className="muted">{requestingReset ? t('auth.resetRequestHint') : t('home.signInHint')}</p>
-    {requestingReset ? resetRequested ? <div className="auth-reset-confirmation" role="status">
-      <p>{t('auth.resetRequestSent')}</p>
-      <Button type="button" className="text-button" onClick={() => { setRequestingReset(false); setResetRequested(false); onError('') }}>{t('auth.backToSignIn')}</Button>
-    </div> : <form className="login-form" onSubmit={submit}>
-      <label>{t('common.email')}<TextField type="email" normalize="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-      <Button className="primary" disabled={busy}>{busy ? t('auth.sendingResetLink') : t('auth.sendResetLink')}<ArrowRight size={16} /></Button>
-      <Button type="button" className="text-button" onClick={() => { setRequestingReset(false); onError('') }}>{t('auth.backToSignIn')}</Button>
-    </form> : <form className="login-form" onSubmit={submit}>
-      <label>{t('common.email')}<TextField type="email" normalize="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
-      <label>{t('auth.password')}<TextField type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
-      <div className="login-options"><label className="remember-option"><CheckboxField checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />{t('auth.rememberMe')}</label><Button type="button" className="text-button" onClick={() => { setRequestingReset(true); onError('') }}>{t('auth.forgotPassword')}</Button></div>
-      <Button className="primary" disabled={busy}>{busy ? t('auth.signingIn') : t('auth.signIn')}<ArrowRight size={16} /></Button>
-    </form>}
-  </>
 }

@@ -1,0 +1,10 @@
+.ui-button{display:inline-flex;min-height:38px;align-items:center;justify-content:center;gap:8px;padding:8px 12px;border:1px solid var(--ui-control-border);border-radius:var(--ui-control-radius);background:var(--ui-control-surface);color:var(--ui-control-text);font:600 var(--font-size-sm)/1.25 var(--brand-ui-font);text-align:center;cursor:pointer;transition:background-color 120ms ease,border-color 120ms ease,color 120ms ease}
+.ui-button:hover:not(:disabled){background:var(--ui-control-hover)}
+.ui-button.primary{border-color:var(--brand-action);background:var(--brand-action);color:#fff}
+.ui-button.primary:hover:not(:disabled){border-color:var(--brand-action-hover);background:var(--brand-action-hover);color:#fff}
+.ui-button.primary:focus-visible{outline:2px solid var(--ui-focus-ring);outline-offset:2px}
+.ui-button-primary{border-color:var(--brand-primary);background:var(--brand-primary);color:#fff}
+.ui-button-primary:hover:not(:disabled){border-color:var(--ui-primary-hover);background:var(--ui-primary-hover)}
+.ui-button-danger{border-color:var(--ui-danger-border);background:var(--ui-danger-surface);color:var(--ui-danger-text)}
+.ui-button-quiet{border-color:transparent;background:transparent}
+.ui-button:disabled{opacity:.55;cursor:not-allowed}

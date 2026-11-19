@@ -3,12 +3,9 @@ import * as RadixSelect from '@radix-ui/react-select'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import './FormControls.css'
+import { Button } from './Button'
 
-type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'quiet' | 'danger' }
-
-export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className = '', variant = 'secondary', type = 'submit', ...props }, ref) {
-  return <button ref={ref} type={type} className={`ui-button ui-button-${variant} ${className}`.trim()} {...props} />
-})
+export { Button } from './Button'
 
 type IconButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { label: string }
 
@@ -16,7 +13,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   return <Button ref={ref} type={type} className={`ui-icon-button ${className}`.trim()} aria-label={label} title={label} {...props} />
 })
 
-type TextInputType = 'text' | 'search' | 'email' | 'password' | 'tel' | 'url' | 'time' | 'hidden'
+type TextInputType = 'text' | 'search' | 'email' | 'password' | 'tel' | 'url' | 'date' | 'time' | 'hidden'
 export type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
   type?: TextInputType
   error?: string

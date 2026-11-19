@@ -1,8 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
-import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ConfigureChannelCredentialsDto } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
+import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ChannelScheduleExceptionDto, ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
@@ -43,6 +43,18 @@ export class ChannelsService {
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (result === 'schedule_required') throw new BadRequestException({ code: 'CHANNEL_SCHEDULE_REQUIRED', message: 'Configure at least one business-hours window before enabling scheduled assistant replies.' });
     return result;
+  }
+  async saveScheduleException(request: ApiRequestDto, channelId: string, input: ChannelScheduleExceptionInputDto): Promise<ChannelScheduleExceptionDto[]> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const result = await this.repository.saveScheduleException(new ChannelRepositoryScheduleExceptionDto(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input, request.correlationId));
+    if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    return result;
+  }
+  async deleteScheduleException(request: ApiRequestDto, channelId: string, exceptionId: string): Promise<{ deleted: true }> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const deleted = await this.repository.deleteScheduleException(new ChannelRepositoryDeleteScheduleExceptionDto(context.organizationId, channelId, exceptionId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), request.correlationId));
+    if (deleted !== true) throw new NotFoundException({ code: 'CHANNEL_SCHEDULE_EXCEPTION_NOT_FOUND', message: 'The schedule exception was not found for this channel in the active organization.' });
+    return { deleted: true };
   }
   async configureCredentials(request: ApiRequestDto, channelId: string, input: ConfigureChannelCredentialsDto): Promise<ChannelRecordDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');

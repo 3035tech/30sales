@@ -1,10 +1,28 @@
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE } from './channels.constants';
 import type { ChannelAssistantScheduleMode, ChannelBusinessHourDto } from './channels.dto';
 
-export function isAssistantAllowedAt(input: { mode: ChannelAssistantScheduleMode; timeZone: string; businessHours: ChannelBusinessHourDto[]; at?: Date }): boolean {
+export type ChannelScheduleExceptionWindow = { localDate: string; assistantEnabled: boolean; startTime: string | null; endTime: string | null };
+
+export function localDateAt(timeZone: string, at: Date): string | null {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at);
+  const year = parts.find(({ type }) => type === 'year')?.value;
+  const month = parts.find(({ type }) => type === 'month')?.value;
+  const day = parts.find(({ type }) => type === 'day')?.value;
+  return year && month && day ? `${year}-${month}-${day}` : null;
+}
+
+export function isAssistantAllowedAt(input: { mode: ChannelAssistantScheduleMode; timeZone: string; businessHours: ChannelBusinessHourDto[]; scheduleException?: ChannelScheduleExceptionWindow | null; at?: Date }): boolean {
+  const at = input.at ?? new Date();
+  const localDate = localDateAt(input.timeZone, at);
+  if (localDate && input.scheduleException?.localDate === localDate) {
+    if (!input.scheduleException.assistantEnabled) return false;
+    if (input.scheduleException.startTime === null && input.scheduleException.endTime === null) return true;
+    if (input.scheduleException.startTime === null || input.scheduleException.endTime === null) return false;
+    return isWithinSameDayWindow(input.timeZone, input.scheduleException.startTime, input.scheduleException.endTime, at);
+  }
   if (input.mode === CHANNEL_ASSISTANT_SCHEDULE_MODE.always) return true;
   if (input.mode === CHANNEL_ASSISTANT_SCHEDULE_MODE.disabled) return false;
-  const isOpen = isWithinBusinessHours(input);
+  const isOpen = isWithinBusinessHours({ timeZone: input.timeZone, businessHours: input.businessHours, at });
   return input.mode === CHANNEL_ASSISTANT_SCHEDULE_MODE.businessHours ? isOpen : !isOpen;
 }
 
@@ -25,3 +43,12 @@ export function isWithinBusinessHours(input: { timeZone: string; businessHours: 
 }
 
 function toMinutes(value: string): number { const [hours, minutes] = value.split(':').map(Number); return hours * 60 + minutes; }
+
+function isWithinSameDayWindow(timeZone: string, startTime: string, endTime: string, at: Date): boolean {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(at);
+  const hour = Number(parts.find(({ type }) => type === 'hour')?.value ?? -1);
+  const minute = Number(parts.find(({ type }) => type === 'minute')?.value ?? -1);
+  if (hour < 0 || minute < 0) return false;
+  const now = hour * 60 + minute;
+  return now >= toMinutes(startTime) && now < toMinutes(endTime);
+}

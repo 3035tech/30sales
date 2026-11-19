@@ -1,5 +1,5 @@
 import { Button, CalendarField } from '../components/ui/FormControls'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
@@ -24,29 +24,44 @@ export function FunnelReportWorkspace() {
   const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
   const businessLineId = searchParams.get('businessLineId') ?? undefined
-  const today = dateInput(new Date())
-  const monthAgo = new Date(); monthAgo.setDate(monthAgo.getDate() - 29)
-  const [from, setFrom] = useState(dateInput(monthAgo))
+  const [today] = useState(() => dateInput(new Date()))
+  const [initialRange] = useState(() => { const start = new Date(); start.setDate(start.getDate() - 29); return dateInput(start) })
+  const [from, setFrom] = useState(initialRange)
   const [to, setTo] = useState(today)
-  const [report, setReport] = useState<FunnelReportDto | null>(null)
-  const [aiUsage, setAiUsage] = useState<AiUsageReportDto | null>(null)
+  const [reportData, setReportData] = useState<FunnelReportDto | null>(null)
+  const [reportBusinessLineId, setReportBusinessLineId] = useState<string | undefined>()
+  const [aiUsageData, setAiUsageData] = useState<AiUsageReportDto | null>(null)
+  const [aiUsageBusinessLineId, setAiUsageBusinessLineId] = useState<string | undefined>()
   const [aiUsageUnavailable, setAiUsageUnavailable] = useState(false)
-  const [pipelineStages, setPipelineStages] = useState<Awaited<ReturnType<typeof api.opportunities.pipelineStages.list>>['stages']>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestVersion = useRef(0)
 
   const refresh = async () => {
+    const version = ++requestVersion.current
     setLoading(true); setError('')
     try {
-      const [nextReport, stageSettings] = await Promise.all([api.reports.funnel(from, to, businessLineId), api.opportunities.pipelineStages.list()])
-      setReport(nextReport); setPipelineStages(stageSettings.stages)
-      try { setAiUsage(await api.reports.aiUsage(from, to, businessLineId)); setAiUsageUnavailable(false) }
-      catch { setAiUsage(null); setAiUsageUnavailable(true) }
+      const nextReport = await api.reports.funnel(from, to, businessLineId)
+      if (version !== requestVersion.current) return
+      setReportData(nextReport); setReportBusinessLineId(businessLineId)
+      try {
+        const nextAiUsage = await api.reports.aiUsage(from, to, businessLineId)
+        if (version === requestVersion.current) { setAiUsageData(nextAiUsage); setAiUsageBusinessLineId(businessLineId); setAiUsageUnavailable(false) }
+      }
+      catch { if (version === requestVersion.current) { setAiUsageData(null); setAiUsageBusinessLineId(businessLineId); setAiUsageUnavailable(true) } }
     }
-    catch { setError(t('funnelReport.loadFailed')) }
-    finally { setLoading(false) }
+    catch { if (version === requestVersion.current) setError(t('funnelReport.loadFailed')) }
+    finally { if (version === requestVersion.current) setLoading(false) }
   }
-  useEffect(() => { void refresh() }, [businessLineId])
+  const refreshRef = useRef(refresh)
+  useEffect(() => { refreshRef.current = refresh })
+  useEffect(() => {
+    let active = true
+    queueMicrotask(() => { if (active) void refreshRef.current() })
+    return () => { active = false; requestVersion.current += 1 }
+  }, [businessLineId])
+  const report = reportBusinessLineId === businessLineId ? reportData : null
+  const aiUsage = aiUsageBusinessLineId === businessLineId ? aiUsageData : null
   const closedCount = (report?.wonInPeriodCount ?? 0) + (report?.lostInPeriodCount ?? 0)
   const winRate = report && closedCount ? Math.round((report.wonInPeriodCount / closedCount) * 100) : null
   const currentLeadCount = report?.leadCountsByStatus.reduce((total, item) => total + item.count, 0) ?? 0
@@ -57,7 +72,7 @@ export function FunnelReportWorkspace() {
     if (point.operation === ASSISTANT_RUN_OPERATION.replyGeneration) day.generations += point.runCount
     else day.transcriptions += point.runCount
     if (point.status === ASSISTANT_RUN_STATUS.failed) day.failures += point.runCount
-    if (point.averageLatencyMs !== null) { day.latencyTotal += point.averageLatencyMs * point.runCount; day.latencyCount += point.runCount }
+    if (point.averageLatencyMs !== null && point.latencySampleCount > 0) { day.latencyTotal += point.averageLatencyMs * point.latencySampleCount; day.latencyCount += point.latencySampleCount }
     if (point.estimatedCostUsd !== null) day.cost += Number(point.estimatedCostUsd)
     days[point.date] = day
     return days
@@ -71,12 +86,13 @@ export function FunnelReportWorkspace() {
     { key: 'lost', label: 'lost', className: 'lost', read: (day: FunnelReportDto['salesTrend'][number]) => day.lost },
   ] as const
   const stageAgingRows = (report?.stageAging ?? []).map((item) => {
-    const configuredStage = pipelineStages.find((stage) => stage.stage === item.stage && (stage.isSystem || stage.key === item.pipelineStageKey))
-    return { ...item, label: item.stage === OPPORTUNITY_STAGE.custom ? item.pipelineStageName ?? configuredStage?.name ?? t(`opportunityStages.${item.stage}`) : t(`opportunityStages.${item.stage}`) }
+    return { ...item, label: item.stage === OPPORTUNITY_STAGE.custom ? item.pipelineStageName ?? item.pipelineStageKey ?? t(`opportunityStages.${item.stage}`) : t(`opportunityStages.${item.stage}`) }
+  })
+  const stageSnapshotRows = (report?.currentStages ?? []).map((item) => {
+    return { ...item, label: item.stage === OPPORTUNITY_STAGE.custom ? item.pipelineStageName ?? item.pipelineStageKey ?? t(`opportunityStages.${item.stage}`) : t(`opportunityStages.${item.stage}`) }
   })
   const pipelineValueRows = (report?.pipelineValues ?? []).map((item) => {
-    const configuredStage = pipelineStages.find((stage) => stage.stage === item.stage && (stage.isSystem || stage.key === item.pipelineStageKey))
-    return { ...item, label: item.stage === OPPORTUNITY_STAGE.custom ? item.pipelineStageName ?? configuredStage?.name ?? t(`opportunityStages.${item.stage}`) : t(`opportunityStages.${item.stage}`) }
+    return { ...item, label: item.stage === OPPORTUNITY_STAGE.custom ? item.pipelineStageName ?? item.pipelineStageKey ?? t(`opportunityStages.${item.stage}`) : t(`opportunityStages.${item.stage}`) }
   })
   const cohortMetrics = [
     { key: 'responded', label: 'responded', count: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.respondedCount, rate: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.respondedRate, className: 'responded' },
@@ -87,6 +103,7 @@ export function FunnelReportWorkspace() {
   return <section className="leads-page funnel-report-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></Button></header>
     <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<CalendarField mode="date" value={from} max={to} onValueChange={(value) => setFrom(value)} required /></label><label>{t('funnelReport.to')}<CalendarField mode="date" value={to} min={from} max={today} onValueChange={(value) => setTo(value)} required /></label><Button className="primary">{t('funnelReport.apply')}</Button></form>
+    <p className="funnel-report-scope" role="note">{t(businessLineId ? 'funnelReport.lineScope' : 'funnelReport.portfolioScope')}</p>
     {error && report && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && report && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
     {loading && !report ? <WorkspaceState kind="loading" message={t('common.loading')} /> : report && <>
@@ -104,7 +121,7 @@ export function FunnelReportWorkspace() {
       </div><table className="sr-only"><caption>{t('funnelReport.aiUsageAccessible')}</caption><thead><tr>{['date', 'generations', 'transcriptions', 'failures', 'latency', 'cost'].map((key) => <th key={key} scope="col">{t(`funnelReport.aiUsageColumns.${key}`)}</th>)}</tr></thead><tbody>{aiDays.map((day) => <tr key={day.date}><th scope="row">{dateLabel(day.date)}</th><td>{day.generations}</td><td>{day.transcriptions}</td><td>{day.failures}</td><td>{day.latencyCount ? Math.round(day.latencyTotal / day.latencyCount) : '—'}</td><td>{day.cost.toFixed(10)}</td></tr>)}</tbody></table></> : <p className="ai-usage-empty">{t(aiUsageUnavailable ? 'funnelReport.aiUsageUnavailable' : 'funnelReport.aiUsageEmpty')}</p>}</section>
       <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('leadFunnelReport.title')}</h3><p>{t('leadFunnelReport.hint')}</p></div><span>{currentLeadCount}</span></div><div className="funnel-stage-list">{leadStatuses.map((status) => { const count = report.leadCountsByStatus.find((item) => item.status === status)?.count ?? 0; const width = currentLeadCount ? Math.max((count / currentLeadCount) * 100, count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={status}><span>{t(`leadStatuses.${status}`)}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{count}</strong></div> })}</div></section>
       <section className="funnel-report-panel handoff-report-panel"><div><h3>{t('handoffFirstActivity.title')}</h3><p>{t('handoffFirstActivity.description')}</p></div><strong>{report.averageMinutesToFirstActivity === null ? '—' : durationLabel(report.averageMinutesToFirstActivity, i18n.language)}</strong><small>{t('handoffFirstActivity.breakdown', { tracked: report.firstActivityCount, accepted: report.acceptedHandoffsInPeriodCount, pending: report.pendingFirstActivityCount })}</small></section>
-      <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageSnapshot')}</h3><p>{t('funnelReport.stageSnapshotHint')}</p></div><span>{report.currentOpenCount}</span></div><div className="funnel-stage-list">{pipelineStages.filter((stage) => stage.isActive && stage.stage !== 'won' && stage.stage !== 'lost').map((stage) => { const count = report.currentStages.find((item) => item.stage === stage.stage && (stage.isSystem || item.pipelineStageKey === stage.key))?.count ?? 0; const width = report.currentOpenCount ? Math.max((count / report.currentOpenCount) * 100, count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={stage.key}><span>{stage.isSystem ? t(`opportunityStages.${stage.stage}`) : stage.name}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{count}</strong></div> })}</div></section><section className="funnel-report-panel stage-aging-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageAging.title')}</h3><p>{t('funnelReport.stageAging.hint')}</p></div><span>{stageAgingRows.reduce((total, row) => total + row.upTo7DaysCount + row.days8To14Count + row.days15To30Count + row.over30DaysCount, 0)}</span></div>{stageAgingRows.length ? <div className="stage-aging-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.stageAging.stage')}</th><th scope="col">{t('funnelReport.stageAging.upTo7Days')}</th><th scope="col">{t('funnelReport.stageAging.days8To14')}</th><th scope="col">{t('funnelReport.stageAging.days15To30')}</th><th scope="col">{t('funnelReport.stageAging.over30Days')}</th></tr></thead><tbody>{stageAgingRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}`}><th scope="row">{row.label}</th><td>{row.upTo7DaysCount}</td><td>{row.days8To14Count}</td><td>{row.days15To30Count}</td><td className={row.over30DaysCount ? 'stage-aging-risk' : ''}>{row.over30DaysCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.stageAging.empty')}</p>}</section><section className="funnel-report-panel pipeline-value-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.pipelineValue.title')}</h3><p>{t('funnelReport.pipelineValue.hint', { unvalued: report.openWithoutValueCount })}</p></div><span>{pipelineValueRows.reduce((total, row) => total + row.opportunityCount, 0)}</span></div>{pipelineValueRows.length ? <div className="pipeline-value-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.pipelineValue.stage')}</th><th scope="col">{t('funnelReport.pipelineValue.currency')}</th><th scope="col">{t('funnelReport.pipelineValue.amount')}</th><th scope="col">{t('funnelReport.pipelineValue.opportunities')}</th></tr></thead><tbody>{pipelineValueRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}:${row.currency}`}><th scope="row">{row.label}</th><td>{row.currency}</td><td>{money(row.currency, row.amount)}</td><td>{row.opportunityCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.pipelineValue.empty')}</p>}</section>
+      <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageSnapshot')}</h3><p>{t('funnelReport.stageSnapshotHint')}</p></div><span>{report.currentOpenCount}</span></div>{stageSnapshotRows.length ? <div className="funnel-stage-list">{stageSnapshotRows.map((stage) => { const width = report.currentOpenCount ? Math.max((stage.count / report.currentOpenCount) * 100, stage.count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={`${stage.stage}:${stage.pipelineStageKey ?? stage.stage}:${stage.pipelineStageName ?? ''}`}><span>{stage.label}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{stage.count}</strong></div> })}</div> : <p className="stage-aging-empty">{t('funnelReport.stageSnapshotEmpty')}</p>}</section><section className="funnel-report-panel stage-aging-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageAging.title')}</h3><p>{t('funnelReport.stageAging.hint')}</p></div><span>{stageAgingRows.reduce((total, row) => total + row.upTo7DaysCount + row.days8To14Count + row.days15To30Count + row.over30DaysCount, 0)}</span></div>{stageAgingRows.length ? <div className="stage-aging-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.stageAging.stage')}</th><th scope="col">{t('funnelReport.stageAging.upTo7Days')}</th><th scope="col">{t('funnelReport.stageAging.days8To14')}</th><th scope="col">{t('funnelReport.stageAging.days15To30')}</th><th scope="col">{t('funnelReport.stageAging.over30Days')}</th></tr></thead><tbody>{stageAgingRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}:${row.pipelineStageName ?? ''}`}><th scope="row">{row.label}</th><td>{row.upTo7DaysCount}</td><td>{row.days8To14Count}</td><td>{row.days15To30Count}</td><td className={row.over30DaysCount ? 'stage-aging-risk' : ''}>{row.over30DaysCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.stageAging.empty')}</p>}</section><section className="funnel-report-panel pipeline-value-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.pipelineValue.title')}</h3><p>{t('funnelReport.pipelineValue.hint', { unvalued: report.openWithoutValueCount })}</p></div><span>{pipelineValueRows.reduce((total, row) => total + row.opportunityCount, 0)}</span></div>{pipelineValueRows.length ? <div className="pipeline-value-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.pipelineValue.stage')}</th><th scope="col">{t('funnelReport.pipelineValue.currency')}</th><th scope="col">{t('funnelReport.pipelineValue.amount')}</th><th scope="col">{t('funnelReport.pipelineValue.opportunities')}</th></tr></thead><tbody>{pipelineValueRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}:${row.pipelineStageName ?? ''}:${row.currency}`}><th scope="row">{row.label}</th><td>{row.currency}</td><td>{money(row.currency, row.amount)}</td><td>{row.opportunityCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.pipelineValue.empty')}</p>}</section>
       <p className="funnel-report-definition">{t('funnelReport.definitions', { from: dateLabel(report.from), to: dateLabel(report.to), created: report.createdInPeriodCount })}</p>
       <p className="funnel-report-updated">{t('funnelReport.updatedAt', { value: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(report.generatedAt)) })}</p>
     </>}

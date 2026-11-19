@@ -64,6 +64,15 @@ export function AcceptInvitation() {
     <div className="invite-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div><span className="welcome-icon"><Command size={23} /></span>
     <p className="eyebrow">{t('invitation.eyebrow')}</p><h1>{organizationName}</h1>
     {invite ? <p className="muted">{t('invitation.description', { role: roleName ? t(`roles.${roleName}`) : invite.role, email: invite.email })}</p> : <p className="muted">{message}</p>}
+    {invite?.role === 'owner' && <section className="invite-onboarding" aria-labelledby="invite-onboarding-title">
+      <h2 id="invite-onboarding-title">{t('invitation.ownerNextTitle')}</h2>
+      <p>{t('invitation.ownerNextDescription')}</p>
+      <ol>
+        <li>{t('invitation.ownerNextLine')}</li>
+        <li>{t('invitation.ownerNextTeam')}</li>
+        <li>{t('invitation.ownerNextSetup')}</li>
+      </ol>
+    </section>}
     {message && invite && <p className="invite-status">{message}</p>}
     {invite && !hasSession && !message && <form className="login-form" onSubmit={submit}>
       {!loginMode && <label>{t('invitation.yourName')}<TextField autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required /></label>}

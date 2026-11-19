@@ -1,10 +1,10 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { configureChannelCredentialsSchema, channelMonitoringCheckSchema, channelWebhookEventsQuerySchema, createChannelSchema, updateChannelSchema } from './channels.dto';
-import type { ConfigureChannelCredentialsDto, ChannelMonitoringCheckInputDto, ChannelWebhookEventsQueryDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import { channelScheduleExceptionSchema, configureChannelCredentialsSchema, channelMonitoringCheckSchema, channelWebhookEventsQuerySchema, createChannelSchema, updateChannelSchema } from './channels.dto';
+import type { ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto, ChannelMonitoringCheckInputDto, ChannelWebhookEventsQueryDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
 import { ChannelsService } from './channels.service';
 
 const channelIdSchema = z.string().uuid();
@@ -18,6 +18,11 @@ export class ChannelsController {
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createChannelSchema)) input: CreateChannelDto) { return this.channelsService.create(request, input); }
   @Patch(':id')
   update(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(updateChannelSchema)) input: UpdateChannelDto) { return this.channelsService.update(request, channelId, input); }
+  @Put(':id/schedule-exceptions')
+  saveScheduleException(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(channelScheduleExceptionSchema)) input: ChannelScheduleExceptionInputDto) { return this.channelsService.saveScheduleException(request, channelId, input); }
+  @Delete(':id/schedule-exceptions/:exceptionId')
+  @HttpCode(HttpStatus.OK)
+  deleteScheduleException(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Param('exceptionId', new ZodValidationPipe(channelIdSchema)) exceptionId: string) { return this.channelsService.deleteScheduleException(request, channelId, exceptionId); }
   @Put(':id/credentials')
   configureCredentials(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(configureChannelCredentialsSchema)) credentials: ConfigureChannelCredentialsDto) { return this.channelsService.configureCredentials(request, channelId, credentials); }
   @Post(':id/health-check')

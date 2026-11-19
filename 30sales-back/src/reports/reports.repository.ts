@@ -68,6 +68,7 @@ export class ReportsRepository {
       status: assistantRuns.status,
       runCount: count(),
       averageLatencyMs: sql<number | null>`avg(${assistantRuns.latencyMs})::float8`,
+      latencySampleCount: count(assistantRuns.latencyMs),
       estimatedCostUsd: sql<string | null>`sum(${assistantRuns.estimatedCostUsd})::text`,
       audioDurationMs: sql<number>`coalesce(sum(${assistantRuns.audioDurationMs}), 0)::int`,
       inputTokens: sql<number>`coalesce(sum(${assistantRuns.usageInputTokens}), 0)::int`,
@@ -77,7 +78,7 @@ export class ReportsRepository {
       .groupBy(day, assistantRuns.operation, assistantRuns.status)
       .orderBy(day, assistantRuns.operation, assistantRuns.status);
     return new AiUsageReportDto(input.query.from, input.query.to, rows.map((row) => new AiUsagePointDto(
-      row.date, row.operation, row.status, Number(row.runCount), row.averageLatencyMs,
+      row.date, row.operation, row.status, Number(row.runCount), row.averageLatencyMs, Number(row.latencySampleCount),
       row.estimatedCostUsd, Number(row.audioDurationMs), Number(row.inputTokens), Number(row.outputTokens),
     )), new Date().toISOString());
   }
@@ -200,7 +201,7 @@ export class ReportsRepository {
       Number(openRows[0]?.withoutValueCount ?? 0),
       Number(withoutNextActionRows[0]?.count ?? 0),
       Number(overdueRows[0]?.count ?? 0),
-      stageRows.map((row) => new FunnelReportStageDto(row.stage, row.pipelineStageKey, Number(row.count))),
+      stageRows.map((row) => new FunnelReportStageDto(row.stage, row.pipelineStageKey, row.pipelineStageName, Number(row.count))),
       stageRows.map((row) => new FunnelReportStageAgingDto(row.stage, row.pipelineStageKey, row.pipelineStageName, Number(row.upTo7DaysCount), Number(row.days8To14Count), Number(row.days15To30Count), Number(row.over30DaysCount))),
       pipelineValueRows.map((row) => new FunnelReportPipelineValueDto(row.stage, row.pipelineStageKey, row.pipelineStageName, row.currency, row.amount ?? '0', Number(row.opportunityCount))),
       Number(createdRows[0]?.count ?? 0),

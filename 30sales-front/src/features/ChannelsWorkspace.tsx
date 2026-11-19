@@ -1,7 +1,7 @@
 import { Button, CheckboxField, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
 import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
+import { Activity, CalendarClock, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
@@ -58,6 +58,15 @@ export function ChannelsWorkspace() {
   const [policyHours, setPolicyHours] = useState<EditableBusinessHour[]>([])
   const [policyAllDay, setPolicyAllDay] = useState(true)
   const [savingPolicy, setSavingPolicy] = useState(false)
+  const [scheduleExceptionChannel, setScheduleExceptionChannel] = useState<ChannelDto | null>(null)
+  const [exceptionFromDate, setExceptionFromDate] = useState('')
+  const [exceptionToDate, setExceptionToDate] = useState('')
+  const [exceptionAssistantEnabled, setExceptionAssistantEnabled] = useState(true)
+  const [exceptionAllDay, setExceptionAllDay] = useState(true)
+  const [exceptionStartTime, setExceptionStartTime] = useState('09:00')
+  const [exceptionEndTime, setExceptionEndTime] = useState('18:00')
+  const [savingException, setSavingException] = useState(false)
+  const [exceptionError, setExceptionError] = useState(false)
   const [discoveryChannel, setDiscoveryChannel] = useState<ChannelDto | null>(null)
   const [discovery, setDiscovery] = useState<EvolutionInstanceListDto | null>(null)
   const [discoveryLoading, setDiscoveryLoading] = useState(false)
@@ -214,6 +223,38 @@ export function ChannelsWorkspace() {
     setPolicyAllDay(channel.businessHours.length === 0)
     setPolicyHours(WEEKDAYS.map((dayOfWeek) => { const saved = channel.businessHours.find((window) => window.dayOfWeek === dayOfWeek); return { dayOfWeek, enabled: Boolean(saved), startTime: saved?.startTime ?? '09:00', endTime: saved?.endTime ?? '18:00' } }))
   }
+  const openScheduleExceptions = (channel: ChannelDto) => {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: channel.dailyLimitTimeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+    const year = parts.find(({ type }) => type === 'year')?.value
+    const month = parts.find(({ type }) => type === 'month')?.value
+    const day = parts.find(({ type }) => type === 'day')?.value
+    setScheduleExceptionChannel(channel)
+    const today = year && month && day ? `${year}-${month}-${day}` : ''
+    setExceptionFromDate(today); setExceptionToDate(today)
+    setExceptionAssistantEnabled(true); setExceptionAllDay(true); setExceptionStartTime('09:00'); setExceptionEndTime('18:00'); setExceptionError(false)
+  }
+  const saveScheduleException = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!scheduleExceptionChannel || !exceptionFromDate || !exceptionToDate) return
+    setSavingException(true); setExceptionError(false)
+    try {
+      const saved = await api.channels.saveScheduleException(scheduleExceptionChannel.id, { fromDate: exceptionFromDate, toDate: exceptionToDate, assistantEnabled: exceptionAssistantEnabled, startTime: exceptionAssistantEnabled && !exceptionAllDay ? exceptionStartTime : null, endTime: exceptionAssistantEnabled && !exceptionAllDay ? exceptionEndTime : null })
+      const savedDates = new Set(saved.map((item) => item.localDate))
+      setScheduleExceptionChannel((channel) => channel ? { ...channel, scheduleExceptions: [...channel.scheduleExceptions.filter((item) => !savedDates.has(item.localDate)), ...saved].sort((left, right) => left.localDate.localeCompare(right.localDate)) } : channel)
+      setRefresh((version) => version + 1)
+    } catch { setExceptionError(true) }
+    finally { setSavingException(false) }
+  }
+  const deleteScheduleException = async (exceptionId: string) => {
+    if (!scheduleExceptionChannel) return
+    setSavingException(true); setExceptionError(false)
+    try {
+      await api.channels.deleteScheduleException(scheduleExceptionChannel.id, exceptionId)
+      setScheduleExceptionChannel((channel) => channel ? { ...channel, scheduleExceptions: channel.scheduleExceptions.filter((item) => item.id !== exceptionId) } : channel)
+      setRefresh((version) => version + 1)
+    } catch { setExceptionError(true) }
+    finally { setSavingException(false) }
+  }
   const savePolicy = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!policyChannel) return
@@ -322,7 +363,7 @@ export function ChannelsWorkspace() {
       const connectionDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : ''
       const policyWindow = channel.businessHours.length === 0 ? t('channels.policy24Hours') : t('channels.policyDaysConfigured', { count: channel.businessHours.length })
       const hasAssistantHours = channel.assistantScheduleMode === 'business_hours' || channel.assistantScheduleMode === 'after_hours'
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div><IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div><IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.operationMode !== 'outbound' && <IconButton label={t('channels.scheduleExceptionsManage', { name: channel.displayName, count: channel.scheduleExceptions.length })} onClick={() => openScheduleExceptions(channel)}><CalendarClock size={16} /></IconButton>}{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">
@@ -365,6 +406,16 @@ export function ChannelsWorkspace() {
         <p>{t('channels.quotaCurrentUsage', { used: quotaChannel?.dailyMessageCount ?? 0, limit: quotaChannel?.dailyMessageLimit ?? 0 })}</p>
         <label>{t('channels.quotaLimit')}<NumericField mode="integer" min={1} max={5000} value={quotaLimit} onValueChange={setQuotaLimit} required /></label>
         <Button type="submit" variant="primary" disabled={savingQuota || quotaLimit === null}>{savingQuota ? t('common.saving') : t('channels.saveQuota')}</Button>
+      </form>
+    </Modal>
+    <Modal open={scheduleExceptionChannel !== null} onOpenChange={(open) => { if (!open) setScheduleExceptionChannel(null) }} title={t('channels.scheduleExceptionsTitle', { name: scheduleExceptionChannel?.displayName ?? '' })} description={t('channels.scheduleExceptionsDescription', { timeZone: scheduleExceptionChannel?.dailyLimitTimeZone ?? '' })} closeLabel={t('common.close')} className="channel-quota-modal">
+      {scheduleExceptionChannel?.scheduleExceptions.length ? <ul className="channel-schedule-exception-list">{scheduleExceptionChannel.scheduleExceptions.map((exception) => <li key={exception.id}><div><strong>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${exception.localDate}T12:00:00Z`))}</strong><small>{exception.assistantEnabled ? exception.startTime && exception.endTime ? t('channels.scheduleExceptionHours', { start: exception.startTime, end: exception.endTime }) : t('channels.scheduleExceptionAllDay') : t('channels.scheduleExceptionDisabled')}</small></div><IconButton label={t('channels.scheduleExceptionRemove', { date: exception.localDate })} disabled={savingException} onClick={() => void deleteScheduleException(exception.id)}><Power size={15} /></IconButton></li>)}</ul> : <p className="channel-policy-hint">{t('channels.scheduleExceptionsEmpty')}</p>}
+      <form className="channel-quota-form channel-schedule-exception-form" onSubmit={(event) => void saveScheduleException(event)}>
+        <div className="channel-schedule-exception-times"><label>{t('channels.scheduleExceptionFromDate')}<TextField type="date" value={exceptionFromDate} onChange={(event) => { setExceptionFromDate(event.target.value); if (exceptionToDate < event.target.value) setExceptionToDate(event.target.value) }} required /></label><label>{t('channels.scheduleExceptionToDate')}<TextField type="date" min={exceptionFromDate} value={exceptionToDate} onChange={(event) => setExceptionToDate(event.target.value)} required /></label></div>
+        <label><CheckboxField checked={exceptionAssistantEnabled} onChange={(event) => setExceptionAssistantEnabled(event.target.checked)} />{t('channels.scheduleExceptionEnableAssistant')}</label>
+        {exceptionAssistantEnabled && <><label><CheckboxField checked={exceptionAllDay} onChange={(event) => setExceptionAllDay(event.target.checked)} />{t('channels.scheduleExceptionAllDayToggle')}</label>{!exceptionAllDay && <div className="channel-schedule-exception-times"><label>{t('channels.scheduleExceptionStart')}<TextField type="time" value={exceptionStartTime} onChange={(event) => setExceptionStartTime(event.target.value)} required /></label><label>{t('channels.scheduleExceptionEnd')}<TextField type="time" value={exceptionEndTime} onChange={(event) => setExceptionEndTime(event.target.value)} required /></label></div>}</>}
+        {exceptionError && <p role="alert" className="channel-health-result error">{t('channels.scheduleExceptionSaveFailed')}</p>}
+        <Button type="submit" variant="primary" disabled={savingException || !exceptionFromDate || !exceptionToDate || exceptionToDate < exceptionFromDate}>{savingException ? t('common.saving') : t('channels.scheduleExceptionSave')}</Button>
       </form>
     </Modal>
     <Modal open={policyChannel !== null} onOpenChange={(open) => { if (!open) setPolicyChannel(null) }} title={t('channels.policyTitle', { name: policyChannel?.displayName ?? '' })} description={t('channels.policyDescription')} closeLabel={t('common.close')} className="channel-quota-modal">

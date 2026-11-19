@@ -11,7 +11,8 @@ function slugFromName(name: string): string {
   return name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
 }
 
-type BusinessLineSetupStep = 'pipelineStages' | 'assistant' | 'channels' | 'leads'
+type BusinessLineSetupStep = 'team' | 'pipelineStages' | 'assistant' | 'channels' | 'leads'
+type BusinessLineSetupStatus = { team: boolean; pipeline: boolean; assistant: boolean; channel: boolean; leads: boolean; leadsApplicable: boolean }
 
 export function BusinessLinesWorkspace({ organizationId }: { organizationId: string }) {
   const { t } = useTranslation()
@@ -36,7 +37,7 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
   const [editName, setEditName] = useState('')
   const [editSlug, setEditSlug] = useState('')
   const [editDescription, setEditDescription] = useState('')
-  const [setupStatus, setSetupStatus] = useState<boolean[] | null>(null)
+  const [setupStatus, setSetupStatus] = useState<BusinessLineSetupStatus | null>(null)
   const [setupLoading, setSetupLoading] = useState(false)
 
   const selectedLine = useMemo(() => lines.find((line) => line.id === selectedLineId) ?? null, [lines, selectedLineId])
@@ -80,13 +81,15 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
     void Promise.all([api.opportunities.pipelines.list(), api.agents.getAssistantSettings(selectedLineId), api.channels.list(selectedLineId), api.leads.listPage({ businessLineId: selectedLineId, limit: 1, offset: 0 })])
       .then(([pipelineResult, assistant, channels, leads]) => {
         if (!active) return
-        setSetupStatus([
-          selectedMemberIds.length > 0,
-          pipelineResult.pipelines.some((pipeline) => pipeline.businessLineId === selectedLineId),
-          assistant.enabled && assistant.systemPrompt.trim().length > 0,
-          channels.some((channel) => channel.isActive),
-          leads.pagination.total > 0,
-        ])
+        const leadsApplicable = channels.some((channel) => channel.operationMode !== 'inbound')
+        setSetupStatus({
+          team: selectedMemberIds.length > 0,
+          pipeline: pipelineResult.pipelines.some((pipeline) => pipeline.businessLineId === selectedLineId),
+          assistant: assistant.enabled && assistant.systemPrompt.trim().length > 0,
+          channel: channels.some((channel) => channel.isActive && channel.isConfigured),
+          leads: leads.pagination.total > 0,
+          leadsApplicable,
+        })
       })
       .catch(() => { if (active) setSetupStatus(null) })
       .finally(() => { if (active) setSetupLoading(false) })
@@ -95,7 +98,14 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
 
   const openSetupStep = (step: BusinessLineSetupStep) => {
     if (!selectedLine) return
-    const paths: Record<BusinessLineSetupStep, string> = { pipelineStages: '/settings/pipeline-stages', assistant: '/settings/assistant', channels: '/settings/channels', leads: '/leads' }
+    if (step === 'team') {
+      const teamHeading = document.getElementById('business-line-team-heading')
+      const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'
+      teamHeading?.scrollIntoView({ behavior, block: 'center' })
+      teamHeading?.focus({ preventScroll: true })
+      return
+    }
+    const paths: Record<Exclude<BusinessLineSetupStep, 'team'>, string> = { pipelineStages: '/settings/pipeline-stages', assistant: '/settings/assistant', channels: '/settings/channels', leads: '/leads' }
     navigate({ pathname: paths[step], search: `?businessLineId=${encodeURIComponent(selectedLine.id)}` })
   }
 
@@ -149,11 +159,39 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
 
   return <div className="business-lines-page">
     <div className="section-head"><div><p className="eyebrow">{t('businessLines.eyebrow')}</p><h2>{t('businessLines.title')}</h2><p className="muted">{t('businessLines.description')}</p></div><Button className="refresh" type="button" onClick={() => void refresh()} aria-label={t('businessLines.refresh')}><RefreshCw size={16} /></Button></div>
+    <section className="business-line-model-guide" aria-labelledby="business-line-model-title">
+      <div className="business-line-model-copy"><h3 id="business-line-model-title">{t('businessLines.modelTitle')}</h3><p>{t('businessLines.modelDescription')}</p></div>
+      <div className="business-line-model-example" aria-label={t('businessLines.modelExampleLabel')}>
+        <div><strong>{t('businessLines.modelCompany')}</strong><span>{t('businessLines.modelCompanyHint')}</span></div>
+        <ArrowRight size={18} aria-hidden="true" />
+        <div className="is-line"><strong>{t('businessLines.modelLine')}</strong><span>{t('businessLines.modelLineHint')}</span></div>
+      </div>
+      <p className="business-line-model-flow">{t('businessLines.modelFlow')}</p>
+      {!selectedLine && !loading && <Button className="primary business-line-model-action" type="button" onClick={() => document.getElementById('business-line-name')?.focus()}>{t('businessLines.createFirstLine')}<ArrowRight size={15} /></Button>}
+    </section>
+    {selectedLine && <section className="business-lines-panel business-line-onboarding-panel">
+      <div className="business-line-onboarding">
+        <div className="panel-heading"><span className="card-icon"><ArrowRight size={18} /></span><div><h3>{t('businessLines.setupTitle')}</h3><p>{t('businessLines.setupHint', { name: selectedLine.name })}</p></div></div>
+        {setupLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : setupStatus ? <ol className="business-line-setup-steps">
+          {[
+            { key: 'team', step: 'team' as const, ready: setupStatus.team },
+            { key: 'pipeline', step: 'pipelineStages' as const, ready: setupStatus.pipeline },
+            { key: 'assistant', step: 'assistant' as const, ready: setupStatus.assistant },
+            { key: 'channel', step: 'channels' as const, ready: setupStatus.channel },
+            { key: 'leads', step: 'leads' as const, ready: setupStatus.leads, optional: !setupStatus.leadsApplicable && !setupStatus.leads },
+          ].map((item) => <li key={item.key} className={`${item.ready ? 'is-ready' : ''}${item.optional ? ' is-optional' : ''}`}>
+            <span className="business-line-setup-icon">{item.ready ? <Check size={15} /> : <Circle size={13} />}</span><span>{t(`businessLines.setupSteps.${item.key}`)}{item.optional && <small className="business-line-optional-label">{t('businessLines.optionalStep')}</small>}</span>
+            <Button type="button" onClick={() => openSetupStep(item.step)}>{item.ready ? t('businessLines.reviewStep') : item.optional ? t('businessLines.addOptionalStep') : t('businessLines.configureStep')}<ArrowRight size={14} /></Button>
+          </li>)}
+        </ol> : <WorkspaceState kind="error" compact message={t('businessLines.setupStatusUnavailable')} />}
+        <p className="business-line-setup-note">{t('businessLines.setupNote')}</p>
+      </div>
+    </section>}
     <div className="business-lines-grid">
       <section className="business-lines-panel">
-        <div className="panel-heading"><span className="card-icon"><Plus size={18} /></span><div><h3>{t('businessLines.createTitle')}</h3><p>{t('businessLines.createHint')}</p></div></div>
+        <div className="panel-heading"><span className="card-icon"><Plus size={18} /></span><div><h3>{t(lines.length === 0 ? 'businessLines.createFirstTitle' : 'businessLines.createTitle')}</h3><p>{t('businessLines.createHint')}</p></div></div>
         <form className="business-line-create-form" onSubmit={(event) => void createLine(event)}>
-          <label>{t('businessLines.name')}<TextField value={name} minLength={2} maxLength={100} required onChange={(event) => { setName(event.target.value); if (!slugEdited) setSlug(slugFromName(event.target.value)) }} /></label>
+          <label>{t('businessLines.name')}<TextField id="business-line-name" value={name} minLength={2} maxLength={100} required onChange={(event) => { setName(event.target.value); if (!slugEdited) setSlug(slugFromName(event.target.value)) }} /></label>
           <label>{t('businessLines.slug')}<TextField value={slug} pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={80} required onChange={(event) => { setSlug(event.target.value); setSlugEdited(true) }} /><small>{t('businessLines.slugHint')}</small></label>
           <label className="business-line-description">{t('businessLines.descriptionField')}<TextField value={description} maxLength={500} onChange={(event) => setDescription(event.target.value)} /></label>
           <Button className="primary" disabled={busy}><BriefcaseBusiness size={16} />{busy ? t('businessLines.creating') : t('businessLines.create')}</Button>
@@ -166,27 +204,13 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
       </section>
     </div>
     {selectedLine && <section className="business-lines-panel business-line-members-panel">
-      <div className="business-line-onboarding">
-        <div className="panel-heading"><span className="card-icon"><ArrowRight size={18} /></span><div><h3>{t('businessLines.setupTitle')}</h3><p>{t('businessLines.setupHint', { name: selectedLine.name })}</p></div></div>
-        {setupLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : setupStatus ? <ol className="business-line-setup-steps">
-          {[{ key: 'team', ready: selectedMemberIds.length > 0 }, ...[
-            { key: 'pipeline', step: 'pipelineStages' as const },
-            { key: 'assistant', step: 'assistant' as const },
-            { key: 'channel', step: 'channels' as const },
-            { key: 'leads', step: 'leads' as const },
-          ].map((item, index) => ({ ...item, ready: setupStatus[index + 1] }))].map((item) => <li key={item.key} className={item.ready ? 'is-ready' : ''}>
-            <span className="business-line-setup-icon">{item.ready ? <Check size={15} /> : <Circle size={13} />}</span><span>{t(`businessLines.setupSteps.${item.key}`)}</span>
-            {'step' in item && <Button type="button" onClick={() => openSetupStep(item.step)}>{t('businessLines.configureStep')}<ArrowRight size={14} /></Button>}
-          </li>)}
-        </ol> : <WorkspaceState kind="error" compact message={t('businessLines.setupStatusUnavailable')} />}
-      </div>
       <div className="business-line-details-form">
         <div className="panel-heading"><span className="card-icon"><BriefcaseBusiness size={18} /></span><div><h3>{t('businessLines.detailsTitle')}</h3><p>{t('businessLines.detailsHint')}</p></div></div>
         <div className="business-line-create-form"><label>{t('businessLines.name')}<TextField value={editName} minLength={2} maxLength={100} required onChange={(event) => setEditName(event.target.value)} /></label><label>{t('businessLines.slug')}<TextField value={editSlug} pattern="[a-z0-9]+(-[a-z0-9]+)*" maxLength={80} required onChange={(event) => setEditSlug(event.target.value)} /></label><label className="business-line-description">{t('businessLines.descriptionField')}<TextField value={editDescription} maxLength={500} onChange={(event) => setEditDescription(event.target.value)} /></label><Button className="primary" type="button" disabled={busy || selectedLine.status === 'archived'} onClick={() => void saveLineDetails()}><Save size={16} />{t('businessLines.saveDetails')}</Button></div>
         <div className="business-line-lifecycle">{selectedLine.status === 'active' ? <Button type="button" disabled={busy || (selectedLine.isDefault && lines.filter((line) => line.status === 'active').length < 2)} onClick={() => void changeStatus('paused')}><Pause size={16} />{t('businessLines.pause')}</Button> : selectedLine.status === 'paused' ? <><Button className="primary" type="button" disabled={busy} onClick={() => void changeStatus('active')}><Play size={16} />{t('businessLines.activate')}</Button><Button className="danger" type="button" disabled={busy || selectedLine.isDefault} onClick={() => void changeStatus('archived')}><Archive size={16} />{t('businessLines.archive')}</Button></> : <span>{t('businessLines.archivedHint')}</span>}</div>
         {feedbackTarget === 'details' && error && <WorkspaceState kind="error" compact message={error} />}{feedbackTarget === 'details' && saved && <p className="business-lines-success" role="status">{t('businessLines.saved')}</p>}
       </div>
-      <div className="panel-heading"><span className="card-icon"><Users size={18} /></span><div><h3>{t('businessLines.membersTitle', { name: selectedLine.name })}</h3><p>{t('businessLines.membersHint')}</p></div><Button className="primary business-line-save" type="button" disabled={busy || membersLoading || membersError} onClick={() => void saveMembers()}><Save size={16} />{busy ? t('businessLines.saving') : t('businessLines.saveMembers')}</Button></div>
+      <div className="panel-heading"><span className="card-icon"><Users size={18} /></span><div><h3 id="business-line-team-heading" tabIndex={-1}>{t('businessLines.membersTitle', { name: selectedLine.name })}</h3><p>{t('businessLines.membersHint')}</p></div><Button className="primary business-line-save" type="button" disabled={busy || membersLoading || membersError} onClick={() => void saveMembers()}><Save size={16} />{busy ? t('businessLines.saving') : t('businessLines.saveMembers')}</Button></div>
       {teamLoadError ? <WorkspaceState kind="error" message={t('businessLines.organizationMembersLoadFailed')} /> : membersLoading ? <WorkspaceState kind="loading" compact message={t('businessLines.membersLoading')} /> : membersError ? <WorkspaceState kind="error" message={t('businessLines.membersLoadFailed')} /> : members.length === 0 ? <WorkspaceState kind="empty" message={t('businessLines.noOrganizationMembers')} /> : <div className="business-line-member-grid">{members.map((member) => <label className="business-line-member" key={member.user.id}><CheckboxField checked={selectedMemberIds.includes(member.user.id)} onChange={() => toggleMember(member.user.id)} /><span><strong>{member.user.name}</strong><small>{member.user.email} · {member.role}</small></span></label>)}</div>}
       {feedbackTarget === 'members' && error && <WorkspaceState kind="error" compact message={error} />}{feedbackTarget === 'members' && saved && <p className="business-lines-success" role="status">{t('businessLines.saved')}</p>}
     </section>}

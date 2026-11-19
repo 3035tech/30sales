@@ -412,6 +412,23 @@ export const channelBusinessHours = pgTable('channel_business_hours', {
   check('channel_business_hours_time_check', sql`${table.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${table.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$' and ${table.startTime} <> ${table.endTime}`),
 ]);
 
+export const channelAssistantScheduleExceptions = pgTable('channel_assistant_schedule_exceptions', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  localDate: date('local_date').notNull(),
+  assistantEnabled: boolean('assistant_enabled').notNull(),
+  startTime: text('start_time'),
+  endTime: text('end_time'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  unique('channel_assistant_schedule_exceptions_org_channel_date_unique').on(table.organizationId, table.channelId, table.localDate),
+  foreignKey({ name: 'channel_assistant_schedule_exceptions_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
+  check('channel_assistant_schedule_exceptions_window_check', sql`(${table.assistantEnabled} and ((${table.startTime} is null and ${table.endTime} is null) or (${table.startTime} is not null and ${table.endTime} is not null and ${table.startTime} < ${table.endTime}))) or (not ${table.assistantEnabled} and ${table.startTime} is null and ${table.endTime} is null)`),
+  check('channel_assistant_schedule_exceptions_time_format_check', sql`(${table.startTime} is null or ${table.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') and (${table.endTime} is null or ${table.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')`),
+]);
+
 export const campaignDrafts = pgTable('campaign_drafts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

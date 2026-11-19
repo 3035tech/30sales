@@ -1,14 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, assistantRuns, auditEvents, businessLineMembers, businessLines, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityConversationContexts, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, assistantRuns, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityConversationContexts, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
 import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { ASSISTANT_DELIVERY_OUTCOMES, ASSISTANT_PRICING_VERSION, ASSISTANT_PROVIDER_DELIVERY_STATES, ASSISTANT_REPLY_IDEMPOTENCY_PREFIX, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_STATUSES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_TRANSCRIPTION_PROVIDER, ASSISTANT_UNKNOWN_DELIVERY_STATE, estimateAssistantTokenCostUsd, type AssistantProviderDeliveryState, type AssistantStopReason } from './assistant-runtime.constants';
 import { CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
-import { isAssistantAllowedAt, isWithinBusinessHours } from '../channels/channel-assistant-schedule';
+import { isAssistantAllowedAt, isWithinBusinessHours, localDateAt } from '../channels/channel-assistant-schedule';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
@@ -96,7 +96,11 @@ export class AssistantRuntimeRepository {
     const businessHours = await database.select({ dayOfWeek: channelBusinessHours.dayOfWeek, startTime: channelBusinessHours.startTime, endTime: channelBusinessHours.endTime }).from(channelBusinessHours)
       .where(and(eq(channelBusinessHours.organizationId, event.organizationId), eq(channelBusinessHours.channelId, event.channelId)));
     const assistantScheduleMode = channelAssistantScheduleModeSchema.parse(context.assistantScheduleMode);
-    if (!isAssistantAllowedAt({ mode: assistantScheduleMode, timeZone: context.timeZone, businessHours })) return null;
+    const eventAt = new Date(event.occurredAt);
+    const eventLocalDate = localDateAt(context.timeZone, eventAt);
+    const [scheduleException] = eventLocalDate ? await database.select({ localDate: channelAssistantScheduleExceptions.localDate, assistantEnabled: channelAssistantScheduleExceptions.assistantEnabled, startTime: channelAssistantScheduleExceptions.startTime, endTime: channelAssistantScheduleExceptions.endTime }).from(channelAssistantScheduleExceptions)
+      .where(and(eq(channelAssistantScheduleExceptions.organizationId, event.organizationId), eq(channelAssistantScheduleExceptions.channelId, event.channelId), eq(channelAssistantScheduleExceptions.localDate, eventLocalDate))).limit(1) : [];
+    if (!isAssistantAllowedAt({ mode: assistantScheduleMode, timeZone: context.timeZone, businessHours, scheduleException: scheduleException ?? null, at: eventAt })) return null;
 
     const [latestInbound] = await database.select({ id: messages.id }).from(messages)
       .where(and(eq(messages.organizationId, event.organizationId), eq(messages.conversationId, event.conversationId), eq(messages.direction, 'inbound')))
@@ -122,7 +126,7 @@ export class AssistantRuntimeRepository {
     const audioTranscript = event.messageType.toLowerCase() === 'audio' ? (await database.select({ transcriptText: messages.transcriptText }).from(messages)
       .where(and(eq(messages.organizationId, event.organizationId), eq(messages.id, event.messageId))).limit(1))[0]?.transcriptText ?? null : null;
     return {
-      event, enabled: agent?.enabled ?? false, model: agent?.model ?? 'claude-haiku-5-5', transcribeAudio: agent?.transcribeAudio ?? false, systemPrompt: agent?.systemPrompt ?? '', operationMode, assistantScheduleMode, businessHours, timeZone: context.timeZone, automationMode: context.automationMode, ownerUserId: context.ownerUserId,
+      event, enabled: agent?.enabled ?? false, model: agent?.model ?? 'claude-haiku-5-5', transcribeAudio: agent?.transcribeAudio ?? false, systemPrompt: agent?.systemPrompt ?? '', operationMode, assistantScheduleMode, businessHours, hasScheduleException: scheduleException !== undefined, timeZone: context.timeZone, automationMode: context.automationMode, ownerUserId: context.ownerUserId,
       recipientPhone: (context.personPhone ?? '').replace(/\D/g, ''), messages: recentMessages,
       audioAttachment: audioAttachment ?? null,
       audioTranscript,
@@ -167,7 +171,11 @@ export class AssistantRuntimeRepository {
       if ((quota?.used ?? 0) >= channel.dailyMessageLimit) return { skipped: true };
       const businessHours = await transaction.select({ dayOfWeek: channelBusinessHours.dayOfWeek, startTime: channelBusinessHours.startTime, endTime: channelBusinessHours.endTime }).from(channelBusinessHours)
         .where(and(eq(channelBusinessHours.organizationId, conversation.organizationId), eq(channelBusinessHours.channelId, channel.id)));
-      if (channel.operationMode === 'outbound' || !isAssistantAllowedAt({ mode: channelAssistantScheduleModeSchema.parse(channel.assistantScheduleMode), timeZone: channel.dailyLimitTimeZone, businessHours })) return { skipped: true };
+      const sendAt = new Date();
+      const sendLocalDate = localDateAt(channel.dailyLimitTimeZone, sendAt);
+      const [scheduleException] = sendLocalDate ? await transaction.select({ localDate: channelAssistantScheduleExceptions.localDate, assistantEnabled: channelAssistantScheduleExceptions.assistantEnabled, startTime: channelAssistantScheduleExceptions.startTime, endTime: channelAssistantScheduleExceptions.endTime }).from(channelAssistantScheduleExceptions)
+        .where(and(eq(channelAssistantScheduleExceptions.organizationId, conversation.organizationId), eq(channelAssistantScheduleExceptions.channelId, channel.id), eq(channelAssistantScheduleExceptions.localDate, sendLocalDate))).limit(1) : [];
+      if (channel.operationMode === 'outbound' || !isAssistantAllowedAt({ mode: channelAssistantScheduleModeSchema.parse(channel.assistantScheduleMode), timeZone: channel.dailyLimitTimeZone, businessHours, scheduleException: scheduleException ?? null, at: sendAt })) return { skipped: true };
 
       const delivery = await input.send({ channelId: channel.id, provider: channelProviderSchema.parse(channel.provider), providerChannelId: channel.providerChannelId, recipientPhone, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag } });
       const occurredAt = new Date();

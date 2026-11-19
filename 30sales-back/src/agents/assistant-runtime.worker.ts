@@ -11,7 +11,7 @@ import { ASSISTANT_RUN_OPERATIONS, ASSISTANT_TRANSCRIPTION_MODEL, estimateAssist
 import { isWithinBusinessHours } from '../channels/channel-assistant-schedule';
 
 const AFTER_HOURS_ASSISTANT_GUIDANCE = [
-  'The configured service schedule is currently closed.',
+  'The regular service schedule is closed or a date-specific availability exception is active.',
   'Continue answering from the organization instructions when you can do so confidently.',
   'If a person needs to follow up or the customer asks for a person, say the team will respond during the next service period.',
   'Do not claim a teammate is available now or promise an exact response time unless the organization instructions explicitly provide one.',
@@ -113,7 +113,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         await this.repository.escalateUnsupportedMessage(queueEvent, context.event);
         return;
       }
-      const afterHours = !isWithinBusinessHours({ timeZone: context.timeZone, businessHours: context.businessHours });
+      const afterHours = context.hasScheduleException || !isWithinBusinessHours({ timeZone: context.timeZone, businessHours: context.businessHours });
       const systemPrompt = afterHours ? `${context.systemPrompt}\n\n${AFTER_HOURS_ASSISTANT_GUIDANCE}` : context.systemPrompt;
       assistantRunId = await this.repository.startAssistantRun({
         organizationId: context.event.organizationId,

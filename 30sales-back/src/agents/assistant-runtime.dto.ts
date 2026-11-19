@@ -41,6 +41,7 @@ export type AssistantRuntimeContextDto = {
   operationMode: import('../channels/channels.dto').ChannelOperationMode;
   assistantScheduleMode: import('../channels/channels.dto').ChannelAssistantScheduleMode;
   businessHours: import('../channels/channels.dto').ChannelBusinessHourDto[];
+  hasScheduleException: boolean;
   timeZone: string;
   automationMode: string;
   ownerUserId: string | null;

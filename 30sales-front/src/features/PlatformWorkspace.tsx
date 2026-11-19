@@ -143,7 +143,9 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const checkEvolutionConfiguration = async () => {
     setEvolutionChecking(true); setEvolutionCheckResult(null); setEvolutionCheckError(null)
     try {
-      const result = await api.platform.checkEvolutionConfiguration()
+      const result = await api.platform.checkEvolutionConfiguration(evolutionApiKey.trim()
+        ? { baseUrl: evolutionBaseUrl.trim(), apiKey: evolutionApiKey.trim() }
+        : {})
       setEvolutionCheckResult({ instanceCount: result.instanceCount, checkedAt: result.checkedAt })
     } catch (caught) {
       if (caught instanceof ApiError && ['CHANNEL_CREDENTIALS_KEY_MISSING', 'CHANNEL_CREDENTIALS_KEY_INVALID'].includes(caught.code)) setEvolutionCheckError('encryption')
@@ -155,7 +157,9 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
     } finally { setEvolutionChecking(false) }
   }
 
-  const evolutionCanCheck = Boolean(evolutionConfiguration?.configured && evolutionBaseUrl.trim() === evolutionConfiguration.baseUrl && evolutionApiKey.length === 0)
+  const hasEvolutionCredentialsToTest = Boolean(evolutionBaseUrl.trim() && evolutionApiKey.trim())
+  const canCheckSavedEvolution = Boolean(evolutionConfiguration?.configured && evolutionBaseUrl.trim() === evolutionConfiguration.baseUrl && !evolutionApiKey.trim())
+  const evolutionCanCheck = hasEvolutionCredentialsToTest || canCheckSavedEvolution
 
   return <main className="platform-shell">
     <header className="platform-topbar"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /><div className="platform-user"><PlatformOrganizationPicker activeOrganizationId={activeOrganizationId} activeOrganizationName={activeOrganizationName} platformOrganizationContext={platformOrganizationContext} disabled={false} onSelectOrganization={onSelectOrganization} /><span className="avatar">{user.name.slice(0, 1)}</span><span><strong>{user.name}</strong><small>{user.email}</small></span><Button type="button" className="platform-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={16} />{t('platform.signOut')}</Button></div></header>
@@ -176,7 +180,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
             <label>{t('platform.evolutionKey')}<TextField type="password" value={evolutionApiKey} onChange={(event) => { setEvolutionApiKey(event.target.value); setEvolutionCheckResult(null); setEvolutionCheckError(null) }} autoComplete="new-password" maxLength={500} required hint={t('platform.evolutionKeyHint')} disabled={!evolutionConfiguration || evolutionSaving} /></label>
             <Button className="primary" disabled={!evolutionConfiguration || evolutionSaving}>{evolutionSaving ? t('common.saving') : t('platform.evolutionSave')}</Button>
           </form>
-          <div className="platform-evolution-check-row"><div><Button type="button" disabled={!evolutionCanCheck || evolutionChecking || evolutionSaving} onClick={() => void checkEvolutionConfiguration()}>{evolutionChecking ? t('platform.evolutionChecking') : t('platform.evolutionCheck')}</Button><small>{t('platform.evolutionCheckHint')}</small></div>{evolutionCheckResult && <p className="platform-evolution-success" role="status">{t('platform.evolutionCheckSuccess', { count: evolutionCheckResult.instanceCount, date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evolutionCheckResult.checkedAt)) })}</p>}</div>
+          <div className="platform-evolution-check-row"><div><Button type="button" disabled={!evolutionCanCheck || evolutionChecking || evolutionSaving} onClick={() => void checkEvolutionConfiguration()}>{evolutionChecking ? t('platform.evolutionChecking') : t(hasEvolutionCredentialsToTest ? 'platform.evolutionTestEntered' : 'platform.evolutionCheck')}</Button><small>{t('platform.evolutionCheckHint')}</small></div>{evolutionCheckResult && <p className="platform-evolution-success" role="status">{t('platform.evolutionCheckSuccess', { count: evolutionCheckResult.instanceCount, date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(evolutionCheckResult.checkedAt)) })}</p>}</div>
           {evolutionCheckError && <WorkspaceState kind="error" compact message={t(evolutionCheckError === 'encryption' ? 'platform.evolutionEncryptionUnavailable' : evolutionCheckError === 'configuration' ? 'platform.evolutionCheckConfigurationFailed' : evolutionCheckError === 'credentials' ? 'platform.evolutionCheckCredentialsRejected' : evolutionCheckError === 'endpoint' ? 'platform.evolutionCheckEndpointNotFound' : evolutionCheckError === 'target' ? 'platform.evolutionCheckTargetBlocked' : 'platform.evolutionCheckFailed')} />}
           {evolutionError && <><WorkspaceState kind="error" compact message={t(evolutionError === 'load' ? 'platform.evolutionLoadFailed' : evolutionError === 'encryption' ? 'platform.evolutionEncryptionUnavailable' : 'platform.evolutionSaveFailed')} />{evolutionError === 'load' && <Button type="button" onClick={() => setEvolutionConfigRefresh((version) => version + 1)}>{t('platform.retry')}</Button>}</>}
           {evolutionSaved && <p className="platform-evolution-success" role="status">{t('platform.evolutionSaved')}</p>}

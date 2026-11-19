@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from 'drizzle-orm';
+import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { PgDialect } from 'drizzle-orm/pg-core';
@@ -6,6 +6,7 @@ import { databaseConnectionString } from './connection-string';
 import { createDatabasePool } from './connection-pool';
 import * as authTables from './auth-schema';
 import { businessLineMembers, businessLines, leads, messagingChannels, pipelines } from './schema';
+import { selectBusinessLineBackfillCreator } from './business-line-backfill-creator';
 
 async function backfillDefaultBusinessLines(pool: ReturnType<typeof createDatabasePool>): Promise<void> {
   const database = drizzle(pool, { schema: { ...authTables, businessLineMembers, businessLines, leads, messagingChannels, pipelines } });
@@ -18,15 +19,22 @@ async function backfillDefaultBusinessLines(pool: ReturnType<typeof createDataba
 
   for (const organizationId of legacyOrganizations) {
     await database.transaction(async (transaction) => {
-      const [creator] = await transaction.select({ userId: authTables.member.userId }).from(authTables.member)
+      const members = await transaction.select({ userId: authTables.member.userId }).from(authTables.member)
         .where(eq(authTables.member.organizationId, organizationId)).orderBy(asc(authTables.member.createdAt), asc(authTables.member.id)).limit(1);
-      if (!creator) throw new Error(`A default business line requires a member in organization ${organizationId}.`);
+      const activeInvitations = await transaction.select({ inviterId: authTables.invitation.inviterId }).from(authTables.invitation)
+        .where(and(eq(authTables.invitation.organizationId, organizationId), eq(authTables.invitation.status, 'pending'), gt(authTables.invitation.expiresAt, new Date())))
+        .orderBy(asc(authTables.invitation.createdAt), asc(authTables.invitation.id)).limit(1);
+      const creatorUserId = selectBusinessLineBackfillCreator(members, activeInvitations);
+      if (!creatorUserId) {
+        process.stderr.write(`Skipping default business line backfill for organization ${organizationId}: no member or active invitation is available.\n`);
+        return;
+      }
 
       let [defaultLine] = await transaction.select({ id: businessLines.id }).from(businessLines)
         .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.isDefault, true))).limit(1);
       if (!defaultLine) {
         const slug = `operacao-geral-${organizationId.replaceAll('-', '').slice(0, 8)}`;
-        await transaction.insert(businessLines).values({ organizationId, name: 'Operação geral', slug, isDefault: true, createdByUserId: creator.userId });
+        await transaction.insert(businessLines).values({ organizationId, name: 'Operação geral', slug, isDefault: true, createdByUserId: creatorUserId });
         ;[defaultLine] = await transaction.select({ id: businessLines.id }).from(businessLines)
           .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.isDefault, true))).limit(1);
       }
@@ -39,7 +47,7 @@ async function backfillDefaultBusinessLines(pool: ReturnType<typeof createDataba
           organizationId,
           businessLineId: defaultLine.id,
           memberId: member.id,
-          createdByUserId: creator.userId,
+          createdByUserId: creatorUserId,
         }))).onConflictDoNothing();
       }
 

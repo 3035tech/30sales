@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, assistantRuns, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityConversationContexts, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, assistantProfiles, assistantRuns, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, closerEventSlaPolicies, closerEvents, conversations, handoffHistory, handoffs, leadContacts, leadStatusHistory, leads, messageAttachments, messages, messagingChannels, opportunities, opportunityConversationContexts, opportunityStageHistory, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { ProviderSendResult } from '../inbox/whatsapp-text-provider.service';
 import { assistantInboundEventSchema, type AssistantAgentResponseDto, type AssistantInboundEventDto, type AssistantQueueEventDto, type AssistantRuntimeContextDto } from './assistant-runtime.dto';
@@ -80,19 +80,21 @@ export class AssistantRuntimeRepository {
     const event = payload.data;
     const [context] = await database.select({
       conversationId: conversations.id, channelId: conversations.channelId, automationMode: conversations.automationMode, ownerUserId: conversations.ownerUserId,
-      provider: conversations.provider, businessLineId: messagingChannels.businessLineId, channelActive: messagingChannels.isActive, operationMode: messagingChannels.operationMode, assistantScheduleMode: messagingChannels.assistantScheduleMode, timeZone: messagingChannels.dailyLimitTimeZone, personPhone: people.phone,
+      provider: conversations.provider, businessLineId: messagingChannels.businessLineId, channelActive: messagingChannels.isActive, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, assistantScheduleMode: messagingChannels.assistantScheduleMode, timeZone: messagingChannels.dailyLimitTimeZone, personPhone: people.phone,
     }).from(conversations)
       .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .innerJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .where(and(eq(conversations.id, event.conversationId), eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, event.channelId))).limit(1);
     if (!context || context.provider !== event.provider || !context.channelActive) return null;
-    const [lineAgent] = context.businessLineId ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
-      .where(and(eq(agentSettings.organizationId, event.organizationId), eq(agentSettings.businessLineId, context.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
-    const [globalAgent] = lineAgent ? [] : await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
-      .where(and(eq(agentSettings.organizationId, event.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-    const agent = lineAgent ?? globalAgent;
     const operationMode = channelOperationModeSchema.parse(context.operationMode);
-    if (operationMode === 'outbound') return null;
+    const selectedProfileId = operationMode === 'outbound' ? context.outboundAssistantProfileId : context.inboundAssistantProfileId;
+    const [profileAgent] = selectedProfileId ? await database.select({ enabled: assistantProfiles.enabled, model: assistantProfiles.model, transcribeAudio: assistantProfiles.transcribeAudio, systemPrompt: assistantProfiles.systemPrompt, updatedByUserId: assistantProfiles.updatedByUserId }).from(assistantProfiles)
+      .where(and(eq(assistantProfiles.id, selectedProfileId), eq(assistantProfiles.organizationId, event.organizationId), eq(assistantProfiles.businessLineId, context.businessLineId ?? ''))).limit(1) : [];
+    const [lineAgent] = !selectedProfileId && operationMode !== 'outbound' && context.businessLineId ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, event.organizationId), eq(agentSettings.businessLineId, context.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+    const [globalAgent] = selectedProfileId || lineAgent || operationMode === 'outbound' ? [] : await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, event.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+    const agent = profileAgent ?? lineAgent ?? globalAgent;
     const businessHours = await database.select({ dayOfWeek: channelBusinessHours.dayOfWeek, startTime: channelBusinessHours.startTime, endTime: channelBusinessHours.endTime }).from(channelBusinessHours)
       .where(and(eq(channelBusinessHours.organizationId, event.organizationId), eq(channelBusinessHours.channelId, event.channelId)));
     const assistantScheduleMode = channelAssistantScheduleModeSchema.parse(context.assistantScheduleMode);
@@ -153,14 +155,18 @@ export class AssistantRuntimeRepository {
         .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(1);
       if (latestInbound?.id !== input.context.event.messageId) return { skipped: true };
 
-      const [channel] = await transaction.select({ id: messagingChannels.id, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status, operationMode: messagingChannels.operationMode, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, assistantScheduleMode: messagingChannels.assistantScheduleMode, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      const [channel] = await transaction.select({ id: messagingChannels.id, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, assistantScheduleMode: messagingChannels.assistantScheduleMode, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
         .from(messagingChannels).leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId))).where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, conversation.organizationId))).for('update').limit(1);
       if (!channel?.isActive || (channel.businessLineId && channel.lineStatus !== 'active') || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || channel.provider !== input.context.event.provider) return { skipped: true };
-      const [lineAgent] = channel.businessLineId ? await transaction.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
+      const outboundMode = channelOperationModeSchema.parse(channel.operationMode) === 'outbound';
+      const selectedProfileId = outboundMode ? channel.outboundAssistantProfileId : channel.inboundAssistantProfileId;
+      const [profileAgent] = selectedProfileId ? await transaction.select({ enabled: assistantProfiles.enabled, model: assistantProfiles.model, transcribeAudio: assistantProfiles.transcribeAudio, systemPrompt: assistantProfiles.systemPrompt, updatedByUserId: assistantProfiles.updatedByUserId }).from(assistantProfiles)
+        .where(and(eq(assistantProfiles.id, selectedProfileId), eq(assistantProfiles.organizationId, conversation.organizationId), eq(assistantProfiles.businessLineId, channel.businessLineId ?? ''))).limit(1) : [];
+      const [lineAgent] = !selectedProfileId && !outboundMode && channel.businessLineId ? await transaction.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
         .where(and(eq(agentSettings.organizationId, conversation.organizationId), eq(agentSettings.businessLineId, channel.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
-      const [globalAgent] = lineAgent ? [] : await transaction.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
+      const [globalAgent] = selectedProfileId || lineAgent || outboundMode ? [] : await transaction.select({ enabled: agentSettings.enabled, model: agentSettings.model, transcribeAudio: agentSettings.transcribeAudio, systemPrompt: agentSettings.systemPrompt, updatedByUserId: agentSettings.updatedByUserId }).from(agentSettings)
         .where(and(eq(agentSettings.organizationId, conversation.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-      const agent = lineAgent ?? globalAgent;
+      const agent = profileAgent ?? lineAgent ?? globalAgent;
       if (!agent?.enabled || agent.model !== input.context.model || agent.systemPrompt !== input.context.systemPrompt) return { skipped: true };
       const [person] = await transaction.select({ phone: people.phone }).from(people).where(and(eq(people.id, conversation.personId), eq(people.organizationId, conversation.organizationId))).limit(1);
       const recipientPhone = (person?.phone ?? '').replace(/\D/g, '');

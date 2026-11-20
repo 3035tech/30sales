@@ -11,6 +11,7 @@ import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateCon
 import { InboxService } from './inbox.service';
 import { OUTBOUND_MEDIA_LIMIT_BYTES } from './outbound-media.constants';
 import type { IncomingMediaFile } from './outbound-media';
+import { PLATFORM_ORGANIZATION_CONTEXT_HEADER } from '../auth/authorization.constants';
 
 const conversationIdSchema = z.string().uuid();
 const listMessagesSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
@@ -20,7 +21,10 @@ export class InboxController {
   constructor(private readonly inboxService: InboxService) {}
   @Get()
   list(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listConversationsSchema)) query: ListConversationsQueryDto) { return this.inboxService.list(request, query); }
-  @Sse('events') events(@ApiRequest() request: ApiRequestDto): Promise<Observable<MessageEvent>> { return this.inboxService.events(request); }
+  @Sse('events') events(@ApiRequest() request: ApiRequestDto, @Query('platformOrganizationId', new ZodValidationPipe(z.string().uuid().optional())) platformOrganizationId?: string): Promise<Observable<MessageEvent>> {
+    const scopedRequest = platformOrganizationId ? new ApiRequestDto({ ...request.headers, [PLATFORM_ORGANIZATION_CONTEXT_HEADER]: platformOrganizationId }) : request;
+    return this.inboxService.events(scopedRequest);
+  }
   @Get('channels')
   channels(@ApiRequest() request: ApiRequestDto) { return this.inboxService.channels(request); }
   @Get('assignees')

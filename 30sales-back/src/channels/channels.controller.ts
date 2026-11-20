@@ -18,6 +18,9 @@ export class ChannelsController {
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createChannelSchema)) input: CreateChannelDto) { return this.channelsService.create(request, input); }
   @Patch(':id')
   update(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(updateChannelSchema)) input: UpdateChannelDto) { return this.channelsService.update(request, channelId, input); }
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  delete(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.delete(request, channelId); }
   @Put(':id/schedule-exceptions')
   saveScheduleException(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(channelScheduleExceptionSchema)) input: ChannelScheduleExceptionInputDto) { return this.channelsService.saveScheduleException(request, channelId, input); }
   @Delete(':id/schedule-exceptions/:exceptionId')

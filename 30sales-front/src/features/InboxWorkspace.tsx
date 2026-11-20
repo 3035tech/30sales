@@ -157,11 +157,20 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     }
   }, [selectedId, t])
   useEffect(() => {
-    const stream = api.inbox.subscribe()
+    let active = true
+    let stream: EventSource | null = null
+    let fallbackRefresh: number | null = null
     const refreshOnConnect = () => {
       if (document.visibilityState !== 'visible') return
       void refreshRef.current(true)
       refreshMessagesRef.current()
+    }
+    const startFallbackRefresh = () => {
+      if (fallbackRefresh === null) fallbackRefresh = window.setInterval(refreshOnConnect, 30000)
+    }
+    const stopFallbackRefresh = () => {
+      if (fallbackRefresh !== null) window.clearInterval(fallbackRefresh)
+      fallbackRefresh = null
     }
     const refreshOnConversationUpdate = (event: Event) => {
       if (document.visibilityState !== 'visible') return
@@ -176,11 +185,24 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     const refreshOnReturn = () => {
       if (document.visibilityState === 'visible') refreshOnConnect()
     }
-    stream.addEventListener('ready', refreshOnConnect)
-    stream.addEventListener('conversation.updated', refreshOnConversationUpdate)
     document.addEventListener('visibilitychange', refreshOnReturn)
+    void api.inbox.subscribe().then((connection) => {
+      if (!active) {
+        connection.close()
+        return
+      }
+      stream = connection
+      stream.addEventListener('ready', () => {
+        stopFallbackRefresh()
+        refreshOnConnect()
+      })
+      stream.addEventListener('conversation.updated', refreshOnConversationUpdate)
+      stream.addEventListener('error', startFallbackRefresh)
+    }).catch(startFallbackRefresh)
     return () => {
-      stream.close()
+      active = false
+      stream?.close()
+      stopFallbackRefresh()
       document.removeEventListener('visibilitychange', refreshOnReturn)
     }
   }, [])

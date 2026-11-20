@@ -48,6 +48,10 @@ export type WebhookChannelDto = {
   organizationId: string;
   provider: string;
   providerChannelId: string;
+  businessLineId: string | null;
+  operationMode: string;
+  inboundAssistantProfileId: string | null;
+  outboundAssistantProfileId: string | null;
   isActive: boolean;
   credentialsCiphertext: string | null;
   credentialsIv: string | null;

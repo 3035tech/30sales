@@ -5,7 +5,7 @@ import { type ConversationDto, channelSchema, conversationPageSchema, conversati
 
 
 export const inboxApi = {
-    subscribe: () => apiEventSource('/api/v1/conversations/events'),
+    subscribe: async () => apiEventSource('/api/v1/conversations/events'),
     conversations: (params: { conversationId?: string; businessLineId?: string; status?: ConversationDto['status']; channelId?: string; tagId?: string; ownerUserId?: string; search?: string; unreadOnly?: boolean; limit?: number; offset?: number } = {}) => {
       const search = new URLSearchParams();
       if (params.conversationId) search.set('conversationId', params.conversationId);

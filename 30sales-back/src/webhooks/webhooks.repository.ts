@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionContactUpdateDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
@@ -13,20 +13,20 @@ import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants
 @Injectable()
 export class WebhooksRepository {
   async findEvolutionChannel(channelId: string): Promise<WebhookChannelDto | null> {
-    const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
-      .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.provider, 'evolution'))).limit(1);
+    const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, businessLineId: messagingChannels.businessLineId, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.provider, 'evolution'), isNull(messagingChannels.deletedAt))).limit(1);
     return row ?? null;
   }
 
   async findCloudChannel(phoneNumberId: string): Promise<WebhookChannelDto | null> {
-    const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
-      .from(messagingChannels).where(and(eq(messagingChannels.providerChannelId, phoneNumberId), eq(messagingChannels.provider, 'whatsapp_cloud_api'))).limit(2);
+    const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, businessLineId: messagingChannels.businessLineId, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.providerChannelId, phoneNumberId), eq(messagingChannels.provider, 'whatsapp_cloud_api'), isNull(messagingChannels.deletedAt))).limit(2);
     return rows.length === 1 ? rows[0] : null;
   }
 
   async findCloudAccountChannel(accountId: string): Promise<WebhookChannelDto | null> {
-    const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
-      .from(messagingChannels).where(and(eq(messagingChannels.providerAccountId, accountId), eq(messagingChannels.provider, 'whatsapp_cloud_api'))).limit(2);
+    const rows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, businessLineId: messagingChannels.businessLineId, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.providerAccountId, accountId), eq(messagingChannels.provider, 'whatsapp_cloud_api'), isNull(messagingChannels.deletedAt))).limit(2);
     return rows.length === 1 ? rows[0] : null;
   }
 
@@ -71,8 +71,8 @@ export class WebhooksRepository {
   }
 
   async findChannel(channelId: string): Promise<WebhookChannelDto | null> {
-    const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
-      .from(messagingChannels).where(eq(messagingChannels.id, channelId)).limit(1);
+    const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, businessLineId: messagingChannels.businessLineId, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), isNull(messagingChannels.deletedAt))).limit(1);
     return row ?? null;
   }
 
@@ -129,7 +129,7 @@ export class WebhooksRepository {
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
-      const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode, businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
+      const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode, businessLineId: messagingChannels.businessLineId, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId }).from(messagingChannels)
         .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
       if (!channel) throw new Error('Inbound message channel is unavailable in the active organization.');
 
@@ -171,10 +171,14 @@ export class WebhooksRepository {
       let opportunityId = conversation?.opportunityId ?? lead?.opportunityId ?? null;
       let notificationRecipientUserId = conversation?.ownerUserId ?? lead?.assignedToUserId ?? null;
       if (!conversationId) {
-        const [lineAgent] = channel.businessLineId ? await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.businessLineId, channel.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
-        const [globalAgent] = lineAgent ? [] : await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
-        const agent = lineAgent ?? globalAgent;
-        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: channel.operationMode === 'outbound' || !agent?.enabled ? 'paused' : 'assistant', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
+        const outboundMode = channel.operationMode === 'outbound';
+        const selectedProfileId = outboundMode ? channel.outboundAssistantProfileId : channel.inboundAssistantProfileId;
+        const [profile] = selectedProfileId ? await transaction.select({ enabled: assistantProfiles.enabled }).from(assistantProfiles)
+          .where(and(eq(assistantProfiles.id, selectedProfileId), eq(assistantProfiles.organizationId, input.organizationId), eq(assistantProfiles.businessLineId, channel.businessLineId ?? ''))).limit(1) : [];
+        const [lineAgent] = !selectedProfileId && !outboundMode && channel.businessLineId ? await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.businessLineId, channel.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+        const [globalAgent] = selectedProfileId || lineAgent || outboundMode ? [] : await transaction.select({ enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1);
+        const automated = selectedProfileId ? profile?.enabled === true : (lineAgent ?? globalAgent)?.enabled === true;
+        const [createdConversation] = await transaction.insert(conversations).values({ organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId, channelId: input.channelId, accountId: lead?.accountId ?? null, personId: person.id, opportunityId: lead?.opportunityId ?? null, status: 'open', ownerUserId: null, automationMode: automated ? 'assistant' : 'paused', lastMessageAt: input.occurredAt }).returning({ id: conversations.id, ownerUserId: conversations.ownerUserId });
         conversationId = createdConversation.id;
         notificationRecipientUserId = createdConversation.ownerUserId ?? lead?.assignedToUserId ?? null;
         opportunityId = lead?.opportunityId ?? null;

@@ -1,11 +1,54 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, auditEvents, businessLines } from '../db/schema';
-import { AssistantSettingsDto, AssistantSettingsRepositoryDto } from './agents.dto';
+import { agentSettings, assistantProfiles, auditEvents, businessLines, messagingChannels } from '../db/schema';
+import { AssistantProfileDto, assistantProfileDirectionSchema, AssistantProfileRepositoryDto, AssistantSettingsDto, AssistantSettingsRepositoryDto } from './agents.dto';
 
 @Injectable()
 export class AgentsRepository {
+  async listAssistantProfiles(organizationId: string, businessLineId: string): Promise<AssistantProfileDto[] | null> {
+    const [line] = await database.select({ id: businessLines.id }).from(businessLines)
+      .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.id, businessLineId), eq(businessLines.status, 'active'))).limit(1);
+    if (!line) return null;
+    const rows = await database.select().from(assistantProfiles)
+      .where(and(eq(assistantProfiles.organizationId, organizationId), eq(assistantProfiles.businessLineId, businessLineId)))
+      .orderBy(assistantProfiles.direction, assistantProfiles.name, assistantProfiles.id);
+    return rows.map((row) => new AssistantProfileDto(row.id, row.businessLineId, assistantProfileDirectionSchema.parse(row.direction), row.name, row.enabled, row.model, row.transcribeAudio, row.systemPrompt, row.updatedAt.toISOString()));
+  }
+
+  async saveAssistantProfile(input: AssistantProfileRepositoryDto): Promise<AssistantProfileDto | null | 'not_found'> {
+    return database.transaction(async (transaction) => {
+      const [line] = await transaction.select({ id: businessLines.id }).from(businessLines)
+        .where(and(eq(businessLines.organizationId, input.organizationId), eq(businessLines.id, input.input.businessLineId), eq(businessLines.status, 'active'))).for('update').limit(1);
+      if (!line) return null;
+      const updatedAt = new Date();
+      let row: typeof assistantProfiles.$inferSelect | undefined;
+      if (input.profileId) {
+        [row] = await transaction.update(assistantProfiles).set({ name: input.input.name, direction: input.input.direction, enabled: input.input.enabled, model: input.input.model, transcribeAudio: input.input.transcribeAudio, systemPrompt: input.input.systemPrompt, updatedByUserId: input.userId, updatedAt })
+          .where(and(eq(assistantProfiles.id, input.profileId), eq(assistantProfiles.organizationId, input.organizationId), eq(assistantProfiles.businessLineId, input.input.businessLineId))).returning();
+        if (!row) return 'not_found';
+      } else {
+        [row] = await transaction.insert(assistantProfiles).values({ organizationId: input.organizationId, businessLineId: input.input.businessLineId, direction: input.input.direction, name: input.input.name, enabled: input.input.enabled, model: input.input.model, transcribeAudio: input.input.transcribeAudio, systemPrompt: input.input.systemPrompt, updatedByUserId: input.userId, updatedAt }).returning();
+      }
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: input.profileId ? 'assistant.profile_updated' : 'assistant.profile_created', entityType: 'assistant_profile', entityId: row.id, correlationId: input.correlationId, afterState: { businessLineId: row.businessLineId, direction: row.direction, name: row.name, enabled: row.enabled, model: row.model, transcribeAudio: row.transcribeAudio, systemPromptLength: row.systemPrompt.length } });
+      return new AssistantProfileDto(row.id, row.businessLineId, assistantProfileDirectionSchema.parse(row.direction), row.name, row.enabled, row.model, row.transcribeAudio, row.systemPrompt, row.updatedAt.toISOString());
+    });
+  }
+
+  async deleteAssistantProfile(organizationId: string, profileId: string, userId: string, correlationId: string | null): Promise<boolean | 'assigned'> {
+    return database.transaction(async (transaction) => {
+      const [profile] = await transaction.select().from(assistantProfiles)
+        .where(and(eq(assistantProfiles.id, profileId), eq(assistantProfiles.organizationId, organizationId))).for('update').limit(1);
+      if (!profile) return false;
+      const [assignment] = await transaction.select({ id: messagingChannels.id }).from(messagingChannels)
+        .where(and(eq(messagingChannels.organizationId, organizationId), or(eq(messagingChannels.inboundAssistantProfileId, profileId), eq(messagingChannels.outboundAssistantProfileId, profileId)))).limit(1);
+      if (assignment) return 'assigned';
+      await transaction.delete(assistantProfiles).where(and(eq(assistantProfiles.id, profileId), eq(assistantProfiles.organizationId, organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'assistant.profile_deleted', entityType: 'assistant_profile', entityId: profileId, correlationId, beforeState: { businessLineId: profile.businessLineId, direction: profile.direction, name: profile.name, enabled: profile.enabled, model: profile.model } });
+      return true;
+    });
+  }
+
   async resetBusinessLineAssistantSettings(organizationId: string, businessLineId: string, userId: string, correlationId: string | null): Promise<boolean> {
     return database.transaction(async (transaction) => {
       const [line] = await transaction.select({ id: businessLines.id }).from(businessLines).where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.id, businessLineId), eq(businessLines.status, 'active'))).for('update').limit(1);

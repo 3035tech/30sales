@@ -38,5 +38,8 @@ export async function apiAuthFetch(input: RequestInfo | URL, init: RequestInit =
 }
 
 export function apiEventSource(path: string): EventSource {
-  return new EventSource(`${API_BASE_URL}${path}`, { withCredentials: true });
+  const url = new URL(`${API_BASE_URL}${path}`, window.location.origin)
+  const platformOrganizationId = sessionStorage.getItem(PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY)
+  if (platformOrganizationId) url.searchParams.set('platformOrganizationId', platformOrganizationId)
+  return new EventSource(url.toString(), { withCredentials: true });
 }

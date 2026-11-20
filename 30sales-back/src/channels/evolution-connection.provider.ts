@@ -58,6 +58,27 @@ export class EvolutionConnectionProvider {
     return this.toResult(result.payload);
   }
 
+  async delete(instanceName: string, credentials: Pick<Extract<ChannelCredentialsDto, { provider: 'evolution' }>, 'baseUrl' | 'apiKey'>): Promise<void> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,199}$/.test(instanceName)) {
+      throw new BadRequestException({ code: 'EVOLUTION_INSTANCE_NAME_INVALID', message: 'The instance name is invalid.' });
+    }
+    try { await assertPublicEvolutionTarget(credentials.baseUrl); }
+    catch (error) {
+      throw new ServiceUnavailableException({ code: 'EVOLUTION_DELETE_UNAVAILABLE', message: error instanceof UnsafeExternalTargetError ? 'The Evolution API host is not available for instance removal.' : 'The Evolution API could not be reached.' });
+    }
+    let response: Response;
+    try {
+      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/delete/${encodeURIComponent(instanceName)}`, {
+        method: 'DELETE', headers: { accept: 'application/json', apikey: credentials.apiKey },
+        signal: AbortSignal.timeout(CONNECTION_LIMITS.timeoutMs), redirect: 'error',
+      });
+    } catch {
+      throw new ServiceUnavailableException({ code: 'EVOLUTION_DELETE_UNAVAILABLE', message: 'The Evolution API could not confirm removal of the instance.' });
+    }
+    if (response.status === 404) return;
+    if (!response.ok) throw new ServiceUnavailableException({ code: 'EVOLUTION_DELETE_REJECTED', message: 'The Evolution API rejected instance removal. The channel remains registered in 30Sales.' });
+  }
+
   private toResult(payload: unknown): EvolutionConnectionResultDto {
     const root = this.asRecord(payload);
     if (root.error === true || this.string(root.status)?.toLowerCase() === 'error') {

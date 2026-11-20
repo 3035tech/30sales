@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
@@ -7,7 +8,7 @@ import { ChannelCredentialCryptoService } from './channel-credential-crypto.serv
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
 import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
-import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, EvolutionInstanceListDto, EvolutionWebhookConfigurationDto } from './channels.dto';
+import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, EvolutionInstanceListDto, EvolutionWebhookConfigurationDto, ChannelRepositoryDeleteDto } from './channels.dto';
 import { CHANNEL_CONNECTION_STATUS, CHANNEL_PROVIDER } from './channels.constants';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 import { EvolutionConnectionProvider, EvolutionConnectionResultDto } from './evolution-connection.provider';
@@ -42,7 +43,29 @@ export class ChannelsService {
     const result = await this.repository.update(new ChannelRepositoryUpdateDto(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input, request.correlationId));
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (result === 'schedule_required') throw new BadRequestException({ code: 'CHANNEL_SCHEDULE_REQUIRED', message: 'Configure at least one business-hours window before enabling scheduled assistant replies.' });
+    if (result === 'profile_mismatch') throw new BadRequestException({ code: 'ASSISTANT_PROFILE_CHANNEL_MISMATCH', message: 'Assistant profiles must match the channel business line and direction.' });
     return result;
+  }
+  async delete(request: ApiRequestDto, channelId: string): Promise<{ deleted: true; historyPreserved: true }> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
+    if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can currently be removed from the provider through this action.' });
+    const configuration = await this.repository.platformEvolutionCredentials();
+    if (!configuration) throw new ConflictException({ code: 'PLATFORM_EVOLUTION_NOT_CONFIGURED', message: 'Evolution access is unavailable. The channel remains registered in 30Sales.' });
+    let credentials: { baseUrl: string; apiKey: string };
+    try {
+      const secrets = platformEvolutionSecretsSchema.parse(JSON.parse(this.credentialCrypto.decryptPayload('platform', 'evolution', configuration)) as unknown);
+      credentials = { baseUrl: configuration.baseUrl, apiKey: secrets.apiKey };
+    } catch { throw new ConflictException({ code: 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID', message: 'Evolution access could not be confirmed. The channel remains registered in 30Sales.' }); }
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    await this.evolutionConnection.delete(target.providerChannelId, credentials);
+    const deleted = await this.repository.softDelete(new ChannelRepositoryDeleteDto(context.organizationId, channelId, context.userId, canManageAllLines, request.correlationId));
+    if (deleted === false) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel could not be archived after provider removal.' });
+    if (deleted === 'provider_mismatch') throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can be removed through this action.' });
+    return { deleted: true, historyPreserved: true };
   }
   async saveScheduleException(request: ApiRequestDto, channelId: string, input: ChannelScheduleExceptionInputDto): Promise<ChannelScheduleExceptionDto[]> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
@@ -62,7 +85,7 @@ export class ChannelsService {
     const usesPlatformEvolutionConfiguration = input.provider === CHANNEL_PROVIDER.evolution && !('baseUrl' in input);
     if (usesPlatformEvolutionConfiguration) await this.assertPlatformEvolutionConfigured();
     const encrypted = usesPlatformEvolutionConfiguration
-      ? this.credentialCrypto.encryptPayload(context.organizationId, channelId, JSON.stringify(input))
+      ? this.credentialCrypto.encryptPayload(context.organizationId, channelId, JSON.stringify({ provider: CHANNEL_PROVIDER.evolution, webhookSecret: input.webhookSecret ?? randomBytes(32).toString('base64url') }))
       : this.credentialCrypto.encrypt(context.organizationId, channelId, channelCredentialsSchema.parse(input));
     const result = await this.repository.saveCredentials(new ChannelRepositoryCredentialsDto(context.organizationId, channelId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input.provider, encrypted, request.correlationId));
     if (result === 'not_found') throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });

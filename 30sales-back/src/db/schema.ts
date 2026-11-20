@@ -360,10 +360,37 @@ export const handoffHistory = pgTable('handoff_history', {
 ]);
 
 
+export const assistantProfiles = pgTable('assistant_profiles', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  businessLineId: uuid('business_line_id').notNull(),
+  direction: text('direction').notNull(),
+  name: text('name').notNull(),
+  enabled: boolean('enabled').default(false).notNull(),
+  model: text('model').default('claude-haiku-5-5').notNull(),
+  transcribeAudio: boolean('transcribe_audio').default(false).notNull(),
+  systemPrompt: text('system_prompt').default('').notNull(),
+  updatedByUserId: uuid('updated_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  check('assistant_profiles_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
+  check('assistant_profiles_name_check', sql`length(trim(${table.name})) between 2 and 120`),
+  check('assistant_profiles_model_check', sql`${table.model} in ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5')`),
+  check('assistant_profiles_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
+  check('assistant_profiles_enabled_prompt_check', sql`not ${table.enabled} or length(trim(${table.systemPrompt})) >= 100`),
+  unique('assistant_profiles_id_tenant_line_unique').on(table.id, table.organizationId, table.businessLineId),
+  foreignKey({ name: 'assistant_profiles_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('cascade'),
+  uniqueIndex('assistant_profiles_line_direction_name_unique').on(table.organizationId, table.businessLineId, table.direction, sql`lower(${table.name})`),
+  index('assistant_profiles_line_direction_enabled_idx').on(table.organizationId, table.businessLineId, table.direction, table.enabled),
+]);
+
 export const messagingChannels = pgTable('messaging_channels', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   businessLineId: uuid('business_line_id'),
+  inboundAssistantProfileId: uuid('inbound_assistant_profile_id'),
+  outboundAssistantProfileId: uuid('outbound_assistant_profile_id'),
   provider: text('provider').notNull(),
   displayName: text('display_name').notNull(),
   phoneNumber: text('phone_number').notNull(),
@@ -380,6 +407,7 @@ export const messagingChannels = pgTable('messaging_channels', {
   dailyLimitTimeZone: text('daily_limit_time_zone').default(CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT).notNull(),
   connectionStatus: text('connection_status'),
   connectionUpdatedAt: timestamp('connection_updated_at', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
@@ -392,8 +420,10 @@ export const messagingChannels = pgTable('messaging_channels', {
   check('messaging_channels_connection_status_check', sql`${table.connectionStatus} is null or ${table.connectionStatus} in (${sql.raw(CHANNEL_CONNECTION_STATUSES.map((status) => `'${status}'`).join(', '))})`),
   unique('messaging_channels_id_organization_unique').on(table.id, table.organizationId),
   foreignKey({ name: 'messaging_channels_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('restrict'),
-  unique('messaging_channels_org_phone_unique').on(table.organizationId, table.phoneNumber),
-  unique('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId),
+  foreignKey({ name: 'messaging_channels_inbound_profile_scope_fk', columns: [table.inboundAssistantProfileId, table.organizationId, table.businessLineId], foreignColumns: [assistantProfiles.id, assistantProfiles.organizationId, assistantProfiles.businessLineId] }).onDelete('restrict'),
+  foreignKey({ name: 'messaging_channels_outbound_profile_scope_fk', columns: [table.outboundAssistantProfileId, table.organizationId, table.businessLineId], foreignColumns: [assistantProfiles.id, assistantProfiles.organizationId, assistantProfiles.businessLineId] }).onDelete('restrict'),
+  uniqueIndex('messaging_channels_org_phone_unique').on(table.organizationId, table.phoneNumber).where(sql`${table.deletedAt} is null`),
+  uniqueIndex('messaging_channels_org_provider_channel_unique').on(table.organizationId, table.provider, table.providerChannelId).where(sql`${table.deletedAt} is null`),
   unique('messaging_channels_org_chatwoot_inbox_unique').on(table.organizationId, table.chatwootInboxId),
   index('messaging_channels_org_active_idx').on(table.organizationId, table.isActive),
   index('messaging_channels_org_line_active_idx').on(table.organizationId, table.businessLineId, table.isActive),

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, exists, gte, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
-import { auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
-import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
+import { assistantProfiles, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
+import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
@@ -21,14 +21,14 @@ export class ChannelsRepository {
   async canAccessChannel(organizationId: string, channelId: string, userId: string, canManageAllLines: boolean): Promise<boolean> {
     const [row] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
       .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-      .where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.id, channelId), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines))).limit(1);
+      .where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.id, channelId), isNull(messagingChannels.deletedAt), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines))).limit(1);
     return row !== undefined;
   }
 
   private async lockAccessibleChannel(transaction: Parameters<Parameters<typeof database.transaction>[0]>[0], organizationId: string, channelId: string, userId: string, canManageAllLines: boolean) {
     const [channel] = await transaction.select({ channel: messagingChannels, businessLineName: businessLines.name }).from(messagingChannels)
       .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-      .where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines)))
+      .where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId), isNull(messagingChannels.deletedAt), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines)))
       .for('update', { of: messagingChannels }).limit(1);
     if (!channel) return null;
     if (!channel.channel.businessLineId) return null;
@@ -62,7 +62,7 @@ export class ChannelsRepository {
       .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(authMember.userId, userId))));
     const rows = await database.select({ channel: messagingChannels, businessLineName: businessLines.name, dailyMessageCount: sql<number>`(${dailyMessageCount})` })
       .from(messagingChannels).leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-      .where(and(eq(messagingChannels.organizationId, organizationId), businessLineId ? eq(messagingChannels.businessLineId, businessLineId) : undefined, eq(businessLines.status, 'active'), canManageAllLines ? undefined : lineMembership)).orderBy(desc(messagingChannels.isActive), messagingChannels.displayName, messagingChannels.id);
+      .where(and(eq(messagingChannels.organizationId, organizationId), isNull(messagingChannels.deletedAt), businessLineId ? eq(messagingChannels.businessLineId, businessLineId) : undefined, eq(businessLines.status, 'active'), canManageAllLines ? undefined : lineMembership)).orderBy(desc(messagingChannels.isActive), messagingChannels.displayName, messagingChannels.id);
     const hours = await database.select().from(channelBusinessHours).where(eq(channelBusinessHours.organizationId, organizationId));
     const exceptions = rows.length ? await database.select().from(channelAssistantScheduleExceptions)
       .where(and(eq(channelAssistantScheduleExceptions.organizationId, organizationId), inArray(channelAssistantScheduleExceptions.channelId, rows.map(({ channel }) => channel.id))))
@@ -132,11 +132,22 @@ export class ChannelsRepository {
     }
   }
 
-  async update(input: ChannelRepositoryUpdateDto): Promise<ChannelRecordDto | null | 'schedule_required'> {
+  async update(input: ChannelRepositoryUpdateDto): Promise<ChannelRecordDto | null | 'schedule_required' | 'profile_mismatch'> {
     return database.transaction(async (transaction) => {
       const locked = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
       if (!locked) return null;
       const before = locked.channel;
+      const profileSelections = [
+        { id: input.input.inboundAssistantProfileId, direction: 'inbound' },
+        { id: input.input.outboundAssistantProfileId, direction: 'outbound' },
+      ];
+      for (const selection of profileSelections) {
+        if (selection.id === undefined || selection.id === null) continue;
+        if (!before.businessLineId) return 'profile_mismatch';
+        const [profile] = await transaction.select({ id: assistantProfiles.id }).from(assistantProfiles)
+          .where(and(eq(assistantProfiles.id, selection.id), eq(assistantProfiles.organizationId, input.organizationId), eq(assistantProfiles.businessLineId, before.businessLineId), eq(assistantProfiles.direction, selection.direction))).limit(1);
+        if (!profile) return 'profile_mismatch';
+      }
       const existingHours = await transaction.select({ dayOfWeek: channelBusinessHours.dayOfWeek, startTime: channelBusinessHours.startTime, endTime: channelBusinessHours.endTime }).from(channelBusinessHours)
         .where(and(eq(channelBusinessHours.organizationId, input.organizationId), eq(channelBusinessHours.channelId, input.channelId)));
       const effectiveMode = input.input.operationMode ?? before.operationMode;
@@ -154,8 +165,21 @@ export class ChannelsRepository {
         if (businessHours.length) await transaction.insert(channelBusinessHours).values(businessHours.map((hours) => ({ ...hours, organizationId: input.organizationId, channelId: input.channelId })));
       }
       const savedHours = await transaction.select().from(channelBusinessHours).where(and(eq(channelBusinessHours.organizationId, input.organizationId), eq(channelBusinessHours.channelId, input.channelId)));
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.updated', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, beforeState: { displayName: before.displayName, isActive: before.isActive, dailyMessageLimit: before.dailyMessageLimit, dailyLimitTimeZone: before.dailyLimitTimeZone, operationMode: before.operationMode, assistantScheduleMode: before.assistantScheduleMode, ...(previousHours === null ? {} : { businessHours: previousHours }) }, afterState: { displayName: row.displayName, isActive: row.isActive, dailyMessageLimit: row.dailyMessageLimit, dailyLimitTimeZone: row.dailyLimitTimeZone, operationMode: row.operationMode, assistantScheduleMode: row.assistantScheduleMode, ...(previousHours === null ? {} : { businessHours: savedHours }) } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.updated', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, beforeState: { displayName: before.displayName, isActive: before.isActive, dailyMessageLimit: before.dailyMessageLimit, dailyLimitTimeZone: before.dailyLimitTimeZone, operationMode: before.operationMode, assistantScheduleMode: before.assistantScheduleMode, inboundAssistantProfileId: before.inboundAssistantProfileId, outboundAssistantProfileId: before.outboundAssistantProfileId, ...(previousHours === null ? {} : { businessHours: previousHours }) }, afterState: { displayName: row.displayName, isActive: row.isActive, dailyMessageLimit: row.dailyMessageLimit, dailyLimitTimeZone: row.dailyLimitTimeZone, operationMode: row.operationMode, assistantScheduleMode: row.assistantScheduleMode, inboundAssistantProfileId: row.inboundAssistantProfileId, outboundAssistantProfileId: row.outboundAssistantProfileId, ...(previousHours === null ? {} : { businessHours: savedHours }) } });
       return this.toDto(row, 0, savedHours, locked.businessLineName);
+    });
+  }
+
+  async softDelete(input: ChannelRepositoryDeleteDto): Promise<boolean | 'provider_mismatch'> {
+    return database.transaction(async (transaction) => {
+      const locked = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
+      if (!locked) return false;
+      if (locked.channel.provider !== CHANNEL_PROVIDER.evolution) return 'provider_mismatch';
+      const deletedAt = new Date();
+      await transaction.update(messagingChannels).set({ isActive: false, deletedAt, updatedAt: deletedAt })
+        .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId), isNull(messagingChannels.deletedAt)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { provider: locked.channel.provider, displayName: locked.channel.displayName, phoneNumber: locked.channel.phoneNumber, providerChannelId: locked.channel.providerChannelId, isActive: locked.channel.isActive }, afterState: { deletedAt: deletedAt.toISOString(), remoteInstanceDeleted: true } });
+      return true;
     });
   }
 
@@ -176,7 +200,7 @@ export class ChannelsRepository {
     const [row] = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive,
       credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-      .where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines))).limit(1);
+      .where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.organizationId, organizationId), isNull(messagingChannels.deletedAt), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines))).limit(1);
     if (!row) return null;
     const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
       ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
@@ -189,7 +213,7 @@ export class ChannelsRepository {
     const rows = await database.select({ id: messagingChannels.id, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive,
       credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-      .where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.provider, CHANNEL_PROVIDER.evolution), inArray(messagingChannels.id, channelIds), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines)));
+      .where(and(eq(messagingChannels.organizationId, organizationId), isNull(messagingChannels.deletedAt), eq(messagingChannels.provider, CHANNEL_PROVIDER.evolution), inArray(messagingChannels.id, channelIds), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines)));
     return rows.map((row) => {
       const credentials = row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag
         ? { ciphertext: row.credentialsCiphertext, iv: row.credentialsIv, authTag: row.credentialsAuthTag }
@@ -281,7 +305,7 @@ export class ChannelsRepository {
   }
 
   private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = [], businessLineName: string | null = null, scheduleExceptions: ChannelRecordDto['scheduleExceptions'] = []): ChannelRecordDto {
-    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName, scheduleExceptions);
+    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName, scheduleExceptions, row.inboundAssistantProfileId, row.outboundAssistantProfileId);
   }
 
   private isUniqueViolation(error: unknown): boolean {

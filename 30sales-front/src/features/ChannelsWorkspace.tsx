@@ -1,7 +1,7 @@
 import { Button, CheckboxField, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
 import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CalendarClock, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2 } from 'lucide-react'
+import { Activity, CalendarClock, Check, Link2, Power, QrCode, RefreshCw, Search, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
@@ -10,7 +10,7 @@ import { Modal } from '../components/ui/Modal'
 import { ApiError, api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
 import './ChannelsWorkspace.css'
 
-type SortKey = 'displayName' | 'businessLine' | 'provider' | 'phoneNumber' | 'providerChannelId' | 'status' | 'dailyMessageCount'
+type SortKey = 'displayName' | 'businessLine' | 'provider' | 'phoneNumber' | 'status' | 'dailyMessageCount'
 type ChannelsView = 'channels' | 'monitoring'
 function parseChannelOperationMode(value: string): ChannelDto['operationMode'] | null { return value === 'inbound' || value === 'outbound' || value === 'hybrid' ? value : null }
 function parseAssistantScheduleMode(value: string): ChannelDto['assistantScheduleMode'] | null { return value === 'always' || value === 'business_hours' || value === 'after_hours' || value === 'disabled' ? value : null }
@@ -39,6 +39,7 @@ export function ChannelsWorkspace() {
   const apiBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '')
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [businessLines, setBusinessLines] = useState<Awaited<ReturnType<typeof api.businessLines.list>>['data']>([])
+  const [assistantProfiles, setAssistantProfiles] = useState<Record<string, Awaited<ReturnType<typeof api.agents.listAssistantProfiles>>>>({})
   const [form, setForm] = useState<CreateChannelInput>(emptyForm)
   const [query, setQuery] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('displayName')
@@ -48,6 +49,7 @@ export function ChannelsWorkspace() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [updatingId, setUpdatingId] = useState('')
+  const [deletingId, setDeletingId] = useState('')
   const [quotaChannel, setQuotaChannel] = useState<ChannelDto | null>(null)
   const [quotaLimit, setQuotaLimit] = useState<number | null>(null)
   const [savingQuota, setSavingQuota] = useState(false)
@@ -77,7 +79,6 @@ export function ChannelsWorkspace() {
   const [connectionError, setConnectionError] = useState(false)
   const pairingRequestId = useRef(0)
   const [credentialsChannelId, setCredentialsChannelId] = useState('')
-  const [evolutionWebhookSecret, setEvolutionWebhookSecret] = useState('')
   const [cloudAccessToken, setCloudAccessToken] = useState('')
   const [cloudSignalSecret, setCloudSignalSecret] = useState('')
   const [savingCredentials, setSavingCredentials] = useState(false)
@@ -103,7 +104,6 @@ export function ChannelsWorkspace() {
 
   const clearCredentialForm = () => {
     setCredentialsChannelId('')
-    setEvolutionWebhookSecret('')
     setCloudAccessToken('')
     setCloudSignalSecret('')
   }
@@ -116,11 +116,14 @@ export function ChannelsWorkspace() {
   useEffect(() => {
     let active = true
     setLoading(true); setError('')
-    Promise.all([api.channels.list(businessLineId), api.businessLines.list()]).then(([channelResult, lineResult]) => {
+    Promise.all([api.channels.list(businessLineId), api.businessLines.list()]).then(async ([channelResult, lineResult]) => {
       if (!active) return
       setChannels(channelResult)
       const activeLines = lineResult.data.filter((line) => line.status === 'active')
       setBusinessLines(activeLines)
+      const profileResults = await Promise.allSettled(activeLines.map(async (line) => [line.id, await api.agents.listAssistantProfiles(line.id)] as const))
+      if (!active) return
+      setAssistantProfiles(Object.fromEntries(profileResults.flatMap((result) => result.status === 'fulfilled' ? [result.value] : [])))
       setForm((current) => businessLineId && activeLines.some((line) => line.id === businessLineId)
         ? { ...current, businessLineId }
         : current.businessLineId && activeLines.some((line) => line.id === current.businessLineId)
@@ -182,7 +185,7 @@ export function ChannelsWorkspace() {
     const direction = sortDirection === 'asc' ? 1 : -1
     return filtered.sort((left, right) => {
       const values: Record<SortKey, [string, string]> = {
-        displayName: [left.displayName, right.displayName], businessLine: [left.businessLineName ?? '', right.businessLineName ?? ''], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], providerChannelId: [left.providerChannelId, right.providerChannelId], status: [`${left.isActive ? '0' : '1'}-${left.isConfigured ? '0' : '1'}-${healthChecks[left.id]?.status ?? 'z'}`, `${right.isActive ? '0' : '1'}-${right.isConfigured ? '0' : '1'}-${healthChecks[right.id]?.status ?? 'z'}`], dailyMessageCount: [String(left.dailyMessageCount).padStart(8, '0'), String(right.dailyMessageCount).padStart(8, '0')],
+        displayName: [left.displayName, right.displayName], businessLine: [left.businessLineName ?? '', right.businessLineName ?? ''], provider: [left.provider, right.provider], phoneNumber: [left.phoneNumber, right.phoneNumber], status: [`${left.isActive ? '0' : '1'}-${left.isConfigured ? '0' : '1'}-${healthChecks[left.id]?.status ?? 'z'}`, `${right.isActive ? '0' : '1'}-${right.isConfigured ? '0' : '1'}-${healthChecks[right.id]?.status ?? 'z'}`], dailyMessageCount: [String(left.dailyMessageCount).padStart(8, '0'), String(right.dailyMessageCount).padStart(8, '0')],
       }
       return values[sortKey][0].localeCompare(values[sortKey][1]) * direction || left.id.localeCompare(right.id)
     })
@@ -191,7 +194,7 @@ export function ChannelsWorkspace() {
   const createChannel = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('')
     try {
-      const created = await api.channels.create({ ...form, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
+      const created = await api.channels.create({ ...form, providerChannelId: form.provider === 'evolution' ? `sales-${crypto.randomUUID()}` : form.providerChannelId, providerAccountId: form.provider === 'whatsapp_cloud_api' ? form.providerAccountId : undefined })
       setChannels((current) => [created, ...current.filter((channel) => channel.id !== created.id)])
       setForm({ ...emptyForm, businessLineId: created.businessLineId ?? '' })
       clearCredentialForm()
@@ -209,6 +212,21 @@ export function ChannelsWorkspace() {
     try { await api.channels.update(channel.id, { isActive: !channel.isActive }); setRefresh((version) => version + 1) }
     catch { setError(t('channels.updateFailed')) }
     finally { setUpdatingId('') }
+  }
+  const updateChannelProfile = async (channel: ChannelDto, direction: 'inbound' | 'outbound', profileId: string) => {
+    setUpdatingId(channel.id); setError('')
+    try {
+      await api.channels.update(channel.id, direction === 'inbound' ? { inboundAssistantProfileId: profileId || null } : { outboundAssistantProfileId: profileId || null })
+      setChannels((current) => current.map((item) => item.id !== channel.id ? item : { ...item, [direction === 'inbound' ? 'inboundAssistantProfileId' : 'outboundAssistantProfileId']: profileId || null }))
+    } catch { setError(t('channels.profileAssignmentFailed')) }
+    finally { setUpdatingId('') }
+  }
+  const deleteChannel = async (channel: ChannelDto) => {
+    if (!window.confirm(t('channels.deleteConfirm', { name: channel.displayName }))) return
+    setDeletingId(channel.id); setError('')
+    try { await api.channels.delete(channel.id); setChannels((current) => current.filter((item) => item.id !== channel.id)); if (offset > 0 && rows.length - 1 <= offset) setOffset((current) => Math.max(0, current - limit)) }
+    catch { setError(t('channels.deleteFailed')) }
+    finally { setDeletingId('') }
   }
   const saveQuota = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -289,7 +307,7 @@ export function ChannelsWorkspace() {
     setSavingCredentials(true); setError('')
     try {
       await api.channels.setCredentials(channel.id, channel.provider === 'evolution'
-        ? { provider: 'evolution', webhookSecret: evolutionWebhookSecret }
+        ? { provider: 'evolution' }
         : { provider: 'whatsapp_cloud_api', accessToken: cloudAccessToken, signalSecret: cloudSignalSecret })
       setHealthChecks((current) => { const next = { ...current }; delete next[channel.id]; return next })
       setHealthCheckErrors((current) => { const next = { ...current }; delete next[channel.id]; return next })
@@ -347,12 +365,21 @@ export function ChannelsWorkspace() {
     return counts
   }, { connected: 0, connecting: 0, disconnected: 0, unknown: 0 })
 
+  const renderAssistantProfileAssignments = (channel: ChannelDto) => {
+    const profiles = channel.businessLineId ? assistantProfiles[channel.businessLineId] ?? [] : []
+    if (!channel.businessLineId || (profiles.length === 0 && !channel.inboundAssistantProfileId && !channel.outboundAssistantProfileId)) return null
+    const renderSelect = (direction: 'inbound' | 'outbound', assignedId: string | null) => {
+      const options = profiles.filter((profile) => profile.direction === direction)
+      return <label key={direction}>{t(`channels.${direction}Profile`)}<SelectField value={assignedId ?? ''} disabled={updatingId === channel.id} onChange={(event) => void updateChannelProfile(channel, direction, event.target.value)}><option value="">{t('channels.useLineProfile')}</option>{options.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}{profile.enabled ? '' : ` · ${t('channels.profileDisabled')}`}</option>)}</SelectField></label>
+    }
+    return <details className="channel-profile-assignment"><summary>{t('channels.assistantProfiles')}</summary>{channel.operationMode !== 'outbound' && renderSelect('inbound', channel.inboundAssistantProfileId)}{channel.operationMode !== 'inbound' && renderSelect('outbound', channel.outboundAssistantProfileId)}</details>
+  }
+
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><WhatsAppMark size={19} /><strong>{channel.displayName}</strong></div> },
     { id: 'businessLine', label: t('businessLines.title'), render: (channel) => channel.businessLineName ?? '' },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => <span className="channel-provider-cell"><WhatsAppMark size={16} />{t(`channels.providers.${channel.provider}`)}</span> },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
-    { id: 'providerChannelId', label: t('channels.columns.providerId'), render: (channel) => <div className="channel-id-cell"><code>{channel.providerChannelId}</code>{channel.providerAccountId && <small>{t('channels.businessAccount')}: {channel.providerAccountId}</small>}</div> },
     { id: 'dailyMessageCount', label: t('channels.columns.dailyQuota'), render: (channel) => <div className="channel-quota-cell"><strong>{t('channels.quotaUsage', { used: channel.dailyMessageCount, limit: channel.dailyMessageLimit })}</strong><small>{channel.dailyLimitTimeZone}</small><IconButton label={t('channels.editQuota', { name: channel.displayName })} onClick={() => { setQuotaChannel(channel); setQuotaLimit(channel.dailyMessageLimit) }}><Settings2 size={16} /></IconButton></div> },
     { id: 'status', label: t('channels.columns.routing'), render: (channel) => {
       const health = healthChecks[channel.id]
@@ -363,7 +390,7 @@ export function ChannelsWorkspace() {
       const connectionDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : ''
       const policyWindow = channel.businessHours.length === 0 ? t('channels.policy24Hours') : t('channels.policyDaysConfigured', { count: channel.businessHours.length })
       const hasAssistantHours = channel.assistantScheduleMode === 'business_hours' || channel.assistantScheduleMode === 'after_hours'
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div><IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.operationMode !== 'outbound' && <IconButton label={t('channels.scheduleExceptionsManage', { name: channel.displayName, count: channel.scheduleExceptions.length })} onClick={() => openScheduleExceptions(channel)}><CalendarClock size={16} /></IconButton>}{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div>{renderAssistantProfileAssignments(channel)}<IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.operationMode !== 'outbound' && <IconButton label={t('channels.scheduleExceptionsManage', { name: channel.displayName, count: channel.scheduleExceptions.length })} onClick={() => openScheduleExceptions(channel)}><CalendarClock size={16} /></IconButton>}{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{channel.provider === 'evolution' && <IconButton label={deletingId === channel.id ? t('channels.deleting') : t('channels.delete')} disabled={deletingId === channel.id || updatingId === channel.id} onClick={() => void deleteChannel(channel)}><Trash2 size={16} /></IconButton>}{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">
@@ -372,6 +399,7 @@ export function ChannelsWorkspace() {
       <Button type="button" role="tab" aria-selected={viewMode === 'channels'} onClick={() => setViewMode('channels')}>{t('channels.channelsTab')}</Button>
       <Button type="button" role="tab" aria-selected={viewMode === 'monitoring'} onClick={() => setViewMode('monitoring')}>{t('channels.monitoringTab')}</Button>
     </div>
+    {viewMode === 'channels' && <aside className="channel-ownership-note"><ShieldCheck size={19} aria-hidden="true" /><div><strong>{t('channels.responsibilityTitle')}</strong><p>{t('channels.responsibilityHint')}</p></div></aside>}
     {viewMode === 'monitoring' && <section className="channels-monitoring" aria-label={t('channels.monitoringTab')}>
       <header><div><h3>{t('channels.monitoringTab')}</h3><p>{t('channels.monitoringDescription')}</p></div><Button type="button" disabled={loading || monitoringChecking || eligibleMonitoringChannels.length === 0} onClick={() => void refreshMonitoring()}><RefreshCw size={15} />{monitoringChecking ? t('channels.monitoringChecking') : t('channels.monitoringRefreshAll')}</Button></header>
       <div className="channels-monitoring-counts">{(['connected', 'connecting', 'disconnected', 'unknown'] as const).map((status) => <article key={status} className={`is-${status}`}><small>{t(`channels.monitoringCounts.${status}`)}</small><strong>{monitoringCounts[status]}</strong></article>)}</div>
@@ -462,19 +490,19 @@ export function ChannelsWorkspace() {
       <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.addTitle')}</strong><small>{t('channels.addHint')}</small></div></div>
       <div className="channel-form-grid">
         <label>{t('businessLines.title')}<SelectField value={form.businessLineId} required disabled={businessLines.length === 0} onChange={(event) => setForm((current) => ({ ...current, businessLineId: event.target.value }))}>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
-        <label>{t('channels.provider')}<SelectField value={form.provider} onChange={(event) => updateProvider(event.target.value)}><option value="evolution">{t('channels.providers.evolution')}</option><option value="whatsapp_cloud_api">{t('channels.providers.whatsapp_cloud_api')}</option></SelectField></label>
         <label><span className="channel-form-label">{t('channels.name')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.displayName} onChange={(event) => setForm((current) => ({ ...current, displayName: event.target.value }))} minLength={2} maxLength={120} pattern=".*\S.*" required /></label>
         <label><span className="channel-form-label">{t('channels.phone')}<span className="channel-required-mark" aria-hidden="true">*</span></span><PhoneField requireInternational value={form.phoneNumber} onValueChange={(phoneNumber) => setForm((current) => ({ ...current, phoneNumber }))} hint={t('channels.phoneHint')} placeholder="+55 (11) 99999-9999" required /></label>
-        <label><span className="channel-form-label">{t(form.provider === 'evolution' ? 'channels.evolutionInstance' : 'channels.phoneNumberId')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} minLength={1} maxLength={200} pattern={form.provider === 'evolution' ? '[A-Za-z0-9][A-Za-z0-9-]{0,199}' : '.*\\S.*'} required hint={form.provider === 'evolution' ? t('channels.evolutionInstanceHint') : undefined} /></label>
+        {form.provider === 'whatsapp_cloud_api' && <label><span className="channel-form-label">{t('channels.phoneNumberId')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerChannelId} onChange={(event) => setForm((current) => ({ ...current, providerChannelId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\\S.*" required /></label>}
         {form.provider === 'whatsapp_cloud_api' && <label><span className="channel-form-label">{t('channels.businessAccount')}<span className="channel-required-mark" aria-hidden="true">*</span></span><TextField value={form.providerAccountId ?? ''} onChange={(event) => setForm((current) => ({ ...current, providerAccountId: event.target.value }))} minLength={1} maxLength={200} pattern=".*\S.*" required /></label>}
       </div>
-      <div className="channel-form-footer"><p>{businessLines.length === 0 ? t('businessLines.empty') : t('channels.credentialsNote')}</p><Button className="primary" disabled={saving || !form.businessLineId}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.continueToConnection')}</>}</Button></div>
+      <details className="channel-advanced-provider"><summary>{t('channels.advancedProvider')}</summary><p>{t('channels.advancedProviderHint')}</p><label>{t('channels.provider')}<SelectField value={form.provider} onChange={(event) => updateProvider(event.target.value)}><option value="evolution">{t('channels.providers.evolution')}</option><option value="whatsapp_cloud_api">{t('channels.providers.whatsapp_cloud_api')}</option></SelectField></label></details>
+      <div className="channel-form-footer"><p>{businessLines.length === 0 ? t('businessLines.empty') : t(form.provider === 'evolution' ? 'channels.connectionResponsibilities' : 'channels.cloudSetupResponsibilities')}</p><Button className="primary" disabled={saving || !form.businessLineId}>{saving ? t('common.saving') : <><Check size={15} />{t('channels.continueToConnection')}</>}</Button></div>
     </form>}
     {viewMode === 'channels' && credentialsChannelId && (() => { const channel = channels.find((item) => item.id === credentialsChannelId); return channel ? <form className="channel-form channel-credentials-form" onSubmit={configureCredentials}>
       <ol className="channel-setup-progress" aria-label={t('channels.setupSteps')}><li className="is-complete"><span><Check size={13} /></span>{t('channels.setupDetails')}</li><li aria-current="step"><span>2</span>{t('channels.setupConnection')}</li></ol>
-      <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t('channels.credentialsSecurityNote')}</small></div></div>
+      <div className="channel-form-heading"><WhatsAppMark size={19} /><div><strong>{t('channels.configureTitle', { name: channel.displayName })}</strong><small>{t(channel.provider === 'evolution' ? 'channels.managedConnectionHint' : 'channels.credentialsSecurityNote')}</small></div></div>
       <div className="channel-form-grid">
-        {channel.provider === 'evolution' ? <><label>{t('inboxComposer.evolutionWebhookSecret')}<TextField value={evolutionWebhookSecret} onChange={(event) => setEvolutionWebhookSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('inboxComposer.evolutionWebhookHint')}</small></label><label>{t('inboxComposer.evolutionWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/evolution/${channel.id}`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
+        {channel.provider === 'evolution' ? <div className="channel-managed-connection-note" role="note"><ShieldCheck size={18} aria-hidden="true" /><p>{t('channels.managedConnectionTitle')}</p></div> : <><label>{t('channels.cloudAccessToken')}<TextField value={cloudAccessToken} onChange={(event) => setCloudAccessToken(event.target.value)} type="password" autoComplete="new-password" maxLength={4000} required /></label><label>{t('channels.agentSignalSecret')}<TextField value={cloudSignalSecret} onChange={(event) => setCloudSignalSecret(event.target.value)} type="password" autoComplete="new-password" minLength={32} maxLength={500} required /><small>{t('channels.agentSignalSecretHint')}</small></label><label>{t('inboxComposer.cloudWebhookUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/whatsapp-cloud`} /></label><label>{t('channels.agentSignalUrl')}<TextField readOnly value={`${apiBaseUrl}/api/v1/webhooks/${channel.id}/agent-signals/interpretation-failure`} /></label></>}
       </div>
       <div className="channel-form-footer"><p>{t('channels.credentialsNeverShown')}</p><Button type="button" onClick={clearCredentialForm}>{t('common.cancel')}</Button><Button className="primary" disabled={savingCredentials}>{savingCredentials ? t('common.saving') : t(channel.provider === 'evolution' ? 'channels.saveAndPair' : 'channels.saveCredentials')}</Button></div>
     </form> : null })()}

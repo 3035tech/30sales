@@ -46,3 +46,22 @@
 
 .lead-actions{flex-wrap:wrap}
 @media(max-width:640px){.lead-actions{justify-content:flex-start}.lead-actions .refresh{margin-left:auto}}
+
+/* Primary navigation: quiet hierarchy instead of a stack of outlined controls. */
+.rail{padding:24px 16px 20px;background:#fff}
+.rail .brand{padding:0 8px 34px}
+.nav-items{gap:3px}
+.rail .nav-group{gap:1px;margin:0 0 8px}
+.rail .nav-group-toggle.ui-button{width:100%;min-height:36px;justify-content:space-between;padding:7px 10px;border:0;border-radius:7px;background:transparent;box-shadow:none;color:#718096;font-size:var(--font-size-xs);font-weight:650;letter-spacing:.015em;text-align:left;text-transform:none}
+.rail .nav-group-toggle.ui-button:hover:not(:disabled){border-color:transparent;background:#f5f7fa;box-shadow:none;color:#334155}
+.rail .nav-group-toggle.ui-button.current{background:#f1f5f9;color:#334155}
+.rail .nav-group-toggle.ui-button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.rail .nav-group-toggle svg{color:#94a3b8}
+.rail .nav-group-links{gap:2px;margin:1px 0 4px 10px;padding:2px 0 2px 8px;border-left:1px solid #e8edf3}
+.rail .nav-group-links .nav.ui-button{width:100%;min-height:37px;justify-content:flex-start;gap:10px;padding:8px 10px;border:0;border-radius:7px;background:transparent;box-shadow:none;color:#526176;font-size:var(--font-size-sm);font-weight:500;text-align:left}
+.rail .nav-group-links .nav.ui-button:hover:not(:disabled){border-color:transparent;background:#f6f8fb;box-shadow:none;color:#1e40af}
+.rail .nav-group-links .nav.ui-button.active{position:relative;background:#eef4ff;color:#1d4ed8;font-weight:650}
+.rail .nav-group-links .nav.ui-button.active::before{position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:2px;background:#3268ed;content:""}
+.rail .nav-group-links .nav.ui-button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.rail .rail-bottom{padding:15px 5px 0}
+@media(max-width:640px){.rail{padding:12px 17px}.rail .brand{padding:0}.rail .nav-group{margin-bottom:8px}}

@@ -5,13 +5,16 @@ import './index.css'
 import './lib/i18n'
 import App from './App.tsx'
 import { AcceptInvitationRoute, ResetPasswordRoute, RouteLoading } from './RouteEntrypoints'
+import { AppLoadErrorBoundary } from './components/ui/AppLoadErrorBoundary'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    {window.location.pathname === '/accept-invitation'
-      ? <Suspense fallback={<RouteLoading />}><AcceptInvitationRoute /></Suspense>
-      : window.location.pathname === '/reset-password'
-        ? <Suspense fallback={<RouteLoading />}><ResetPasswordRoute /></Suspense>
-        : <HashRouter><App /></HashRouter>}
+    <AppLoadErrorBoundary>
+      {window.location.pathname === '/accept-invitation'
+        ? <Suspense fallback={<RouteLoading />}><AcceptInvitationRoute /></Suspense>
+        : window.location.pathname === '/reset-password'
+          ? <Suspense fallback={<RouteLoading />}><ResetPasswordRoute /></Suspense>
+          : <HashRouter><App /></HashRouter>}
+    </AppLoadErrorBoundary>
   </StrictMode>,
 )

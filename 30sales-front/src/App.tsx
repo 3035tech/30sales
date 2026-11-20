@@ -140,12 +140,14 @@ export default function App() {
   const [notificationOpenError, setNotificationOpenError] = useState(false)
   const [notificationsLoading, setNotificationsLoading] = useState(false)
   const [markingNotificationsRead, setMarkingNotificationsRead] = useState(false)
+  const notificationMenuRef = useRef<HTMLDivElement>(null)
   const notificationsLoadedRef = useRef(false)
   const notificationIdsRef = useRef<Set<string>>(new Set())
   const notificationRefreshRevision = useRef(0)
   const notificationScopeRevision = useRef(0)
   const notificationRequestId = useRef(0)
   const notificationRequestsInFlight = useRef(new Map<string, number>())
+  const requestNotificationRefreshRef = useRef<() => void>(() => {})
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [navigationGroupOverride, setNavigationGroupOverride] = useState<{ page: Page; group: NavigationGroup | null } | null>(null)
   const [changingOrganization, setChangingOrganization] = useState(false)
@@ -224,6 +226,24 @@ export default function App() {
   }, [mobileMenuOpen])
 
   useEffect(() => {
+    if (!notificationsOpen) return
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (event.target instanceof Node && !notificationMenuRef.current?.contains(event.target)) setNotificationsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setNotificationsOpen(false)
+      notificationMenuRef.current?.querySelector('button')?.focus()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [notificationsOpen])
+
+  useEffect(() => {
     if (!current?.activeOrganizationId) return
     let active = true
     const refresh = () => {
@@ -247,10 +267,11 @@ export default function App() {
         if (active && revision === notificationRefreshRevision.current) setNotificationsLoading(false)
       })
     }
+    requestNotificationRefreshRef.current = refresh
     refresh()
     const interval = window.setInterval(refresh, 30_000)
     document.addEventListener('visibilitychange', refresh)
-    return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh) }
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); requestNotificationRefreshRef.current = () => {} }
   }, [current?.activeOrganizationId])
 
   useEffect(() => {
@@ -451,16 +472,16 @@ export default function App() {
         <div className="ui-visually-hidden"><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">
           <Button className="language-toggle" onClick={toggleLocale} aria-label={t('common.languageToggleLabel')}>{i18n.language === 'pt-BR' ? 'EN' : 'PT'}</Button>
-          {current?.activeOrganizationId && <div className="notification-menu">
-            <Button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: unreadNotificationCount })} aria-expanded={notificationsOpen} onClick={() => setNotificationsOpen((open) => !open)}>
+          {current?.activeOrganizationId && <div className="notification-menu" ref={notificationMenuRef}>
+            <Button className="notification-trigger" type="button" aria-label={t('systemNotifications.open', { count: unreadNotificationCount })} aria-expanded={notificationsOpen} aria-controls="system-notifications-panel" onClick={() => setNotificationsOpen((open) => !open)}>
               <Bell size={18} />{unreadNotificationCount > 0 && <span className="notification-count">{unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}</span>}
             </Button>
-            {notificationsOpen && <section className="notification-panel" aria-label={t('systemNotifications.title')}>
+            {notificationsOpen && <section className="notification-panel" id="system-notifications-panel" aria-label={t('systemNotifications.title')}>
               <div className="notification-panel-heading"><div className="notification-heading-copy"><strong>{t('systemNotifications.title')}</strong><span>{t('systemNotifications.unread', { count: unreadNotificationCount })}</span></div>{unreadNotificationCount > 0 && <Button className="notification-mark-all" type="button" disabled={markingNotificationsRead} onClick={() => void markAllNotificationsRead()}>{markingNotificationsRead ? t('systemNotifications.markingAllRead') : t('systemNotifications.markAllRead')}</Button>}</div>
               {notificationsActionError && <WorkspaceState kind="error" compact message={t('systemNotifications.markAllFailed')} />}
               {notificationOpenError && <WorkspaceState kind="error" compact message={t('systemNotifications.openFailed')} />}
-              {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')} />}
-              {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} /> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <Button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
+              {notificationsError && notifications.length > 0 && <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')} detail={t('table.resultsRetained')}><Button type="button" onClick={() => requestNotificationRefreshRef.current()}>{t('platform.retry')}</Button></WorkspaceState>}
+              {notificationsLoading && notifications.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : notifications.length === 0 ? notificationsError ? <WorkspaceState kind="error" compact message={t('systemNotifications.loadFailed')}><Button type="button" onClick={() => requestNotificationRefreshRef.current()}>{t('platform.retry')}</Button></WorkspaceState> : <WorkspaceState kind="empty" compact message={t('systemNotifications.empty')} /> : notifications.map((notification) => <Button className="notification-item" key={notification.id} type="button" onClick={() => void openNotification(notification)}>
                 <span className={`notification-item-title${notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? ' is-inbox' : notification.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notification.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? ' is-error' : ''}`}>{notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage ? t('systemNotifications.newMessage') : notification.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed ? t('systemNotifications.messageDeliveryFailed') : notification.notificationType === USER_NOTIFICATION_TYPE.taskOverdue ? t('systemNotifications.taskOverdue') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffAccepted ? t('systemNotifications.handoffAccepted') : notification.notificationType === USER_NOTIFICATION_TYPE.handoffReturned ? t('systemNotifications.handoffReturned') : notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned ? t('systemNotifications.conversationAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.opportunityAssigned ? t('systemNotifications.opportunityAssigned') : notification.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? t('systemNotifications.channelDisconnected') : t(`closerSlaSettings.notifications.${notification.notificationType === USER_NOTIFICATION_TYPE.closerEventSlaEscalated ? 'escalated' : 'overdue'}`)}</span>
                 <span>{notification.notificationType === 'inbox_new_message' || notification.notificationType === 'conversation_assigned' ? [notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.notificationType === 'task_overdue' ? [notification.taskTitle, notification.contactName, notification.accountName].filter(Boolean).join(' · ') || notification.summary : notification.handoffId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.opportunityId ? [notification.contactName, notification.accountName, notification.summary].filter(Boolean).join(' · ') : notification.accountName ?? notification.summary}</span>
                 <small>{notification.eventType ? `${t(`closerEventTypes.${notification.eventType}`)} · ` : ''}{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(notification.dueAt ?? notification.createdAt))}</small>

@@ -1,6 +1,6 @@
 import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
@@ -28,6 +28,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [mediaDraft, setMediaDraft] = useState<File | null>(null)
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
+  const conversationQueueRef = useRef<HTMLElement>(null)
+  const conversationThreadRef = useRef<HTMLElement>(null)
   const [composerMode, setComposerMode] = useState<'reply' | 'note'>('reply')
   const [tagFilter, setTagFilter] = useState('')
   const [tagDraft, setTagDraft] = useState('')
@@ -57,6 +59,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [conversationTotal, setConversationTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [messagesLoading, setMessagesLoading] = useState(false)
+  const [messagesLoadError, setMessagesLoadError] = useState(false)
   const [error, setError] = useState('')
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [leadSearch, setLeadSearch] = useState('')
@@ -123,6 +126,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     let requestInFlight = false
     setMessages([])
     setMessagesConversationId('')
+    setMessagesLoadError(false)
     setMessagesLoading(true)
     const loadMessages = async (initial = false) => {
       if (requestInFlight) return
@@ -130,6 +134,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       try {
         const result = await api.inbox.messages(selectedId, { limit: 100 })
         if (active) {
+          setMessagesLoadError(false)
           setMessages((current) => current.length === result.length && current.every((message, index) => {
             const next = result[index]
             return message.id === next?.id && message.deliveryState === next.deliveryState && message.bodyText === next.bodyText && message.transcriptText === next.transcriptText && JSON.stringify(message.attachments) === JSON.stringify(next.attachments)
@@ -137,7 +142,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           setMessagesConversationId(selectedId)
         }
       } catch {
-        if (active && initial) setError(t('inbox.messagesFailed'))
+        if (active) setMessagesLoadError(true)
       } finally {
         requestInFlight = false
         if (active && initial) setMessagesLoading(false)
@@ -345,9 +350,9 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           <div className="inbox-tag-manager"><strong>{t('inboxComposer.tagsLabel')}</strong><div className="inbox-tag-list">{selected.tags.map((tag) => <span key={tag.id}>{tag.name}{canEditTags && <Button type="button" aria-label={t('inboxComposer.removeTag', { name: tag.name })} disabled={tagBusy} onClick={() => void removeTag(tag.id)}>×</Button>}</span>)}</div>{canEditTags && <div><TextField value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} maxLength={32} placeholder={t('inboxComposer.tagPlaceholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addTag() } }} /><Button type="button" disabled={tagBusy || tagDraft.trim().length < 2} onClick={() => void addTag()}>{tagBusy ? t('common.saving') : t('inboxComposer.addTag')}</Button></div>}</div>
         </>}
       </aside>
-      <section className="inbox-thread" aria-label={t('inbox.thread')}>
+      <section ref={conversationThreadRef} className="inbox-thread" aria-label={t('inbox.thread')}>
         {!selected ? <WorkspaceState kind={loading ? 'loading' : 'empty'} message={loading ? t('common.loading') : t('inbox.selectConversation')} detail={t('inbox.readOnly')} /> : <>
-          <header className="inbox-thread-heading"><div><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.businessLineName && <small>{t('businessLines.title')}: {selected.businessLineName}</small>}{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
+          <header className="inbox-thread-heading"><div><Button type="button" className="inbox-mobile-queue-nav" onClick={() => conversationQueueRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })}><ArrowLeft size={15} />{t('inbox.conversationList')}</Button><strong>{selected.accountName ?? selected.personName ?? t('inbox.unknownContact')}</strong><span>{selected.personName && selected.accountName ? selected.personName : selected.provider}</span>{selected.businessLineName && <small>{t('businessLines.title')}: {selected.businessLineName}</small>}{selected.channelName && <small>{selected.channelName} · {selected.channelPhoneNumber}</small>}<small>{t('inbox.owner')}: {selected.ownerName ?? t('inbox.unassigned')} · {t('inbox.automation')}: {t(`inbox.modes.${selected.automationMode}`)}</small></div><div className="inbox-control-actions">
             <Button type="button" className="inbox-context-toggle" aria-controls="inbox-contact-context" aria-expanded={contactContextOpen} onClick={() => setContactContextOpen((open) => !open)}><UserRound size={15} />{t('inbox.leadDetails')}</Button>
             {(!selected.ownerUserId || selected.ownerUserId === currentUserId) && assignees.length > 0 && <><label className="inbox-assignee-select"><span>{t('inbox.assignTo')}</span><SelectField value={assigneeTarget} onChange={(event) => setAssigneeTarget(event.target.value)} disabled={controlling}><option value="" disabled>{t('inbox.selectAssignee')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label><Button type="button" disabled={controlling || !assigneeTarget} onClick={() => void controlConversation('assign')}>{t('inbox.assign')}</Button></>}
             {!selected.ownerUserId && <Button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</Button>}
@@ -357,11 +362,11 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {selected.ownerUserId === currentUserId && selected.status !== 'resolved' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('resolve')}>{t('inbox.resolve')}</Button>}
             {selected.ownerUserId === currentUserId && selected.status === 'resolved' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('reopen')}>{t('inbox.reopen')}</Button>}
             <span className="tag">{t(`inbox.status.${selected.status}`)}</span></div></header>
-          <div className="inbox-messages" aria-live="polite">
-            {messagesLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : messages.length === 0 ? <WorkspaceState kind="empty" compact message={t('inbox.noMessagesYet')} detail={t('inbox.emptyMessagesHint')} /> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
+          <div className="inbox-messages" role="log" aria-label={t('inbox.thread')} aria-relevant="additions text" aria-atomic="false">
+            {messagesLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : messagesLoadError && messages.length === 0 ? <WorkspaceState kind="error" compact message={t('inbox.messagesFailed')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState> : <>{messagesLoadError && <WorkspaceState kind="error" compact message={t('inbox.messagesFailed')} detail={t('table.resultsRetained')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState>}{messages.length === 0 ? <WorkspaceState kind="empty" compact message={t('inbox.noMessagesYet')} detail={t('inbox.emptyMessagesHint')} /> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
               {message.bodyText ? <p>{message.bodyText}</p> : !message.transcriptText && message.attachments.length === 0 && <p>{t('inbox.nonTextMessage')}</p>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <Button type="button" aria-label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void downloadAttachment(attachment)}><Download size={14} />{t('inbox.download')}</Button>}</div>)}{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
-            </article>)}
+            </article>)}</>}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>
             <div className="inbox-composer-modes"><Button type="button" className={composerMode === 'reply' ? 'active' : ''} onClick={() => { setComposerMode('reply'); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</Button><Button type="button" className={composerMode === 'note' ? 'active' : ''} onClick={() => { setComposerMode('note'); setMessageSendError('') }} disabled={sendingMessage || Boolean(mediaDraft)}>{t('inboxComposer.noteMode')}</Button></div>
@@ -376,7 +381,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         </>}
       </section>
 
-      <aside className="inbox-conversations" aria-label={t('inbox.conversationList')}>
+      <aside ref={conversationQueueRef} className="inbox-conversations" aria-label={t('inbox.conversationList')}>
         <div className="inbox-conversation-list-heading"><div><h3>{t('inbox.recentConversations')}</h3><span>{t('inbox.conversationCount', { count: conversationTotal })}</span></div><MessageSquareText size={17} /></div>
         <div className="inbox-quick-views" role="group" aria-label={t('inboxQuickViews.label')}>
           {(['all', 'mine', 'unassigned', 'unread'] as const).map((view) => <Button key={view} type="button" className={quickView === view ? 'selected' : ''} aria-pressed={quickView === view} disabled={view === 'mine' && !currentUserId} onClick={() => applyQuickView(view)}>{t(`inboxQuickViews.${view}`)}</Button>)}
@@ -393,9 +398,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         </div>
         <div className="inbox-conversation-items">
         {loading && conversations.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
-        {loading && conversations.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : conversations.length === 0 ? error ? <WorkspaceState kind="error" compact message={error} /> : <WorkspaceState kind="empty" compact message={hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')} detail={hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}>{hasConversationFilters && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}</WorkspaceState> : conversations.map((conversation) => {
+        {error && conversations.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState>}
+        {loading && conversations.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : conversations.length === 0 ? error ? <WorkspaceState kind="error" compact message={error}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : <WorkspaceState kind="empty" compact message={hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')} detail={hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}>{hasConversationFilters && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}</WorkspaceState> : conversations.map((conversation) => {
           const label = conversation.accountName ?? conversation.personName ?? t('inbox.unknownContact')
-          return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => setSelectedId(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
+          return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''}`} onClick={() => { setSelectedId(conversation.id); if (window.matchMedia('(max-width: 760px)').matches) conversationThreadRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }) }} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
             <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><strong>{label}</strong>{conversation.unread && <span className="inbox-unread-badge">{t('inbox.unread')}</span>}{conversation.businessLineName && <small>{conversation.businessLineName}</small>}<small>{conversation.personName && conversation.accountName ? conversation.personName : conversation.channelName ?? conversation.provider}</small><small>{conversation.channelPhoneNumber ?? ''}{conversation.channelPhoneNumber ? ' · ' : ''}{conversation.ownerName ?? t('inbox.unassigned')}</small>{conversation.tags.length > 0 && <span className="inbox-tag-list">{conversation.tags.map((tag) => <span key={tag.id}>{tag.name}</span>)}</span>}<small className="inbox-conversation-time">{formatConversationTime(conversation.lastMessageAt ?? conversation.createdAt)}</small><small>{t(`inbox.status.${conversation.status}`)} · {t(`inbox.modes.${conversation.automationMode}`)}</small></span>
           </Button>
         })}

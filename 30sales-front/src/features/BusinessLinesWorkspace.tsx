@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Archive, ArrowRight, BriefcaseBusiness, Check, Circle, Pause, Play, Plus, RefreshCw, Save, Users } from 'lucide-react'
+import { Archive, ArrowRight, BriefcaseBusiness, Check, Pause, Play, Plus, RefreshCw, Save, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button, CheckboxField, TextField } from '../components/ui/FormControls'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -156,6 +156,14 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
   }
 
   const toggleMember = (userId: string) => setSelectedMemberIds((current) => current.includes(userId) ? current.filter((id) => id !== userId) : [...current, userId])
+  const setupSteps = setupStatus ? [
+    { key: 'team', step: 'team' as const, ready: setupStatus.team, optional: false },
+    { key: 'pipeline', step: 'pipelineStages' as const, ready: setupStatus.pipeline, optional: false },
+    { key: 'assistant', step: 'assistant' as const, ready: setupStatus.assistant, optional: false },
+    { key: 'channel', step: 'channels' as const, ready: setupStatus.channel, optional: false },
+    { key: 'leads', step: 'leads' as const, ready: setupStatus.leads, optional: !setupStatus.leadsApplicable && !setupStatus.leads },
+  ] : []
+  const nextStepIndex = setupSteps.findIndex((item) => !item.ready && !item.optional)
 
   return <div className="business-lines-page">
     <div className="section-head"><div><p className="eyebrow">{t('businessLines.eyebrow')}</p><h2>{t('businessLines.title')}</h2><p className="muted">{t('businessLines.description')}</p></div><Button className="refresh" type="button" onClick={() => void refresh()} aria-label={t('businessLines.refresh')}><RefreshCw size={16} /></Button></div>
@@ -173,17 +181,12 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
       <div className="business-line-onboarding">
         <div className="panel-heading"><span className="card-icon"><ArrowRight size={18} /></span><div><h3>{t('businessLines.setupTitle')}</h3><p>{t('businessLines.setupHint', { name: selectedLine.name })}</p></div></div>
         {setupLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : setupStatus ? <ol className="business-line-setup-steps">
-          {[
-            { key: 'team', step: 'team' as const, ready: setupStatus.team },
-            { key: 'pipeline', step: 'pipelineStages' as const, ready: setupStatus.pipeline },
-            { key: 'assistant', step: 'assistant' as const, ready: setupStatus.assistant },
-            { key: 'channel', step: 'channels' as const, ready: setupStatus.channel },
-            { key: 'leads', step: 'leads' as const, ready: setupStatus.leads, optional: !setupStatus.leadsApplicable && !setupStatus.leads },
-          ].map((item) => <li key={item.key} className={`${item.ready ? 'is-ready' : ''}${item.optional ? ' is-optional' : ''}`}>
-            <span className="business-line-setup-icon">{item.ready ? <Check size={15} /> : <Circle size={13} />}</span><span>{t(`businessLines.setupSteps.${item.key}`)}{item.optional && <small className="business-line-optional-label">{t('businessLines.optionalStep')}</small>}</span>
+          {setupSteps.map((item, index) => <li key={item.key} className={`${item.ready ? 'is-ready' : ''}${item.optional ? ' is-optional' : ''}${index === nextStepIndex ? ' is-next' : ''}`} aria-current={index === nextStepIndex ? 'step' : undefined}>
+            <span className="business-line-setup-icon">{item.ready ? <Check size={15} /> : <span aria-hidden="true">{index + 1}</span>}</span><span>{t(`businessLines.setupSteps.${item.key}`)}{item.optional && <small className="business-line-optional-label">{t('businessLines.optionalStep')}</small>}</span>
             <Button type="button" onClick={() => openSetupStep(item.step)}>{item.ready ? t('businessLines.reviewStep') : item.optional ? t('businessLines.addOptionalStep') : t('businessLines.configureStep')}<ArrowRight size={14} /></Button>
           </li>)}
-        </ol> : <WorkspaceState kind="error" compact message={t('businessLines.setupStatusUnavailable')} />}
+        </ol>
+        : <WorkspaceState kind="error" compact message={t('businessLines.setupStatusUnavailable')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState>}
         <p className="business-line-setup-note">{t('businessLines.setupNote')}</p>
       </div>
     </section>}
@@ -200,7 +203,7 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
       </section>
       <section className="business-lines-panel">
         <div className="panel-heading"><span className="card-icon"><Users size={18} /></span><div><h3>{t('businessLines.linesTitle')}</h3><p>{t('businessLines.lineCount', { count: lines.length })}</p></div></div>
-        {loading && lines.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : loadError && lines.length === 0 ? <WorkspaceState kind="error" message={t('businessLines.loadFailed')} /> : lines.length === 0 ? <WorkspaceState kind="empty" message={t('businessLines.empty')} /> : <div className="business-lines-list">{lines.map((line) => <button key={line.id} type="button" className={`business-line-option${selectedLineId === line.id ? ' is-selected' : ''}`} aria-pressed={selectedLineId === line.id} onClick={() => { setSelectedLineId(line.id); setSaved(false); setError('') }}><span className="business-line-icon"><BriefcaseBusiness size={17} /></span><span className="business-line-copy"><strong>{line.name}<small className={`business-line-status is-${line.status}`}>{t(`businessLines.status.${line.status}`)}</small></strong><small>{line.slug}{line.description ? ` · ${line.description}` : ''}</small></span><span className="business-line-count">{t('businessLines.assignedCount', { count: line.memberCount })}<ArrowRight size={14} /></span></button>)}</div>}
+        {loading && lines.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : loadError && lines.length === 0 ? <WorkspaceState kind="error" message={t('businessLines.loadFailed')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : lines.length === 0 ? <WorkspaceState kind="empty" message={t('businessLines.empty')} /> : <div className="business-lines-list">{lines.map((line) => <button key={line.id} type="button" className={`business-line-option${selectedLineId === line.id ? ' is-selected' : ''}`} aria-pressed={selectedLineId === line.id} onClick={() => { setSelectedLineId(line.id); setSaved(false); setError('') }}><span className="business-line-icon"><BriefcaseBusiness size={17} /></span><span className="business-line-copy"><strong>{line.name}<small className={`business-line-status is-${line.status}`}>{t(`businessLines.status.${line.status}`)}</small></strong><small>{line.slug}{line.description ? ` · ${line.description}` : ''}</small></span><span className="business-line-count">{t('businessLines.assignedCount', { count: line.memberCount })}<ArrowRight size={14} /></span></button>)}</div>}
       </section>
     </div>
     {selectedLine && <section className="business-lines-panel business-line-members-panel">
@@ -211,7 +214,7 @@ export function BusinessLinesWorkspace({ organizationId }: { organizationId: str
         {feedbackTarget === 'details' && error && <WorkspaceState kind="error" compact message={error} />}{feedbackTarget === 'details' && saved && <p className="business-lines-success" role="status">{t('businessLines.saved')}</p>}
       </div>
       <div className="panel-heading"><span className="card-icon"><Users size={18} /></span><div><h3 id="business-line-team-heading" tabIndex={-1}>{t('businessLines.membersTitle', { name: selectedLine.name })}</h3><p>{t('businessLines.membersHint')}</p></div><Button className="primary business-line-save" type="button" disabled={busy || membersLoading || membersError} onClick={() => void saveMembers()}><Save size={16} />{busy ? t('businessLines.saving') : t('businessLines.saveMembers')}</Button></div>
-      {teamLoadError ? <WorkspaceState kind="error" message={t('businessLines.organizationMembersLoadFailed')} /> : membersLoading ? <WorkspaceState kind="loading" compact message={t('businessLines.membersLoading')} /> : membersError ? <WorkspaceState kind="error" message={t('businessLines.membersLoadFailed')} /> : members.length === 0 ? <WorkspaceState kind="empty" message={t('businessLines.noOrganizationMembers')} /> : <div className="business-line-member-grid">{members.map((member) => <label className="business-line-member" key={member.user.id}><CheckboxField checked={selectedMemberIds.includes(member.user.id)} onChange={() => toggleMember(member.user.id)} /><span><strong>{member.user.name}</strong><small>{member.user.email} · {member.role}</small></span></label>)}</div>}
+      {teamLoadError ? <WorkspaceState kind="error" message={t('businessLines.organizationMembersLoadFailed')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : membersLoading ? <WorkspaceState kind="loading" compact message={t('businessLines.membersLoading')} /> : membersError ? <WorkspaceState kind="error" message={t('businessLines.membersLoadFailed')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : members.length === 0 ? <WorkspaceState kind="empty" message={t('businessLines.noOrganizationMembers')} /> : <div className="business-line-member-grid">{members.map((member) => <label className="business-line-member" key={member.user.id}><CheckboxField checked={selectedMemberIds.includes(member.user.id)} onChange={() => toggleMember(member.user.id)} /><span><strong>{member.user.name}</strong><small>{member.user.email} · {member.role}</small></span></label>)}</div>}
       {feedbackTarget === 'members' && error && <WorkspaceState kind="error" compact message={error} />}{feedbackTarget === 'members' && saved && <p className="business-lines-success" role="status">{t('businessLines.saved')}</p>}
     </section>}
   </div>

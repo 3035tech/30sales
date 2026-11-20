@@ -1,5 +1,17 @@
 # Contexto de continuidade — 30Sales
 
+## Revisão de UX dos fluxos principais — 20/11/2026
+
+- Inbox em telas até 760 px agora apresenta a fila primeiro, depois a conversa e por fim os dados do contato. Selecionar uma conversa leva à área de leitura e o cabeçalho permite voltar à fila. Mensagens/conversas preservadas continuam visíveis quando uma atualização falha; os estados de erro oferecem retentativa explícita.
+- Histórico de mensagens usa `role="log"`, `aria-relevant="additions text"` e `aria-atomic="false"`, para leitores de tela anunciarem novas mensagens sem tratar toda a conversa como um único bloco atômico.
+- Pipeline, lista de linhas comerciais e cadastro/lista de canais oferecem retentativa junto dos erros, inclusive quando ainda não há dados carregados. O checklist do onboarding permite repetir a consulta quando a leitura de configuração falha.
+- O painel de notificações fecha com `Esc` ou clique fora, devolve foco ao acionador no fechamento por teclado, oferece retentativa mantendo os resultados anteriores e, em telas até 640 px, fica ancorado dentro das margens do viewport (incluindo safe area).
+- A configuração da Evolution já cobria carregamento, falha de leitura com retentativa, teste diferenciado por credencial/endereço e estados de salvar/sucesso; formulário e painel adaptam para uma coluna em telas pequenas. A ordem visual responsiva foi conferida no CSS, mas ainda precisa de inspeção autenticada no navegador.
+- Checklist de configuração de linha comercial agora mostra números nas etapas pendentes e destaca a próxima etapa obrigatória (`aria-current="step"`); itens concluídos permanecem marcados e leads opcionais para inbound não bloqueiam a sequência.
+- Erro reportado no Chrome: o chunk com hash de `PlatformWorkspace` respondeu 404 e a importação lazy deixou a tela vazia. A causa exata (cache ou pods em versões diferentes na publicação) não pode ser determinada pela captura. Foi adicionado Error Boundary ao redor das rotas, com recuperação localizada pt-BR/en, botão de recarregar e ilustração local WebP (`public/illustrations/support-recovery.webp`, ~141 KB); o fallback não importa componentes compartilhados pesados.
+- `npm run build` passou, oxlint de `main.tsx` e do Error Boundary passou sem avisos, e `git diff --check` passou. Não foi possível reproduzir o 404 via navegador nesta sessão. Sem commit, push, deploy ou acesso à AWS.
+- `npm run build` do frontend passou; `git diff --check` passou. Oxlint amplo completou sem erros, mantendo avisos sobre efeitos, relógio e dependências em várias telas. Chrome remoto e aplicação autenticada não estavam disponíveis, então os estados visuais não foram exercitados ao vivo. Sem commit, push, deploy ou AWS.
+
 ## Isolamento operacional entre linhas — 20/11/2026
 
 - Navegação principal reorganizada em cinco áreas recolhíveis: Rotina, Clientes, Vendas, Configuração e Gestão. O grupo da página atual abre automaticamente; usuários podem abrir/recolher pelo teclado e as rotas continuam filtradas pelas permissões já existentes. Configuração de etapas do pipeline agora está listada junto das demais configurações. Build frontend passou e `npx oxlint src/App.tsx` ficou sem avisos. A inspeção visual no Chrome não ocorreu porque o host de acesso ao navegador estava indisponível.

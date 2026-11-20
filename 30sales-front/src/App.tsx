@@ -149,11 +149,26 @@ export default function App() {
   const notificationRequestsInFlight = useRef(new Map<string, number>())
   const requestNotificationRefreshRef = useRef<() => void>(() => {})
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [navigationGroupOverride, setNavigationGroupOverride] = useState<{ page: Page; group: NavigationGroup | null } | null>(null)
+  const [expandedNavigationGroups, setExpandedNavigationGroups] = useState<Set<NavigationGroup>>(() => {
+    const activeGroup = navigationGroupForPage(page)
+    return activeGroup ? new Set([activeGroup]) : new Set()
+  })
   const [changingOrganization, setChangingOrganization] = useState(false)
   const [organizationSwitchError, setOrganizationSwitchError] = useState(false)
   const activeBusinessLineId = searchParams.get('businessLineId') ?? ''
-  const expandedNavigationGroup = navigationGroupOverride?.page === page ? navigationGroupOverride.group : navigationGroupForPage(page)
+  useEffect(() => {
+    const activeGroup = navigationGroupForPage(page)
+    if (activeGroup) setExpandedNavigationGroups((groups) => groups.has(activeGroup) ? groups : new Set(groups).add(activeGroup))
+  }, [page])
+
+  const toggleNavigationGroup = (group: NavigationGroup) => {
+    setExpandedNavigationGroups((groups) => {
+      const nextGroups = new Set(groups)
+      if (nextGroups.has(group)) nextGroups.delete(group)
+      else nextGroups.add(group)
+      return nextGroups
+    })
+  }
 
   const navigateToPage = (targetPage: Page, query: Record<string, string | null | undefined> = {}, options: { replace?: boolean } = {}) => {
     const params = new URLSearchParams()
@@ -418,31 +433,31 @@ export default function App() {
       </Button>
       <nav id="primary-navigation" className={`nav-items ${mobileMenuOpen ? 'open' : ''}`} aria-label={t('common.workspace')} onClick={() => setMobileMenuOpen(false)}>
         {navigationPageGroups.daily.some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.daily')}>
-          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'daily' ? 'current' : ''}`} aria-expanded={expandedNavigationGroup === 'daily'} aria-controls="nav-group-daily" onClick={(event) => { event.stopPropagation(); setNavigationGroupOverride({ page, group: expandedNavigationGroup === 'daily' ? null : 'daily' }) }}><span>{t('common.navGroups.daily')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
-          <div className="nav-group-links" id="nav-group-daily" hidden={expandedNavigationGroup !== 'daily'}>
+          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'daily' ? 'current' : ''}`} aria-expanded={expandedNavigationGroups.has('daily')} aria-controls="nav-group-daily" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('daily') }}><span>{t('common.navGroups.daily')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
+          <div className="nav-group-links" id="nav-group-daily" hidden={!expandedNavigationGroups.has('daily')}>
             {canViewPage('home') && <Button className={`nav ${page === 'home' ? 'active' : ''}`} aria-current={page === 'home' ? 'page' : undefined} onClick={() => navigateToPage('home')}><CalendarClock size={18} />{t('common.home')}</Button>}
             {canViewPage('tasks') && <Button className={`nav ${page === 'tasks' ? 'active' : ''}`} aria-current={page === 'tasks' ? 'page' : undefined} onClick={() => navigateToPage('tasks')}><ListTodo size={18} />{t('common.tasksNav')}</Button>}
           </div>
         </div>}
         {navigationPageGroups.customers.some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}>
-          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'customers' ? 'current' : ''}`} aria-expanded={expandedNavigationGroup === 'customers'} aria-controls="nav-group-customers" onClick={(event) => { event.stopPropagation(); setNavigationGroupOverride({ page, group: expandedNavigationGroup === 'customers' ? null : 'customers' }) }}><span>{t('common.navGroups.customers')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
-          <div className="nav-group-links" id="nav-group-customers" hidden={expandedNavigationGroup !== 'customers'}>
+          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'customers' ? 'current' : ''}`} aria-expanded={expandedNavigationGroups.has('customers')} aria-controls="nav-group-customers" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('customers') }}><span>{t('common.navGroups.customers')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
+          <div className="nav-group-links" id="nav-group-customers" hidden={!expandedNavigationGroups.has('customers')}>
             {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length > 0 && <span className="nav-count">{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length}</span>}</Button>}
             {canViewPage('leads') && <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>}
             {canViewPage('accounts') && <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>}
           </div>
         </div>}
         {navigationPageGroups.sales.some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.sales')}>
-          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'sales' ? 'current' : ''}`} aria-expanded={expandedNavigationGroup === 'sales'} aria-controls="nav-group-sales" onClick={(event) => { event.stopPropagation(); setNavigationGroupOverride({ page, group: expandedNavigationGroup === 'sales' ? null : 'sales' }) }}><span>{t('common.navGroups.sales')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
-          <div className="nav-group-links" id="nav-group-sales" hidden={expandedNavigationGroup !== 'sales'}>
+          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'sales' ? 'current' : ''}`} aria-expanded={expandedNavigationGroups.has('sales')} aria-controls="nav-group-sales" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('sales') }}><span>{t('common.navGroups.sales')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
+          <div className="nav-group-links" id="nav-group-sales" hidden={!expandedNavigationGroups.has('sales')}>
             {canViewPage('closerQueue') && <Button className={`nav ${page === 'closerQueue' ? 'active' : ''}`} aria-current={page === 'closerQueue' ? 'page' : undefined} onClick={() => navigateToPage('closerQueue')}><Briefcase size={18} />{t('common.closerQueueNav')}</Button>}
             {canViewPage('handoffs') && <Button className={`nav ${page === 'handoffs' ? 'active' : ''}`} aria-current={page === 'handoffs' ? 'page' : undefined} onClick={() => navigateToPage('handoffs')}><UserRoundCheck size={18} />{t('common.handoffsNav')}</Button>}
             {canViewPage('pipeline') && <Button className={`nav ${page === 'pipeline' ? 'active' : ''}`} aria-current={page === 'pipeline' ? 'page' : undefined} onClick={() => navigateToPage('pipeline')}><TrendingUp size={18} />{t('common.pipelineNav')}</Button>}
           </div>
         </div>}
         {navigationPageGroups.configuration.some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.configuration')}>
-          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'configuration' ? 'current' : ''}`} aria-expanded={expandedNavigationGroup === 'configuration'} aria-controls="nav-group-configuration" onClick={(event) => { event.stopPropagation(); setNavigationGroupOverride({ page, group: expandedNavigationGroup === 'configuration' ? null : 'configuration' }) }}><span>{t('common.navGroups.configuration')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
-          <div className="nav-group-links" id="nav-group-configuration" hidden={expandedNavigationGroup !== 'configuration'}>
+          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'configuration' ? 'current' : ''}`} aria-expanded={expandedNavigationGroups.has('configuration')} aria-controls="nav-group-configuration" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('configuration') }}><span>{t('common.navGroups.configuration')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
+          <div className="nav-group-links" id="nav-group-configuration" hidden={!expandedNavigationGroups.has('configuration')}>
             {canViewPage('channels') && <Button className={`nav ${page === 'channels' ? 'active' : ''}`} aria-current={page === 'channels' ? 'page' : undefined} onClick={() => navigateToPage('channels')}><Radio size={18} />{t('common.channelsNav')}</Button>}
             {canViewPage('assistant') && <Button className={`nav ${page === 'assistant' ? 'active' : ''}`} aria-current={page === 'assistant' ? 'page' : undefined} onClick={() => navigateToPage('assistant')}><Bot size={18} />{t('assistantSettings.nav')}</Button>}
             {canViewPage('closerSla') && <Button className={`nav ${page === 'closerSla' ? 'active' : ''}`} aria-current={page === 'closerSla' ? 'page' : undefined} onClick={() => navigateToPage('closerSla')}><CalendarClock size={18} />{t('closerSlaSettings.nav')}</Button>}
@@ -451,8 +466,8 @@ export default function App() {
           </div>
         </div>}
         {navigationPageGroups.management.some(canViewPage) || isPlatformAdmin ? <div className="nav-group" role="group" aria-label={t('common.navGroups.management')}>
-          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'management' ? 'current' : ''}`} aria-expanded={expandedNavigationGroup === 'management'} aria-controls="nav-group-management" onClick={(event) => { event.stopPropagation(); setNavigationGroupOverride({ page, group: expandedNavigationGroup === 'management' ? null : 'management' }) }}><span>{t('common.navGroups.management')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
-          <div className="nav-group-links" id="nav-group-management" hidden={expandedNavigationGroup !== 'management'}>
+          <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'management' ? 'current' : ''}`} aria-expanded={expandedNavigationGroups.has('management')} aria-controls="nav-group-management" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('management') }}><span>{t('common.navGroups.management')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
+          <div className="nav-group-links" id="nav-group-management" hidden={!expandedNavigationGroups.has('management')}>
             {canViewPage('reports') && <Button className={`nav ${page === 'reports' ? 'active' : ''}`} aria-current={page === 'reports' ? 'page' : undefined} onClick={() => navigateToPage('reports')}><BarChart3 size={18} />{t('funnelReport.nav')}</Button>}
             {canViewPage('audit') && <Button className={`nav ${page === 'audit' ? 'active' : ''}`} aria-current={page === 'audit' ? 'page' : undefined} onClick={() => navigateToPage('audit')}><ShieldCheck size={18} />{t('common.auditNav')}</Button>}
             {canViewPage('imports') && <Button className={`nav ${page === 'imports' ? 'active' : ''}`} aria-current={page === 'imports' ? 'page' : undefined} onClick={() => navigateToPage('imports')}><Database size={18} />{t('common.importsNav')}</Button>}

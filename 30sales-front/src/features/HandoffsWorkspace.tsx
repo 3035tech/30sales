@@ -1,6 +1,6 @@
 import { Button, CalendarField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send } from 'lucide-react'
+import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto } from '../lib/api'
@@ -51,6 +51,7 @@ export function HandoffsWorkspace() {
   const [returnReason, setReturnReason] = useState('')
   const [returnNextStep, setReturnNextStep] = useState('')
   const [returnDueAt, setReturnDueAt] = useState('')
+  const [createFormOpen, setCreateFormOpen] = useState(false)
   const requestRevision = useRef(0)
 
   const refresh = useCallback(async () => {
@@ -82,7 +83,7 @@ export function HandoffsWorkspace() {
       const confirmedReadiness = readinessFields.filter((field) => readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${readiness[field].trim()}`)
       const missingReadiness = readinessFields.filter((field) => !readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${t('handoffReadiness.notConfirmed')}`)
       await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
-      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); if (handoffId) setSearchParams({})
+      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); setCreateFormOpen(false); if (handoffId) setSearchParams({})
     } catch { setError(t('errors.createHandoff')) }
     finally { setSaving(false) }
   }
@@ -110,8 +111,8 @@ export function HandoffsWorkspace() {
   }
 
   return <section className="leads-page handoffs-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></header>
-    <form className="handoff-form" onSubmit={create}>
+    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><div className="handoff-header-actions"><Button type="button" className={createFormOpen ? '' : 'primary'} aria-expanded={createFormOpen} aria-controls="new-handoff-form" onClick={() => setCreateFormOpen((open) => !open)}>{createFormOpen ? <X size={16} /> : <Plus size={16} />}{t(createFormOpen ? 'handoffs.closeForm' : 'handoffs.new')}</Button><Button type="button" className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></div></header>
+    <form id="new-handoff-form" className="handoff-form" hidden={!createFormOpen} onSubmit={create}>
       <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
       <div className="handoff-fields">
         <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required disabled={leadOptionsState !== 'ready'}><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField>{leadOptionsState === 'loading' && <small aria-live="polite">{t('common.loading')}</small>}{leadOptionsState === 'error' && <small className="ui-field-error" role="alert">{t('handoffs.leadsLoadFailed')}</small>}{leadOptionsState === 'ready' && leads.length === 0 && <small>{t('handoffs.noRespondedLeads')}</small>}</label>
@@ -126,8 +127,8 @@ export function HandoffsWorkspace() {
       </div>
     </form>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
-    <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
-      {statuses.map((item) => <Button key={item} role="tab" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}
+    <div className="handoff-tabs" role="group" aria-label={t('handoffs.views')}>
+      {statuses.map((item) => <Button key={item} type="button" aria-pressed={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}
     </div>
     <div className="handoff-list-controls">
       <label>{t('handoffs.search')}<TextField type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>

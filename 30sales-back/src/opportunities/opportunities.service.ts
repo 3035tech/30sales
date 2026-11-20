@@ -110,7 +110,7 @@ export class OpportunitiesService {
     if (!hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES)) throw new ForbiddenException({ code: 'OPPORTUNITY_ASSIGNMENT_FORBIDDEN', message: 'Only sales managers can reassign opportunities.' });
     await this.pipelinesRepository.ensureDefault(context.organizationId);
     const result = await this.repository.assignOwner(new OpportunityRepositoryAssignOwnerDto(context.organizationId, opportunityId, dto.ownerUserId, context.userId, request.correlationId));
-    if (result === 'invalid_assignee') throw new ConflictException({ code: 'INVALID_OPPORTUNITY_ASSIGNEE', message: 'The selected user must be an active closer in this organization.' });
+    if (result === 'invalid_assignee') throw new ConflictException({ code: 'INVALID_OPPORTUNITY_ASSIGNEE', message: 'The selected user must be an active closer assigned to this business line.' });
     if (result === 'terminal_opportunity') throw new ConflictException({ code: 'CLOSED_OPPORTUNITY_OWNER_LOCKED', message: 'Closed opportunities cannot be reassigned.' });
     if (!result) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active organization.' });
     return result;

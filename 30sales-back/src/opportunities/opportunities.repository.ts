@@ -178,21 +178,33 @@ export class OpportunitiesRepository {
   }
 
   async listAssignees(organizationId: string): Promise<OpportunityAssigneeDto[]> {
-    const rows = await database.select({ id: user.id, name: user.name }).from(member)
+    const rows = await database.select({ id: user.id, name: user.name, businessLineId: businessLineMembers.businessLineId }).from(member)
       .innerJoin(user, eq(user.id, member.userId))
-      .where(and(eq(member.organizationId, organizationId), sql`string_to_array(replace(${member.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`))
-      .orderBy(asc(user.name));
-    return rows.map((row) => new OpportunityAssigneeDto(row.id, row.name));
+      .innerJoin(businessLineMembers, and(eq(businessLineMembers.memberId, member.id), eq(businessLineMembers.organizationId, member.organizationId)))
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(member.organizationId, organizationId), eq(businessLines.status, 'active'), sql`string_to_array(replace(${member.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`))
+      .orderBy(asc(user.name), asc(businessLineMembers.businessLineId));
+    const assignees = new Map<string, { name: string; businessLineIds: string[] }>();
+    for (const row of rows) {
+      const existing = assignees.get(row.id);
+      if (existing) existing.businessLineIds.push(row.businessLineId);
+      else assignees.set(row.id, { name: row.name, businessLineIds: [row.businessLineId] });
+    }
+    return [...assignees].map(([id, assignee]) => new OpportunityAssigneeDto(id, assignee.name, assignee.businessLineIds));
   }
 
   async assignOwner(input: OpportunityRepositoryAssignOwnerDto): Promise<OpportunityRecordDto | 'invalid_assignee' | 'terminal_opportunity' | null> {
     const opportunityId = await database.transaction(async (transaction): Promise<string | 'invalid_assignee' | null> => {
-      const [current] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage }).from(opportunities)
-        .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
+      const [current] = await transaction.select({ ownerUserId: opportunities.ownerUserId, stage: opportunities.stage, businessLineId: pipelines.businessLineId }).from(opportunities)
+        .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+        .innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+        .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId), eq(businessLines.status, 'active'))).for('update').limit(1);
       if (!current) return null;
       if (current.stage === 'won' || current.stage === 'lost') return 'terminal_opportunity';
       if (input.ownerUserId) {
+        if (!current.businessLineId) return 'invalid_assignee';
         const [eligible] = await transaction.select({ id: member.id }).from(member)
+          .innerJoin(businessLineMembers, and(eq(businessLineMembers.memberId, member.id), eq(businessLineMembers.organizationId, member.organizationId), eq(businessLineMembers.businessLineId, current.businessLineId)))
           .where(and(eq(member.organizationId, input.organizationId), eq(member.userId, input.ownerUserId), sql`string_to_array(replace(${member.role}, ' ', ''), ',') @> ARRAY[${ORGANIZATION_CLOSER_ROLES[0]}]::text[]`)).limit(1);
         if (!eligible) return 'invalid_assignee';
       }
@@ -222,14 +234,14 @@ export class OpportunitiesRepository {
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ pipelineId: opportunities.pipelineId, businessLineId: pipelines.businessLineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey }).from(opportunities)
         .leftJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
-        .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update').limit(1);
+        .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).for('update', { of: [opportunities] }).limit(1);
       if (!current || current.stage !== input.input.expectedStage || current.pipelineStageKey !== (input.input.expectedPipelineStageKey ?? null) || (input.input.expectedPipelineId && current.pipelineId !== input.input.expectedPipelineId)) return null;
       if (!input.canManageAll && !await this.lockLineMembership(transaction, input.organizationId, current.businessLineId, input.actorUserId)) return null;
       const targetPipelineId = input.input.pipelineId ?? current.pipelineId;
       if (!targetPipelineId) return null;
       const [targetPipeline] = await transaction.select({ id: pipelines.id, businessLineId: pipelines.businessLineId }).from(pipelines)
         .leftJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
-        .where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.id, targetPipelineId), eq(pipelines.isActive, true), or(isNull(pipelines.businessLineId), eq(businessLines.status, 'active')))).for('share').limit(1);
+        .where(and(eq(pipelines.organizationId, input.organizationId), eq(pipelines.id, targetPipelineId), eq(pipelines.isActive, true), or(isNull(pipelines.businessLineId), eq(businessLines.status, 'active')))).for('share', { of: [pipelines] }).limit(1);
       if (!targetPipeline) return null;
       if (targetPipeline.businessLineId !== current.businessLineId) return 'different_business_line';
       if (input.input.stage === 'custom') {

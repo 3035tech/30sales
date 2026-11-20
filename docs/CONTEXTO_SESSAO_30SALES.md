@@ -1,5 +1,32 @@
 # Contexto de continuidade — 30Sales
 
+## Isolamento operacional entre linhas — 20/11/2026
+
+- Navegação principal reorganizada em cinco áreas recolhíveis: Rotina, Clientes, Vendas, Configuração e Gestão. O grupo da página atual abre automaticamente; usuários podem abrir/recolher pelo teclado e as rotas continuam filtradas pelas permissões já existentes. Configuração de etapas do pipeline agora está listada junto das demais configurações. Build frontend passou e `npx oxlint src/App.tsx` ficou sem avisos. A inspeção visual no Chrome não ocorreu porque o host de acesso ao navegador estava indisponível.
+- Pipeline: removido o seletor local de linha, que duplicava o seletor global do topo. A escolha do pipeline continua na página e, se pertencer a outra linha, atualiza o contexto global; a lista, board e closers disponíveis usam essa mesma linha da URL. `npm run build` passou. A revisão visual continua pendente porque o host do Chrome segue indisponível.
+- Passagens para closer: formulário de criação extenso agora fica recolhido até a pessoa pedir “Preparar passagem”; depois de salvar, fecha e a lista solicitada é atualizada. Os filtros de situação foram semanticamente ajustados para grupo de botões pressionáveis, sem declarar `tablist` sem suporte a navegação por setas. Build e `git diff --check` passaram; oxlint da tela aponta avisos já existentes sobre relógio/data, debounce e dependências de hook.
+- Leads: ação principal “Adicionar lead” aparece antes das ações secundárias; a barra agora permite quebra de linha em telas estreitas em vez de forçar os botões numa linha horizontal. Build e `git diff --check` passaram.
+
+- A tela de oportunidades filtra closers disponíveis pela linha comercial selecionada; a API também valida membership ativo na mesma linha ao atribuir responsável. O seletor preserva o responsável atual como informação se ele não pertence à linha, e permite remover a atribuição.
+- O teste de integração cobre tentativa de movimentação por membro de outra linha e tentativa gerencial de transferir oportunidade para pipeline de outra linha; a oportunidade permanece sem alteração. Também comprova concorrência otimista: duas transições com o mesmo estado esperado produzem uma única mudança e um histórico. Falha ao registrar histórico reverte a atualização da oportunidade. `test:business-lines` passou com 13 testes em PostgreSQL Docker descartável local, incluindo reconciliação de métricas sintéticas por linha, organização e moeda.
+- Relatório reconciliado: numa janela de um dia UTC, Linha Alpha: 2 leads, 2 oportunidades criadas, 1 aberta, 1 ganha / USD 150; Organização A (Alpha + Beta): 3 leads, 3 oportunidades, 1 aberta, 2 ganhos / USD 150 + EUR 200. Uma oportunidade da Organização B (GBP 999) foi excluída. A coorte Alpha usou n=2 (2 respondidos, 1 convertido para SDR, 2 com oportunidade); empresa n=3 (2, 1, 3). Asserções estão na suíte de integração.
+- Definições e falhas documentadas em `sofia_produto/11_portfolio_linhas_negocio.md`: datas inclusivas UTC; retratos atuais fora do período; taxa de ganho = ganhos/(ganhos+perdas); coortes usam leads distintos da data de criação como denominador; valores nunca convertem moedas. Inspeção do código confirma relatório principal fail-all se uma consulta interna falhar (sem parcial/zero substituto; UI preserva resultado anterior com aviso). Uso de IA é fonte separada e pode falhar sem ocultar o restante. Falha deliberada de provider não foi simulada.
+- UX do painel de IA no relatório: funil e uso de IA agora são consultados em paralelo. O painel vincula os dados ao escopo completo (linha + datas) e distingue carregamento, resultado vazio e falha; período selecionado fica visível. Assim, nenhuma resposta atrasada de outro filtro aparece como zero ou dado atual. `npm run build` do frontend passou.
+- A transição de oportunidade tinha `FOR UPDATE`/`FOR SHARE` sobre consultas com `LEFT JOIN`, rejeitadas pelo PostgreSQL no lado anulável. Os locks agora especificam somente `opportunities` e `pipelines`, respectivamente. Build Nest passou e a suíte de integração confirmou o fluxo de transição.
+- Build Nest passou; build Vite anterior segue válido (bundle de entrada 441,33 KB / 138,98 KB gzip; PipelineWorkspace 36,08 KB / 9,48 KB gzip). Container de teste foi removido. `git diff --check` passou. Sem commit, push, deploy ou acesso AWS.
+
+## UX do pipeline
+
+- O quadro permite arrastar oportunidades entre etapas; soltar abre revisão e confirmação antes de salvar.
+- A configuração de ordem de etapas usa botões de mover para cima/baixo, não drag and drop. Ganho e Perda permanecem fixas no final.
+
+## Verificação de qualidade após push — 19/11/2026
+
+- Builds de produção do Vite e do Nest passaram localmente após o push atual. Três suítes focadas em linhas de negócio, canais e relatórios passaram (13 testes). O teste de canal comprova que a edição fora da linha autorizada falha antes da mutação no repository.
+- A suíte `test:business-lines` também passou em um PostgreSQL Docker descartável local (9 testes), com migrations de runtime aplicadas apenas nesse banco. Cobriu membership/listagem por organização, negação de acesso cruzado, associação de membros de outro tenant, backfill idempotente e acesso a canais e oportunidades por linha (membro limitado, gestor consolidado no tenant e bloqueio entre tenants). Atribuição exige closer ativo membro da mesma linha; a API retorna memberships de linha para filtrar as opções do seletor e falha para linha arquivada.
+- O bundle de entrada do frontend está em 441,18 KB (138,91 KB gzip); o chunk de telefone com libphonenumber fica separado em 142,17 KB (34,06 KB gzip), carregado pelos fluxos que usam PhoneField. A métrica foi registrada; sem evidência de regressão funcional ou alteração especulativa de divisão de chunks.
+- Permanecem pendentes testes de integração dos comandos de mutação operacional cross-line, concorrência e rollback. O container descartável foi removido; nenhuma migration foi aplicada em banco compartilhado. Sem AWS, deploy ou publicação.
+
 ## Testar Evolution antes de salvar — 19/11/2026
 
 - A tela de integração agora permite testar URL e API key informadas antes de salvar. O request de teste envia os dados temporários ao backend e consulta somente a lista de instâncias; não persiste credenciais. Sem uma chave digitada, permanece disponível o teste da configuração salva quando a URL corresponde à atual.
@@ -26,7 +53,7 @@
 - Convite e redefinição de senha agora carregam sob demanda por `RouteEntrypoints.tsx`, em vez de entrar no grafo inicial em `main.tsx`. Build medido: chunk de entrada caiu de 442.34 KB / 139.17 KB gzip para 431.86 KB / 136.12 KB gzip. `FormControls` (49.42 KB gzip) saiu do preload inicial; foi substituído pelo chunk compartilhado `Button` (20.26 KB gzip), redução aproximada de 32 KB gzip na transferência inicial total dos chunks pré-carregados.
 - `App.tsx` importa o runtime API sem passar pelo barrel que reexporta todos os schemas Zod. O chunk `contracts` (31.44 KB gzip) e `client` deixaram o preload inicial. Build atualizado: entrada 433.74 KB / 136.83 KB gzip; chunks de entrada pré-carregados somam aproximadamente 160.34 KB gzip, cerca de 32 KB a menos que antes dessa mudança.
 - Verificações: build front/back passaram; 12 testes unitários passaram; build frontend após as correções, oxlint focado em `App.tsx` (zero avisos) e `git diff --check` passaram. `test:business-lines` foi executado, mas pulou os cinco casos porque não há `BUSINESS_LINES_TEST_DATABASE_URL` configurada para banco descartável local. Sem commit, push, deploy ou acesso AWS.
-- Próximo passo: validar o fluxo no navegador se solicitado e executar o teste cross-line quando houver banco local descartável configurado. Não publicar sem solicitação.
+- Próximo passo registrado em 19/11, antes da cobertura de 20/11: executar o teste cross-line em banco local descartável. Esse teste agora está coberto na seção mais recente acima. Não publicar sem solicitação.
 
 ## Validação do candidato de linhas — 19/11/2026
 

@@ -1,36 +1,35 @@
 # Documentação do 30Sales
 
-## Retomada de trabalho
+Comece pelo [README do repositório](../README.md) para conhecer o produto, preparar o ambiente local e executar frontend e backend.
 
-- [Contexto de continuidade da sessão](CONTEXTO_SESSAO_30SALES.md): objetivo, decisões persistentes, estado atual do código e próximo passo recomendado.
+## Produto e operação comercial
 
-## Produto
+- [Visão geral da Sofia e navegação](sofia_produto/01_visao_e_navegacao.md)
+- [Telas, campos e ações](sofia_produto/02_telas_campos_acoes.md)
+- [Modelo de dados](sofia_produto/03_modelo_de_dados.md)
+- [Estados, regras e automações](sofia_produto/04_estados_regras_automacoes.md)
+- [Integrações e segurança](sofia_produto/05_integracoes_api_seguranca.md)
+- [Backlog e critérios de aceite](sofia_produto/06_backlog_aceite_entrega.md)
+- [Oportunidades de produto e valor para o usuário](sofia_produto/07_oportunidades_e_valor_para_usuario.md)
+- [Eventos e integrações Evolution/Meta](sofia_produto/08_eventos_integracoes_evolution_meta.md)
+- [Portfólio de linhas de negócio](sofia_produto/11_portfolio_linhas_negocio.md)
+- [Mapeamento de fontes de importação](sofia_produto/09_mapeamento_fontes_importacao.md)
 
-- [Especificação do produto](sofia_produto/README.md): visão, navegação, telas, campos, dados, estados, integrações, segurança, backlog e oportunidades de valor.
-- [Análise da operação Sofia](analise_produto_unificado_sofia_20261114.md): fontes e fluxos que serão consolidados.
-- [Especificação SDR, BDR e closer](especificacao_produto_sofia_sdr_bdr_closer_20261114.md).
-- [Identidade visual](identidade_visual_30sales.md): conceito, paleta, tipografia e uso dos assets.
+O diretório [`sofia_produto`](sofia_produto/README.md) contém a especificação funcional consolidada e links para todos os documentos do produto.
 
-## Implementação atual
+## Engenharia e entrega
 
-- [Arquitetura e fluxo de dados](arquitetura_tecnica.md): Git Flow, API client, DTOs, camadas Nest, isolamento de tenant, endpoints e migrations.
-- [Imagens de contêiner](container-images.md): builds independentes do backend e frontend, tags GHCR e requisitos para o GitOps/Argo CD.
+- [Arquitetura técnica](arquitetura_tecnica.md): camadas, isolamento multi-tenant, API, persistência e integrações.
+- [Imagens de contêiner e GitOps](container-images.md): builds, publicação no GHCR, roteamento e atualização via Argo CD.
+- [Identidade visual](identidade_visual_30sales.md): marca, paleta, tipografia e assets.
+- [Padrões de engenharia](../AGENTS.md): convenções obrigatórias para mudanças no frontend e backend.
+- [Contexto de continuidade](CONTEXTO_SESSAO_30SALES.md): registro cronológico de decisões e trabalho recente. É uma memória de sessão, não substitui a verificação do código atual.
 
-O produto começou como SaaS multi-tenant. Frontend Vite/React e backend NestJS estão separados. Login e identidade usam Better Auth + PostgreSQL/Drizzle; organizações têm papéis tipados, convites exigem verificação de e-mail e envio configurável por SMTP. O frontend contém shell, aceite de convite, gestão básica da equipe, fila de leads e assets oficiais da marca. Todas as chamadas passam por um client central.
+## Aplicações
 
-### Limites desta etapa
+- [Frontend](../30sales-front/README.md): Vite, React, execução local e estrutura da interface.
+- [Backend](../30sales-back/README.md): NestJS, configuração, migrations, testes e domínios da API.
 
-- O banco local/Dublin ainda não foi conectado e nenhuma migration foi aplicada.
-- Host, usuário e senha SMTP ainda precisam ser definidos em ambiente seguro.
-- É necessário provisionar com segurança o primeiro owner/tenant antes do uso por clientes.
-- A primeira API de leads já está criada com escopo obrigatório de tenant. Outros domínios comerciais ainda serão implementados.
-- Não houve deploy.
+## Ambiente local
 
-## Ambiente de desenvolvimento
-
-1. Copiar `30sales-back/.env.example` para um arquivo local ignorado pelo Git e configurar PostgreSQL, `BETTER_AUTH_SECRET` e SMTP.
-2. Executar `npm run db:migrate` em `30sales-back`.
-3. Iniciar `npm run start:dev` em `30sales-back` e `npm run dev` em `30sales-front`.
-4. Criar/provisionar o primeiro owner por fluxo administrativo seguro antes de habilitar a operação.
-
-O kit original está versionado em `30sales-front/public/brand-kit/`; consulte as instruções incluídas no kit antes de produzir materiais externos.
+Os passos completos estão no [README principal](../README.md#executar-localmente). Em resumo, configure PostgreSQL e as variáveis de `30sales-back/.env.example`, aplique migrations apenas a um banco local descartável e execute os servidores do frontend e backend em terminais separados.

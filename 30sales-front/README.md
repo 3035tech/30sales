@@ -1,32 +1,32 @@
-# React + TypeScript + Vite
+# 30Sales frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Aplicação web do 30Sales, construída com Vite, React, TypeScript, React Router e i18next. A interface é localizada em português do Brasil e inglês.
 
-Currently, two official plugins are available:
+## Executar localmente
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Por padrão, o Vite encaminha requests de `/api` para `http://localhost:3000`. Para apontar para outra API durante o desenvolvimento, defina `VITE_API_PROXY_TARGET`.
+
+## Comandos
+
+```bash
+npm run build  # verifica TypeScript e gera dist/
+npm run lint   # executa Oxlint
+npm run preview # serve localmente o build de dist/
+```
+
+## Organização do código
+
+- `src/features/`: telas e fluxos por domínio, como Inbox, Leads, Campanhas, Pipeline, Tarefas e Linhas de negócio.
+- `src/components/ui/`: componentes de interface acessíveis e compartilhados.
+- `src/lib/api/`: client HTTP centralizado, sessão e contratos da API.
+- `src/lib/i18n/`: catálogos de texto `pt-BR` e `en`.
+- `public/`: marca e assets estáticos.
+
+Toda comunicação HTTP passa pelo client centralizado em `src/lib/api/client.ts`. A interface pode manter a organização ativa como contexto visual, mas autorização e isolamento de dados são responsabilidade do backend.
+
+Veja o [README do projeto](../README.md), os [padrões do frontend](AGENTS.md) e a [arquitetura](../docs/arquitetura_tecnica.md).

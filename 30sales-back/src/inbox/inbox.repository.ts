@@ -394,13 +394,14 @@ export class InboxRepository {
         .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).for('share').limit(1);
       if (!membership) return 'not_found';
       if (!hasOrganizationRole(membership.role, ORGANIZATION_MANAGEMENT_ROLES)) {
+        if (!conversation.channelId) return 'not_found';
         const [channelLine] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
           .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
         if (!channelLine?.businessLineId) return 'not_found';
         const [line] = await transaction.select({ id: businessLines.id, status: businessLines.status }).from(businessLines)
           .where(and(eq(businessLines.id, channelLine.businessLineId), eq(businessLines.organizationId, input.organizationId))).for('share').limit(1);
         if (!line || line.status !== 'active') return 'not_found';
-        const [lineMembership] = await transaction.select({ id: businessLineMembers.id }).from(businessLineMembers)
+        const [lineMembership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
           .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
           .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, line.id), eq(authMember.userId, input.actorUserId))).limit(1);
         if (!lineMembership) return 'not_found';

@@ -1,6 +1,6 @@
 # Checklist para fechamento da próxima versão
 
-Atualizado em 18/11/2026. Esta checklist acompanha o backlog funcional em [`06_backlog_aceite_entrega.md`](06_backlog_aceite_entrega.md) e registra evidências necessárias para declarar uma versão pronta.
+Registro atualizado em 18/11/2026. Esta checklist é uma fotografia histórica da revisão daquela versão, não o estado atual de `main` nem dos ambientes publicados. Use-a como referência de critérios; confirme build, migrations, configuração e evidências na release que estiver sendo preparada. O backlog funcional está em [`06_backlog_aceite_entrega.md`](06_backlog_aceite_entrega.md).
 
 ## Estado atual
 

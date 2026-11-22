@@ -1,6 +1,6 @@
 # 30Sales — especificação detalhada do produto
 
-Versão 1.0 — 14/11/2026. Proposta funcional e técnica; ainda não implementada.
+Versão 1.0 — 14/11/2026. Esta especificação registra a visão, as regras e o backlog que orientam a evolução do produto. Ela não é um retrato automático do código ou do ambiente publicado: vários fluxos descritos já têm implementação, e o estado deve ser confirmado no repositório e nos registros de release/migrations.
 
 Esta documentação define o blueprint de produto para o **30Sales**, aplicação comercial única de BDR, SDR e closer. **Sofia** é a assistente SDR virtual que opera dentro do 30Sales, não o nome da plataforma.
 

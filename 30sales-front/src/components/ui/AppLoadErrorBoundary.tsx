@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Button } from './Button'
 import './AppLoadErrorBoundary.css'
 
 type BoundaryState = { hasError: boolean }
@@ -19,7 +20,7 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
           <img className="app-load-error-illustration" src="/illustrations/support-recovery.webp" alt="" aria-hidden="true" />
           <h1>{this.props.title}</h1>
           <p>{this.props.description}</p>
-          <button className="app-load-error-reload" type="button" onClick={() => window.location.reload()}>{this.props.reloadLabel}</button>
+          <Button className="app-load-error-reload" type="button" onClick={() => window.location.reload()}>{this.props.reloadLabel}</Button>
         </section>
       </main>
     }

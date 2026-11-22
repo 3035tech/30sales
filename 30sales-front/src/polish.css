@@ -50,12 +50,12 @@
   color: #1d4ed8;
 }
 
-:is(.ui-button, .ui-icon-button, .notification-trigger, .data-table-page-controls button) {
+:is(.notification-trigger, .data-table-page-controls button) {
   box-shadow: var(--app-shadow-sm);
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
 }
 
-:is(.ui-button:hover:not(:disabled), .ui-icon-button:hover:not(:disabled), .notification-trigger:hover, .data-table-page-controls button:hover:not(:disabled)) {
+:is(.notification-trigger:hover, .data-table-page-controls button:hover:not(:disabled)) {
   border-color: #b8c5d6;
   background-color: #f8fafc;
   color: #1e40af;
@@ -68,7 +68,7 @@
   color: #fff;
 }
 
-:is(.ui-button:active:not(:disabled), .data-table-page-controls button:active:not(:disabled)) {
+:is(.data-table-page-controls button:active:not(:disabled)) {
   transform: translateY(1px);
 }
 
@@ -145,7 +145,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :is(.nav, .ui-button, .ui-icon-button, .notification-trigger, .data-table-page-controls button) {
+  :is(.nav, .notification-trigger, .data-table-page-controls button) {
     transition: none;
   }
 }

@@ -52,7 +52,7 @@
 .inbox-composer .inbox-composer-tools .inbox-media-selection { display:flex; flex:1 1 240px; align-items:center; gap:8px; min-width:0; padding:5px 8px; border:1px solid #c9dbef; border-radius:7px; background:#f4f8fc; color:#334155; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection>span { display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection>small { flex:none; }
-.inbox-composer .inbox-composer-tools .inbox-media-selection .ui-icon-button { flex:none; min-height:28px; width:28px; padding:5px; border:0; background:transparent; color:#475569; }
+.inbox-composer .inbox-composer-tools .inbox-media-selection .ui-icon-button { flex:none; min-height:38px; width:38px; padding:8px; border:1px solid transparent; background:transparent; color:#475569; }
 .inbox-composer>p { margin:0; color:var(--muted,#64748b); font-size:var(--font-size-sm); }
 .inbox-composer-modes { display:flex; gap:6px; }
 .inbox-composer .inbox-composer-modes button { min-height:30px; border:1px solid var(--line,#dbe2ea); padding:5px 10px; background:#fff; color:#475569; }

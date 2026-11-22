@@ -2,5 +2,4 @@
 .closer-priority-urgent{color:#b42318}.closer-priority-high{color:#a44416}
 
 .closer-interpretation-reason{display:block;color:#a52e35;font-weight:650}
-.closer-event-actions .ui-icon-button { width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 6px; }
-.closer-item-action.ui-icon-button { width: 34px; min-width: 34px; height: 34px; min-height: 34px; margin: 4px 0 0 auto; padding: 6px; border: 1px solid #dbe4ee; border-radius: 7px; background: #fff; }
+.closer-item-action.ui-icon-button { margin: 4px 0 0 auto; }

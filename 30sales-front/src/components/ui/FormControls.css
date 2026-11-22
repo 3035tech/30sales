@@ -1,30 +1,3 @@
-.ui-button {
-  display: inline-flex;
-  min-height: 38px;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border: 1px solid var(--ui-control-border);
-  border-radius: var(--ui-control-radius);
-  background: var(--ui-control-surface);
-  color: var(--ui-control-text);
-  font: 600 var(--font-size-sm)/1.25 var(--brand-ui-font);
-  text-align: center;
-  cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.ui-button:hover:not(:disabled) { background: var(--ui-control-hover); }
-.ui-button.primary { border-color: var(--brand-action); background: var(--brand-action); color: #fff; }
-.ui-button.primary:hover:not(:disabled) { border-color: var(--brand-action-hover); background: var(--brand-action-hover); color: #fff; }
-.ui-button.primary:focus-visible { outline: 2px solid var(--ui-focus-ring); outline-offset: 2px; }
-.ui-button-primary { border-color: var(--brand-primary); background: var(--brand-primary); color: #fff; }
-.ui-button-primary:hover:not(:disabled) { border-color: var(--ui-primary-hover); background: var(--ui-primary-hover); }
-.ui-button-danger { border-color: var(--ui-danger-border); background: var(--ui-danger-surface); color: var(--ui-danger-text); }
-.ui-button-quiet { border-color: transparent; background: transparent; }
-.ui-button:disabled { opacity: .55; cursor: not-allowed; }
-.ui-icon-button { width: 34px; min-width: 34px; height: 34px; min-height: 34px; padding: 6px; }
-
 .ui-field-control {
   min-width: 0;
   min-height: 40px;
@@ -65,6 +38,8 @@
 }
 .ui-field-control[aria-invalid="true"] { border-color: var(--ui-danger-border); box-shadow: 0 0 0 1px var(--ui-danger-border); }
 .ui-field-control:disabled { background-color: var(--ui-control-disabled); color: var(--ui-control-muted); cursor: not-allowed; }
+.ui-text-field::placeholder, .ui-textarea::placeholder { color: var(--ui-control-placeholder); opacity: 1; }
+.ui-text-field:read-only { background-color: #f8fafc; color: var(--ui-control-muted); }
 .ui-checkbox { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--brand-primary); cursor: pointer; }
 .ui-checkbox:disabled { cursor: not-allowed; }
 .ui-file-field { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
@@ -87,7 +62,7 @@
 .ui-calendar-heading button:hover, .ui-calendar-actions button:hover:not(:disabled) { border-color: var(--ui-control-border); background: var(--ui-control-hover); }
 .ui-calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 3px; }
 .ui-calendar-weekday { display: grid; min-height: 30px; place-items: center; color: var(--ui-control-muted); font-size: var(--font-size-xs); font-weight: 600; text-transform: capitalize; }
-.ui-calendar-day { min-height: 34px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ui-control-text); font: 500 var(--font-size-sm) var(--brand-ui-font); cursor: pointer; }
+.ui-calendar-day { min-height: 34px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--ui-control-text); font: 500 var(--font-size-sm) var(--brand-ui-font); cursor: pointer; }
 .ui-calendar-day:hover:not(:disabled) { background: var(--ui-control-hover); }
 .ui-calendar-day.outside { color: #94a3b8; }
 .ui-calendar-day.today { border-color: var(--brand-primary); color: var(--brand-primary); }

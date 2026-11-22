@@ -1,9 +1,10 @@
-import { Button, CheckboxField, SelectField, TextareaField, TextField } from '../components/ui/FormControls'
+import { Button, CheckboxField, IconButton, SelectField, TextareaField, TextField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
 import { Bot, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { ApiError, api, type AssistantProfileDto, type AssistantSettingsDto } from '../lib/api'
 import type { BusinessLineDto } from '../lib/api'
 import './AssistantSettingsWorkspace.css'
@@ -28,6 +29,7 @@ export function AssistantSettingsWorkspace() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileSaved, setProfileSaved] = useState(false)
+  const [profileToDelete, setProfileToDelete] = useState<AssistantProfileDto | null>(null)
 
   useEffect(() => { setBusinessLineId(searchParams.get('businessLineId')) }, [searchParams])
 
@@ -88,8 +90,10 @@ export function AssistantSettingsWorkspace() {
     } finally { setProfileSaving(false) }
   }
 
-  const deleteProfile = async (profile: AssistantProfileDto) => {
-    if (!window.confirm(t('assistantSettings.deleteProfileConfirm', { name: profile.name }))) return
+  const deleteProfile = async () => {
+    const profile = profileToDelete
+    if (!profile) return
+    setProfileToDelete(null)
     setProfileError('')
     try {
       await api.agents.deleteAssistantProfile(profile.id)
@@ -152,7 +156,7 @@ export function AssistantSettingsWorkspace() {
       {profileError && <WorkspaceState kind="error" compact message={profileError} />}
       {profileSaved && <p className="success-message" role="status">{t('assistantSettings.profileSaved')}</p>}
       {profiles.length === 0 && !profileDraft && <p className="assistant-profile-empty">{t('assistantSettings.profilesEmpty')}</p>}
-      <div className="assistant-profile-list">{profiles.map((profile) => <article className="assistant-profile-card" key={profile.id}><div><strong>{profile.name}</strong><span>{t(`assistantSettings.${profile.direction}`)} · {profile.enabled ? t('assistantSettings.enabled') : t('assistantSettings.disabled')}</span></div><div className="assistant-profile-actions"><Button type="button" onClick={() => startProfile(profile)} aria-label={t('assistantSettings.editProfile', { name: profile.name })}><Pencil size={15} />{t('assistantSettings.editProfileShort')}</Button><Button type="button" onClick={() => void deleteProfile(profile)} aria-label={t('assistantSettings.deleteProfile', { name: profile.name })}><Trash2 size={15} />{t('assistantSettings.deleteProfileShort')}</Button></div></article>)}</div>
+      <div className="assistant-profile-list">{profiles.map((profile) => <article className="assistant-profile-card" key={profile.id}><div><strong>{profile.name}</strong><span>{t(`assistantSettings.${profile.direction}`)} · {profile.enabled ? t('assistantSettings.enabled') : t('assistantSettings.disabled')}</span></div><div className="assistant-profile-actions"><IconButton label={t('assistantSettings.editProfile', { name: profile.name })} onClick={() => startProfile(profile)}><Pencil size={15} /></IconButton><IconButton label={t('assistantSettings.deleteProfile', { name: profile.name })} onClick={() => setProfileToDelete(profile)}><Trash2 size={15} /></IconButton></div></article>)}</div>
       {profileDraft && <form className="assistant-profile-editor" onSubmit={(event) => void saveProfile(event)}>
         <div className="assistant-profile-editor-heading"><h4>{t(profileEditingId ? 'assistantSettings.editProfileTitle' : 'assistantSettings.newProfile')}</h4><Button type="button" onClick={() => { setProfileDraft(null); setProfileEditingId(null) }} aria-label={t('common.cancel')}><X size={16} /></Button></div>
         <label><span>{t('assistantSettings.profileName')}</span><TextField required minLength={2} maxLength={120} value={profileDraft.name} placeholder={t('assistantSettings.profileNamePlaceholder')} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label>
@@ -165,5 +169,6 @@ export function AssistantSettingsWorkspace() {
       </form>}
     </section>}
     {!businessLineId && <p className="assistant-profile-empty">{t('assistantSettings.profilesNeedLine')}</p>}
+    <ConfirmDialog open={profileToDelete !== null} onOpenChange={(open) => { if (!open) setProfileToDelete(null) }} title={t('common.confirmAction')} description={profileToDelete ? t('assistantSettings.deleteProfileConfirm', { name: profileToDelete.name }) : ''} confirmLabel={t('assistantSettings.deleteProfile', { name: profileToDelete?.name ?? '' })} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={deleteProfile} />
   </section>
 }

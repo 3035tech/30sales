@@ -1,6 +1,6 @@
 import { Button, CalendarField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, RefreshCw, Send, Plus, X } from 'lucide-react'
+import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, ChevronLeft, ChevronRight, RefreshCw, Send, Plus, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto } from '../lib/api'
@@ -111,7 +111,7 @@ export function HandoffsWorkspace() {
   }
 
   return <section className="leads-page handoffs-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><div className="handoff-header-actions"><Button type="button" className={createFormOpen ? '' : 'primary'} aria-expanded={createFormOpen} aria-controls="new-handoff-form" onClick={() => setCreateFormOpen((open) => !open)}>{createFormOpen ? <X size={16} /> : <Plus size={16} />}{t(createFormOpen ? 'handoffs.closeForm' : 'handoffs.new')}</Button><Button type="button" className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></div></header>
+    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><div className="handoff-header-actions"><Button type="button" className={createFormOpen ? '' : 'primary'} aria-label={createFormOpen ? t('handoffs.closeForm') : undefined} aria-expanded={createFormOpen} aria-controls="new-handoff-form" onClick={() => setCreateFormOpen((open) => !open)}>{createFormOpen ? <X size={16} /> : <><Plus size={16} />{t('handoffs.new')}</>}</Button><Button type="button" className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></div></header>
     <form id="new-handoff-form" className="handoff-form" hidden={!createFormOpen} onSubmit={create}>
       <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
       <div className="handoff-fields">
@@ -133,7 +133,7 @@ export function HandoffsWorkspace() {
     <div className="handoff-list-controls">
       <label>{t('handoffs.search')}<TextField type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>
       <label>{t('handoffs.sortBy')}<SelectField value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setOffset(0) }}><option value="requestedAt">{t('handoffs.sort.requestedAt')}</option><option value="accountName">{t('handoffs.sort.accountName')}</option><option value="contactName">{t('handoffs.sort.contactName')}</option><option value="nextStepAt">{t('handoffs.sort.nextStepAt')}</option></SelectField></label>
-      <Button className="handoff-sort-direction" type="button" aria-label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}{t(sortDirection === 'asc' ? 'handoffs.ascending' : 'handoffs.descending')}</Button>
+      <IconButton className="handoff-sort-direction" label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}</IconButton>
     </div>
     <div className="handoff-list">
       {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
@@ -158,6 +158,6 @@ export function HandoffsWorkspace() {
         </form>}
       </article>)}
     </div>
-    <footer className="handoff-pagination"><span>{t('table.range', { from: total ? offset + 1 : 0, to: Math.min(offset + pageSize, total), total })}</span><label>{t('table.rowsPerPage')}<SelectField value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></SelectField></label><div><Button type="button" onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={loading || offset === 0}>{t('table.previous')}</Button><Button type="button" onClick={() => setOffset(offset + pageSize)} disabled={loading || !hasNextPage}>{t('table.next')}</Button></div></footer>
+    <footer className="handoff-pagination"><span>{t('table.range', { from: total ? offset + 1 : 0, to: Math.min(offset + pageSize, total), total })}</span><label>{t('table.rowsPerPage')}<SelectField value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}><option value={10}>10</option><option value={25}>25</option><option value={50}>50</option><option value={100}>100</option></SelectField></label><div><Button type="button" aria-label={t('table.previous')} onClick={() => setOffset(Math.max(0, offset - pageSize))} disabled={loading || offset === 0}><ChevronLeft size={16} aria-hidden="true" /></Button><Button type="button" aria-label={t('table.next')} onClick={() => setOffset(offset + pageSize)} disabled={loading || !hasNextPage}><ChevronRight size={16} aria-hidden="true" /></Button></div></footer>
   </section>
 }

@@ -1,0 +1,5 @@
+.ui-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+@media (max-width: 480px) {
+  .ui-confirm-actions { flex-direction: column-reverse; }
+  .ui-confirm-actions .ui-button { width: 100%; }
+}

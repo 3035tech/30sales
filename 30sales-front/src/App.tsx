@@ -4,6 +4,7 @@ import { ArrowRight, BarChart3, Bell, Building2, ListTodo, MessageSquareText, Tr
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from './components/ui/WorkspaceState'
 import { Button } from './components/ui/Button'
+import { SelectField } from './components/ui/FormControls'
 import { Breadcrumbs } from './components/ui/Breadcrumbs'
 import { api } from './lib/api/api'
 import type { BusinessLineDto, SessionDto, UserNotificationDto } from './lib/api/contracts'
@@ -482,7 +483,7 @@ export default function App() {
       </div>
     </aside>
     <section className="main">
-      {notificationToast && <div className={`notification-toast${notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? ' is-error' : ''}`} role={notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? 'alert' : 'status'}><Bell size={17} /><Button type="button" onClick={() => { void openNotification(notificationToast); setNotificationToast(null) }}><strong>{t(notificationTitleKeys[notificationToast.notificationType])}</strong><small>{notificationToast.contactName ?? notificationToast.accountName ?? notificationToast.summary}</small></Button><button type="button" aria-label={t('common.close')} onClick={() => setNotificationToast(null)}><X size={15} /></button></div>}
+      {notificationToast && <div className={`notification-toast${notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? ' is-error' : ''}`} role={notificationToast.notificationType === USER_NOTIFICATION_TYPE.messageDeliveryFailed || notificationToast.notificationType === USER_NOTIFICATION_TYPE.channelDisconnected ? 'alert' : 'status'}><Bell size={17} /><Button type="button" onClick={() => { void openNotification(notificationToast); setNotificationToast(null) }}><strong>{t(notificationTitleKeys[notificationToast.notificationType])}</strong><small>{notificationToast.contactName ?? notificationToast.accountName ?? notificationToast.summary}</small></Button><Button type="button" aria-label={t('common.close')} onClick={() => setNotificationToast(null)}><X size={15} /></Button></div>}
       <header>
         <div className="ui-visually-hidden"><span className="eyebrow">{t(`${pageTranslationKeys[page]}.eyebrow`)}</span><h1>{t(`${pageTranslationKeys[page]}.title`)}</h1></div>
         <div className="account">
@@ -507,12 +508,12 @@ export default function App() {
           {activeOrganization && <div className="workspace-selector-wrap">
             {isPlatformAdmin
               ? <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}><PlatformOrganizationPicker activeOrganizationId={activeOrganization.id} activeOrganizationName={activeOrganization.name} platformOrganizationContext={current.platformOrganizationContext} disabled={changingOrganization} onSelectOrganization={openPlatformOrganization} /></Suspense>
-              : <div className="workspace workspace-selector"><Building2 size={16} /><select className="ui-select" aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
+              : <div className="workspace workspace-selector"><Building2 size={16} /><SelectField className="ui-select" aria-label={t('common.activeOrganization')} value={activeOrganization.id} disabled={changingOrganization || current.organizations.length < 2} onChange={(event) => void chooseOrganization(event.target.value)}>
                 {current.organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
-              </select></div>}
+              </SelectField></div>}
             {organizationSwitchError && <span className="workspace-error" role="alert">{t('errors.requestFailed')}</span>}
           </div>}
-          {activeOrganization && businessLinesLoaded && businessLines.length > 0 && <div className="workspace workspace-selector business-line-global-selector"><Briefcase size={16} aria-hidden="true" /><select className="ui-select" aria-label={t('businessLines.currentLine')} value={activeBusinessLineId} onChange={(event) => chooseBusinessLine(event.target.value)}>{canViewAllBusinessLines && <option value="">{t('businessLines.allLines')}</option>}{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</select></div>}
+          {activeOrganization && businessLinesLoaded && businessLines.length > 0 && <div className="workspace workspace-selector business-line-global-selector"><Briefcase size={16} aria-hidden="true" /><SelectField className="ui-select" aria-label={t('businessLines.currentLine')} value={activeBusinessLineId} onChange={(event) => chooseBusinessLine(event.target.value)}>{canViewAllBusinessLines && <option value="">{t('businessLines.allLines')}</option>}{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></div>}
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>

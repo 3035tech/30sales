@@ -704,3 +704,41 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Logs de produção mostraram `relation "quota_messages" does not exist` em `ChannelsRepository.list`. A consulta interpolava objetos Drizzle `alias()` dentro de SQL cru; isso emitia os nomes dos aliases no `FROM` sem declarar as tabelas físicas. Refatorada como subconsulta Drizzle tipada, que gera `FROM "messages" "quota_messages"` e `JOIN "conversations" "quota_conversations"`, preservando filtros por tenant, canal, envio, falha e data local.
 - Build backend passou; 8 testes direcionados passaram; SQL gerado foi inspecionado com `drizzle.mock()` e confirmou as tabelas e aliases corretos; `git diff --check` passou. Sem AWS, commit, push ou deploy.
 - O log também informa que `AssistantRuntimeWorker` fica desabilitado sem `ANTHROPIC_API_KEY`; isso depende de configurar o segredo do runtime e não foi alterado.
+
+### Reserva de envio no Inbox — 21/11/2026
+
+- `prepareMessageSend` revalida membership da organização e acesso à linha dentro da transação de reserva. Lock compartilhado na linha serializa a reserva com `setMembers`, que usa lock exclusivo; membership organizacional também fica bloqueada contra remoção concorrente. Remoção concluída antes da reserva resulta em `not_found`.
+- A revisão manual de campanha oferece confirmar envio ou confirmar que não foi enviado e recolocar na fila. A segunda ação exige confirmação no frontend, é auditada, atualiza a data de reserva no fuso do número atribuído e bloqueia status já aceitos/entregues/lidos ou conversa com resposta inbound. Worker reutiliza a conversa e a mensagem idempotentes em reenvio confirmado.
+- Mudanças locais ainda não compiladas/testadas após essa última alteração. Permanecem as alterações da fila de campanhas e migration `0071`; não commitado, pushed ou aplicado.
+
+### Quota compartilhada entre Inbox e campanhas — 21/11/2026
+
+- Revisão estática confirmou que os dois fluxos bloqueiam a mesma linha de `messaging_channels` antes de contar mensagens outbound do dia local e inserir/reservar a mensagem como `requested` na mesma transação. Isso serializa envios concorrentes do Inbox e do worker de campanha e faz a reserva do outro fluxo entrar na contagem. Mensagens `failed` são excluídas nos dois cálculos; `requested`, `unknown`, `accepted`, `delivered` e `read` contam.
+- Nenhuma mudança de código ou migration foi necessária nesta revisão; não foi feito teste de concorrência automatizado nem executado build.
+- Próxima lacuna de produto dentro do ciclo outbound: completar a leitura de resultado após a resposta do lead, conectando campanha, conversa, oportunidade e ação do responsável; o painel atual mede resposta, mas não fecha atribuição de atendimento/conversão.
+
+### Contexto comercial no desempenho da campanha — 21/11/2026
+
+- A lista paginada de leads da campanha agora inclui a etapa atual da oportunidade ligada à conversa criada pelo envio, incluindo o nome da etapa personalizada. Isso ajuda a equipe a acompanhar a resposta no contexto comercial sem contar uma oportunidade preexistente como conversão causada pela campanha.
+- A consulta limita oportunidades e etapas à mesma organização; o acesso continua filtrado pela linha da campanha e pelo acesso de lead já existente. API e UI têm contratos localizados pt-BR/en. Sem migration.
+- Builds e testes não foram executados conforme a preferência persistente; `git diff --check` passou.
+- Respostas à campanha já geram notificação no webhook para owner da conversa, responsável do lead ou owner da oportunidade; se não houver destinatário elegível, a notificação é distribuída aos membros de atendimento/gestão autorizados na linha. O painel de desempenho por lead agora mostra “Abrir conversa no Inbox” quando houve resposta e existe conversa vinculada. A navegação abre pelo ID da conversa e limpa o filtro global de linha, deixando a API aplicar os acessos reais do usuário.
+- O Inbox continua sendo o lugar para assumir/atribuir a conversa e responder; o atalho do relatório não altera ownership. Métricas de atendimento e conversão atribuída seguem pendentes.
+- Builds e testes não foram executados conforme a preferência persistente; `git diff --check` ainda será feito ao fechar esta fatia.
+
+### Rascunho de resposta com IA no handoff — 21/11/2026
+
+- Inbox agora oferece “Sugerir resposta com IA” para o responsável da conversa em modo humano, após uma nova mensagem inbound e enquanto a conversa está ativa. A API revalida tenant, acesso à linha, owner, modo e status antes de carregar o perfil da linha e histórico recente.
+- A sugestão é inserida no composer para edição; não envia mensagem nem altera o handoff. Falha de geração permanece no composer. Geração registra evento de auditoria sem armazenar conteúdo do lead ou do rascunho.
+- Sem build/testes conforme preferência persistente. `git diff --check` passou. A fila consolidada de respostas pendentes de campanhas ainda precisa ser ligada à API e à tela; o repository tem somente a consulta inicial.
+
+### Resultado de campanhas outbound — 22/11/2026
+
+- Desempenho por número separa na fila/em envio, enviados confirmados, entregues/lidas, respostas, reuniões registradas, oportunidades novas e ganhos. A resposta conta lead com inbound posterior ao outbound confirmado. Reuniões contam atividade CRM do tipo `meeting` depois da abordagem, ligada à oportunidade do lead; oportunidade nova e ganho só entram se a oportunidade foi criada depois da mensagem outbound confirmada. Oportunidades anteriores seguem visíveis como contexto de etapa, mas são excluídas das contagens de nova oportunidade/ganho; reunião posterior numa oportunidade existente ainda é contabilizada. É atribuição temporal operacional, não inferência causal.
+- O relatório individual por lead mostra as mesmas marcações e o estado atual da oportunidade, com indicação quando ela já existia. Sem migration.
+- `git diff --check` passou. Build/testes não executados conforme preferência persistente. A consulta da fila consolidada de respostas de campanha continua sem endpoint e sem tela.
+
+### Polimento do relatório de campanha — 22/11/2026
+
+- Resumo por canal agora agrupa os números como fluxo operacional e resultados comerciais; o detalhe por contato separa entrega, resposta, reunião, oportunidade e ganho. Oportunidade anterior tem aviso próprio, e o critério de atribuição temporal fica visível no painel.
+- Loading, erro com retentativa e vazio usam os estados compartilhados. Contagens usam o locale ativo e a grade se adapta a telas menores. `git diff --check` passou; build/testes não executados conforme preferência persistente.

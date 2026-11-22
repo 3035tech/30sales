@@ -498,6 +498,13 @@
       "when": 1795210524005,
       "tag": "0070_fearless_ulik",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1795291355017,
+      "tag": "0071_silky_bishop",
+      "breakpoints": true
     }
   ]
 }

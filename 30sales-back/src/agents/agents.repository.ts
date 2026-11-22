@@ -1,11 +1,39 @@
 import { Injectable } from '@nestjs/common';
 import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, assistantProfiles, auditEvents, businessLines, messagingChannels } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLines, conversations, messages, messagingChannels } from '../db/schema';
 import { AssistantProfileDto, assistantProfileDirectionSchema, AssistantProfileRepositoryDto, AssistantSettingsDto, AssistantSettingsRepositoryDto } from './agents.dto';
 
 @Injectable()
 export class AgentsRepository {
+  async recordManualReplyDraft(input: { organizationId: string; conversationId: string; actorUserId: string; correlationId: string | null; model: string; usageInputTokens: number | null; usageOutputTokens: number | null }): Promise<void> {
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'assistant.manual_reply_drafted', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens } });
+  }
+
+  async loadManualReplyContext(organizationId: string, conversationId: string): Promise<{ ownerUserId: string | null; automationMode: string; status: string; model: string; systemPrompt: string; messages: Array<{ role: 'user' | 'assistant'; content: string }> } | null> {
+    const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode, status: conversations.status, businessLineId: messagingChannels.businessLineId, inboundProfileId: messagingChannels.inboundAssistantProfileId, outboundProfileId: messagingChannels.outboundAssistantProfileId, operationMode: messagingChannels.operationMode })
+      .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    if (!conversation) return null;
+    const profileId = conversation.operationMode === 'outbound' ? conversation.outboundProfileId : conversation.inboundProfileId;
+    const [profile] = profileId && conversation.businessLineId ? await database.select({ enabled: assistantProfiles.enabled, model: assistantProfiles.model, systemPrompt: assistantProfiles.systemPrompt }).from(assistantProfiles)
+      .where(and(eq(assistantProfiles.id, profileId), eq(assistantProfiles.organizationId, organizationId), eq(assistantProfiles.businessLineId, conversation.businessLineId))).limit(1) : [];
+    const [lineSettings] = !profile && conversation.businessLineId ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, organizationId), eq(agentSettings.businessLineId, conversation.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+    const [globalSettings] = !profile && !lineSettings ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
+    const assistant = profile ?? lineSettings ?? globalSettings;
+    if (!assistant?.enabled) return null;
+    const history = await database.select({ direction: messages.direction, bodyText: messages.bodyText, transcriptText: messages.transcriptText }).from(messages)
+      .where(and(eq(messages.organizationId, organizationId), eq(messages.conversationId, conversationId), sql`${messages.direction} in ('inbound', 'outbound')`))
+      .orderBy(sql`${messages.occurredAt} desc`, sql`${messages.id} desc`).limit(30);
+    const thread = history.reverse().flatMap((message) => {
+      const content = [message.bodyText, message.transcriptText].filter(Boolean).join('\n');
+      return content ? [{ role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content }] : [];
+    });
+    return { ownerUserId: conversation.ownerUserId, automationMode: conversation.automationMode, status: conversation.status, model: assistant.model, systemPrompt: assistant.systemPrompt, messages: thread };
+  }
+
   async listAssistantProfiles(organizationId: string, businessLineId: string): Promise<AssistantProfileDto[] | null> {
     const [line] = await database.select({ id: businessLines.id }).from(businessLines)
       .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.id, businessLineId), eq(businessLines.status, 'active'))).limit(1);

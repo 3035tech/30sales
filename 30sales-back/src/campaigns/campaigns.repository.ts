@@ -1,11 +1,12 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, exists, inArray, isNull, or, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, campaignDraftAudiences, campaignDraftChannels, campaignDrafts, channelBusinessHours, conversations, leadContacts, leadStatusHistory, leads, messages, messagingChannels, opportunities, people, outboxEvents } from '../db/schema';
+import { accounts, activities, agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, campaignDraftAudiences, campaignDraftChannels, campaignDrafts, channelBusinessHours, conversations, leadContacts, leadStatusHistory, leads, messages, messagingChannels, opportunities, people, pipelineStages, outboxEvents, tasks } from '../db/schema';
 import { AUDIT_ACTOR_TYPE } from '../auth/authorization.constants';
 import { CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS } from '../leads/constants';
-import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
-import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignChannelPerformanceDto, CampaignChannelQuotaSnapshotDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformanceItemDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignSelectedChannelDto, CampaignSelectedChannelsRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
+import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_LEASE_SECONDS, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
+import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignChannelPerformanceDto, CampaignChannelQuotaSnapshotDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryRetryDto, CampaignDeliveryRetryRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformanceItemDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignPendingReplyDto, CampaignPendingRepliesPageDto, CampaignPendingRepliesRepositoryDto, CampaignSelectedChannelDto, CampaignSelectedChannelsRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { SQL } from 'drizzle-orm';
 import { CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from '../channels/channels.constants';
@@ -16,7 +17,7 @@ import { CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignN
 import { campaignNoSendDates } from '../db/schema';
 import { z } from 'zod';
 import { channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
-import { member as authMember } from '../db/auth-schema';
+import { member as authMember, user as authUser } from '../db/auth-schema';
 import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 
 const campaignDeliveryConfirmationPayloadSchema = z.object({ campaignDraftId: z.string().min(1), leadId: z.string().min(1) });
@@ -116,17 +117,22 @@ export class CampaignsRepository {
       channelLabel: sql<string>`${messagingChannels.displayName} || ' · ' || ${messagingChannels.phoneNumber}`,
       total: sql<number>`count(*)::int`,
       queued: sql<number>`count(*) filter (where ${outboxEvents.status} = ${CAMPAIGN_OUTBOX_STATUS.pending})::int`,
-      accepted: sql<number>`count(*) filter (where ${messages.deliveryState} = 'accepted')::int`,
+      processing: sql<number>`count(*) filter (where ${outboxEvents.status} = ${CAMPAIGN_OUTBOX_STATUS.processing})::int`,
+      sent: sql<number>`count(*) filter (where ${messages.deliveryState} in ('accepted', 'delivered', 'read'))::int`,
       delivered: sql<number>`count(*) filter (where ${messages.deliveryState} in ('delivered', 'read'))::int`,
-      replied: sql<number>`count(*) filter (where exists (select 1 from ${messages} inbound where inbound.organization_id = ${outboxEvents.organizationId} and inbound.conversation_id = ${messages.conversationId} and inbound.direction = 'inbound' and inbound.occurred_at > ${messages.occurredAt}))::int`,
+      replied: sql<number>`count(*) filter (where ${messages.deliveryState} in ('accepted', 'delivered', 'read') and exists (select 1 from ${messages} inbound where inbound.organization_id = ${outboxEvents.organizationId} and inbound.conversation_id = ${messages.conversationId} and inbound.direction = 'inbound' and inbound.occurred_at > ${messages.occurredAt}))::int`,
+      meetings: sql<number>`count(*) filter (where ${messages.deliveryState} in ('accepted', 'delivered', 'read') and exists (select 1 from ${activities} meeting where meeting.organization_id = ${opportunities.organizationId} and meeting.opportunity_id = ${opportunities.id} and meeting.type = 'meeting' and meeting.occurred_at > ${messages.occurredAt}))::int`,
+      opportunitiesCreated: sql<number>`count(*) filter (where ${messages.deliveryState} in ('accepted', 'delivered', 'read') and ${opportunities.createdAt} > ${messages.occurredAt})::int`,
+      won: sql<number>`count(*) filter (where ${messages.deliveryState} in ('accepted', 'delivered', 'read') and ${opportunities.createdAt} > ${messages.occurredAt} and ${opportunities.stage} = 'won')::int`,
       needsReview: sql<number>`count(*) filter (where ${outboxEvents.status} = ${CAMPAIGN_OUTBOX_STATUS.failed})::int`,
     }).from(outboxEvents)
       .innerJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
       .leftJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${input.campaignDraftId} || ':' || (${outboxEvents.payload}->>'leadId')`))
+      .leftJoin(opportunities, and(eq(opportunities.organizationId, outboxEvents.organizationId), sql`${opportunities.leadId}::text = ${outboxEvents.payload}->>'leadId'`))
       .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(messagingChannels.businessLineId, draft.businessLineId), campaignLineAccessCondition(input.access)))
       .groupBy(messagingChannels.id, messagingChannels.displayName, messagingChannels.phoneNumber)
       .orderBy(messagingChannels.displayName, messagingChannels.phoneNumber);
-    return new CampaignPerformanceDto(input.campaignDraftId, rows.reduce((sum, row) => sum + row.total, 0), rows.map((row) => new CampaignChannelPerformanceDto(row.channelId, row.channelLabel, row.queued, row.accepted, row.delivered, row.replied, row.needsReview)));
+    return new CampaignPerformanceDto(input.campaignDraftId, rows.reduce((sum, row) => sum + row.total, 0), rows.map((row) => new CampaignChannelPerformanceDto(row.channelId, row.channelLabel, row.queued, row.processing, row.sent, row.delivered, row.replied, row.meetings, row.opportunitiesCreated, row.won, row.needsReview)));
   }
 
   async performanceLeads(input: CampaignLeadPerformanceRepositoryDto): Promise<CampaignLeadPerformancePageDto | null> {
@@ -139,20 +145,85 @@ export class CampaignsRepository {
       database.select({ total: count() }).from(outboxEvents)
         .innerJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
         .innerJoin(leads, and(sql`${leads.id}::text = ${outboxEvents.payload}->>'leadId'`, eq(leads.organizationId, outboxEvents.organizationId))).where(where),
-      database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, phone: people.phone, channelId: sql<string>`${outboxEvents.payload}->>'channelId'`, channelDisplayName: sql<string>`coalesce(${outboxEvents.payload}->>'channelDisplayName', ${messagingChannels.displayName})`, channelPhoneNumber: sql<string>`coalesce(${outboxEvents.payload}->>'channelPhoneNumber', ${messagingChannels.phoneNumber})`, outboxStatus: outboxEvents.status, deliveryState: messages.deliveryState, replied: sql<boolean>`exists (select 1 from ${messages} inbound where inbound.organization_id = ${outboxEvents.organizationId} and inbound.conversation_id = ${messages.conversationId} and inbound.direction = 'inbound' and inbound.occurred_at > ${messages.occurredAt})` })
+      database.select({ leadId: leads.id, accountName: accounts.name, contactName: people.name, phone: people.phone, channelId: sql<string>`${outboxEvents.payload}->>'channelId'`, channelDisplayName: sql<string>`coalesce(${outboxEvents.payload}->>'channelDisplayName', ${messagingChannels.displayName})`, channelPhoneNumber: sql<string>`coalesce(${outboxEvents.payload}->>'channelPhoneNumber', ${messagingChannels.phoneNumber})`, outboxStatus: outboxEvents.status, deliveryState: messages.deliveryState, replied: sql<boolean>`${messages.deliveryState} in ('accepted', 'delivered', 'read') and exists (select 1 from ${messages} inbound where inbound.organization_id = ${outboxEvents.organizationId} and inbound.conversation_id = ${messages.conversationId} and inbound.direction = 'inbound' and inbound.occurred_at > ${messages.occurredAt})`, conversationId: conversations.id, opportunityStage: opportunities.stage, opportunityStageLabel: pipelineStages.name, opportunityCreatedAfterCampaign: sql<boolean>`${messages.deliveryState} in ('accepted', 'delivered', 'read') and coalesce(${opportunities.createdAt} > ${messages.occurredAt}, false)`, meetingAfterCampaign: sql<boolean>`${messages.deliveryState} in ('accepted', 'delivered', 'read') and exists (select 1 from ${activities} meeting where meeting.organization_id = ${opportunities.organizationId} and meeting.opportunity_id = ${opportunities.id} and meeting.type = 'meeting' and meeting.occurred_at > ${messages.occurredAt})`, wonAfterCampaign: sql<boolean>`${messages.deliveryState} in ('accepted', 'delivered', 'read') and coalesce(${opportunities.createdAt} > ${messages.occurredAt}, false) and ${opportunities.stage} = 'won'` })
         .from(outboxEvents)
         .leftJoin(leads, and(sql`${leads.id}::text = ${outboxEvents.payload}->>'leadId'`, eq(leads.organizationId, outboxEvents.organizationId)))
         .leftJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .leftJoin(leadContacts, and(eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.isPrimary, true)))
         .leftJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${input.campaignDraftId} || ':' || (${outboxEvents.payload}->>'leadId')`))
         .leftJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .leftJoin(opportunities, and(eq(opportunities.organizationId, leads.organizationId), eq(opportunities.leadId, leads.id)))
+        .leftJoin(pipelineStages, and(eq(pipelineStages.organizationId, opportunities.organizationId), eq(pipelineStages.key, opportunities.pipelineStageKey)))
         .leftJoin(people, and(eq(people.organizationId, leads.organizationId), sql`${people.id} = coalesce(${conversations.personId}, ${leadContacts.personId})`))
       .leftJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
         .where(where).orderBy(desc(outboxEvents.createdAt), desc(outboxEvents.id)).limit(input.query.limit).offset(input.query.offset),
     ]);
     const total = summary?.total ?? 0;
-    const data = rows.flatMap((row) => row.leadId && row.channelId ? [new CampaignLeadPerformanceItemDto(row.leadId, row.accountName ?? '', row.contactName, row.phone, row.channelId, `${row.channelDisplayName ?? ''} · ${row.channelPhoneNumber ?? ''}`.trim(), row.outboxStatus, row.deliveryState, row.replied)] : []);
+    const data = rows.flatMap((row) => row.leadId && row.channelId ? [new CampaignLeadPerformanceItemDto(row.leadId, row.accountName ?? '', row.contactName, row.phone, row.channelId, `${row.channelDisplayName ?? ''} · ${row.channelPhoneNumber ?? ''}`.trim(), row.outboxStatus === CAMPAIGN_OUTBOX_STATUS.processing ? CAMPAIGN_OUTBOX_STATUS.pending : row.outboxStatus, row.outboxStatus === CAMPAIGN_OUTBOX_STATUS.processing, row.deliveryState, row.replied, row.conversationId, row.opportunityStage, row.opportunityStage === 'custom' ? row.opportunityStageLabel : null, row.opportunityCreatedAfterCampaign, row.meetingAfterCampaign, row.wonAfterCampaign)] : []);
     return new CampaignLeadPerformancePageDto(input.campaignDraftId, data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
+  }
+
+  async pendingReplies(input: CampaignPendingRepliesRepositoryDto): Promise<CampaignPendingRepliesPageDto> {
+    const replyQueueOwner = alias(authUser, 'campaign_reply_owner');
+    const pendingInbound = sql`exists (
+      select 1 from ${messages} pending_inbound
+      where pending_inbound.organization_id = ${outboxEvents.organizationId}
+        and pending_inbound.conversation_id = ${conversations.id}
+        and pending_inbound.direction = 'inbound'
+        and pending_inbound.occurred_at > ${messages.occurredAt}
+        and not exists (
+          select 1 from ${messages} later_outbound
+          where later_outbound.organization_id = pending_inbound.organization_id
+            and later_outbound.conversation_id = pending_inbound.conversation_id
+            and later_outbound.direction = 'outbound'
+            and later_outbound.created_at > pending_inbound.created_at
+        )
+    )`;
+    const conditions = and(
+      eq(outboxEvents.organizationId, input.organizationId),
+      eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT),
+      sql`${campaignDrafts.id}::text = ${outboxEvents.aggregateId}`,
+      eq(leads.organizationId, input.organizationId),
+      eq(leads.businessLineId, messagingChannels.businessLineId),
+      inArray(conversations.status, ['open', 'pending']),
+      pendingInbound,
+      campaignLineAccessCondition(input.access),
+    );
+    const [summary] = await database.select({ total: count() }).from(outboxEvents)
+      .innerJoin(campaignDrafts, and(eq(campaignDrafts.organizationId, outboxEvents.organizationId), sql`${campaignDrafts.id}::text = ${outboxEvents.aggregateId}`))
+      .innerJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
+      .innerJoin(leads, and(eq(leads.organizationId, outboxEvents.organizationId), sql`${leads.id}::text = ${outboxEvents.payload}->>'leadId'`))
+      .innerJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${outboxEvents.aggregateId} || ':' || (${outboxEvents.payload}->>'leadId')`, eq(messages.direction, 'outbound')))
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .where(conditions);
+    const rows = await database.select({
+      campaignDraftId: campaignDrafts.id,
+      campaignName: campaignDrafts.name,
+      leadId: leads.id,
+      accountName: accounts.name,
+      contactName: people.name,
+      phone: people.phone,
+      channelLabel: sql<string>`${messagingChannels.displayName} || ' · ' || ${messagingChannels.phoneNumber}`,
+      conversationId: conversations.id,
+      ownerName: replyQueueOwner.name,
+      hasOpenTask: sql<boolean>`exists (select 1 from ${tasks} open_task where open_task.organization_id = ${leads.organizationId} and open_task.lead_id = ${leads.id} and open_task.status = 'open')`,
+      replyPreview: sql<string | null>`(select nullif(left(coalesce(pending_inbound.body_text, pending_inbound.transcript_text, ''), 180), '') from ${messages} pending_inbound where pending_inbound.organization_id = ${outboxEvents.organizationId} and pending_inbound.conversation_id = ${conversations.id} and pending_inbound.direction = 'inbound' and pending_inbound.occurred_at > ${messages.occurredAt} and not exists (select 1 from ${messages} later_outbound where later_outbound.organization_id = pending_inbound.organization_id and later_outbound.conversation_id = pending_inbound.conversation_id and later_outbound.direction = 'outbound' and later_outbound.created_at > pending_inbound.created_at) order by pending_inbound.occurred_at desc, pending_inbound.created_at desc limit 1)`,
+      repliedAt: sql<Date | null>`(select pending_inbound.occurred_at from ${messages} pending_inbound where pending_inbound.organization_id = ${outboxEvents.organizationId} and pending_inbound.conversation_id = ${conversations.id} and pending_inbound.direction = 'inbound' and pending_inbound.occurred_at > ${messages.occurredAt} and not exists (select 1 from ${messages} later_outbound where later_outbound.organization_id = pending_inbound.organization_id and later_outbound.conversation_id = pending_inbound.conversation_id and later_outbound.direction = 'outbound' and later_outbound.created_at > pending_inbound.created_at) order by pending_inbound.occurred_at desc, pending_inbound.created_at desc limit 1)`,
+    }).from(outboxEvents)
+      .innerJoin(campaignDrafts, and(eq(campaignDrafts.organizationId, outboxEvents.organizationId), sql`${campaignDrafts.id}::text = ${outboxEvents.aggregateId}`))
+      .innerJoin(messagingChannels, and(eq(messagingChannels.organizationId, outboxEvents.organizationId), sql`${messagingChannels.id}::text = ${outboxEvents.payload}->>'channelId'`))
+      .innerJoin(leads, and(eq(leads.organizationId, outboxEvents.organizationId), sql`${leads.id}::text = ${outboxEvents.payload}->>'leadId'`))
+      .innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+      .innerJoin(messages, and(eq(messages.organizationId, outboxEvents.organizationId), sql`${messages.idempotencyKey} = ${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX} || ${outboxEvents.aggregateId} || ':' || (${outboxEvents.payload}->>'leadId')`, eq(messages.direction, 'outbound')))
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .leftJoin(replyQueueOwner, eq(replyQueueOwner.id, conversations.ownerUserId))
+      .where(conditions)
+      .orderBy(desc(sql`(select pending_inbound.occurred_at from ${messages} pending_inbound where pending_inbound.organization_id = ${outboxEvents.organizationId} and pending_inbound.conversation_id = ${conversations.id} and pending_inbound.direction = 'inbound' and pending_inbound.occurred_at > ${messages.occurredAt} order by pending_inbound.occurred_at desc, pending_inbound.created_at desc limit 1)`), desc(outboxEvents.id))
+      .limit(input.query.limit).offset(input.query.offset);
+    const data = rows.flatMap((row) => row.repliedAt ? [new CampaignPendingReplyDto(row.campaignDraftId, row.campaignName, row.leadId, row.accountName, row.contactName, row.phone, row.channelLabel, row.conversationId, row.ownerName, row.hasOpenTask, row.replyPreview, row.repliedAt.toISOString())] : []);
+    const total = summary?.total ?? 0;
+    return new CampaignPendingRepliesPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
   async confirmDelivery(input: CampaignDeliveryConfirmRepositoryDto): Promise<CampaignDeliveryConfirmDto | null> {
@@ -177,11 +248,46 @@ export class CampaignsRepository {
       await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.published, publishedAt: now, lastErrorCode: null }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
       const [updatedLead] = await transaction.update(leads).set({ status: LEAD_STATUS.contacting, updatedAt: now }).where(and(eq(leads.id, payload.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready))).returning({ id: leads.id });
       if (updatedLead) await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: updatedLead.id, fromStatus: LEAD_STATUS.ready, toStatus: LEAD_STATUS.contacting, changedByUserId: input.actorUserId });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: 'campaign.delivery_confirmed_sent', entityType: CAMPAIGN_AUDIT.entity, entityId: event.aggregateId, correlationId: input.correlationId, beforeState: { deliveryState: message.deliveryState }, afterState: { outboxEventId: event.id, leadId: payload.leadId, messageId: message.id, conversationId: message.conversationId, deliveryState: confirmedDeliveryState } });
-      const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, event.aggregateId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_AUDIT.deliveryConfirmedSent, entityType: CAMPAIGN_AUDIT.entity, entityId: event.aggregateId, correlationId: input.correlationId, beforeState: { deliveryState: message.deliveryState }, afterState: { outboxEventId: event.id, leadId: payload.leadId, messageId: message.id, conversationId: message.conversationId, deliveryState: confirmedDeliveryState } });
+      const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, event.aggregateId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), inArray(outboxEvents.status, [CAMPAIGN_OUTBOX_STATUS.pending, CAMPAIGN_OUTBOX_STATUS.processing])));
       const [needsReview] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, event.aggregateId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
       if ((remaining?.total ?? 0) === 0 && (needsReview?.total ?? 0) === 0) await transaction.update(campaignDrafts).set({ status: CAMPAIGN_DRAFT_STATUS.completed, updatedAt: now }).where(and(eq(campaignDrafts.id, event.aggregateId), eq(campaignDrafts.organizationId, input.organizationId), inArray(campaignDrafts.status, [CAMPAIGN_DRAFT_STATUS.active, CAMPAIGN_DRAFT_STATUS.paused])));
       return new CampaignDeliveryConfirmDto(event.id, CAMPAIGN_OUTBOX_STATUS.published);
+    });
+  }
+
+  async retryDelivery(input: CampaignDeliveryRetryRepositoryDto): Promise<CampaignDeliveryRetryDto | null> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.select({ id: outboxEvents.id, aggregateId: outboxEvents.aggregateId, businessLineId: messagingChannels.businessLineId, payload: outboxEvents.payload })
+        .from(outboxEvents).innerJoin(campaignDrafts, and(eq(campaignDrafts.id, outboxEvents.aggregateId), eq(campaignDrafts.organizationId, outboxEvents.organizationId)))
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, campaignDrafts.channelId), eq(messagingChannels.organizationId, campaignDrafts.organizationId)))
+        .where(and(eq(outboxEvents.id, input.outboxEventId), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed), eq(outboxEvents.lastErrorCode, CAMPAIGN_OUTREACH_REVIEW_CODE), campaignLineAccessCondition(input.access))).for('update').limit(1);
+      if (!event?.businessLineId) return null;
+      const parsedPayload = campaignOutreachPayloadSchema.safeParse(event.payload);
+      if (!parsedPayload.success || parsedPayload.data.organizationId !== input.organizationId || parsedPayload.data.campaignDraftId !== event.aggregateId) return null;
+      const payload = parsedPayload.data;
+      const [assignedChannel] = await transaction.select({ businessLineId: messagingChannels.businessLineId, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone }).from(messagingChannels)
+        .where(and(eq(messagingChannels.id, payload.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('share').limit(1);
+      if (!assignedChannel || assignedChannel.businessLineId !== event.businessLineId) return null;
+      const [lead] = await transaction.select({ id: leads.id }).from(leads).where(and(eq(leads.id, payload.leadId), eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, event.businessLineId))).limit(1);
+      if (!lead) return null;
+      const idempotencyKey = `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${payload.campaignDraftId}:${payload.leadId}`;
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
+        .from(messages).where(and(eq(messages.organizationId, input.organizationId), eq(messages.idempotencyKey, idempotencyKey), eq(messages.direction, 'outbound'))).for('update').limit(1);
+      if (message && !['requested', 'unknown', 'failed'].includes(message.deliveryState)) return null;
+      if (message) {
+        const [reply] = await transaction.select({ id: messages.id }).from(messages)
+          .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, message.conversationId), eq(messages.direction, 'inbound'), sql`${messages.occurredAt} >= ${message.occurredAt}`)).limit(1);
+        if (reply) return null;
+      }
+      const now = new Date();
+      const reservedDate = getLocalCampaignDateTime(now, assignedChannel.dailyLimitTimeZone).date;
+      if (message) await transaction.update(messages).set({ deliveryState: 'failed', externalMessageId: null })
+        .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.pending, availableAt: now, publishedAt: null, lastErrorCode: null, payload: sql`jsonb_set(${outboxEvents.payload}, '{reservedDate}', to_jsonb(${reservedDate}::text), true)` })
+        .where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: CAMPAIGN_AUDIT.deliveryConfirmedNotSentRequeued, entityType: CAMPAIGN_AUDIT.entity, entityId: event.aggregateId, correlationId: input.correlationId, beforeState: { outboxEventId: event.id, deliveryState: message?.deliveryState ?? null }, afterState: { outboxEventId: event.id, leadId: payload.leadId, messageId: message?.id ?? null, status: CAMPAIGN_OUTBOX_STATUS.pending } });
+      return new CampaignDeliveryRetryDto(event.id, CAMPAIGN_OUTBOX_STATUS.pending);
     });
   }
 
@@ -299,6 +405,8 @@ export class CampaignsRepository {
 
   async prepareNextOutreach(): Promise<{ organizationId: string; actorUserId: string; actorCanManageAllLines: boolean; channelId: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string }; recipientPhone: string; bodyText: string; messageId: string; conversationId: string; leadId: string; campaignDraftId: string } | null> {
     return database.transaction(async (transaction) => {
+      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE })
+        .where(and(eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.processing), sql`${outboxEvents.availableAt} <= now()`));
       const [event] = await transaction.select({ id: outboxEvents.id, organizationId: outboxEvents.organizationId, payload: outboxEvents.payload })
         .from(outboxEvents).where(and(eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending), sql`${outboxEvents.availableAt} <= now()`))
         .orderBy(outboxEvents.availableAt, outboxEvents.createdAt).for('update', { skipLocked: true }).limit(1);
@@ -347,11 +455,12 @@ export class CampaignsRepository {
         .where(and(eq(agentSettings.organizationId, event.organizationId), eq(agentSettings.agentKey, SDR_AGENT_KEY), or(eq(agentSettings.businessLineId, draft.businessLineId), isNull(agentSettings.businessLineId))))
         .orderBy(desc(sql`(${agentSettings.businessLineId} is not null)`)).limit(1) : [];
       const assistantReady = channel?.outboundAssistantProfileId ? Boolean(profile?.enabled && profile.systemPrompt.trim().length >= 100) : Boolean(agent?.enabled && agent.systemPrompt.trim().length >= 100);
-      const [candidate] = await transaction.select({ leadId: leads.id, status: leads.status, accountId: leads.accountId, opportunityId: opportunities.id, primaryContactId: leadContacts.personId, phone: people.phone, outreachDecision: leadContacts.outreachDecision, hasConversation: sql<boolean>`${exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, channelId), eq(conversations.personId, leadContacts.personId), inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}` })
+      const externalConversationId = `campaign:${campaignDraftId}:${leadId}`;
+      const [candidate] = await transaction.select({ leadId: leads.id, status: leads.status, accountId: leads.accountId, opportunityId: opportunities.id, primaryContactId: leadContacts.personId, phone: people.phone, outreachDecision: leadContacts.outreachDecision, hasConversation: sql<boolean>`${exists(transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, event.organizationId), eq(conversations.channelId, channelId), eq(conversations.personId, leadContacts.personId), sql`${conversations.externalConversationId} <> ${externalConversationId}`, inArray(conversations.status, SDR_ACTIVE_CONVERSATION_STATUSES))))}`, campaignConversationReplied: sql<boolean>`${exists(transaction.select({ id: messages.id }).from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId))).where(and(eq(messages.organizationId, event.organizationId), eq(conversations.externalConversationId, externalConversationId), eq(messages.direction, 'inbound'))))}` })
         .from(leads).leftJoin(opportunities, and(eq(opportunities.leadId, leads.id), eq(opportunities.organizationId, leads.organizationId))).leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId), eq(leadContacts.isPrimary, true)))
         .leftJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leads.organizationId)))
         .where(and(eq(leads.id, leadId), eq(leads.organizationId, event.organizationId), eq(leads.businessLineId, draft.businessLineId), exists(transaction.select({ leadId: campaignDraftAudiences.leadId }).from(campaignDraftAudiences).where(and(eq(campaignDraftAudiences.organizationId, event.organizationId), eq(campaignDraftAudiences.campaignDraftId, campaignDraftId), eq(campaignDraftAudiences.leadId, leads.id)))))).limit(1);
-      if (!draft || !channel?.isActive || channel.operationMode === 'inbound' || channel.businessLineId !== draft.businessLineId || !actorAuthorized || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || !assistantReady || !candidate || audienceBlockers(candidate, true, true).length > 0) {
+      if (!draft || !channel?.isActive || channel.operationMode === 'inbound' || channel.businessLineId !== draft.businessLineId || !actorAuthorized || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag || !assistantReady || !candidate || candidate.campaignConversationReplied || audienceBlockers(candidate, true, true).length > 0) {
         await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
         return null;
       }
@@ -378,16 +487,33 @@ export class CampaignsRepository {
         await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
         return null;
       }
-      const externalConversationId = `campaign:${campaignDraftId}:${leadId}`;
-      const [conversation] = await transaction.insert(conversations).values({ organizationId: event.organizationId, provider: channel.provider, externalConversationId, channelId, accountId: candidate.accountId, personId: contactId, opportunityId: candidate.opportunityId, status: 'open', automationMode: channel.operationMode === 'outbound' ? 'paused' : 'assistant', lastMessageAt: now })
-        .onConflictDoNothing({ target: [conversations.organizationId, conversations.provider, conversations.externalConversationId] }).returning({ id: conversations.id });
-      if (!conversation) {
+      let [conversation] = await transaction.select({ id: conversations.id, channelId: conversations.channelId, personId: conversations.personId }).from(conversations)
+        .where(and(eq(conversations.organizationId, event.organizationId), eq(conversations.provider, channel.provider), eq(conversations.externalConversationId, externalConversationId))).for('update').limit(1);
+      if (conversation && (conversation.channelId !== channelId || conversation.personId !== contactId)) {
         await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
         return null;
       }
       const messageIdempotencyKey = `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${campaignDraftId}:${leadId}`;
-      const [message] = await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: draft.openingMessage, deliveryState: 'requested', idempotencyKey: messageIdempotencyKey, occurredAt: now }).returning({ id: messages.id });
-      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, attempts: sql`${outboxEvents.attempts}::int + 1`, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+      const [existingMessage] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, bodyText: messages.bodyText, deliveryState: messages.deliveryState }).from(messages)
+        .where(and(eq(messages.organizationId, event.organizationId), eq(messages.idempotencyKey, messageIdempotencyKey), eq(messages.direction, 'outbound'))).for('update').limit(1);
+      if (existingMessage && (!conversation || existingMessage.conversationId !== conversation.id || existingMessage.bodyText !== draft.openingMessage || !['requested', 'unknown', 'failed'].includes(existingMessage.deliveryState))) {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      if (!conversation) {
+        [conversation] = await transaction.insert(conversations).values({ organizationId: event.organizationId, provider: channel.provider, externalConversationId, channelId, accountId: candidate.accountId, personId: contactId, opportunityId: candidate.opportunityId, status: 'open', automationMode: channel.operationMode === 'outbound' ? 'paused' : 'assistant', lastMessageAt: now })
+          .returning({ id: conversations.id, channelId: conversations.channelId, personId: conversations.personId });
+      } else {
+        await transaction.update(conversations).set({ status: 'open', lastMessageAt: now }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, event.organizationId)));
+      }
+      if (!conversation) {
+        await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.failed, lastErrorCode: CAMPAIGN_OUTREACH_REVIEW_CODE }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId)));
+        return null;
+      }
+      const [message] = existingMessage
+        ? await transaction.update(messages).set({ deliveryState: 'requested', externalMessageId: null, occurredAt: now }).where(and(eq(messages.id, existingMessage.id), eq(messages.organizationId, event.organizationId))).returning({ id: messages.id })
+        : await transaction.insert(messages).values({ organizationId: event.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: draft.openingMessage, deliveryState: 'requested', idempotencyKey: messageIdempotencyKey, occurredAt: now }).returning({ id: messages.id });
+      await transaction.update(outboxEvents).set({ status: CAMPAIGN_OUTBOX_STATUS.processing, availableAt: new Date(now.getTime() + CAMPAIGN_OUTREACH_LEASE_SECONDS * 1000), attempts: sql`${outboxEvents.attempts}::int + 1`, lastErrorCode: null }).where(and(eq(outboxEvents.id, event.id), eq(outboxEvents.organizationId, event.organizationId), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending)));
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: event.organizationId, conversationId: conversation.id, occurredAt: now.toISOString() })})`);
       return { organizationId: event.organizationId, actorUserId, actorCanManageAllLines: actorCanManageAll, channelId, provider: channel.provider, providerChannelId: channel.providerChannelId, credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag }, recipientPhone, bodyText: draft.openingMessage, messageId: message.id, conversationId: conversation.id, leadId, campaignDraftId };
     });
@@ -397,7 +523,7 @@ export class CampaignsRepository {
     await database.transaction(async (transaction) => {
       const delivered = input.deliveryState === 'accepted';
       const [finishedEvent] = await transaction.update(outboxEvents).set({ status: delivered ? CAMPAIGN_OUTBOX_STATUS.published : CAMPAIGN_OUTBOX_STATUS.failed, publishedAt: delivered ? new Date() : null, lastErrorCode: delivered ? null : CAMPAIGN_OUTREACH_REVIEW_CODE })
-        .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.idempotencyKey, `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${input.campaignDraftId}:${input.leadId}`), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed), eq(outboxEvents.lastErrorCode, CAMPAIGN_OUTREACH_REVIEW_CODE)))
+        .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.idempotencyKey, `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${input.campaignDraftId}:${input.leadId}`), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.processing)))
         .returning({ id: outboxEvents.id });
       if (!finishedEvent) return;
       await transaction.update(messages).set({ deliveryState: delivered ? 'accepted' : input.deliveryState, externalMessageId: input.externalMessageId }).where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId)));
@@ -405,7 +531,7 @@ export class CampaignsRepository {
         const [updatedLead] = await transaction.update(leads).set({ status: LEAD_STATUS.contacting, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready))).returning({ id: leads.id });
         if (updatedLead) await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: input.leadId, fromStatus: LEAD_STATUS.ready, toStatus: LEAD_STATUS.contacting, changedByUserId: input.actorUserId });
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorType: AUDIT_ACTOR_TYPE.system, action: 'campaign.initial_message_accepted', entityType: CAMPAIGN_AUDIT.entity, entityId: input.campaignDraftId, afterState: { leadId: input.leadId, conversationId: input.conversationId, messageId: input.messageId, channelId: input.channelId } });
-        const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.pending)));
+        const [remaining] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), inArray(outboxEvents.status, [CAMPAIGN_OUTBOX_STATUS.pending, CAMPAIGN_OUTBOX_STATUS.processing])));
         const [needsReview] = await transaction.select({ total: count() }).from(outboxEvents).where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.aggregateId, input.campaignDraftId), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.failed)));
         if ((remaining?.total ?? 0) === 0 && (needsReview?.total ?? 0) === 0) await transaction.update(campaignDrafts).set({ status: CAMPAIGN_DRAFT_STATUS.completed, updatedAt: new Date() }).where(and(eq(campaignDrafts.id, input.campaignDraftId), eq(campaignDrafts.organizationId, input.organizationId), inArray(campaignDrafts.status, [CAMPAIGN_DRAFT_STATUS.active, CAMPAIGN_DRAFT_STATUS.paused])));
       }

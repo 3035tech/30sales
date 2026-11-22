@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type CreateCampaignDraftInput, campaignAudiencePreviewSchema, campaignAudienceSaveSchema, campaignDeliveryConfirmSchema, campaignDeliveryReviewPageSchema, campaignDraftPageSchema, campaignDraftSchema, campaignLeadPerformancePageSchema, campaignNoSendDateSchema, campaignOperationalReadinessSchema, campaignPerformanceSchema, campaignStartResultSchema, campaignStatusChangeSchema } from '../contracts';
+import { type CreateCampaignDraftInput, campaignAudiencePreviewSchema, campaignAudienceSaveSchema, campaignDeliveryConfirmSchema, campaignDeliveryRetrySchema, campaignDeliveryReviewPageSchema, campaignDraftPageSchema, campaignDraftSchema, campaignLeadPerformancePageSchema, campaignNoSendDateSchema, campaignOperationalReadinessSchema, campaignPerformanceSchema, campaignStartResultSchema, campaignStatusChangeSchema } from '../contracts';
 
 
 export const campaignsApi = {
@@ -16,6 +16,7 @@ export const campaignsApi = {
     resumeDraft: (id: string) => request(`/api/v1/campaign-drafts/${encodeURIComponent(id)}/resume`, campaignStatusChangeSchema, { method: 'POST' }),
     listDeliveryReview: (params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/campaign-drafts/delivery-review?${query.toString()}`, campaignDeliveryReviewPageSchema); },
     confirmDeliverySent: (id: string) => request(`/api/v1/campaign-drafts/delivery-review/${encodeURIComponent(id)}/confirm-sent`, campaignDeliveryConfirmSchema, { method: 'POST' }),
+    confirmDeliveryNotSent: (id: string) => request(`/api/v1/campaign-drafts/delivery-review/${encodeURIComponent(id)}/confirm-not-sent`, campaignDeliveryRetrySchema, { method: 'POST' }),
     listNoSendDates: () => request('/api/v1/campaign-drafts/holiday-calendar', z.array(campaignNoSendDateSchema)),
     addNoSendDate: (input: { date: string; name: string }) => request('/api/v1/campaign-drafts/holiday-calendar', campaignNoSendDateSchema, { method: 'POST', body: JSON.stringify(input) }),
     importNationalHolidays: () => request('/api/v1/campaign-drafts/holiday-calendar/import-national', z.array(campaignNoSendDateSchema), { method: 'POST' }),

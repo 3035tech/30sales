@@ -43,4 +43,6 @@ export class CampaignsController {
   deliveryReview(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listCampaignDraftsSchema)) query: ListCampaignDraftsDto) { return this.campaignsService.deliveryReview(request, query); }
   @Post('delivery-review/:id/confirm-sent')
   confirmDelivery(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) outboxEventId: string) { return this.campaignsService.confirmDelivery(request, outboxEventId); }
+  @Post('delivery-review/:id/confirm-not-sent')
+  retryDelivery(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) outboxEventId: string) { return this.campaignsService.retryDelivery(request, outboxEventId); }
 }

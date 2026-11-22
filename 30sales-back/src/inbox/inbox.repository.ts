@@ -386,11 +386,25 @@ export class InboxRepository {
   }
 
   async prepareMessageSend(input: ConversationMessageSendDto): Promise<MessageSendResult> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, channelId: conversations.channelId, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
+      const [membership] = await transaction.select({ role: authMember.role }).from(authMember)
+        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).for('share').limit(1);
+      if (!membership) return 'not_found';
+      if (!hasOrganizationRole(membership.role, ORGANIZATION_MANAGEMENT_ROLES)) {
+        const [channelLine] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
+          .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
+        if (!channelLine?.businessLineId) return 'not_found';
+        const [line] = await transaction.select({ id: businessLines.id, status: businessLines.status }).from(businessLines)
+          .where(and(eq(businessLines.id, channelLine.businessLineId), eq(businessLines.organizationId, input.organizationId))).for('share').limit(1);
+        if (!line || line.status !== 'active') return 'not_found';
+        const [lineMembership] = await transaction.select({ id: businessLineMembers.id }).from(businessLineMembers)
+          .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+          .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, line.id), eq(authMember.userId, input.actorUserId))).limit(1);
+        if (!lineMembership) return 'not_found';
+      }
       const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
         .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);

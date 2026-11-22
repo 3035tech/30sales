@@ -533,7 +533,7 @@ export default function App() {
           : page === 'channels' ? <ChannelsWorkspace />
           : page === 'assistant' ? <AssistantSettingsWorkspace />
           : page === 'inbox' ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
-          : page === 'leads' ? <LeadsWorkspace initialSearch={leadSearchSeed} />
+          : page === 'leads' ? <LeadsWorkspace initialSearch={leadSearchSeed} onOpenInbox={(conversationId) => navigateToPage('inbox', { businessLineId: null, conversationId })} />
           : page === 'accounts' ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} canManageSegments={canManageSegments} canUpdateProfile={canUpdateAccountProfile} />
             : page === 'tasks' ? <TasksWorkspace />
             : page === 'handoffs' ? <HandoffsWorkspace />

@@ -3,7 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES, hasOrganizationRole } from '../auth/authorization.constants';
 import { LeadRepositoryAccessDto } from '../leads/leads.dto';
-import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
+import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryRetryDto, CampaignDeliveryRetryRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
 import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';
@@ -132,6 +132,13 @@ export class CampaignsService {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
     const result = await this.repository.confirmDelivery(new CampaignDeliveryConfirmRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), request.correlationId, outboxEventId));
     if (!result) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign delivery review was not found in the active organization.' });
+    return result;
+  }
+
+  async retryDelivery(request: ApiRequestDto, outboxEventId: string): Promise<CampaignDeliveryRetryDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const result = await this.repository.retryDelivery(new CampaignDeliveryRetryRepositoryDto(context.organizationId, context.userId, this.access(context.organizationId, context.userId, context.role), request.correlationId, outboxEventId));
+    if (!result) throw new NotFoundException({ code: CAMPAIGN_ERROR_CODE.draftNotFound, message: 'The campaign delivery review could not be requeued.' });
     return result;
   }
 

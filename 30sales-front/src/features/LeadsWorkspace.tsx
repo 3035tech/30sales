@@ -17,6 +17,7 @@ import './LeadProfile.css'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 const sourceOrder: NonNullable<CreateLeadInput['source']>[] = [...LEAD_SOURCE_VALUES]
+const formatCampaignCount = (value: number) => new Intl.NumberFormat(i18n.language).format(value)
 type SortDirection = 'asc' | 'desc'
 type OutreachDecision = (typeof CONTACT_OUTREACH_DECISION)[keyof typeof CONTACT_OUTREACH_DECISION]
 type OutreachBasis = (typeof CONTACT_OUTREACH_BASIS)[keyof typeof CONTACT_OUTREACH_BASIS]
@@ -153,7 +154,7 @@ function CampaignHolidayCalendar() {
   </section>
 }
 
-export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string }) {
+export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSearch?: string; onOpenInbox: (conversationId: string) => void }) {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
@@ -333,6 +334,16 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
       await campaignsApi.campaigns.confirmDeliverySent(outboxEventId)
       await loadCampaignDeliveryReview(campaignReviewOffset)
     } catch { setCampaignReviewError(t('campaignDrafts.reviewConfirmFailed')) }
+    finally { setCampaignReviewSavingId('') }
+  }
+
+  const retryCampaignDelivery = async (outboxEventId: string) => {
+    if (!window.confirm(t('campaignDrafts.retryNotSentConfirm'))) return
+    setCampaignReviewSavingId(outboxEventId)
+    try {
+      await campaignsApi.campaigns.confirmDeliveryNotSent(outboxEventId)
+      await loadCampaignDeliveryReview(campaignReviewOffset)
+    } catch { setCampaignReviewError(t('campaignDrafts.retryNotSentFailed')) }
     finally { setCampaignReviewSavingId('') }
   }
 
@@ -572,14 +583,32 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
               {draft.status === CAMPAIGN_DRAFT_STATUS.draft && <Button type="button" variant="primary" disabled={draft.audienceLeadCount === 0 || campaignStartingId !== ''} onClick={() => void startCampaign(draft)}>{campaignStartingId === draft.id ? t('common.saving') : t('campaignDrafts.start')}</Button>}
             </div>
             {campaignPerformanceDraftId === draft.id && <div className="campaign-performance" role="region" aria-label={t('campaignPerformanceReport.performance')}>
-              {campaignPerformanceLoadingId === draft.id ? <span>{t('common.loading')}</span> : campaignPerformanceError ? <span role="alert">{t('campaignPerformanceReport.performanceFailed')}</span> : campaignPerformance && <>
-                <strong>{t('campaignPerformanceReport.performanceTotal', { count: campaignPerformance.total })}</strong>
-                {campaignPerformance.channels.map((channel) => <div key={channel.channelId}><b>{channel.channelLabel}</b><span>{t('campaignPerformanceReport.performanceCounts', { queued: channel.queued, accepted: channel.accepted, delivered: channel.delivered, replied: channel.replied, review: channel.needsReview })}</span></div>)}
-                <strong>{t('campaignPerformanceReport.leadAssignments')}</strong>
-                {campaignLeadPerformanceLoading ? <span>{t('common.loading')}</span> : campaignLeadPerformanceError ? <span role="alert">{t('campaignPerformanceReport.leadsFailed')}</span> : campaignLeadPerformance && <>
-                  <ul>{campaignLeadPerformance.data.map((item) => <li key={item.leadId}><div><b>{item.accountName}</b><span>{item.contactName ?? t('campaignPerformanceReport.unknownContact')} · {item.phone ?? '—'}</span></div><div><b>{item.channelLabel}</b><span>{t(`campaignPerformanceReport.outbox.${item.outboxStatus}`)} · {item.deliveryState ? t(`campaignPerformanceReport.delivery.${item.deliveryState}`) : t('campaignPerformanceReport.noMessage')}{item.replied ? ` · ${t('campaignPerformanceReport.repliedLabel')}` : ''}</span></div></li>)}</ul>
-                  <div className="campaign-performance-pagination"><Button type="button" disabled={campaignLeadPerformanceLoading || campaignLeadPerformance.pagination.offset === 0} onClick={() => void loadCampaignPerformanceLeads(draft.id, Math.max(0, campaignLeadPerformance.pagination.offset - campaignLeadPerformance.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignLeadPerformance.pagination.offset / campaignLeadPerformance.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignLeadPerformance.pagination.total / campaignLeadPerformance.pagination.limit)) })}</span><Button type="button" disabled={campaignLeadPerformanceLoading || !campaignLeadPerformance.pagination.hasNextPage} onClick={() => void loadCampaignPerformanceLeads(draft.id, campaignLeadPerformance.pagination.offset + campaignLeadPerformance.pagination.limit)}>{t('common.nextPage')}</Button></div>
-                </>}
+              {campaignPerformanceLoadingId === draft.id ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : campaignPerformanceError ? <WorkspaceState kind="error" compact message={t('campaignPerformanceReport.performanceFailed')}><Button type="button" onClick={() => void loadCampaignPerformance(draft.id)}>{t('campaignPerformanceReport.retry')}</Button></WorkspaceState> : campaignPerformance && <>
+                <header className="campaign-performance-heading"><strong>{t('campaignPerformanceReport.performanceTotal', { count: formatCampaignCount(campaignPerformance.total) })}</strong><p>{t('campaignPerformanceReport.attributionHint')}</p></header>
+                <div className="campaign-performance-channels">{campaignPerformance.channels.map((channel) => <section className="campaign-channel-results" key={channel.channelId} aria-label={channel.channelLabel}>
+                  <h4>{channel.channelLabel}</h4>
+                  <dl className="campaign-metric-grid">
+                    <div><dt>{t('campaignPerformanceReport.queuedLabel')}</dt><dd>{formatCampaignCount(channel.queued)}</dd></div>
+                    <div><dt>{t('campaignPerformanceReport.processingLabel')}</dt><dd>{formatCampaignCount(channel.processing)}</dd></div>
+                    <div><dt>{t('campaignPerformanceReport.sentLabel')}</dt><dd>{formatCampaignCount(channel.sent)}</dd></div>
+                    <div><dt>{t('campaignPerformanceReport.deliveredLabel')}</dt><dd>{formatCampaignCount(channel.delivered)}</dd></div>
+                    <div className="campaign-metric-outcome"><dt>{t('campaignPerformanceReport.respondedLabel')}</dt><dd>{formatCampaignCount(channel.replied)}</dd></div>
+                    <div className="campaign-metric-outcome"><dt>{t('campaignPerformanceReport.meetingsLabel')}</dt><dd>{formatCampaignCount(channel.meetings)}</dd></div>
+                    <div className="campaign-metric-outcome"><dt>{t('campaignPerformanceReport.opportunitiesCreatedLabel')}</dt><dd>{formatCampaignCount(channel.opportunitiesCreated)}</dd></div>
+                    <div className="campaign-metric-outcome"><dt>{t('campaignPerformanceReport.wonCountLabel')}</dt><dd>{formatCampaignCount(channel.won)}</dd></div>
+                    <div><dt>{t('campaignPerformanceReport.reviewLabel')}</dt><dd>{formatCampaignCount(channel.needsReview)}</dd></div>
+                  </dl>
+                </section>)}</div>
+                <section className="campaign-performance-leads" aria-label={t('campaignPerformanceReport.leadAssignments')}>
+                  <h4>{t('campaignPerformanceReport.leadAssignments')}</h4>
+                  {campaignLeadPerformanceLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : campaignLeadPerformanceError ? <WorkspaceState kind="error" compact message={t('campaignPerformanceReport.leadsFailed')}><Button type="button" onClick={() => void loadCampaignPerformanceLeads(draft.id, 0)}>{t('campaignPerformanceReport.retry')}</Button></WorkspaceState> : campaignLeadPerformance && (campaignLeadPerformance.data.length === 0 ? <WorkspaceState kind="empty" compact message={t('campaignPerformanceReport.leadsEmpty')} /> : <>
+                    <ul>{campaignLeadPerformance.data.map((item) => <li key={item.leadId}>
+                      <div className="campaign-lead-identity"><strong>{item.accountName}</strong><span>{item.contactName ?? t('campaignPerformanceReport.unknownContact')}{item.phone ? ` · ${item.phone}` : ''}</span>{item.opportunityStage && <small>{t('campaignPerformanceReport.currentOpportunity', { stage: item.opportunityStage === 'custom' ? item.opportunityStageLabel ?? t('opportunityStages.custom') : t(`opportunityStages.${item.opportunityStage}`) })}</small>}{item.opportunityStage && !item.opportunityCreatedAfterCampaign && <small className="campaign-preexisting-opportunity">{t('campaignPerformanceReport.preexistingOpportunity')}</small>}</div>
+                      <div className="campaign-lead-outcomes"><span className="campaign-lead-delivery">{item.inProgress ? t('campaignPerformanceReport.outbox.processing') : t(`campaignPerformanceReport.outbox.${item.outboxStatus}`)}<small>{item.deliveryState ? t(`campaignPerformanceReport.delivery.${item.deliveryState}`) : t('campaignPerformanceReport.noMessage')}</small></span><div className="campaign-outcome-badges">{item.replied && <span>{t('campaignPerformanceReport.repliedLabel')}</span>}{item.meetingAfterCampaign && <span>{t('campaignPerformanceReport.meetingLabel')}</span>}{item.opportunityCreatedAfterCampaign && <span>{t('campaignPerformanceReport.opportunityCreatedLabel')}</span>}{item.wonAfterCampaign && <span className="is-won">{t('campaignPerformanceReport.wonLabel')}</span>}</div>{item.replied && item.conversationId && <Button type="button" onClick={() => item.conversationId && onOpenInbox(item.conversationId)}>{t('campaignPerformanceReport.openConversation')}</Button>}</div>
+                    </li>)}</ul>
+                    <div className="campaign-performance-pagination"><Button type="button" disabled={campaignLeadPerformanceLoading || campaignLeadPerformance.pagination.offset === 0} onClick={() => void loadCampaignPerformanceLeads(draft.id, Math.max(0, campaignLeadPerformance.pagination.offset - campaignLeadPerformance.pagination.limit))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignLeadPerformance.pagination.offset / campaignLeadPerformance.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignLeadPerformance.pagination.total / campaignLeadPerformance.pagination.limit)) })}</span><Button type="button" disabled={campaignLeadPerformanceLoading || !campaignLeadPerformance.pagination.hasNextPage} onClick={() => void loadCampaignPerformanceLeads(draft.id, campaignLeadPerformance.pagination.offset + campaignLeadPerformance.pagination.limit)}>{t('common.nextPage')}</Button></div>
+                  </>)}
+                </section>
               </>}
             </div>}
           </li>)}</ul>}
@@ -591,7 +620,7 @@ export function LeadsWorkspace({ initialSearch = '' }: { initialSearch?: string 
         <section className="campaign-delivery-review" aria-label={t('campaignDrafts.deliveryReview')}>
           <p className="form-hint">{t('campaignDrafts.reviewSafety')}</p>
           {campaignReviewError && <WorkspaceState kind="error" compact message={campaignReviewError}><Button type="button" disabled={campaignReviewLoading} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
-          {!campaignReviewError && (campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>)}
+          {!campaignReviewError && (campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><div className="campaign-review-actions"><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button><Button type="button" disabled={!item.leadId || ['accepted', 'delivered', 'read'].includes(item.deliveryState ?? '') || campaignReviewSavingId !== ''} onClick={() => void retryCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmNotSent')}</Button></div></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}>{t('common.previousPage')}</Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}>{t('common.nextPage')}</Button></div></>)}
         </section>
       </div>
       </>}

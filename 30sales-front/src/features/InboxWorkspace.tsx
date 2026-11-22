@@ -1,6 +1,6 @@
 import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, ClipboardList, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, SlidersHorizontal, Sparkles, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
@@ -37,6 +37,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [tagBusy, setTagBusy] = useState(false)
   const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
   const [sendingMessage, setSendingMessage] = useState(false)
+  const [draftingReply, setDraftingReply] = useState(false)
   const [messageSendError, setMessageSendError] = useState('')
   const [channels, setChannels] = useState<ChannelDto[]>([])
   const [businessLines, setBusinessLines] = useState<BusinessLineDto[]>([])
@@ -272,6 +273,18 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       else setMessageSendError(t('inbox.sendFailed'))
     } finally { setSendingMessage(false) }
   }
+  const draftReplyWithAssistant = async () => {
+    if (!selected || !canSend || draftingReply) return
+    setDraftingReply(true); setMessageSendError('')
+    try {
+      const result = await api.agents.draftConversationReply(selected.id)
+      setComposerMode('reply'); setMessageDraft(result.draftText); setMediaDraft(null)
+    } catch {
+      setMessageSendError(t('inboxComposer.aiDraftFailed'))
+    } finally {
+      setDraftingReply(false)
+    }
+  }
   const selectMedia = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0] ?? null
     event.currentTarget.value = ''
@@ -395,7 +408,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {composerMode === 'reply' && !canSend && <p>{t('inbox.replyUnavailable')}</p>}
             {composerMode === 'note' && !canAddNote && <p>{t('inboxComposer.noteUnavailable')}</p>}
             <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith('audio/') && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} maxLength={4096} placeholder={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage} aria-label={t(composerMode === 'note' ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
-            {composerMode === 'reply' && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith('audio/') ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
+            {composerMode === 'reply' && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith('audio/') ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
             {messageSendError && <p className="inbox-send-error" role="status">{messageSendError}</p>}
             <div><small>{messageDraft.length}/4096</small><Button type="submit" disabled={(composerMode === 'reply' ? !canSend : !canAddNote) || sendingMessage || (!messageDraft.trim() && !mediaDraft) || (mediaDraft?.type.startsWith('audio/') && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === 'note' ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
           </form>

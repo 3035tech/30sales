@@ -18,6 +18,9 @@ export class AgentsController {
 
   @Delete()
   resetLineSettings(@ApiRequest() request: ApiRequestDto, @Query('businessLineId', new ZodValidationPipe(assistantBusinessLineIdSchema)) businessLineId?: string) { return this.agentsService.resetBusinessLineAssistantSettings(request, businessLineId); }
+
+  @Post('conversations/:id/reply-draft')
+  draftConversationReply(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) conversationId: string) { return this.agentsService.draftConversationReply(request, conversationId); }
 }
 
 const profileIdSchema = z.string().uuid();

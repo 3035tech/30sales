@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS, LEAD_SOURCES, LEAD_STATUSES, SDR_PREVIEW_MAX_PAGE_SIZE, SDR_PREVIEW_PAGE_SIZE, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
 import { ACCOUNT_MARKET_SEGMENTS, QUERY_BOOLEAN_VALUES } from '../accounts/accounts.constants';
+import { LEAD_ACCOUNT_CONTACT_MAX_PAGE_SIZE, LEAD_ACCOUNT_CONTACT_PAGE_SIZE, LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX, LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN, LEAD_QUALIFICATION_FACT_MAX_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MAX_PAGE_SIZE, LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_MIN_EVIDENCE_LENGTH, LEAD_QUALIFICATION_FACT_MIN_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_PAGE_SIZE, LEAD_QUALIFICATION_FACT_SOURCES, LEAD_QUALIFICATION_FACT_STATE, LEAD_QUALIFICATION_FACT_STATES, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_KEYS, LEAD_QUALIFICATION_SUGGESTION } from './constants';
 export const createLeadSchema = z.object({ businessLineId: z.string().uuid().optional(), accountName: z.string().trim().min(2).max(160), contactName: z.string().trim().min(2).max(160).optional().or(z.literal('')), email: z.union([z.string().trim().email().max(254), z.literal('')]).optional(), phone: z.string().trim().max(40).optional(), source: z.enum(LEAD_SOURCES).default('manual'), duplicateOverrideReason: z.string().trim().min(3).max(500).optional() }).strict().superRefine((input, context) => {
   if ((input.email || input.phone) && !input.contactName?.trim()) context.addIssue({ code: 'custom', path: ['contactName'], message: 'Informe o nome do contato quando preencher e-mail ou telefone.' });
 });
@@ -19,12 +20,50 @@ export const createLeadContactSchema = z.object({
 export type CreateLeadContactDto = z.infer<typeof createLeadContactSchema>;
 export const updateLeadContactSchema = z.object({ isInterested: z.boolean() }).strict();
 export type UpdateLeadContactDto = z.infer<typeof updateLeadContactSchema>;
+export const createQualificationFactSchema = z.object({
+  factKey: z.string().trim().min(LEAD_QUALIFICATION_FACT_MIN_KEY_LENGTH).max(LEAD_QUALIFICATION_FACT_MAX_KEY_LENGTH).regex(/^[a-z][a-z0-9_]*$/),
+  value: z.string().trim().min(LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH).max(LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH).nullable(),
+  state: z.enum(LEAD_QUALIFICATION_FACT_STATES),
+  source: z.enum(LEAD_QUALIFICATION_FACT_SOURCES).default(LEAD_QUALIFICATION_FACT_SOURCE.manual),
+  evidence: z.string().trim().min(LEAD_QUALIFICATION_FACT_MIN_EVIDENCE_LENGTH).max(LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH).nullable().optional(),
+  sourceMessageId: z.string().uuid().optional(),
+  confidence: z.number().min(LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN).max(LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX).nullable().optional(),
+}).strict().superRefine((input, context) => {
+  const valueless = input.state === LEAD_QUALIFICATION_FACT_STATE.unknown || input.state === LEAD_QUALIFICATION_FACT_STATE.notApplicable;
+  if (valueless !== (input.value === null)) context.addIssue({ code: 'custom', path: ['value'], message: 'Fact value must match its state.' });
+  if ((input.source === LEAD_QUALIFICATION_FACT_SOURCE.conversation) !== Boolean(input.sourceMessageId)) context.addIssue({ code: 'custom', path: ['sourceMessageId'], message: 'Conversation facts require a source message.' });
+  if (input.source === LEAD_QUALIFICATION_FACT_SOURCE.conversation && !input.evidence?.trim()) context.addIssue({ code: 'custom', path: ['evidence'], message: 'Conversation facts require a quoted source excerpt.' });
+  if (input.source === LEAD_QUALIFICATION_FACT_SOURCE.manual && !valueless && !input.evidence?.trim()) context.addIssue({ code: 'custom', path: ['evidence'], message: 'Manual facts require supporting evidence.' });
+});
+export type CreateQualificationFactDto = z.infer<typeof createQualificationFactSchema>;
+export const qualificationSuggestionSchema = z.object({ factKey: z.enum(LEAD_QUALIFICATION_FACT_KEYS), value: z.string().trim().min(LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH).max(LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH).nullable(), state: z.enum(LEAD_QUALIFICATION_FACT_STATES), evidence: z.string().trim().min(LEAD_QUALIFICATION_FACT_MIN_EVIDENCE_LENGTH).max(LEAD_QUALIFICATION_SUGGESTION.evidenceMaxLength), sourceMessageId: z.string().uuid(), confidence: z.number().min(LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN).max(LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX) }).strict().superRefine((input, context) => {
+  const valueless = input.state === LEAD_QUALIFICATION_FACT_STATE.unknown || input.state === LEAD_QUALIFICATION_FACT_STATE.notApplicable;
+  if (valueless !== (input.value === null)) context.addIssue({ code: 'custom', path: ['value'], message: 'Fact value must match its state.' });
+});
+export type QualificationSuggestionDto = z.infer<typeof qualificationSuggestionSchema>;
+export class QualificationSuggestionContextDto { constructor(readonly leadId: string, readonly model: string | null, readonly systemPrompt: string | null, readonly messages: Array<{ readonly id: string; readonly occurredAt: string; readonly content: string }>) {} }
+export class QualificationSuggestionResultDto { constructor(readonly factKey: QualificationSuggestionDto['factKey'], readonly value: string | null, readonly state: QualificationSuggestionDto['state'], readonly evidence: string, readonly sourceMessageId: string, readonly sourceMessageAt: string, readonly confidence: number) {} }
+export class QualificationSuggestionRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
+export class QualificationSuggestionAuditDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly model: string, readonly sourceMessageIds: string[], readonly suggestionCount: number, readonly usageInputTokens: number | null, readonly usageOutputTokens: number | null, readonly latencyMs: number, readonly correlationId: string | null) {} }
+export const listQualificationFactsSchema = z.object({ limit: z.coerce.number().int().min(1).max(LEAD_QUALIFICATION_FACT_MAX_PAGE_SIZE).default(LEAD_QUALIFICATION_FACT_PAGE_SIZE), offset: z.coerce.number().int().nonnegative().default(0) }).strict();
+export type ListQualificationFactsQueryDto = z.infer<typeof listQualificationFactsSchema>;
+export class QualificationFactRecordDto { constructor(readonly id: string, readonly factKey: string, readonly value: string | null, readonly state: (typeof LEAD_QUALIFICATION_FACT_STATES)[number], readonly source: (typeof LEAD_QUALIFICATION_FACT_SOURCES)[number], readonly evidence: string | null, readonly sourceMessageId: string | null, readonly confidence: number | null, readonly createdByUserId: string, readonly recordedAt: string) {} }
+export class QualificationFactPageDto { constructor(readonly data: QualificationFactRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
+export class QualificationFactRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly input?: CreateQualificationFactDto, readonly correlationId: string | null = null, readonly query: ListQualificationFactsQueryDto = { limit: LEAD_QUALIFICATION_FACT_PAGE_SIZE, offset: 0 }) {} }
 export class LeadContactRecordDto {
   constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null, readonly jobTitle: string | null, readonly isPrimary: boolean, readonly isInterested: boolean, readonly hasConversation: boolean, readonly referralNote: string | null, readonly notes: string | null, readonly outreachDecision: (typeof CONTACT_OUTREACH_DECISIONS)[number] = CONTACT_OUTREACH_DECISION.pending, readonly outreachBasis: (typeof CONTACT_OUTREACH_BASES)[number] | null = null, readonly outreachEvidence: string | null = null, readonly outreachReviewedAt: string | null = null, readonly outreachReviewedByName: string | null = null) {}
 }
 export class LeadRepositoryAccessDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean) {} }
 export class LeadContactRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export class LeadContactCreateRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly actorUserId: string, readonly input: CreateLeadContactDto, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
+export const listAccountContactsSchema = z.object({ limit: z.coerce.number().int().min(1).max(LEAD_ACCOUNT_CONTACT_MAX_PAGE_SIZE).default(LEAD_ACCOUNT_CONTACT_PAGE_SIZE), offset: z.coerce.number().int().nonnegative().default(0) }).strict();
+export type ListAccountContactsQueryDto = z.infer<typeof listAccountContactsSchema>;
+export const linkAccountContactSchema = z.object({ personId: z.string().uuid() }).strict();
+export type LinkAccountContactDto = z.infer<typeof linkAccountContactSchema>;
+export class AccountContactCandidateDto { constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null) {} }
+export class AccountContactPageDto { constructor(readonly data: AccountContactCandidateDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
+export class AccountContactRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly access: LeadRepositoryAccessDto, readonly query: ListAccountContactsQueryDto) {} }
+export class LinkAccountContactRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly personId: string, readonly actorUserId: string, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null) {} }
 export class LeadContactUpdateRepositoryDto { constructor(readonly organizationId: string, readonly leadId: string, readonly contactId: string, readonly actorUserId: string, readonly input: UpdateLeadContactDto, readonly access: LeadRepositoryAccessDto, readonly correlationId: string | null = null) {} }
 export const reviewContactOutreachSchema = z.object({ decision: z.enum(CONTACT_OUTREACH_DECISIONS), basis: z.enum(CONTACT_OUTREACH_BASES).optional(), evidence: z.string().trim().max(2000).optional() }).strict().superRefine((input, context) => {
   if (input.decision === CONTACT_OUTREACH_DECISION.pending && (input.basis !== undefined || input.evidence !== undefined)) context.addIssue({ code: 'custom', path: ['basis'], message: 'Pending reviews cannot include a basis or evidence.' });

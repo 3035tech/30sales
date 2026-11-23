@@ -1,15 +1,20 @@
 import { Button, CalendarField, CheckboxField, IconButton, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { PhoneField } from '../components/ui/PhoneField'
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Bot, CalendarDays, ChevronLeft, ChevronRight, Megaphone, Plus, RefreshCw, Search, Star, Trash2, Users } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Bot, CalendarDays, Check, ChevronLeft, ChevronRight, Megaphone, Plus, RefreshCw, Search, Sparkles, Star, Trash2, Users, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type BusinessLineDto, type CreateLeadContactInput, type CreateLeadInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
+import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type BusinessLineDto, type CreateLeadContactInput, type CreateLeadInput, type CreateQualificationFactInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type QualificationFactDto, type QualificationFactPageDto, type QualificationSuggestionDto, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
 import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS } from '../lib/accountConstants'
+import { LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_KEYS, LEAD_QUALIFICATION_FACT_LIMITS, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE, LEAD_QUALIFICATION_FACT_STATES, LEAD_QUALIFICATION_SUGGESTION_ERROR_CODE } from '../lib/leadQualificationConstants'
+import { CAMPAIGN_QUEUE_PAGE_SIZE, CAMPAIGN_WORKSPACE_TAB, CAMPAIGN_WORKSPACE_TABS } from '../lib/campaignConstants'
+import { PAGINATION_MINIMUM_PAGE_COUNT, PAGINATION_OFFSET_START } from '../lib/paginationConstants'
+import { CAMPAIGN_DELIVERY_REVIEW_ALREADY_SENT_STATES, CAMPAIGN_DELIVERY_REVIEW_PAGE_SIZE, EMPTY_IDENTIFIER } from '../lib/inboxConstants'
+import { ASYNC_RESULT_STATUS, LEAD_ACCOUNT_CONTACT_LIMITS, LEAD_CONTACT_ERROR_CODE, LEAD_CONTACT_PRIMARY_SORT_ORDER } from '../lib/leadContactConstants'
 import { CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIENCE_PAGE_SIZE, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_NO_SEND_DATE_MAX, CAMPAIGN_TIME_ZONE_DEFAULT, api as campaignsApi, type CampaignAudiencePreviewDto, type CampaignDraftDto, type CampaignDraftPageDto, type CampaignNoSendDateDto, type CampaignOperationalReadinessDto, type CreateCampaignDraftInput } from '../lib/api'
 import i18n from '../lib/i18n'
 import './LeadsWorkspace.css'
@@ -18,12 +23,15 @@ import './LeadProfile.css'
 
 const statusOrder: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 const sourceOrder: NonNullable<CreateLeadInput['source']>[] = [...LEAD_SOURCE_VALUES]
+const qualificationSuggestionKey = (suggestion: QualificationSuggestionDto) => `${suggestion.factKey}:${suggestion.sourceMessageId}:${suggestion.evidence}`
 const formatCampaignCount = (value: number) => new Intl.NumberFormat(i18n.language).format(value)
 type SortDirection = 'asc' | 'desc'
 type OutreachDecision = (typeof CONTACT_OUTREACH_DECISION)[keyof typeof CONTACT_OUTREACH_DECISION]
 type OutreachBasis = (typeof CONTACT_OUTREACH_BASIS)[keyof typeof CONTACT_OUTREACH_BASIS]
 type OutreachDraft = { decision: OutreachDecision; basis: OutreachBasis | ''; evidence: string }
-type CampaignTab = 'campaigns' | 'calendar' | 'delivery-review'
+type CampaignTab = (typeof CAMPAIGN_WORKSPACE_TABS)[number]
+type AccountContactPage = Awaited<ReturnType<typeof api.leads.accountContacts>>
+const defaultQualificationFactForm: CreateQualificationFactInput = { factKey: LEAD_QUALIFICATION_FACT_KEY.need, value: '', state: LEAD_QUALIFICATION_FACT_STATE.confirmed, source: LEAD_QUALIFICATION_FACT_SOURCE.manual, evidence: '' }
 
 function CampaignAudienceEditor({ draft, onClose, onSaved }: { draft: CampaignDraftDto; onClose: () => void; onSaved: () => void }) {
   const { t } = useTranslation()
@@ -61,7 +69,7 @@ function CampaignAudienceEditor({ draft, onClose, onSaved }: { draft: CampaignDr
     } catch { await load(offset); setError(t('campaignAudience.saveFailed')) }
     finally { setSaving(false) }
   }
-  const pageCount = Math.max(1, Math.ceil((preview?.pagination.total ?? 0) / CAMPAIGN_AUDIENCE_PAGE_SIZE))
+  const pageCount = Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil((preview?.pagination.total ?? 0) / CAMPAIGN_AUDIENCE_PAGE_SIZE))
   return <Modal open onOpenChange={(open) => { if (!open) onClose() }} title={t('campaignAudience.title', { campaign: draft.name })} description={t('campaignAudience.description')} closeLabel={t('common.close')} className="campaign-audience-modal">
     {error && <WorkspaceState kind="error" compact message={error}><Button type="button" onClick={() => void load(offset)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
     {saved && <p className="campaign-audience-saved" role="status">{t('campaignAudience.saved')}</p>}
@@ -75,7 +83,7 @@ function CampaignAudienceEditor({ draft, onClose, onSaved }: { draft: CampaignDr
           {lead.blockers.length === 0 ? <span className="campaign-audience-eligible">{t('campaignAudience.eligible')}</span> : <ul>{lead.blockers.map((blocker) => <li key={blocker}>{t(`sdrReadiness.blockers.${blocker}`)}</li>)}</ul>}
         </li>
       })}</ul>}
-      <div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={offset === 0 || loading} onClick={() => void load(Math.max(0, offset - CAMPAIGN_AUDIENCE_PAGE_SIZE))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(offset / CAMPAIGN_AUDIENCE_PAGE_SIZE) + 1, pages: pageCount })}</span><Button type="button" aria-label={t('table.next')} disabled={!preview.pagination.hasNextPage || loading} onClick={() => void load(offset + CAMPAIGN_AUDIENCE_PAGE_SIZE)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
+      <div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={offset === PAGINATION_OFFSET_START || loading} onClick={() => void load(Math.max(PAGINATION_OFFSET_START, offset - CAMPAIGN_AUDIENCE_PAGE_SIZE))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(offset / CAMPAIGN_AUDIENCE_PAGE_SIZE) + 1, pages: pageCount })}</span><Button type="button" aria-label={t('table.next')} disabled={!preview.pagination.hasNextPage || loading} onClick={() => void load(offset + CAMPAIGN_AUDIENCE_PAGE_SIZE)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
       <div className="campaign-audience-actions"><p className="form-hint">{t('campaignAudience.noSend')}</p><Button type="button" variant="primary" disabled={saving || loading} onClick={() => void save()}>{saving ? t('common.saving') : t('campaignAudience.save')}</Button></div>
     </>}
   </Modal>
@@ -157,6 +165,7 @@ function CampaignHolidayCalendar() {
 
 export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSearch?: string; onOpenInbox: (conversationId: string) => void }) {
   const { t } = useTranslation()
+  const contactsRequestId = useRef(0)
   const [searchParams, setSearchParams] = useSearchParams()
   const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
   const [leads, setLeads] = useState<LeadDto[]>([])
@@ -193,6 +202,22 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
   const [checkingDuplicates, setCheckingDuplicates] = useState(false)
   const [contactsLead, setContactsLead] = useState<LeadDto | null>(null)
   const [leadContacts, setLeadContacts] = useState<LeadContactDto[]>([])
+  const [qualificationFacts, setQualificationFacts] = useState<QualificationFactPageDto | null>(null)
+  const [qualificationFactsLoading, setQualificationFactsLoading] = useState(false)
+  const [qualificationFactsSaving, setQualificationFactsSaving] = useState(false)
+  const [qualificationFactsError, setQualificationFactsError] = useState('')
+  const [qualificationSuggestions, setQualificationSuggestions] = useState<QualificationSuggestionDto[]>([])
+  const [qualificationSuggestionsGenerated, setQualificationSuggestionsGenerated] = useState(false)
+  const [qualificationSuggestionsLoading, setQualificationSuggestionsLoading] = useState(false)
+  const [qualificationSuggestionsError, setQualificationSuggestionsError] = useState('')
+  const [savingQualificationSuggestionKey, setSavingQualificationSuggestionKey] = useState('')
+  const [qualificationFactsOffset, setQualificationFactsOffset] = useState<number>(LEAD_QUALIFICATION_FACT_LIMITS.offsetStart)
+  const [qualificationFactForm, setQualificationFactForm] = useState<CreateQualificationFactInput>(defaultQualificationFactForm)
+  const [accountContacts, setAccountContacts] = useState<AccountContactPage | null>(null)
+  const [accountContactsLoading, setAccountContactsLoading] = useState(false)
+  const [accountContactsError, setAccountContactsError] = useState('')
+  const [accountContactsOffset, setAccountContactsOffset] = useState<number>(LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart)
+  const [linkingAccountContactId, setLinkingAccountContactId] = useState('')
 
   useEffect(() => { setBusinessLineFilter(globalBusinessLineId); setOffset(0) }, [globalBusinessLineId])
   const [contactsLoading, setContactsLoading] = useState(false)
@@ -211,7 +236,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
   const [sdrPreviewLoading, setSdrPreviewLoading] = useState(false)
   const [sdrPreviewError, setSdrPreviewError] = useState(false)
   const [campaignDraftsOpen, setCampaignDraftsOpen] = useState(false)
-  const [campaignTab, setCampaignTab] = useState<CampaignTab>('campaigns')
+  const [campaignTab, setCampaignTab] = useState<CampaignTab>(CAMPAIGN_WORKSPACE_TAB.campaigns)
   const [campaignAudienceDraft, setCampaignAudienceDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignReadinessDraft, setCampaignReadinessDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignDrafts, setCampaignDrafts] = useState<CampaignDraftPageDto | null>(null)
@@ -228,6 +253,10 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
   const [campaignReviewSavingId, setCampaignReviewSavingId] = useState('')
   const [campaignDeliveryToRetry, setCampaignDeliveryToRetry] = useState('')
   const [campaignReviewOffset, setCampaignReviewOffset] = useState(0)
+  const [campaignPendingReplies, setCampaignPendingReplies] = useState<Awaited<ReturnType<typeof campaignsApi.campaigns.pendingReplies>> | null>(null)
+  const [campaignPendingRepliesLoading, setCampaignPendingRepliesLoading] = useState(false)
+  const [campaignPendingRepliesError, setCampaignPendingRepliesError] = useState(false)
+  const [campaignPendingRepliesOffset, setCampaignPendingRepliesOffset] = useState(0)
   const [campaignChannels, setCampaignChannels] = useState<SdrPreviewChannelDto[]>([])
   const [campaignDraftsLoading, setCampaignDraftsLoading] = useState(false)
   const [campaignDraftSaving, setCampaignDraftSaving] = useState(false)
@@ -330,6 +359,13 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
     finally { setCampaignReviewLoading(false) }
   }
 
+  const loadCampaignPendingReplies = async (offset = 0) => {
+    setCampaignPendingRepliesOffset(offset); setCampaignPendingRepliesLoading(true); setCampaignPendingRepliesError(false)
+    try { setCampaignPendingReplies(await campaignsApi.campaigns.pendingReplies({ limit: CAMPAIGN_QUEUE_PAGE_SIZE, offset })) }
+    catch { setCampaignPendingReplies(null); setCampaignPendingRepliesError(true) }
+    finally { setCampaignPendingRepliesLoading(false) }
+  }
+
   const confirmCampaignDelivery = async (outboxEventId: string) => {
     setCampaignReviewSavingId(outboxEventId)
     try {
@@ -353,13 +389,14 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
 
   const selectCampaignTab = (tab: CampaignTab) => {
     setCampaignTab(tab)
-    if (tab === 'delivery-review' && !campaignDeliveryReview && !campaignReviewLoading) void loadCampaignDeliveryReview()
+    if (tab === CAMPAIGN_WORKSPACE_TAB.deliveryReview && !campaignDeliveryReview && !campaignReviewLoading) void loadCampaignDeliveryReview()
+    if (tab === CAMPAIGN_WORKSPACE_TAB.pendingReplies && !campaignPendingReplies && !campaignPendingRepliesLoading) void loadCampaignPendingReplies()
   }
 
   const handleCampaignTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const tabs: CampaignTab[] = ['campaigns', 'calendar', 'delivery-review']
+    const tabs = CAMPAIGN_WORKSPACE_TABS
     const index = tabs.indexOf(campaignTab)
     const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length
     const nextTab = tabs[nextIndex]
@@ -454,13 +491,112 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
     catch { setError(t('leadAssignment.saveFailed')) }
   }
   const openContacts = async (lead: LeadDto) => {
+    const requestId = contactsRequestId.current + 1
+    contactsRequestId.current = requestId
     setContactsLead(lead)
     setLeadContacts([])
     setContactsError('')
+    setQualificationFacts(null)
+    setQualificationFactsError('')
+    setQualificationSuggestions([])
+    setQualificationSuggestionsGenerated(false)
+    setQualificationSuggestionsError('')
+    setQualificationFactsOffset(LEAD_QUALIFICATION_FACT_LIMITS.offsetStart)
+    setQualificationFactForm(defaultQualificationFactForm)
+    setAccountContacts(null)
+    setAccountContactsError('')
+    setAccountContactsOffset(LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart)
     setContactsLoading(true)
-    try { setLeadContacts(await api.leads.contacts(lead.id)) }
-    catch { setContactsError(t('leadContacts.loadFailed')) }
-    finally { setContactsLoading(false) }
+    setQualificationFactsLoading(true)
+    setAccountContactsLoading(true)
+    const [contactsResult, factsResult, accountContactsResult] = await Promise.allSettled([
+      api.leads.contacts(lead.id),
+      api.leads.qualificationFacts(lead.id, { limit: LEAD_QUALIFICATION_FACT_LIMITS.pageSize, offset: LEAD_QUALIFICATION_FACT_LIMITS.offsetStart }),
+      api.leads.accountContacts(lead.id, { limit: LEAD_ACCOUNT_CONTACT_LIMITS.pageSize, offset: LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart }),
+    ])
+    if (contactsRequestId.current !== requestId) return
+    if (contactsResult.status === ASYNC_RESULT_STATUS.fulfilled) setLeadContacts(contactsResult.value)
+    else setContactsError(t('leadContacts.loadFailed'))
+    if (factsResult.status === ASYNC_RESULT_STATUS.fulfilled) setQualificationFacts(factsResult.value)
+    else setQualificationFactsError(t('leadQualification.loadFailed'))
+    if (accountContactsResult.status === ASYNC_RESULT_STATUS.fulfilled) setAccountContacts(accountContactsResult.value)
+    else setAccountContactsError(t('leadContacts.accountContactsLoadFailed'))
+    setContactsLoading(false)
+    setQualificationFactsLoading(false)
+    setAccountContactsLoading(false)
+  }
+  const loadAccountContacts = async (leadId: string, nextOffset: number) => {
+    setAccountContactsLoading(true)
+    setAccountContactsError('')
+    try {
+      setAccountContacts(await api.leads.accountContacts(leadId, { limit: LEAD_ACCOUNT_CONTACT_LIMITS.pageSize, offset: nextOffset }))
+      setAccountContactsOffset(nextOffset)
+    } catch { setAccountContactsError(t('leadContacts.accountContactsLoadFailed')) }
+    finally { setAccountContactsLoading(false) }
+  }
+  const linkAccountContact = async (personId: string) => {
+    if (!contactsLead) return
+    setLinkingAccountContactId(personId)
+    setContactsError('')
+    try {
+      const contact = await api.leads.linkAccountContact(contactsLead.id, personId)
+      setLeadContacts((current) => [...current, contact].sort((left, right) => left.isPrimary === right.isPrimary ? left.name.localeCompare(right.name, i18n.language) : left.isPrimary ? LEAD_CONTACT_PRIMARY_SORT_ORDER.primaryFirst : LEAD_CONTACT_PRIMARY_SORT_ORDER.secondaryFirst))
+      await loadAccountContacts(contactsLead.id, LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart)
+    } catch (caught) {
+      setContactsError(caught instanceof ApiError && caught.code === LEAD_CONTACT_ERROR_CODE.unavailable ? t('leadContacts.accountContactUnavailable') : caught instanceof ApiError && caught.code === LEAD_CONTACT_ERROR_CODE.alreadyLinked ? t('leadContacts.accountContactAlreadyLinked') : t('leadContacts.accountContactLinkFailed'))
+    } finally { setLinkingAccountContactId('') }
+  }
+  const loadQualificationFacts = async (leadId: string, nextOffset: number) => {
+    setQualificationFactsLoading(true)
+    setQualificationFactsError('')
+    try {
+      setQualificationFacts(await api.leads.qualificationFacts(leadId, { limit: LEAD_QUALIFICATION_FACT_LIMITS.pageSize, offset: nextOffset }))
+      setQualificationFactsOffset(nextOffset)
+    } catch { setQualificationFactsError(t('leadQualification.loadFailed')) }
+    finally { setQualificationFactsLoading(false) }
+  }
+  const generateQualificationSuggestions = async () => {
+    if (!contactsLead) return
+    setQualificationSuggestionsLoading(true)
+    setQualificationSuggestionsError('')
+    setQualificationSuggestions([])
+    try {
+      setQualificationSuggestions(await api.leads.suggestQualificationFacts(contactsLead.id))
+      setQualificationSuggestionsGenerated(true)
+    }
+    catch (error) {
+      setQualificationSuggestionsError(error instanceof ApiError && error.code === LEAD_QUALIFICATION_SUGGESTION_ERROR_CODE.noConversation
+        ? t('leadQualification.noConversation')
+        : error instanceof ApiError && error.code === LEAD_QUALIFICATION_SUGGESTION_ERROR_CODE.assistantUnavailable
+          ? t('leadQualification.assistantUnavailable')
+          : t('leadQualification.suggestionsFailed'))
+    } finally { setQualificationSuggestionsLoading(false) }
+  }
+  const acceptQualificationSuggestion = async (suggestion: QualificationSuggestionDto) => {
+    if (!contactsLead) return
+    const key = qualificationSuggestionKey(suggestion)
+    setSavingQualificationSuggestionKey(key)
+    setQualificationFactsError('')
+    try {
+      await api.leads.addQualificationFact(contactsLead.id, { factKey: suggestion.factKey, value: suggestion.value, state: suggestion.state, source: LEAD_QUALIFICATION_FACT_SOURCE.conversation, evidence: suggestion.evidence, sourceMessageId: suggestion.sourceMessageId, confidence: suggestion.confidence })
+      setQualificationSuggestions((current) => current.filter((item) => qualificationSuggestionKey(item) !== key))
+      await loadQualificationFacts(contactsLead.id, LEAD_QUALIFICATION_FACT_LIMITS.offsetStart)
+    } catch { setQualificationFactsError(t('leadQualification.saveFailed')) }
+    finally { setSavingQualificationSuggestionKey('') }
+  }
+  const saveQualificationFact = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!contactsLead) return
+    setQualificationFactsSaving(true)
+    setQualificationFactsError('')
+    const valueIsNotApplicable = qualificationFactForm.state === LEAD_QUALIFICATION_FACT_STATE.unknown || qualificationFactForm.state === LEAD_QUALIFICATION_FACT_STATE.notApplicable
+    const payload: CreateQualificationFactInput = { ...qualificationFactForm, value: valueIsNotApplicable ? null : qualificationFactForm.value?.trim() ?? '', evidence: qualificationFactForm.evidence?.trim() || null }
+    try {
+      await api.leads.addQualificationFact(contactsLead.id, payload)
+      setQualificationFactForm(defaultQualificationFactForm)
+      await loadQualificationFacts(contactsLead.id, LEAD_QUALIFICATION_FACT_LIMITS.offsetStart)
+    } catch { setQualificationFactsError(t('leadQualification.saveFailed')) }
+    finally { setQualificationFactsSaving(false) }
   }
   const saveContact = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -473,7 +609,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
       setContactForm({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' })
       setRefreshVersion((version) => version + 1)
     } catch (caught) {
-      setContactsError(caught instanceof ApiError && caught.code === 'LEAD_CONTACT_ALREADY_EXISTS' ? t('leadContacts.duplicate') : t('leadContacts.saveFailed'))
+      setContactsError(caught instanceof ApiError && caught.code === LEAD_CONTACT_ERROR_CODE.duplicate ? t('leadContacts.duplicate') : caught instanceof ApiError && caught.code === LEAD_CONTACT_ERROR_CODE.ambiguousAccountMatch ? t('leadContacts.ambiguousAccountMatch') : t('leadContacts.saveFailed'))
     } finally { setContactsSaving(false) }
   }
   const updateContactInterest = async (contact: LeadContactDto, isInterested: boolean) => {
@@ -547,15 +683,16 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
       <div className="lead-actions"><Button type="button" className="primary add-lead" disabled={businessLines.length === 0} onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</Button><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button></div>
     </header>
-    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab('campaigns') } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
+    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab(CAMPAIGN_WORKSPACE_TAB.campaigns) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
       {campaignDraftsLoading && !campaignDrafts ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>
       <div className="campaign-workspace-tabs" role="tablist" aria-label={t('campaignDrafts.sections')}>
-        <Button type="button" role="tab" id="campaign-tab-campaigns" aria-controls="campaign-panel-campaigns" aria-selected={campaignTab === 'campaigns'} tabIndex={campaignTab === 'campaigns' ? 0 : -1} className={campaignTab === 'campaigns' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('campaigns')}>{t('campaignDrafts.campaignsTab')}</Button>
-        <Button type="button" role="tab" id="campaign-tab-calendar" aria-controls="campaign-panel-calendar" aria-selected={campaignTab === 'calendar'} tabIndex={campaignTab === 'calendar' ? 0 : -1} className={campaignTab === 'calendar' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('calendar')}>{t('campaignDrafts.calendarTab')}</Button>
-        <Button type="button" role="tab" id="campaign-tab-delivery-review" aria-controls="campaign-panel-delivery-review" aria-selected={campaignTab === 'delivery-review'} tabIndex={campaignTab === 'delivery-review' ? 0 : -1} className={campaignTab === 'delivery-review' ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab('delivery-review')}>{t('campaignDrafts.deliveryReview')}</Button>
+        <Button type="button" role="tab" id={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.campaigns}`} aria-controls={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.campaigns}`} aria-selected={campaignTab === CAMPAIGN_WORKSPACE_TAB.campaigns} tabIndex={campaignTab === CAMPAIGN_WORKSPACE_TAB.campaigns ? 0 : -1} className={campaignTab === CAMPAIGN_WORKSPACE_TAB.campaigns ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab(CAMPAIGN_WORKSPACE_TAB.campaigns)}>{t('campaignDrafts.campaignsTab')}</Button>
+        <Button type="button" role="tab" id={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.calendar}`} aria-controls={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.calendar}`} aria-selected={campaignTab === CAMPAIGN_WORKSPACE_TAB.calendar} tabIndex={campaignTab === CAMPAIGN_WORKSPACE_TAB.calendar ? 0 : -1} className={campaignTab === CAMPAIGN_WORKSPACE_TAB.calendar ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab(CAMPAIGN_WORKSPACE_TAB.calendar)}>{t('campaignDrafts.calendarTab')}</Button>
+        <Button type="button" role="tab" id={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.deliveryReview}`} aria-controls={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.deliveryReview}`} aria-selected={campaignTab === CAMPAIGN_WORKSPACE_TAB.deliveryReview} tabIndex={campaignTab === CAMPAIGN_WORKSPACE_TAB.deliveryReview ? 0 : -1} className={campaignTab === CAMPAIGN_WORKSPACE_TAB.deliveryReview ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab(CAMPAIGN_WORKSPACE_TAB.deliveryReview)}>{t('campaignDrafts.deliveryReview')}</Button>
+        <Button type="button" role="tab" id={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.pendingReplies}`} aria-controls={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.pendingReplies}`} aria-selected={campaignTab === CAMPAIGN_WORKSPACE_TAB.pendingReplies} tabIndex={campaignTab === CAMPAIGN_WORKSPACE_TAB.pendingReplies ? 0 : -1} className={campaignTab === CAMPAIGN_WORKSPACE_TAB.pendingReplies ? 'selected' : ''} onKeyDown={handleCampaignTabKeyDown} onClick={() => selectCampaignTab(CAMPAIGN_WORKSPACE_TAB.pendingReplies)}>{t('campaignPendingReplies.title')}</Button>
       </div>
-      <div role="tabpanel" id="campaign-panel-campaigns" aria-labelledby="campaign-tab-campaigns" hidden={campaignTab !== 'campaigns'}>
+      <div role="tabpanel" id={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.campaigns}`} aria-labelledby={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.campaigns}`} hidden={campaignTab !== CAMPAIGN_WORKSPACE_TAB.campaigns}>
         <form className="campaign-draft-form" onSubmit={(event) => void createCampaignDraft(event)}>
           <div className="campaign-draft-form-heading"><strong>{t('campaignDrafts.newDraft')}</strong><p>{t('campaignDrafts.formHint')}</p></div>
           <label>{t('campaignDrafts.name')}<TextField value={campaignDraftForm.name} onChange={(event) => setCampaignDraftForm((current) => ({ ...current, name: event.target.value }))} minLength={2} maxLength={120} required /></label>
@@ -610,21 +747,30 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
                       <div className="campaign-lead-identity"><strong>{item.accountName}</strong><span>{item.contactName ?? t('campaignPerformanceReport.unknownContact')}{item.phone ? ` · ${item.phone}` : ''}</span>{item.opportunityStage && <small>{t('campaignPerformanceReport.currentOpportunity', { stage: item.opportunityStage === 'custom' ? item.opportunityStageLabel ?? t('opportunityStages.custom') : t(`opportunityStages.${item.opportunityStage}`) })}</small>}{item.opportunityStage && !item.opportunityCreatedAfterCampaign && <small className="campaign-preexisting-opportunity">{t('campaignPerformanceReport.preexistingOpportunity')}</small>}</div>
                       <div className="campaign-lead-outcomes"><span className="campaign-lead-delivery">{item.inProgress ? t('campaignPerformanceReport.outbox.processing') : t(`campaignPerformanceReport.outbox.${item.outboxStatus}`)}<small>{item.deliveryState ? t(`campaignPerformanceReport.delivery.${item.deliveryState}`) : t('campaignPerformanceReport.noMessage')}</small></span><div className="campaign-outcome-badges">{item.replied && <span>{t('campaignPerformanceReport.repliedLabel')}</span>}{item.meetingAfterCampaign && <span>{t('campaignPerformanceReport.meetingLabel')}</span>}{item.opportunityCreatedAfterCampaign && <span>{t('campaignPerformanceReport.opportunityCreatedLabel')}</span>}{item.wonAfterCampaign && <span className="is-won">{t('campaignPerformanceReport.wonLabel')}</span>}</div>{item.replied && item.conversationId && <Button type="button" onClick={() => item.conversationId && onOpenInbox(item.conversationId)}>{t('campaignPerformanceReport.openConversation')}</Button>}</div>
                     </li>)}</ul>
-                    <div className="campaign-performance-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignLeadPerformanceLoading || campaignLeadPerformance.pagination.offset === 0} onClick={() => void loadCampaignPerformanceLeads(draft.id, Math.max(0, campaignLeadPerformance.pagination.offset - campaignLeadPerformance.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignLeadPerformance.pagination.offset / campaignLeadPerformance.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignLeadPerformance.pagination.total / campaignLeadPerformance.pagination.limit)) })}</span><Button type="button" aria-label={t('table.next')} disabled={campaignLeadPerformanceLoading || !campaignLeadPerformance.pagination.hasNextPage} onClick={() => void loadCampaignPerformanceLeads(draft.id, campaignLeadPerformance.pagination.offset + campaignLeadPerformance.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
+                    <div className="campaign-performance-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignLeadPerformanceLoading || campaignLeadPerformance.pagination.offset === PAGINATION_OFFSET_START} onClick={() => void loadCampaignPerformanceLeads(draft.id, Math.max(PAGINATION_OFFSET_START, campaignLeadPerformance.pagination.offset - campaignLeadPerformance.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignLeadPerformance.pagination.offset / campaignLeadPerformance.pagination.limit) + 1, pages: Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil(campaignLeadPerformance.pagination.total / campaignLeadPerformance.pagination.limit)) })}</span><Button type="button" aria-label={t('table.next')} disabled={campaignLeadPerformanceLoading || !campaignLeadPerformance.pagination.hasNextPage} onClick={() => void loadCampaignPerformanceLeads(draft.id, campaignLeadPerformance.pagination.offset + campaignLeadPerformance.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
                   </>)}
                 </section>
               </>}
             </div>}
           </li>)}</ul>}
-          {campaignDrafts && <div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignDrafts.pagination.offset === 0 || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(Math.max(0, campaignDrafts.pagination.offset - campaignDrafts.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignDrafts.pagination.offset / campaignDrafts.pagination.limit) + 1, pages: Math.max(1, Math.ceil(campaignDrafts.pagination.total / campaignDrafts.pagination.limit)) })}</span><Button type="button" aria-label={t('table.next')} disabled={!campaignDrafts.pagination.hasNextPage || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(campaignDrafts.pagination.offset + campaignDrafts.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>}
+          {campaignDrafts && <div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignDrafts.pagination.offset === PAGINATION_OFFSET_START || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(Math.max(PAGINATION_OFFSET_START, campaignDrafts.pagination.offset - campaignDrafts.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignDrafts.pagination.offset / campaignDrafts.pagination.limit) + 1, pages: Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil(campaignDrafts.pagination.total / campaignDrafts.pagination.limit)) })}</span><Button type="button" aria-label={t('table.next')} disabled={!campaignDrafts.pagination.hasNextPage || campaignDraftsLoading} onClick={() => void loadCampaignDrafts(campaignDrafts.pagination.offset + campaignDrafts.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>}
         </section>
       </div>
-      <div role="tabpanel" id="campaign-panel-calendar" aria-labelledby="campaign-tab-calendar" hidden={campaignTab !== 'calendar'}><CampaignHolidayCalendar /></div>
-      <div role="tabpanel" id="campaign-panel-delivery-review" aria-labelledby="campaign-tab-delivery-review" hidden={campaignTab !== 'delivery-review'}>
+      <div role="tabpanel" id={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.calendar}`} aria-labelledby={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.calendar}`} hidden={campaignTab !== CAMPAIGN_WORKSPACE_TAB.calendar}><CampaignHolidayCalendar /></div>
+      <div role="tabpanel" id={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.pendingReplies}`} aria-labelledby={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.pendingReplies}`} hidden={campaignTab !== CAMPAIGN_WORKSPACE_TAB.pendingReplies}>
+        <section className="campaign-delivery-review" aria-label={t('campaignPendingReplies.title')}>
+          <div className="campaign-draft-form-heading"><strong>{t('campaignPendingReplies.title')}</strong><Button type="button" disabled={campaignPendingRepliesLoading} onClick={() => void loadCampaignPendingReplies(campaignPendingRepliesOffset)}><RefreshCw size={15} aria-hidden="true" />{t('campaignPendingReplies.refresh')}</Button></div>
+          {campaignPendingRepliesError ? <WorkspaceState kind="error" compact message={t('campaignPendingReplies.loadFailed')}><Button type="button" disabled={campaignPendingRepliesLoading} onClick={() => void loadCampaignPendingReplies(campaignPendingRepliesOffset)}>{t('sdrPreview.retry')}</Button></WorkspaceState> : campaignPendingRepliesLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignPendingReplies || campaignPendingReplies.data.length === PAGINATION_OFFSET_START ? <WorkspaceState kind="empty" message={t('campaignPendingReplies.empty')} /> : <>
+            <ul>{campaignPendingReplies.data.map((item) => <li key={`${item.campaignDraftId}:${item.conversationId}`}><div><strong>{item.accountName} · {item.contactName ?? t('campaignPerformanceReport.unknownContact')}</strong><span>{item.campaignName} · {item.channelLabel}</span>{item.replyPreview && <small>{item.replyPreview}</small>}<small>{t('campaignPendingReplies.owner', { name: item.ownerName ?? t('leadAssignment.unassigned') })} · {t(item.hasOpenTask ? 'campaignPendingReplies.taskExists' : 'campaignPendingReplies.noTask')} · {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(item.repliedAt))}</small></div><Button type="button" onClick={() => onOpenInbox(item.conversationId)}>{t('campaignPerformanceReport.openConversation')}</Button></li>)}</ul>
+            <div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignPendingRepliesLoading || campaignPendingRepliesOffset === PAGINATION_OFFSET_START} onClick={() => void loadCampaignPendingReplies(Math.max(PAGINATION_OFFSET_START, campaignPendingRepliesOffset - CAMPAIGN_QUEUE_PAGE_SIZE))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignPendingRepliesOffset / CAMPAIGN_QUEUE_PAGE_SIZE) + 1, pages: Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil(campaignPendingReplies.pagination.total / CAMPAIGN_QUEUE_PAGE_SIZE)) })}</span><Button type="button" aria-label={t('table.next')} disabled={campaignPendingRepliesLoading || !campaignPendingReplies.pagination.hasNextPage} onClick={() => void loadCampaignPendingReplies(campaignPendingRepliesOffset + CAMPAIGN_QUEUE_PAGE_SIZE)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
+          </>}
+        </section>
+      </div>
+      <div role="tabpanel" id={`campaign-panel-${CAMPAIGN_WORKSPACE_TAB.deliveryReview}`} aria-labelledby={`campaign-tab-${CAMPAIGN_WORKSPACE_TAB.deliveryReview}`} hidden={campaignTab !== CAMPAIGN_WORKSPACE_TAB.deliveryReview}>
         <section className="campaign-delivery-review" aria-label={t('campaignDrafts.deliveryReview')}>
           <p className="form-hint">{t('campaignDrafts.reviewSafety')}</p>
           {campaignReviewError && <WorkspaceState kind="error" compact message={campaignReviewError}><Button type="button" disabled={campaignReviewLoading} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
-          {!campaignReviewError && (campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === 0 ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><div className="campaign-review-actions"><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== ''} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button><Button type="button" disabled={!item.leadId || ['accepted', 'delivered', 'read'].includes(item.deliveryState ?? '') || campaignReviewSavingId !== ''} onClick={() => setCampaignDeliveryToRetry(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmNotSent')}</Button></div></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignReviewLoading || campaignReviewOffset === 0} onClick={() => void loadCampaignDeliveryReview(Math.max(0, campaignReviewOffset - 25))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / 25) + 1, pages: Math.max(1, Math.ceil(campaignDeliveryReview.pagination.total / 25)) })}</span><Button type="button" aria-label={t('table.next')} disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + 25)}><ChevronRight size={16} aria-hidden="true" /></Button></div></>)}
+          {!campaignReviewError && (campaignReviewLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : !campaignDeliveryReview || campaignDeliveryReview.data.length === PAGINATION_OFFSET_START ? <WorkspaceState kind="empty" message={t('campaignDrafts.reviewEmpty')} /> : <><ul>{campaignDeliveryReview.data.map((item) => <li key={item.outboxEventId}><div><strong>{item.campaignName} · {item.accountName || t('campaignDrafts.unknownLead')}</strong><span>{item.contactName ?? '—'} · {item.phone ?? '—'}</span><small>{t('campaignDrafts.reviewState', { state: item.deliveryState ?? t('campaignDrafts.noMessage'), attempts: item.attempts })}</small></div><div className="campaign-review-actions"><Button type="button" variant="primary" disabled={!item.leadId || !item.deliveryState || campaignReviewSavingId !== EMPTY_IDENTIFIER} onClick={() => void confirmCampaignDelivery(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmSent')}</Button><Button type="button" disabled={!item.leadId || CAMPAIGN_DELIVERY_REVIEW_ALREADY_SENT_STATES.includes(item.deliveryState ?? '') || campaignReviewSavingId !== EMPTY_IDENTIFIER} onClick={() => setCampaignDeliveryToRetry(item.outboxEventId)}>{campaignReviewSavingId === item.outboxEventId ? t('common.saving') : t('campaignDrafts.confirmNotSent')}</Button></div></li>)}</ul><div className="sdr-preview-pagination"><Button type="button" aria-label={t('table.previous')} disabled={campaignReviewLoading || campaignReviewOffset === PAGINATION_OFFSET_START} onClick={() => void loadCampaignDeliveryReview(Math.max(PAGINATION_OFFSET_START, campaignReviewOffset - CAMPAIGN_DELIVERY_REVIEW_PAGE_SIZE))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(campaignReviewOffset / CAMPAIGN_DELIVERY_REVIEW_PAGE_SIZE) + 1, pages: Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil(campaignDeliveryReview.pagination.total / CAMPAIGN_DELIVERY_REVIEW_PAGE_SIZE)) })}</span><Button type="button" aria-label={t('table.next')} disabled={campaignReviewLoading || !campaignDeliveryReview.pagination.hasNextPage} onClick={() => void loadCampaignDeliveryReview(campaignReviewOffset + CAMPAIGN_DELIVERY_REVIEW_PAGE_SIZE)}><ChevronRight size={16} aria-hidden="true" /></Button></div></>)}
         </section>
       </div>
       </>}
@@ -637,7 +783,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
         {sdrPreviewChannels.length === 0 && <p className="form-hint">{t('sdrPreview.noChannels')}</p>}
         <div className="sdr-preview-summary"><strong>{t('sdrPreview.pageCount', { count: sdrPreview.leads.length, total: sdrPreview.pagination.total })}</strong><span>{t('sdrPreview.withoutBlockers', { count: sdrPreview.pageSummary.withoutBlockers })}</span><span>{t('sdrPreview.blocked', { count: sdrPreview.pageSummary.blocked })}</span></div>
         {sdrPreview.leads.length === 0 ? <WorkspaceState kind="empty" message={t('sdrPreview.empty')} /> : <ul className="sdr-preview-list">{sdrPreview.leads.map((lead) => <li key={lead.leadId}><div><strong>{lead.accountName}</strong><small>{lead.contactName ?? t('leadContacts.noPrimary')} · {t(`leads.sources.${lead.source}`)}</small></div>{lead.blockers.length === 0 ? <span className="sdr-preview-ready">{t('sdrPreview.ready')}</span> : <ul>{lead.blockers.map((blocker) => <li key={blocker}>{t(`sdrReadiness.blockers.${blocker}`)}</li>)}</ul>}</li>)}</ul>}
-        <div className="sdr-preview-pagination"><Button aria-label={t('table.previous')} disabled={sdrPreview.pagination.offset === 0} onClick={() => void loadSdrPreview(Math.max(0, sdrPreview.pagination.offset - sdrPreview.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(sdrPreview.pagination.offset / sdrPreview.pagination.limit) + 1, pages: Math.max(1, Math.ceil(sdrPreview.pagination.total / sdrPreview.pagination.limit)) })}</span><Button aria-label={t('table.next')} disabled={!sdrPreview.pagination.hasNextPage} onClick={() => void loadSdrPreview(sdrPreview.pagination.offset + sdrPreview.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
+        <div className="sdr-preview-pagination"><Button aria-label={t('table.previous')} disabled={sdrPreview.pagination.offset === PAGINATION_OFFSET_START} onClick={() => void loadSdrPreview(Math.max(PAGINATION_OFFSET_START, sdrPreview.pagination.offset - sdrPreview.pagination.limit))}><ChevronLeft size={16} aria-hidden="true" /></Button><span>{t('table.page', { page: Math.floor(sdrPreview.pagination.offset / sdrPreview.pagination.limit) + 1, pages: Math.max(PAGINATION_MINIMUM_PAGE_COUNT, Math.ceil(sdrPreview.pagination.total / sdrPreview.pagination.limit)) })}</span><Button aria-label={t('table.next')} disabled={!sdrPreview.pagination.hasNextPage} onClick={() => void loadSdrPreview(sdrPreview.pagination.offset + sdrPreview.pagination.limit)}><ChevronRight size={16} aria-hidden="true" /></Button></div>
         <p className="form-hint">{t('sdrPreview.noSend')}</p>
       </>}
     </Modal>
@@ -654,9 +800,21 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
       {duplicateCandidates && <section className="lead-duplicate-review" aria-live="polite"><div><strong>{t('leadDuplicateReview.title')}</strong><p>{t('leadDuplicateReview.hint')}</p></div><ul>{duplicateCandidates.map((candidate) => <li key={candidate.id}><span><strong>{candidate.accountName}{candidate.contactName ? ` · ${candidate.contactName}` : ''}</strong><small>{t(`leadStatuses.${candidate.status}`)} · {candidate.matchedBy.map((match) => t(`leadDuplicateReview.matchedBy.${match}`)).join(', ')}</small></span></li>)}</ul><label>{t('leadDuplicateReview.overrideReason')}<TextareaField value={duplicateOverrideReason} onChange={(event) => setDuplicateOverrideReason(event.target.value)} minLength={3} maxLength={500} required /></label><div className="lead-duplicate-actions"><Button type="button" className="status-change-cancel" disabled={saving} onClick={() => { setDuplicateCandidates(null); setDuplicateOverrideReason('') }}>{t('common.cancel')}</Button><Button type="button" className="primary" disabled={saving || duplicateOverrideReason.trim().length < 3} onClick={() => void saveLead(duplicateOverrideReason.trim())}>{saving ? t('common.saving') : t('leadDuplicateReview.createAnyway')}</Button></div></section>}
       {!duplicateCandidates && <Button className="primary" disabled={saving || checkingDuplicates || businessLines.length === 0}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</Button>}
     </form>}
-    <Modal open={contactsLead !== null} onOpenChange={(open) => { if (!open) { setContactsLead(null); setContactsError(''); setContactForm({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' }) } }} title={t('leadContacts.title', { company: contactsLead?.accountName ?? '' })} description={t('leadContacts.description')} closeLabel={t('common.close')} className="lead-contacts-modal">
+    <Modal open={contactsLead !== null} onOpenChange={(open) => { if (!open) { contactsRequestId.current += 1; setContactsLead(null); setContactsError(''); setAccountContactsError(''); setAccountContacts(null); setQualificationFactsError(''); setQualificationFacts(null); setQualificationFactForm(defaultQualificationFactForm); setContactForm({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' }) } }} title={t('leadContacts.title', { company: contactsLead?.accountName ?? '' })} description={t('leadContacts.description')} closeLabel={t('common.close')} className="lead-contacts-modal">
       {contactsError && <WorkspaceState kind="error" compact message={contactsError} />}
       {contactsLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>
+        <section className="lead-account-contacts" aria-labelledby="lead-account-contacts-title">
+          <header><div><h3 id="lead-account-contacts-title">{t('leadContacts.accountContactsTitle')}</h3><p>{t('leadContacts.accountContactsDescription')}</p></div></header>
+          {accountContactsError && <><WorkspaceState kind="error" compact message={accountContactsError} /><Button type="button" onClick={() => contactsLead && void loadAccountContacts(contactsLead.id, accountContactsOffset)}>{t('leadContacts.retryAccountContacts')}</Button></>}
+          {accountContactsLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : accountContacts && !accountContactsError && (accountContacts.data.length ? <ul className="lead-account-contact-list">
+            {accountContacts.data.map((person) => <li key={person.id}><div><strong>{person.name}</strong><span>{person.email ?? person.phone ?? t('leadContacts.noChannel')}</span></div><Button type="button" disabled={linkingAccountContactId !== EMPTY_IDENTIFIER} onClick={() => void linkAccountContact(person.id)}>{linkingAccountContactId === person.id ? t('common.saving') : t('leadContacts.linkToLead')}</Button></li>)}
+          </ul> : <WorkspaceState kind="empty" message={t('leadContacts.noAccountContactsToLink')} />)}
+          {accountContacts && accountContacts.pagination.total > LEAD_ACCOUNT_CONTACT_LIMITS.pageSize && <div className="lead-account-contact-pagination">
+            <Button type="button" disabled={accountContactsOffset <= LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart || accountContactsLoading} onClick={() => contactsLead && void loadAccountContacts(contactsLead.id, Math.max(LEAD_ACCOUNT_CONTACT_LIMITS.offsetStart, accountContactsOffset - LEAD_ACCOUNT_CONTACT_LIMITS.pageSize))}>{t('common.previousPage')}</Button>
+            <span>{t('leadContacts.accountContactsPage', { page: Math.floor(accountContactsOffset / LEAD_ACCOUNT_CONTACT_LIMITS.pageSize) + LEAD_ACCOUNT_CONTACT_LIMITS.pageStart })}</span>
+            <Button type="button" disabled={!accountContacts.pagination.hasNextPage || accountContactsLoading} onClick={() => contactsLead && void loadAccountContacts(contactsLead.id, accountContactsOffset + LEAD_ACCOUNT_CONTACT_LIMITS.pageSize)}>{t('common.nextPage')}</Button>
+          </div>}
+        </section>
         <section className="lead-contacts-list" aria-label={t('leadContacts.listLabel')}>
           {leadContacts.length === 0 ? <WorkspaceState kind="empty" message={t('leadContacts.empty')} /> : leadContacts.map((contact) => <article className="lead-contact-card" key={contact.id}>
             <div className="lead-contact-card-heading"><div><strong>{contact.name}</strong>{contact.jobTitle && <span>{contact.jobTitle}</span>}</div>{contact.isPrimary && <span className="lead-contact-primary"><Star size={14} fill="currentColor" />{t('leadContacts.primary')}</span>}</div>
@@ -677,6 +835,40 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
               </div><div className="lead-outreach-review-footer">{contact.outreachReviewedAt && <small>{t('contactOutreach.reviewedBy', { name: contact.outreachReviewedByName ?? t('leadAssignment.unknownAssignee'), date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(contact.outreachReviewedAt)) })}</small>}<Button type="button" disabled={outreachSavingContactId === contact.id || (requiresEvidence && (!draft.basis || draft.evidence.trim().length < 3))} onClick={() => void saveContactOutreachReview(contact)}>{outreachSavingContactId === contact.id ? t('common.saving') : t('contactOutreach.save')}</Button></div></div>
             })()}
           </article>)}
+        </section>
+        <section className="lead-qualification-facts" aria-labelledby="lead-qualification-title">
+          <header><div><h3 id="lead-qualification-title">{t('leadQualification.title')}</h3><p>{t('leadQualification.description')}</p></div><div className="lead-qualification-heading-actions">{qualificationFacts && <span>{t('leadQualification.factCount', { count: qualificationFacts.pagination.total })}</span>}<Button type="button" disabled={qualificationSuggestionsLoading} onClick={() => void generateQualificationSuggestions()}><Sparkles size={16} />{qualificationSuggestionsLoading ? t('leadQualification.suggesting') : t('leadQualification.suggest')}</Button></div></header>
+          <p className="lead-qualification-suggestion-hint">{t('leadQualification.suggestionReviewHint')}</p>
+          {qualificationSuggestionsError && <WorkspaceState kind="error" compact message={qualificationSuggestionsError} />}
+          {qualificationSuggestionsLoading && <WorkspaceState kind="loading" compact message={t('leadQualification.suggesting')} />}
+          {qualificationSuggestionsGenerated && !qualificationSuggestionsLoading && !qualificationSuggestionsError && (qualificationSuggestions.length ? <section className="lead-qualification-suggestion-list" aria-label={t('leadQualification.suggestionsTitle')}><h4>{t('leadQualification.suggestionsTitle')}</h4><ul>{qualificationSuggestions.map((suggestion) => {
+            const key = qualificationSuggestionKey(suggestion)
+            return <li key={key}><div className="lead-qualification-fact-heading"><strong>{t(`leadQualification.keys.${suggestion.factKey}`, { defaultValue: suggestion.factKey })}</strong><span>{t(`leadQualification.states.${suggestion.state}`)}</span></div>{suggestion.value !== null && <p>{suggestion.value}</p>}<blockquote>{suggestion.evidence}</blockquote><small>{t('leadQualification.sourceMessageAt', { date: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(suggestion.sourceMessageAt)) })}</small><div className="lead-qualification-suggestion-actions"><Button type="button" disabled={Boolean(savingQualificationSuggestionKey)} onClick={() => void acceptQualificationSuggestion(suggestion)}><Check size={15} />{savingQualificationSuggestionKey === key ? t('common.saving') : t('leadQualification.acceptSuggestion')}</Button><Button type="button" disabled={Boolean(savingQualificationSuggestionKey)} onClick={() => setQualificationSuggestions((current) => current.filter((item) => qualificationSuggestionKey(item) !== key))}><X size={15} />{t('leadQualification.dismissSuggestion')}</Button></div></li>
+          })}</ul></section> : <WorkspaceState kind="empty" compact message={t('leadQualification.noSuggestions')} />)}
+          {qualificationFactsError && <><WorkspaceState kind="error" compact message={qualificationFactsError} /><Button type="button" onClick={() => contactsLead && void loadQualificationFacts(contactsLead.id, qualificationFactsOffset)}>{t('leadQualification.retry')}</Button></>}
+          {qualificationFactsLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : qualificationFacts && !qualificationFactsError && (qualificationFacts.data.length ? <ol className="lead-qualification-fact-list">
+            {qualificationFacts.data.map((fact: QualificationFactDto) => <li key={fact.id}>
+              <div className="lead-qualification-fact-heading"><strong>{t(`leadQualification.keys.${fact.factKey}`, { defaultValue: fact.factKey })}</strong><span>{t(`leadQualification.states.${fact.state}`)}</span></div>
+              {fact.value !== null && <p>{fact.value}</p>}
+              {fact.evidence && <small>{t('leadQualification.evidence')}: {fact.evidence}</small>}
+              <small>{t(`leadQualification.sources.${fact.source}`)} · {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(fact.recordedAt))}</small>
+            </li>)}
+          </ol> : <WorkspaceState kind="empty" message={t('leadQualification.empty')} />)}
+          {qualificationFacts && qualificationFacts.pagination.total > LEAD_QUALIFICATION_FACT_LIMITS.pageSize && <div className="lead-qualification-pagination">
+            <Button type="button" disabled={qualificationFactsOffset <= LEAD_QUALIFICATION_FACT_LIMITS.offsetStart || qualificationFactsLoading} onClick={() => contactsLead && void loadQualificationFacts(contactsLead.id, Math.max(LEAD_QUALIFICATION_FACT_LIMITS.offsetStart, qualificationFactsOffset - LEAD_QUALIFICATION_FACT_LIMITS.pageSize))}>{t('common.previousPage')}</Button>
+            <span>{t('leadQualification.page', { page: Math.floor(qualificationFactsOffset / LEAD_QUALIFICATION_FACT_LIMITS.pageSize) + LEAD_QUALIFICATION_FACT_LIMITS.pageStart })}</span>
+            <Button type="button" disabled={!qualificationFacts.pagination.hasNextPage || qualificationFactsLoading} onClick={() => contactsLead && void loadQualificationFacts(contactsLead.id, qualificationFactsOffset + LEAD_QUALIFICATION_FACT_LIMITS.pageSize)}>{t('common.nextPage')}</Button>
+          </div>}
+          <form className="lead-qualification-form" onSubmit={saveQualificationFact}>
+            <h4>{t('leadQualification.add')}</h4>
+            <div className="lead-qualification-fields">
+              <label>{t('leadQualification.fact')}<SelectField value={qualificationFactForm.factKey} onChange={(event) => { const factKey = LEAD_QUALIFICATION_FACT_KEYS.find((key) => key === event.target.value); if (factKey) setQualificationFactForm((current) => ({ ...current, factKey })) }}>{LEAD_QUALIFICATION_FACT_KEYS.map((key) => <option key={key} value={key}>{t(`leadQualification.keys.${key}`)}</option>)}</SelectField></label>
+              <label>{t('leadQualification.state')}<SelectField value={qualificationFactForm.state} onChange={(event) => { const state = LEAD_QUALIFICATION_FACT_STATES.find((item) => item === event.target.value); if (state) setQualificationFactForm((current) => ({ ...current, state, value: state === LEAD_QUALIFICATION_FACT_STATE.unknown || state === LEAD_QUALIFICATION_FACT_STATE.notApplicable ? null : current.value ?? '' })) }}>{LEAD_QUALIFICATION_FACT_STATES.map((state) => <option key={state} value={state}>{t(`leadQualification.states.${state}`)}</option>)}</SelectField></label>
+              {qualificationFactForm.state !== LEAD_QUALIFICATION_FACT_STATE.unknown && qualificationFactForm.state !== LEAD_QUALIFICATION_FACT_STATE.notApplicable && <label>{t('leadQualification.value')}<TextField value={qualificationFactForm.value ?? ''} onChange={(event) => setQualificationFactForm((current) => ({ ...current, value: event.target.value }))} maxLength={LEAD_QUALIFICATION_FACT_LIMITS.valueMaxLength} required /></label>}
+              {qualificationFactForm.state !== LEAD_QUALIFICATION_FACT_STATE.unknown && qualificationFactForm.state !== LEAD_QUALIFICATION_FACT_STATE.notApplicable && <label>{t('leadQualification.evidence')}<TextareaField value={qualificationFactForm.evidence ?? ''} onChange={(event) => setQualificationFactForm((current) => ({ ...current, evidence: event.target.value }))} minLength={LEAD_QUALIFICATION_FACT_LIMITS.evidenceMinLength} maxLength={LEAD_QUALIFICATION_FACT_LIMITS.valueMaxLength} required /></label>}
+            </div>
+            <Button className="primary" disabled={qualificationFactsSaving}>{qualificationFactsSaving ? t('common.saving') : t('leadQualification.save')}</Button>
+          </form>
         </section>
         <form className="lead-contact-form" onSubmit={saveContact}>
           <h3>{t('leadContacts.add')}</h3>

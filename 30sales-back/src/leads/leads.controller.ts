@@ -2,8 +2,8 @@ import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignLeadSchema, createLeadContactSchema, createLeadSchema, leadDuplicateCheckSchema, listLeadsSchema, listSdrPreviewSchema, reviewContactOutreachSchema, updateLeadContactSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
-import type { AssignLeadDto, CreateLeadContactDto, CreateLeadDto, LeadDuplicateCheckDto, ListLeadsQueryDto, ListSdrPreviewQueryDto, ReviewContactOutreachDto, UpdateLeadContactDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
+import { assignLeadSchema, createLeadContactSchema, createLeadSchema, createQualificationFactSchema, leadDuplicateCheckSchema, listAccountContactsSchema, linkAccountContactSchema, listLeadsSchema, listQualificationFactsSchema, listSdrPreviewSchema, reviewContactOutreachSchema, updateLeadContactSchema, updateLeadStatusSchema, createTaskSchema, listTasksSchema, completeTaskSchema } from './leads.dto';
+import type { AssignLeadDto, CreateLeadContactDto, CreateLeadDto, CreateQualificationFactDto, LeadDuplicateCheckDto, ListAccountContactsQueryDto, LinkAccountContactDto, ListLeadsQueryDto, ListQualificationFactsQueryDto, ListSdrPreviewQueryDto, ReviewContactOutreachDto, UpdateLeadContactDto, UpdateLeadStatusDto, CreateTaskDto, ListTasksQueryDto, CompleteTaskDto } from './leads.dto';
 import { LeadsService } from './leads.service';
 import { z } from 'zod';
 
@@ -46,6 +46,26 @@ export class LeadsController {
   @Get(':id/contacts')
   listContacts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string) {
     return this.leadsService.listContacts(request, leadId);
+  }
+  @Get(':id/account-contacts')
+  listAccountContacts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Query(new ZodValidationPipe(listAccountContactsSchema)) query: ListAccountContactsQueryDto) {
+    return this.leadsService.listAccountContacts(request, leadId, query);
+  }
+  @Post(':id/contacts/link')
+  linkAccountContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(linkAccountContactSchema)) dto: LinkAccountContactDto) {
+    return this.leadsService.linkAccountContact(request, leadId, dto);
+  }
+  @Get(':id/qualification-facts')
+  listQualificationFacts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Query(new ZodValidationPipe(listQualificationFactsSchema)) query: ListQualificationFactsQueryDto) {
+    return this.leadsService.listQualificationFacts(request, leadId, query);
+  }
+  @Post(':id/qualification-facts')
+  createQualificationFact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(createQualificationFactSchema)) dto: CreateQualificationFactDto) {
+    return this.leadsService.createQualificationFact(request, leadId, dto);
+  }
+  @Post(':id/qualification-suggestions')
+  suggestQualificationFacts(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string) {
+    return this.leadsService.suggestQualificationFacts(request, leadId);
   }
   @Post(':id/contacts')
   createContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(leadIdSchema)) leadId: string, @Body(new ZodValidationPipe(createLeadContactSchema)) dto: CreateLeadContactDto) {

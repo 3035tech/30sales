@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, exists, gte, ilike, lte, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, gte, ilike, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accountSegments, accounts, auditEvents, businessLineMembers, businessLines, leadContacts, leads, opportunities, people } from '../db/schema';
+import { accountPeople, accountSegments, accounts, auditEvents, businessLineMembers, businessLines, leadContacts, leads, opportunities, people } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
-import { ACCOUNT_PROFILE_AUDIT, ACCOUNT_PROFILE_ERROR_CODE } from './accounts.constants';
-import { ACCOUNT_SEGMENT_AUDIT, ACCOUNT_SEGMENT_RESULT, DATABASE_UNIQUE_VIOLATION_CODE, AccountPageDto, AccountProfileRepositoryUpdateDto, AccountRecordDto, AccountSegmentDto, AccountSegmentRepositoryAssignDto, AccountSegmentRepositoryCreateDto, AccountsRepositoryListDto } from './accounts.dto';
+import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
+import { ACCOUNT_CONTACT_RESULT, ACCOUNT_PERSON_AUDIT, ACCOUNT_PERSON_STATUS, ACCOUNT_PROFILE_AUDIT, ACCOUNT_PROFILE_ERROR_CODE, ACCOUNT_SEGMENT_AUDIT, ACCOUNT_SEGMENT_RESULT, DATABASE_UNIQUE_VIOLATION_CODE } from './accounts.constants';
+import { AccountContactDto, AccountContactMutationRepositoryDto, AccountContactPageDto, AccountContactsRepositoryDto, AccountPageDto, AccountProfileRepositoryUpdateDto, AccountRecordDto, AccountSegmentDto, AccountSegmentRepositoryAssignDto, AccountSegmentRepositoryCreateDto, AccountsRepositoryListDto } from './accounts.dto';
 import type { SQL } from 'drizzle-orm';
 import { UNASSIGNED_SEGMENT_FILTER } from '../leads/constants';
 
@@ -14,7 +15,7 @@ function leadLineMembershipCondition(input: AccountVisibilityScope): SQL {
   return exists(database.select({ id: businessLineMembers.memberId }).from(businessLineMembers)
     .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
     .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
-    .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, leads.businessLineId), eq(authMember.userId, input.userId), eq(businessLines.status, 'active'))));
+    .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, leads.businessLineId), eq(authMember.userId, input.userId), eq(businessLines.status, BUSINESS_LINE_STATUS.active))));
 }
 
 function visibleLeadCondition(input: AccountVisibilityScope): SQL | undefined {
@@ -34,6 +35,18 @@ function accountAccessCondition(input: AccountVisibilityScope): SQL | undefined 
     .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input))));
 }
 
+function visibleAccountContactLeadCondition(input: AccountContactsRepositoryDto): SQL {
+  return exists(database.select({ id: leads.id }).from(leads).where(and(
+    eq(leads.organizationId, input.organizationId), eq(leads.accountId, input.accountId), visibleLeadCondition(input),
+    or(eq(leads.personId, people.id), exists(database.select({ id: leadContacts.id }).from(leadContacts)
+      .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.personId, people.id))))),
+  )));
+}
+
+function accountContactCondition(input: AccountContactsRepositoryDto): SQL {
+  return and(eq(people.organizationId, input.organizationId), visibleAccountContactLeadCondition(input))!;
+}
+
 function visibleOwnedOpportunityCondition(input: AccountsRepositoryListDto): SQL {
   const visibleLead = exists(database.select({ id: leads.id }).from(leads)
     .where(and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, input.organizationId), leadLineMembershipCondition(input))));
@@ -42,6 +55,64 @@ function visibleOwnedOpportunityCondition(input: AccountsRepositoryListDto): SQL
 
 @Injectable()
 export class AccountsRepository {
+  async listContacts(input: AccountContactsRepositoryDto): Promise<AccountContactPageDto | null> {
+    const [account] = await database.select({ id: accounts.id }).from(accounts)
+      .where(and(eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId), accountAccessCondition(input))).limit(1);
+    if (!account) return null;
+    const condition = accountContactCondition(input);
+    const [rows, totals] = await Promise.all([
+      database.select({ id: people.id, name: people.name, email: people.email, phone: people.phone, status: accountPeople.status }).from(people)
+        .leftJoin(accountPeople, and(eq(accountPeople.organizationId, input.organizationId), eq(accountPeople.accountId, input.accountId), eq(accountPeople.personId, people.id)))
+        .where(condition).orderBy(asc(people.name), asc(people.id)).limit(input.query.limit).offset(input.query.offset),
+      database.select({ total: count() }).from(people).where(condition),
+    ]);
+    const total = totals[0]?.total ?? 0;
+    const contacts = await Promise.all(rows.map(async (person) => {
+      const [leadCount] = await database.select({ total: count() }).from(leads).where(and(
+        eq(leads.organizationId, input.organizationId), eq(leads.accountId, input.accountId), visibleLeadCondition(input),
+        or(eq(leads.personId, person.id), exists(database.select({ id: leadContacts.id }).from(leadContacts)
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.personId, person.id))))),
+      ));
+      return new AccountContactDto(person.id, person.name, person.email, person.phone, leadCount?.total ?? 0, person.status ?? ACCOUNT_PERSON_STATUS.active);
+    }));
+    return new AccountContactPageDto(contacts, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
+  }
+
+  async restoreContact(input: AccountContactMutationRepositoryDto): Promise<{ accountId: string; personId: string; status: typeof ACCOUNT_PERSON_STATUS.active } | typeof ACCOUNT_CONTACT_RESULT[keyof typeof ACCOUNT_CONTACT_RESULT]> {
+    return database.transaction(async (transaction) => {
+      const [account] = await transaction.select({ id: accounts.id }).from(accounts)
+        .where(and(eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId), accountAccessCondition(input))).for('update').limit(1);
+      if (!account) return ACCOUNT_CONTACT_RESULT.accountNotFound;
+      const [person] = await transaction.select({ id: people.id }).from(people).where(and(eq(people.id, input.personId), accountContactCondition(input))).limit(1);
+      if (!person) return ACCOUNT_CONTACT_RESULT.personNotFound;
+      const [relation] = await transaction.select({ status: accountPeople.status }).from(accountPeople)
+        .where(and(eq(accountPeople.organizationId, input.organizationId), eq(accountPeople.accountId, input.accountId), eq(accountPeople.personId, input.personId))).for('update').limit(1);
+      if (!relation || relation.status === ACCOUNT_PERSON_STATUS.active) return ACCOUNT_CONTACT_RESULT.alreadyActive;
+      await transaction.update(accountPeople).set({ status: ACCOUNT_PERSON_STATUS.active, revokedByUserId: null, revokedAt: null })
+        .where(and(eq(accountPeople.organizationId, input.organizationId), eq(accountPeople.accountId, input.accountId), eq(accountPeople.personId, input.personId)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: ACCOUNT_PERSON_AUDIT.actorUser, action: ACCOUNT_PERSON_AUDIT.linked, entityType: ACCOUNT_PERSON_AUDIT.entity, entityId: input.personId, correlationId: input.correlationId, beforeState: { status: ACCOUNT_PERSON_STATUS.revoked, accountId: input.accountId }, afterState: { status: ACCOUNT_PERSON_STATUS.active, accountId: input.accountId } });
+      return { accountId: input.accountId, personId: input.personId, status: ACCOUNT_PERSON_STATUS.active };
+    });
+  }
+
+  async unlinkContact(input: AccountContactMutationRepositoryDto): Promise<{ accountId: string; personId: string; status: typeof ACCOUNT_PERSON_STATUS.revoked } | typeof ACCOUNT_CONTACT_RESULT[keyof typeof ACCOUNT_CONTACT_RESULT]> {
+    return database.transaction(async (transaction) => {
+      const [account] = await transaction.select({ id: accounts.id }).from(accounts)
+        .where(and(eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId), accountAccessCondition(input))).for('update').limit(1);
+      if (!account) return ACCOUNT_CONTACT_RESULT.accountNotFound;
+      const [relation] = await transaction.select({ status: accountPeople.status }).from(accountPeople)
+        .where(and(eq(accountPeople.organizationId, input.organizationId), eq(accountPeople.accountId, input.accountId), eq(accountPeople.personId, input.personId))).for('update').limit(1);
+      if (relation?.status === ACCOUNT_PERSON_STATUS.revoked) return ACCOUNT_CONTACT_RESULT.alreadyRevoked;
+      const [person] = await transaction.select({ id: people.id }).from(people).where(and(eq(people.id, input.personId), accountContactCondition(input))).limit(1);
+      if (!person) return ACCOUNT_CONTACT_RESULT.personNotFound;
+      const revokedAt = new Date();
+      await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: input.accountId, personId: input.personId, createdByUserId: input.userId, status: ACCOUNT_PERSON_STATUS.revoked, revokedByUserId: input.userId, revokedAt })
+        .onConflictDoUpdate({ target: [accountPeople.organizationId, accountPeople.accountId, accountPeople.personId], set: { status: ACCOUNT_PERSON_STATUS.revoked, revokedByUserId: input.userId, revokedAt } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: ACCOUNT_PERSON_AUDIT.actorUser, action: ACCOUNT_PERSON_AUDIT.revoked, entityType: ACCOUNT_PERSON_AUDIT.entity, entityId: input.personId, correlationId: input.correlationId, beforeState: { status: relation?.status ?? ACCOUNT_PERSON_AUDIT.legacy }, afterState: { status: ACCOUNT_PERSON_STATUS.revoked, accountId: input.accountId } });
+      return { accountId: input.accountId, personId: input.personId, status: ACCOUNT_PERSON_STATUS.revoked };
+    });
+  }
+
   async updateProfile(input: AccountProfileRepositoryUpdateDto): Promise<typeof ACCOUNT_PROFILE_ERROR_CODE.notFound | { accountId: string; marketSegment: AccountProfileRepositoryUpdateDto['marketSegment']; studentCount: number | null }> {
     return database.transaction(async (transaction) => {
       const scopeConditions: SQL[] = [eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId)];

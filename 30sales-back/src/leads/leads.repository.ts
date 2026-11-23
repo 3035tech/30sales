@@ -1,11 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, min, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNull, lt, lte, min, not, notInArray, or, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { database } from '../db';
-import { accountSegments, accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversations, leadContacts, leadStatusHistory, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
+import { accountPeople, accountSegments, accounts, agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, conversations, leadContacts, leadQualificationFacts, leadStatusHistory, leads, messages, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
-import { LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactOutreachReviewRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, SdrPreviewChannelDto, SdrPreviewDto, SdrPreviewLeadDto, SdrPreviewRepositoryInputDto, SdrReadinessDto, SdrReadinessRepositoryInputDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, taskCompletionResultSchema } from './leads.dto';
-import { CONTACT_OUTREACH_AUDIT_ACTION, CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
+import { ACCOUNT_PERSON_STATUS } from '../accounts/accounts.constants';
+import { estimateAssistantTokenCostUsd } from '../agents/assistant-runtime.constants';
+import { AccountContactCandidateDto, AccountContactPageDto, AccountContactRepositoryDto, LeadAssigneeDto, LeadContactCreateRepositoryDto, LeadContactOutreachReviewRepositoryDto, LeadContactPrimaryRepositoryDto, LeadContactRecordDto, LeadContactRepositoryDto, LeadContactUpdateRepositoryDto, LeadDuplicateCandidateDto, LeadDuplicateCheckDto, LeadDuplicateCheckResponseDto, LeadPageDto, LeadRecordDto, LeadRepositoryAccessDto, LeadRepositoryAssignDto, LeadRepositoryCreateDto, LeadRepositoryDuplicateCheckDto, LeadRepositoryFindDto, LeadRepositoryListDto, LeadRepositoryStatusChangeDto, LinkAccountContactRepositoryDto, QualificationFactPageDto, QualificationFactRecordDto, QualificationFactRepositoryDto, QualificationSuggestionAuditDto, QualificationSuggestionContextDto, QualificationSuggestionRepositoryDto, SdrPreviewChannelDto, SdrPreviewDto, SdrPreviewLeadDto, SdrPreviewRepositoryInputDto, SdrReadinessDto, SdrReadinessRepositoryInputDto, TaskPageDto, TaskRecordDto, TaskRepositoryCompleteDto, TaskRepositoryCreateDto, TaskRepositoryListDto, taskCompletionResultSchema } from './leads.dto';
+import { CONTACT_OUTREACH_AUDIT_ACTION, CONTACT_OUTREACH_DECISION, LEAD_ACCOUNT_CONTACT_AUDIT_ACTION, LEAD_ACCOUNT_CONTACT_MATCH_LIMIT, LEAD_ACCOUNT_CONTACT_RESULT, LEAD_CONTACT_CREATE_RESULT, LEAD_CONTACT_PHONE_MATCH_MIN_DIGITS, LEAD_CREATE_RESULT, LEAD_EMPTY_CONTACT_COUNT, LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_SUGGESTION, LEAD_QUALIFICATION_SOURCE_DIRECTION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS, UNASSIGNED_SEGMENT_FILTER } from './constants';
 
 type DuplicateRow = { leadId: string; accountName: string; contactName: string | null; email: string | null; phone: string | null; status: LeadRecordDto['status']; source: string };
 function parseTaskCompletionResult(value: string | null) {
@@ -63,8 +65,55 @@ function contactLeadAccessCondition(access: LeadRepositoryAccessDto): SQL {
     eq(leads.id, leadContacts.leadId), eq(leads.organizationId, access.organizationId), leadAccessCondition(access),
   )));
 }
+function accountContactVisibleForLeadCondition(organizationId: string, accountId: string, personId: typeof people.id, access: LeadRepositoryAccessDto): SQL {
+  const linkedToLeadContact = exists(database.select({ id: leadContacts.id }).from(leadContacts)
+    .where(and(eq(leadContacts.organizationId, organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.personId, personId))));
+  return exists(database.select({ id: leads.id }).from(leads).where(and(
+    eq(leads.organizationId, organizationId), eq(leads.accountId, accountId), leadAccessCondition(access),
+    or(eq(leads.personId, personId), linkedToLeadContact),
+  )));
+}
 @Injectable()
 export class LeadsRepository {
+  async loadQualificationSuggestionContext(input: QualificationSuggestionRepositoryDto): Promise<QualificationSuggestionContextDto | null> {
+    const [lead] = await database.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId }).from(leads)
+      .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).limit(1);
+    if (!lead) return null;
+    const leadContactIds = await database.select({ personId: leadContacts.personId }).from(leadContacts)
+      .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, lead.id)));
+    const personIds = [...new Set([...leadContactIds.map(({ personId }) => personId), ...(lead.personId ? [lead.personId] : [])])];
+    if (personIds.length === LEAD_EMPTY_CONTACT_COUNT || !lead.businessLineId) return new QualificationSuggestionContextDto(lead.id, null, null, []);
+    const rows = await database.select({ id: messages.id, occurredAt: messages.occurredAt, bodyText: messages.bodyText, transcriptText: messages.transcriptText, inboundProfileId: messagingChannels.inboundAssistantProfileId })
+      .from(messages)
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .innerJoin(leads, and(eq(leads.organizationId, conversations.organizationId), eq(leads.accountId, conversations.accountId)))
+      .where(and(eq(messages.organizationId, input.organizationId), eq(messages.direction, LEAD_QUALIFICATION_SOURCE_DIRECTION), eq(leads.id, lead.id), eq(messagingChannels.businessLineId, lead.businessLineId), inArray(conversations.personId, personIds), leadAccessCondition(input.access)))
+      .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(LEAD_QUALIFICATION_SUGGESTION.maxSourceMessages);
+    const sourceMessages = rows.flatMap((message) => {
+      const content = [message.bodyText, message.transcriptText].filter((part): part is string => Boolean(part?.trim())).join('\n').slice(0, LEAD_QUALIFICATION_SUGGESTION.maxSourceMessageLength);
+      return content ? [{ id: message.id, occurredAt: message.occurredAt.toISOString(), content }] : [];
+    }).reduce<QualificationSuggestionContextDto['messages']>((messages, message) => {
+      const remainingLength = LEAD_QUALIFICATION_SUGGESTION.maxContextLength - messages.reduce((total, item) => total + item.content.length, 0);
+      if (remainingLength <= LEAD_QUALIFICATION_SUGGESTION.emptyContextLength) return messages;
+      return [...messages, { ...message, content: message.content.slice(0, remainingLength) }];
+    }, []).reverse();
+    const profileId = rows[0]?.inboundProfileId;
+    const [profile] = profileId ? await database.select({ enabled: assistantProfiles.enabled, model: assistantProfiles.model, systemPrompt: assistantProfiles.systemPrompt }).from(assistantProfiles)
+      .where(and(eq(assistantProfiles.id, profileId), eq(assistantProfiles.organizationId, input.organizationId), eq(assistantProfiles.businessLineId, lead.businessLineId))).limit(1) : [];
+    const [lineSettings] = !profileId ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.businessLineId, lead.businessLineId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1) : [];
+    const [globalSettings] = !profileId && !lineSettings ? await database.select({ enabled: agentSettings.enabled, model: agentSettings.model, systemPrompt: agentSettings.systemPrompt }).from(agentSettings)
+      .where(and(eq(agentSettings.organizationId, input.organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, SDR_AGENT_KEY))).limit(1) : [];
+    const configuration = profile ?? lineSettings ?? globalSettings;
+    return new QualificationSuggestionContextDto(lead.id, configuration?.enabled ? configuration.model : null, configuration?.enabled ? configuration.systemPrompt : null, sourceMessages);
+  }
+
+  async recordQualificationSuggestionRun(input: QualificationSuggestionAuditDto): Promise<void> {
+    const estimatedCostUsd = input.usageInputTokens !== null && input.usageOutputTokens !== null ? estimateAssistantTokenCostUsd(input.model, input.usageInputTokens, input.usageOutputTokens) : null;
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: LEAD_QUALIFICATION_SUGGESTION.auditAction, entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, afterState: { model: input.model, sourceMessageIds: input.sourceMessageIds, suggestionCount: input.suggestionCount, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens, latencyMs: input.latencyMs, estimatedCostUsd } });
+  }
+
   async listSdrPreviewChannels(access: LeadRepositoryAccessDto): Promise<SdrPreviewChannelDto[]> {
     const rows = await database.select({ id: messagingChannels.id, displayName: messagingChannels.displayName, phoneNumber: messagingChannels.phoneNumber, isActive: messagingChannels.isActive, isConfigured: sql<boolean>`${messagingChannels.credentialsCiphertext} is not null and ${messagingChannels.credentialsIv} is not null and ${messagingChannels.credentialsAuthTag} is not null`, businessLineId: messagingChannels.businessLineId, businessLineName: businessLines.name }).from(messagingChannels)
       .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
@@ -305,17 +354,17 @@ export class LeadsRepository {
     const total = totals[0]?.total ?? 0;
     return new LeadPageDto(rows.map(mapLead), { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
   }
-  async create(input: LeadRepositoryCreateDto): Promise<LeadRecordDto | LeadDuplicateCheckResponseDto | 'business_line_unavailable'> {
+  async create(input: LeadRepositoryCreateDto): Promise<LeadRecordDto | LeadDuplicateCheckResponseDto | typeof LEAD_CREATE_RESULT.businessLineUnavailable> {
     return database.transaction(async (transaction) => {
       const [businessLine] = await transaction.select({ id: businessLines.id }).from(businessLines)
         .where(and(eq(businessLines.organizationId, input.organizationId), input.businessLineId ? eq(businessLines.id, input.businessLineId) : eq(businessLines.isDefault, true), eq(businessLines.status, 'active'))).limit(1);
-      if (!businessLine) return 'business_line_unavailable';
+      if (!businessLine) return LEAD_CREATE_RESULT.businessLineUnavailable;
       if (!input.access.canManageAll) {
         const [membership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
           .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
           .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
           .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, businessLine.id), eq(authMember.userId, input.createdByUserId), eq(businessLines.status, 'active'))).limit(1);
-        if (!membership) return 'business_line_unavailable';
+        if (!membership) return LEAD_CREATE_RESULT.businessLineUnavailable;
       }
       const duplicateInput: LeadDuplicateCheckDto = { accountName: input.accountName, email: input.email ?? undefined, phone: input.phone ?? undefined };
       for (const lockKey of duplicateLockKeys(input.organizationId, duplicateInput)) {
@@ -332,7 +381,10 @@ export class LeadsRepository {
       const [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: input.accountName }).returning();
       const [person] = input.contactName ? await transaction.insert(people).values({ organizationId: input.organizationId, name: input.contactName, email: input.email, phone: input.phone }).returning() : [null];
       const [lead] = await transaction.insert(leads).values({ organizationId: input.organizationId, businessLineId: businessLine.id, accountId: account.id, personId: person?.id ?? null, createdByUserId: input.createdByUserId, assignedToUserId: input.createdByUserId, source: input.source, status: 'new' }).returning();
-      if (person) await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: person.id, isPrimary: true, createdByUserId: input.createdByUserId });
+      if (person) {
+        await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: account.id, personId: person.id, createdByUserId: input.createdByUserId, status: ACCOUNT_PERSON_STATUS.active }).onConflictDoUpdate({ target: [accountPeople.organizationId, accountPeople.accountId, accountPeople.personId], set: { status: ACCOUNT_PERSON_STATUS.active, revokedByUserId: null, revokedAt: null } });
+        await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: person.id, isPrimary: true, createdByUserId: input.createdByUserId });
+      }
       await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: null, toStatus: 'new', changedByUserId: input.createdByUserId });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.createdByUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: lead.id, correlationId: input.correlationId, reason: input.duplicateOverrideReason ?? null, afterState: { status: 'new', source: input.source, assignedToUserId: input.createdByUserId, duplicateOverride: Boolean(input.duplicateOverrideReason), possibleDuplicateIds: duplicates.candidates.map((candidate) => candidate.id) } });
       const [assignedTo] = await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, input.createdByUserId)).limit(1);
@@ -347,6 +399,62 @@ export class LeadsRepository {
       .leftJoin(authUser, eq(authUser.id, leads.assignedToUserId))
       .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).limit(1);
     return row ? mapLead(row) : null;
+  }
+  async listQualificationFacts(input: QualificationFactRepositoryDto): Promise<QualificationFactPageDto> {
+    const leadScope = and(eq(leads.organizationId, input.organizationId), eq(leads.id, input.leadId), leadAccessCondition(input.access));
+    const [rows, totals] = await Promise.all([database.select({ fact: leadQualificationFacts }).from(leadQualificationFacts)
+      .innerJoin(leads, and(eq(leads.id, leadQualificationFacts.leadId), eq(leads.organizationId, leadQualificationFacts.organizationId)))
+      .where(and(eq(leadQualificationFacts.organizationId, input.organizationId), eq(leadQualificationFacts.leadId, input.leadId), leadScope))
+      .orderBy(desc(leadQualificationFacts.recordedAt), desc(leadQualificationFacts.id)).limit(input.query.limit).offset(input.query.offset),
+      database.select({ total: count() }).from(leadQualificationFacts).innerJoin(leads, and(eq(leads.id, leadQualificationFacts.leadId), eq(leads.organizationId, leadQualificationFacts.organizationId)))
+        .where(and(eq(leadQualificationFacts.organizationId, input.organizationId), eq(leadQualificationFacts.leadId, input.leadId), leadScope))]);
+    const total = totals[0]?.total ?? 0;
+    return new QualificationFactPageDto(rows.map(({ fact }) => new QualificationFactRecordDto(fact.id, fact.factKey, fact.value, fact.state, fact.source, fact.evidence, fact.sourceMessageId, fact.confidence, fact.createdByUserId, fact.recordedAt.toISOString())), { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + rows.length < total });
+  }
+  async createQualificationFact(input: QualificationFactRepositoryDto): Promise<QualificationFactRecordDto | typeof LEAD_QUALIFICATION_FACT_RESULT[keyof typeof LEAD_QUALIFICATION_FACT_RESULT]> {
+    const fact = input.input;
+    if (!fact) throw new Error('Qualification fact input is required.');
+    return database.transaction(async (transaction) => {
+      const [lead] = await transaction.select({ id: leads.id }).from(leads)
+        .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('share').limit(1);
+      if (!lead) return LEAD_QUALIFICATION_FACT_RESULT.leadNotFound;
+      if (fact.sourceMessageId) {
+        const matchingLeadContact = exists(database.select({ id: leadContacts.id }).from(leadContacts)
+          .where(and(
+            eq(leadContacts.organizationId, input.organizationId),
+            eq(leadContacts.leadId, leads.id),
+            eq(leadContacts.personId, conversations.personId),
+          )));
+        const [source] = await transaction.select({ id: messages.id, bodyText: messages.bodyText, transcriptText: messages.transcriptText, direction: messages.direction }).from(messages)
+          .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+          .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+          .innerJoin(leads, and(eq(leads.organizationId, conversations.organizationId), eq(leads.accountId, conversations.accountId)))
+          .where(and(
+            eq(messages.id, fact.sourceMessageId),
+            eq(messages.organizationId, input.organizationId),
+            eq(messages.direction, LEAD_QUALIFICATION_SOURCE_DIRECTION),
+            eq(messagingChannels.businessLineId, leads.businessLineId),
+            eq(leads.id, input.leadId),
+            or(eq(leads.personId, conversations.personId), matchingLeadContact),
+          )).limit(1);
+        const sourceText = source ? [source.bodyText, source.transcriptText].filter((part): part is string => Boolean(part?.trim())).join('\n') : '';
+        if (!source || !fact.evidence || !sourceText.includes(fact.evidence)) return LEAD_QUALIFICATION_FACT_RESULT.sourceMessageNotFound;
+      }
+      const [row] = await transaction.insert(leadQualificationFacts).values({
+        organizationId: input.organizationId,
+        leadId: input.leadId,
+        factKey: fact.factKey,
+        value: fact.value,
+        state: fact.state,
+        source: fact.source,
+        evidence: fact.evidence ?? null,
+        sourceMessageId: fact.sourceMessageId ?? null,
+        confidence: fact.confidence ?? null,
+        createdByUserId: input.actorUserId,
+      }).returning();
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: LEAD_QUALIFICATION_FACT_AUDIT_ACTION, entityType: 'lead', entityId: input.leadId, correlationId: input.correlationId, afterState: { factKey: fact.factKey, state: fact.state, source: fact.source } });
+      return new QualificationFactRecordDto(row.id, row.factKey, row.value, row.state, row.source, row.evidence, row.sourceMessageId, row.confidence, row.createdByUserId, row.recordedAt.toISOString());
+    });
   }
   async listContacts(input: LeadContactRepositoryDto): Promise<LeadContactRecordDto[] | null> {
     return database.transaction(async (transaction) => {
@@ -373,21 +481,90 @@ export class LeadsRepository {
       return rows.map((row) => new LeadContactRecordDto(row.id, row.name, row.email, row.phone, row.jobTitle, row.isPrimary, row.isInterested, peopleInConversation.has(row.personId), row.referralNote, row.notes, row.outreachDecision, row.outreachBasis, row.outreachEvidence, row.outreachReviewedAt?.toISOString() ?? null, row.outreachReviewedByName));
     });
   }
-  async createContact(input: LeadContactCreateRepositoryDto): Promise<LeadContactRecordDto | 'lead_not_found' | 'duplicate_contact'> {
+  async listAccountContacts(input: AccountContactRepositoryDto): Promise<AccountContactPageDto | null> {
     return database.transaction(async (transaction) => {
-      const [lead] = await transaction.select({ personId: leads.personId }).from(leads).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
-      if (!lead) return 'lead_not_found';
+      const [lead] = await transaction.select({ accountId: leads.accountId, personId: leads.personId }).from(leads)
+        .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).limit(1);
+      if (!lead) return null;
+      const linked = await transaction.select({ personId: leadContacts.personId }).from(leadContacts)
+        .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId)));
+      const linkedPersonIds = [...new Set([...linked.map((item) => item.personId), ...(lead.personId ? [lead.personId] : [])])];
+      const conditions: SQL[] = [eq(people.organizationId, input.organizationId), accountContactVisibleForLeadCondition(input.organizationId, lead.accountId, people.id, input.access)];
+      const revokedAccountPerson = exists(database.select({ personId: accountPeople.personId }).from(accountPeople)
+        .where(and(
+          eq(accountPeople.organizationId, input.organizationId),
+          eq(accountPeople.accountId, lead.accountId),
+          eq(accountPeople.personId, people.id),
+          eq(accountPeople.status, ACCOUNT_PERSON_STATUS.revoked),
+        )));
+      conditions.push(not(revokedAccountPerson));
+      if (linkedPersonIds.length) conditions.push(notInArray(people.id, linkedPersonIds));
+      const where = and(...conditions);
+      const [rows, totals] = await Promise.all([
+        transaction.select({ id: people.id, name: people.name, email: people.email, phone: people.phone }).from(people)
+          .where(where).orderBy(asc(people.name), asc(people.id)).limit(input.query.limit).offset(input.query.offset),
+        transaction.select({ total: count() }).from(people).where(where),
+      ]);
+      const total = totals[0]?.total ?? 0;
+      return new AccountContactPageDto(rows.map((person) => new AccountContactCandidateDto(person.id, person.name, person.email, person.phone)), {
+        limit: input.query.limit,
+        offset: input.query.offset,
+        total,
+        hasNextPage: input.query.offset + rows.length < total,
+      });
+    });
+  }
+  async linkAccountContact(input: LinkAccountContactRepositoryDto): Promise<LeadContactRecordDto | typeof LEAD_ACCOUNT_CONTACT_RESULT[keyof typeof LEAD_ACCOUNT_CONTACT_RESULT]> {
+    return database.transaction(async (transaction) => {
+      const [lead] = await transaction.select({ accountId: leads.accountId, personId: leads.personId }).from(leads)
+        .where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
+      if (!lead) return LEAD_ACCOUNT_CONTACT_RESULT.leadNotFound;
+      const [existing] = await transaction.select({ id: leadContacts.id }).from(leadContacts)
+        .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId), eq(leadContacts.personId, input.personId))).limit(1);
+      if (existing || lead.personId === input.personId) return LEAD_ACCOUNT_CONTACT_RESULT.alreadyLinked;
+      const [person] = await transaction.select({ id: people.id, name: people.name, email: people.email, phone: people.phone }).from(people)
+        .where(and(eq(people.id, input.personId), eq(people.organizationId, input.organizationId), accountContactVisibleForLeadCondition(input.organizationId, lead.accountId, people.id, input.access))).limit(1);
+      if (!person) return LEAD_ACCOUNT_CONTACT_RESULT.personUnavailable;
+      await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: lead.accountId, personId: person.id, createdByUserId: input.actorUserId, status: ACCOUNT_PERSON_STATUS.active }).onConflictDoUpdate({ target: [accountPeople.organizationId, accountPeople.accountId, accountPeople.personId], set: { status: ACCOUNT_PERSON_STATUS.active, revokedByUserId: null, revokedAt: null } });
+      const [contact] = await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: input.leadId, personId: person.id, createdByUserId: input.actorUserId }).returning();
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: LEAD_ACCOUNT_CONTACT_AUDIT_ACTION, entityType: 'lead_contact', entityId: contact.id, correlationId: input.correlationId, afterState: { leadId: input.leadId, personId: person.id, accountId: lead.accountId } });
+      return new LeadContactRecordDto(contact.id, person.name, person.email, person.phone, contact.jobTitle, contact.isPrimary, contact.isInterested, false, contact.referralNote, contact.notes);
+    });
+  }
+  async createContact(input: LeadContactCreateRepositoryDto): Promise<LeadContactRecordDto | typeof LEAD_CONTACT_CREATE_RESULT[keyof typeof LEAD_CONTACT_CREATE_RESULT]> {
+    return database.transaction(async (transaction) => {
+      const [lead] = await transaction.select({ accountId: leads.accountId, personId: leads.personId }).from(leads).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), leadAccessCondition(input.access))).for('update').limit(1);
+      if (!lead) return LEAD_CONTACT_CREATE_RESULT.leadNotFound;
       const email = input.input.email?.trim().toLowerCase();
       const phone = input.input.phone?.replace(/\D/g, '');
       const normalizedName = input.input.name.trim().toLocaleLowerCase('en-US');
+      for (const lockKey of duplicateLockKeys(input.organizationId, { accountName: lead.accountId, email, phone })) {
+        await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
+      }
       const contactMatch = or(
         ...(email ? [sql`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
-        ...(phone && phone.length >= 7 ? [sql`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone} and lower(trim(${people.name})) = ${normalizedName}`] : []),
+        ...(phone && phone.length >= LEAD_CONTACT_PHONE_MATCH_MIN_DIGITS ? [sql`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone} and lower(trim(${people.name})) = ${normalizedName}`] : []),
       );
       const existing = contactMatch ? await transaction.select({ id: leadContacts.id }).from(leadContacts).innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
         .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, input.leadId), contactMatch)).limit(1) : [];
-      if (existing.length) return 'duplicate_contact';
-      const [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.input.name, email: email || null, phone: input.input.phone?.trim() || null }).returning();
+      if (existing.length) return LEAD_CONTACT_CREATE_RESULT.duplicateOnLead;
+      const accountIdentityMatch = or(
+        ...(email ? [sql`lower(trim(coalesce(${people.email}, ''))) = ${email}`] : []),
+        ...(phone && phone.length >= LEAD_CONTACT_PHONE_MATCH_MIN_DIGITS ? [sql`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g') = ${phone} and lower(trim(${people.name})) = ${normalizedName}`] : []),
+      );
+      const [existingLeadMatches, primaryLeadMatches] = accountIdentityMatch ? await Promise.all([
+        transaction.select({ id: people.id, name: people.name, email: people.email, phone: people.phone }).from(leadContacts)
+          .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
+          .innerJoin(people, and(eq(people.id, leadContacts.personId), eq(people.organizationId, leadContacts.organizationId)))
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leads.accountId, lead.accountId), leadAccessCondition(input.access), accountIdentityMatch)).limit(LEAD_ACCOUNT_CONTACT_MATCH_LIMIT),
+        transaction.select({ id: people.id, name: people.name, email: people.email, phone: people.phone }).from(leads)
+          .innerJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, lead.accountId), leadAccessCondition(input.access), accountIdentityMatch)).limit(LEAD_ACCOUNT_CONTACT_MATCH_LIMIT),
+      ]) : [[], []];
+      const accountMatches = [...new Map([...existingLeadMatches, ...primaryLeadMatches].map((person) => [person.id, person])).values()];
+      if (accountMatches.length >= LEAD_ACCOUNT_CONTACT_MATCH_LIMIT) return LEAD_CONTACT_CREATE_RESULT.ambiguousAccountMatch;
+      const [person] = accountMatches.length ? accountMatches : await transaction.insert(people).values({ organizationId: input.organizationId, name: input.input.name, email: email || null, phone: input.input.phone?.trim() || null }).returning();
+      await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: lead.accountId, personId: person.id, createdByUserId: input.actorUserId, status: ACCOUNT_PERSON_STATUS.active }).onConflictDoUpdate({ target: [accountPeople.organizationId, accountPeople.accountId, accountPeople.personId], set: { status: ACCOUNT_PERSON_STATUS.active, revokedByUserId: null, revokedAt: null } });
       const [contact] = await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: input.leadId, personId: person.id, jobTitle: input.input.jobTitle?.trim() || null, isInterested: input.input.isInterested, referralNote: input.input.referralNote?.trim() || null, notes: input.input.notes?.trim() || null, createdByUserId: input.actorUserId }).returning();
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.contact_added', entityType: 'lead_contact', entityId: contact.id, correlationId: input.correlationId, afterState: { leadId: input.leadId, personId: person.id, hasEmail: Boolean(email), hasPhone: Boolean(phone), hasRoleLabel: Boolean(input.input.jobTitle), isInterested: input.input.isInterested } });
       return new LeadContactRecordDto(contact.id, person.name, person.email, person.phone, contact.jobTitle, false, contact.isInterested, false, contact.referralNote, contact.notes);

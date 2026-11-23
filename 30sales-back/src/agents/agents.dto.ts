@@ -1,4 +1,13 @@
 import { z } from 'zod';
+import { ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH, ASSISTANT_CONVERSATION_ASSIST_MODES, ASSISTANT_CONVERSATION_ASSIST_MODE } from './agents.constants';
+
+export const assistConversationSchema = z.object({
+  mode: z.enum(ASSISTANT_CONVERSATION_ASSIST_MODES),
+  question: z.string().trim().min(1).max(ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH).optional(),
+}).strict().superRefine((input, context) => {
+  if (input.mode === ASSISTANT_CONVERSATION_ASSIST_MODE.question && !input.question) context.addIssue({ code: 'custom', path: ['question'], message: 'Enter a question for the assistant.' });
+});
+export type AssistConversationInputDto = z.infer<typeof assistConversationSchema>;
 
 export const assistantProfileDirectionSchema = z.enum(['inbound', 'outbound']);
 const assistantModelSchema = z.enum(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);

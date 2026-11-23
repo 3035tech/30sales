@@ -2,11 +2,11 @@
 
 Registro atualizado em 18/11/2026. Esta checklist é uma fotografia histórica da revisão daquela versão, não o estado atual de `main` nem dos ambientes publicados. Use-a como referência de critérios; confirme build, migrations, configuração e evidências na release que estiver sendo preparada. O backlog funcional está em [`06_backlog_aceite_entrega.md`](06_backlog_aceite_entrega.md).
 
-## Estado atual
+## Estado registrado na revisão de 18/11/2026
 
 - Branch atual: `main`.
 - Commit `e299604` está em `origin/main`, árvore limpa. O frontend passou/publicou no run `44275539479` (`559ac4b`); o backend passou/publicou no run `44277191439` (`c65f476`).
-- A migration Drizzle `0056_minor_exodus.sql` está versionada e ainda não foi aplicada.
+- Na revisão de 18/11/2026, a migration Drizzle `0056_minor_exodus.sql` estava versionada e ainda não aplicada naquele ambiente. Verifique o journal do ambiente atual.
 - A máscara internacional de telefone está versionada, mas ainda não passou por build bem-sucedido nem inspeção no navegador.
 - Um log anterior do backend informou que o runtime da assistente estava desativado por falta de `ANTHROPIC_API_KEY`. Confirmar a configuração atual antes de aceitar o chatbot inbound.
 - O `npm install` da biblioteca de telefone reportou cinco vulnerabilidades altas na árvore de dependências. Identificar os pacotes e impacto antes do release; não aplicar correções automáticas sem revisar.

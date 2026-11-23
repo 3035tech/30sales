@@ -1,0 +1,2 @@
+ALTER TABLE "lead_qualification_facts" DROP CONSTRAINT "lead_qualification_facts_value_check";--> statement-breakpoint
+ALTER TABLE "lead_qualification_facts" ADD CONSTRAINT "lead_qualification_facts_value_check" CHECK (("lead_qualification_facts"."state" in ('unknown', 'not_applicable') and "lead_qualification_facts"."value" is null) or ("lead_qualification_facts"."state" not in ('unknown', 'not_applicable') and "lead_qualification_facts"."value" is not null and length(trim("lead_qualification_facts"."value")) between 1 and 2000));

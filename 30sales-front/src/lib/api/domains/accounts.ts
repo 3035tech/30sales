@@ -1,9 +1,12 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type AccountMarketSegment, type AccountSortBy, type LeadStatus, accountPageSchema, accountProfileSchema, accountSegmentSchema } from '../contracts';
+import { type AccountMarketSegment, type AccountSortBy, type LeadStatus, accountDirectoryContactPageSchema, accountPageSchema, accountProfileSchema, accountSegmentSchema } from '../contracts';
 
 
 export const accountsApi = {
+    contacts: (accountId: string, params: { businessLineId?: string; limit?: number; offset?: number } = {}) => { const search = new URLSearchParams(); if (params.businessLineId) search.set('businessLineId', params.businessLineId); if (params.limit !== undefined) search.set('limit', String(params.limit)); if (params.offset !== undefined) search.set('offset', String(params.offset)); return request(`/api/v1/accounts/${encodeURIComponent(accountId)}/contacts?${search.toString()}`, accountDirectoryContactPageSchema) },
+    unlinkContact: (accountId: string, personId: string, businessLineId?: string) => { const search = new URLSearchParams(); if (businessLineId) search.set('businessLineId', businessLineId); return request(`/api/v1/accounts/${encodeURIComponent(accountId)}/contacts/${encodeURIComponent(personId)}?${search.toString()}`, z.object({ accountId: z.string().uuid(), personId: z.string().uuid(), status: z.literal('revoked') }), { method: 'DELETE' }) },
+    restoreContact: (accountId: string, personId: string, businessLineId?: string) => { const search = new URLSearchParams(); if (businessLineId) search.set('businessLineId', businessLineId); return request(`/api/v1/accounts/${encodeURIComponent(accountId)}/contacts/${encodeURIComponent(personId)}/link?${search.toString()}`, z.object({ accountId: z.string().uuid(), personId: z.string().uuid(), status: z.literal('active') }), { method: 'POST' }) },
     segments: () => request('/api/v1/accounts/segments', z.array(accountSegmentSchema)),
     createSegment: (name: string) => request('/api/v1/accounts/segments', accountSegmentSchema, { method: 'POST', body: JSON.stringify({ name }) }),
     assignSegment: (accountId: string, segmentId: string | null) => request(`/api/v1/accounts/${encodeURIComponent(accountId)}/segment`, z.object({ accountId: z.string().uuid(), segmentId: z.string().uuid().nullable(), segmentName: z.string().nullable() }), { method: 'PATCH', body: JSON.stringify({ segmentId }) }),

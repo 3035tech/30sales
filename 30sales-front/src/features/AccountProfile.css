@@ -12,3 +12,16 @@
 .account-size-filter{display:grid;gap:4px;min-width:135px;color:#64748b;font-size:var(--font-size-sm)}
 .account-size-filter .ui-numeric-field{min-height:34px;padding-inline:8px}
 .account-filter-error{align-self:center;color:#b42318}
+
+.account-row-icon-actions{display:flex;align-items:center;gap:6px}
+.account-contacts-modal{width:min(680px,calc(100vw - 32px))}
+.account-contacts-intro{display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid #dbe4ee;border-radius:9px;background:#f8fafc;color:#315782}
+.account-contacts-intro p{margin:0;color:#475569;font-size:var(--font-size-sm);line-height:1.5}
+.account-contact-directory-list{display:grid;gap:8px;max-height:min(48vh,480px);overflow:auto;margin:14px 0;padding:0;list-style:none}
+.account-contact-directory-list>li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff}
+.account-contact-directory-list>li>div{display:grid;gap:4px;min-width:0}
+.account-contact-directory-list strong{color:#334155;font-size:var(--font-size-sm)}
+.account-contact-directory-list span,.account-contact-directory-list small{color:#64748b;font-size:var(--font-size-xs);overflow-wrap:anywhere}
+.account-contact-directory-pagination{display:flex;align-items:center;justify-content:center;gap:12px}
+.account-contact-directory-pagination>span{color:#64748b;font-size:var(--font-size-xs)}
+@media(max-width:560px){.account-contact-directory-list>li{align-items:stretch;flex-direction:column}.account-contact-directory-list>li>.ui-button{align-self:flex-end}}

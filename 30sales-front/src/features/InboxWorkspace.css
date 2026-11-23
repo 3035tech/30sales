@@ -53,6 +53,11 @@
 .inbox-composer .inbox-composer-tools .inbox-media-selection>span { display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection>small { flex:none; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection .ui-icon-button { flex:none; min-height:38px; width:38px; padding:8px; border:1px solid transparent; background:transparent; color:#475569; }
+.inbox-assistant-consult-modal { max-width: 720px; }
+.inbox-assistant-consult-result { display:grid; gap:14px; padding:16px; border:1px solid var(--line,#dce4ec); border-radius:10px; background:var(--surface-subtle,#f8fafc); color:var(--text,#263445); }
+.inbox-assistant-consult-result h3,.inbox-assistant-consult-result p { margin:0; }
+.inbox-assistant-consult-result ul { margin:6px 0 0; padding-left:22px; }
+.inbox-assistant-consult-result>div { display:grid; gap:4px; }
 .inbox-composer>p { margin:0; color:var(--muted,#64748b); font-size:var(--font-size-sm); }
 .inbox-composer-modes { display:flex; gap:6px; }
 .inbox-composer .inbox-composer-modes button { min-height:30px; border:1px solid var(--line,#dbe2ea); padding:5px 10px; background:#fff; color:#475569; }

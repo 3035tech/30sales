@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import { PLATFORM_ROLE_NAMES } from '../authorizationConstants';
-import { ACCOUNT_MARKET_SEGMENTS } from '../accountConstants';
+import { ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUSES } from '../accountConstants';
 import { IMPORT_PREVIEW_STATUS_VALUES, IMPORT_PROVIDERS, IMPORT_TARGET_TYPES, LEAD_IMPORT_RESULT_STATUS_VALUES } from '../importConstants';
 import { USER_NOTIFICATION_TYPES } from './notificationConstants';
+import { LEAD_QUALIFICATION_FACT_LIMITS, LEAD_QUALIFICATION_FACT_SOURCES, LEAD_QUALIFICATION_FACT_STATES, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE, LEAD_QUALIFICATION_FACT_KEYS } from '../leadQualificationConstants';
 
 export { USER_NOTIFICATION_TYPE, USER_NOTIFICATION_TYPES } from './notificationConstants';
 
@@ -36,6 +37,7 @@ export const campaignStartResultSchema = z.object({ campaignDraftId: z.string().
 export const campaignStatusChangeSchema = z.object({ campaignDraftId: z.string().uuid(), status: z.enum(CAMPAIGN_DRAFT_STATUSES) });
 export const campaignPerformanceSchema = z.object({ campaignDraftId: z.string().uuid(), total: z.number().int().nonnegative(), channels: z.array(z.object({ channelId: z.string().uuid(), channelLabel: z.string(), queued: z.number().int().nonnegative(), processing: z.number().int().nonnegative().optional().default(0), sent: z.number().int().nonnegative(), delivered: z.number().int().nonnegative(), replied: z.number().int().nonnegative(), meetings: z.number().int().nonnegative(), opportunitiesCreated: z.number().int().nonnegative(), won: z.number().int().nonnegative(), needsReview: z.number().int().nonnegative() })) });
 export const campaignLeadPerformancePageSchema = z.object({ campaignDraftId: z.string().uuid(), data: z.array(z.object({ leadId: z.string().uuid(), accountName: z.string(), contactName: z.string().nullable(), phone: z.string().nullable(), channelId: z.string().uuid(), channelLabel: z.string(), outboxStatus: z.enum(['pending', 'published', 'failed']), inProgress: z.boolean().optional().default(false), deliveryState: z.string().nullable(), replied: z.boolean(), conversationId: z.string().uuid().nullable(), opportunityStage: opportunityStage.nullable(), opportunityStageLabel: z.string().nullable(), opportunityCreatedAfterCampaign: z.boolean(), meetingAfterCampaign: z.boolean(), wonAfterCampaign: z.boolean() })), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
+export const campaignPendingRepliesPageSchema = z.object({ data: z.array(z.object({ campaignDraftId: z.string().uuid(), campaignName: z.string(), leadId: z.string().uuid(), accountName: z.string(), contactName: z.string().nullable(), phone: z.string().nullable(), channelLabel: z.string(), conversationId: z.string().uuid(), ownerName: z.string().nullable(), hasOpenTask: z.boolean(), replyPreview: z.string().nullable(), repliedAt: z.string() })), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
 export const campaignDeliveryReviewPageSchema = z.object({ data: z.array(z.object({ outboxEventId: z.string().uuid(), campaignDraftId: z.string().uuid(), campaignName: z.string(), leadId: z.string(), accountName: z.string(), contactName: z.string().nullable(), phone: z.string().nullable(), deliveryState: z.string().nullable(), lastErrorCode: z.string().nullable(), attempts: z.number().int().nonnegative(), createdAt: z.string() })), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
 export const campaignDeliveryConfirmSchema = z.object({ outboxEventId: z.string().uuid(), status: z.literal('published') });
 export const campaignDeliveryRetrySchema = z.object({ outboxEventId: z.string().uuid(), status: z.literal('pending') });
@@ -66,6 +68,22 @@ export const leadSchema = z.object({ id: z.string().uuid(), accountId: z.string(
 export const contactOutreachDecision = z.enum(CONTACT_OUTREACH_DECISION_VALUES);
 export const contactOutreachBasis = z.enum(CONTACT_OUTREACH_BASIS_VALUES);
 export const leadContactSchema = z.object({ id: z.string().uuid(), name: z.string(), email: z.string().nullable(), phone: z.string().nullable(), jobTitle: z.string().nullable(), isPrimary: z.boolean(), isInterested: z.boolean(), hasConversation: z.boolean(), referralNote: z.string().nullable(), notes: z.string().nullable(), outreachDecision: contactOutreachDecision, outreachBasis: contactOutreachBasis.nullable(), outreachEvidence: z.string().nullable(), outreachReviewedAt: z.string().nullable(), outreachReviewedByName: z.string().nullable() });
+export const accountContactCandidateSchema = z.object({ id: z.string().uuid(), name: z.string(), email: z.string().nullable(), phone: z.string().nullable() });
+export const accountContactPageSchema = z.object({ data: z.array(accountContactCandidateSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+export const linkAccountContactSchema = z.object({ personId: z.string().uuid() }).strict();
+export const qualificationFactSchema = z.object({ id: z.string().uuid(), factKey: z.string(), value: z.string().nullable(), state: z.enum(LEAD_QUALIFICATION_FACT_STATES), source: z.enum(LEAD_QUALIFICATION_FACT_SOURCES), evidence: z.string().nullable(), sourceMessageId: z.string().uuid().nullable(), confidence: z.number().nullable(), createdByUserId: z.string().uuid(), recordedAt: z.string() });
+export const qualificationFactPageSchema = z.object({ data: z.array(qualificationFactSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+export type QualificationFactPageDto = z.infer<typeof qualificationFactPageSchema>;
+export const qualificationSuggestionSchema = z.object({ factKey: z.enum(LEAD_QUALIFICATION_FACT_KEYS), value: z.string().nullable(), state: z.enum(LEAD_QUALIFICATION_FACT_STATES), evidence: z.string(), sourceMessageId: z.string().uuid(), sourceMessageAt: z.string(), confidence: z.number() });
+export const qualificationSuggestionsSchema = z.array(qualificationSuggestionSchema);
+export type QualificationSuggestionDto = z.infer<typeof qualificationSuggestionSchema>;
+export const createQualificationFactSchema = z.object({ factKey: z.string().trim().min(LEAD_QUALIFICATION_FACT_LIMITS.keyMinLength).max(LEAD_QUALIFICATION_FACT_LIMITS.keyMaxLength).regex(/^[a-z][a-z0-9_]*$/), value: z.string().trim().min(LEAD_QUALIFICATION_FACT_LIMITS.valueMinLength).max(LEAD_QUALIFICATION_FACT_LIMITS.valueMaxLength).nullable(), state: z.enum(LEAD_QUALIFICATION_FACT_STATES), source: z.enum(LEAD_QUALIFICATION_FACT_SOURCES).default(LEAD_QUALIFICATION_FACT_SOURCE.manual), evidence: z.string().trim().min(LEAD_QUALIFICATION_FACT_LIMITS.evidenceMinLength).max(LEAD_QUALIFICATION_FACT_LIMITS.valueMaxLength).nullable().optional(), sourceMessageId: z.string().uuid().optional(), confidence: z.number().min(LEAD_QUALIFICATION_FACT_LIMITS.confidenceMin).max(LEAD_QUALIFICATION_FACT_LIMITS.confidenceMax).nullable().optional() }).strict().superRefine((input, context) => {
+  const valueless = input.state === LEAD_QUALIFICATION_FACT_STATE.unknown || input.state === LEAD_QUALIFICATION_FACT_STATE.notApplicable;
+  if (valueless !== (input.value === null)) context.addIssue({ code: 'custom', path: ['value'], message: 'Fact value must match its state.' });
+  if ((input.source === LEAD_QUALIFICATION_FACT_SOURCE.conversation) !== Boolean(input.sourceMessageId)) context.addIssue({ code: 'custom', path: ['sourceMessageId'], message: 'Conversation facts require a source message.' });
+  if (input.source === LEAD_QUALIFICATION_FACT_SOURCE.conversation && !input.evidence?.trim()) context.addIssue({ code: 'custom', path: ['evidence'], message: 'Conversation facts require a quoted source excerpt.' });
+  if (input.source === LEAD_QUALIFICATION_FACT_SOURCE.manual && !valueless && !input.evidence?.trim()) context.addIssue({ code: 'custom', path: ['evidence'], message: 'Manual facts require supporting evidence.' });
+});
 export const reviewContactOutreachSchema = z.discriminatedUnion('decision', [
   z.object({ decision: z.literal(CONTACT_OUTREACH_DECISION.pending) }).strict(),
   z.object({ decision: z.literal(CONTACT_OUTREACH_DECISION.approved), basis: contactOutreachBasis, evidence: z.string().trim().min(3).max(2000) }).strict(),
@@ -78,6 +96,7 @@ export const leadAssigneeSchema = z.object({ id: z.string().uuid(), name: z.stri
 export const leadPageSchema = z.object({ data: z.array(leadSchema), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
 export const accountProfileSchema = z.object({ marketSegment: accountMarketSegment.nullable(), studentCount: z.number().int().nonnegative().nullable() });
 export const accountPageSchema = z.object({ data: z.array(z.object({ id: z.string().uuid(), name: z.string(), segmentId: z.string().uuid().nullable(), segmentName: z.string().nullable(), marketSegment: accountMarketSegment.nullable(), studentCount: z.number().int().nonnegative().nullable(), contactCount: z.number(), leadCount: z.number(), respondedCount: z.number(), opportunityCount: z.number(), latestActivityAt: z.string().nullable() })), pagination: z.object({ limit: z.number(), offset: z.number(), total: z.number(), hasNextPage: z.boolean() }) });
+export const accountDirectoryContactPageSchema = z.object({ data: z.array(z.object({ id: z.string().uuid(), name: z.string(), email: z.string().nullable(), phone: z.string().nullable(), leadCount: z.number().int().nonnegative(), status: z.enum(ACCOUNT_PERSON_STATUSES) })), pagination: z.object({ limit: z.number().int(), offset: z.number().int(), total: z.number().int(), hasNextPage: z.boolean() }) });
 export const accountSegmentSchema = z.object({ id: z.string().uuid(), name: z.string() });
 export const taskResult = z.enum(['completed', 'contacted', 'no_response', 'follow_up']);
 export const taskSchema = z.object({ id: z.string().uuid(), leadId: z.string().uuid(), title: z.string(), dueAt: z.string(), status: z.enum(['open', 'completed', 'cancelled']), completedAt: z.string().nullable(), accountName: z.string(), contactName: z.string().nullable(), completionResult: taskResult.nullable(), completionNote: z.string().nullable() });
@@ -160,6 +179,9 @@ export type LeadStatus = z.infer<typeof leadStatus>;
 export function parseLeadStatus(value: string): LeadStatus | null { const parsed = leadStatus.safeParse(value); return parsed.success ? parsed.data : null; }
 export type LeadDto = z.infer<typeof leadSchema>;
 export type LeadContactDto = z.infer<typeof leadContactSchema>;
+export type AccountContactCandidateDto = z.infer<typeof accountContactCandidateSchema>;
+export type QualificationFactDto = z.infer<typeof qualificationFactSchema>;
+export type CreateQualificationFactInput = z.infer<typeof createQualificationFactSchema>;
 export type CreateLeadContactInput = z.infer<typeof createLeadContactSchema>;
 export type LeadPageDto = z.infer<typeof leadPageSchema>;
 export type AccountPageDto = z.infer<typeof accountPageSchema>;

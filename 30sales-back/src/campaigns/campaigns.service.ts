@@ -3,7 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES, hasOrganizationRole } from '../auth/authorization.constants';
 import { LeadRepositoryAccessDto } from '../leads/leads.dto';
-import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryRetryDto, CampaignDeliveryRetryRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
+import { CampaignAudiencePreviewDto, CampaignAudiencePreviewQueryDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryRetryDto, CampaignDeliveryRetryRepositoryDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignNoSendDateDeleteRepositoryDto, CampaignNoSendDateDto, CampaignNoSendDateMutationRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignPendingRepliesPageDto, CampaignPendingRepliesRepositoryDto, CampaignStatusChangeRepositoryDto, CreateCampaignNoSendDateDto, CreateCampaignDraftDto, ListCampaignDraftsDto, SaveCampaignAudienceDto } from './campaigns.dto';
 import { CampaignsRepository } from './campaigns.repository';
 import { CAMPAIGN_ERROR_CODE, CAMPAIGN_NO_SEND_DATE_ERROR } from './campaigns.constants';
 import { ChannelsService } from '../channels/channels.service';
@@ -32,6 +32,10 @@ export class CampaignsService {
     const result = await this.repository.performanceLeads(new CampaignLeadPerformanceRepositoryDto(context.organizationId, campaignDraftId, this.access(context.organizationId, context.userId, context.role), query));
     if (!result) throw new NotFoundException();
     return result;
+  }
+  async pendingReplies(request: ApiRequestDto, query: ListCampaignDraftsDto): Promise<CampaignPendingRepliesPageDto> {
+    const context = await this.tenantAccess.require(request, 'read');
+    return this.repository.pendingReplies(new CampaignPendingRepliesRepositoryDto(context.organizationId, this.access(context.organizationId, context.userId, context.role), query));
   }
   async create(request: ApiRequestDto, dto: CreateCampaignDraftDto): Promise<CampaignDraftDto> {
     const context = await this.tenantAccess.require(request, 'create');

@@ -33,6 +33,8 @@ export class CampaignsController {
   performance(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.performance(request, campaignDraftId); }
   @Get(':id/performance/leads')
   performanceLeads(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string, @Query(new ZodValidationPipe(listCampaignDraftsSchema)) query: ListCampaignDraftsDto) { return this.campaignsService.performanceLeads(request, campaignDraftId, query); }
+  @Get('pending-replies')
+  pendingReplies(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(listCampaignDraftsSchema)) query: ListCampaignDraftsDto) { return this.campaignsService.pendingReplies(request, query); }
   @Post(':id/start')
   start(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(campaignDraftIdSchema)) campaignDraftId: string) { return this.campaignsService.start(request, campaignDraftId); }
   @Post(':id/pause')

@@ -4,7 +4,7 @@ import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { AgentsService } from './agents.service';
-import { assistantBusinessLineIdSchema, assistantProfileInputSchema, assistantSettingsInputSchema, type AssistantProfileInputDto, type AssistantSettingsInputDto } from './agents.dto';
+import { assistConversationSchema, assistantBusinessLineIdSchema, assistantProfileInputSchema, assistantSettingsInputSchema, type AssistConversationInputDto, type AssistantProfileInputDto, type AssistantSettingsInputDto } from './agents.dto';
 
 @Controller('api/v1/agents/assistant')
 export class AgentsController {
@@ -21,6 +21,9 @@ export class AgentsController {
 
   @Post('conversations/:id/reply-draft')
   draftConversationReply(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) conversationId: string) { return this.agentsService.draftConversationReply(request, conversationId); }
+
+  @Post('conversations/:id/assist')
+  assistConversation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) conversationId: string, @Body(new ZodValidationPipe(assistConversationSchema)) input: AssistConversationInputDto) { return this.agentsService.assistConversation(request, conversationId, input); }
 }
 
 const profileIdSchema = z.string().uuid();

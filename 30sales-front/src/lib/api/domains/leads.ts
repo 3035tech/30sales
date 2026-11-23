@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type AccountMarketSegment, type CreateLeadContactInput, type CreateLeadInput, type LeadSortBy, type LeadStatus, leadAssigneeSchema, leadContactSchema, leadDuplicateCheckSchema, leadPageSchema, leadSchema, reviewContactOutreachSchema, sdrPreviewChannelSchema, sdrPreviewSchema, sdrReadinessSchema } from '../contracts';
+import { type AccountMarketSegment, type CreateLeadContactInput, type CreateLeadInput, type CreateQualificationFactInput, type LeadSortBy, type LeadStatus, accountContactPageSchema, leadAssigneeSchema, leadContactSchema, leadDuplicateCheckSchema, leadPageSchema, leadSchema, qualificationFactPageSchema, qualificationFactSchema, qualificationSuggestionsSchema, reviewContactOutreachSchema, sdrPreviewChannelSchema, sdrPreviewSchema, sdrReadinessSchema } from '../contracts';
 
 
 
@@ -43,6 +43,11 @@ export const leadsApi = {
     create: (input: CreateLeadInput) => request('/api/v1/leads', leadSchema, { method: 'POST', body: JSON.stringify(input) }),
     updateStatus: (id: string, status: LeadStatus, reason: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/status`, leadSchema, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
     contacts: (id: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/contacts`, z.array(leadContactSchema)),
+    accountContacts: (id: string, params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/leads/${encodeURIComponent(id)}/account-contacts?${query.toString()}`, accountContactPageSchema) },
+    linkAccountContact: (leadId: string, personId: string) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/link`, leadContactSchema, { method: 'POST', body: JSON.stringify({ personId }) }),
+    qualificationFacts: (id: string, params: { limit?: number; offset?: number } = {}) => { const query = new URLSearchParams(); if (params.limit !== undefined) query.set('limit', String(params.limit)); if (params.offset !== undefined) query.set('offset', String(params.offset)); return request(`/api/v1/leads/${encodeURIComponent(id)}/qualification-facts?${query.toString()}`, qualificationFactPageSchema) },
+    addQualificationFact: (id: string, input: CreateQualificationFactInput) => request(`/api/v1/leads/${encodeURIComponent(id)}/qualification-facts`, qualificationFactSchema, { method: 'POST', body: JSON.stringify(input) }),
+    suggestQualificationFacts: (id: string) => request(`/api/v1/leads/${encodeURIComponent(id)}/qualification-suggestions`, qualificationSuggestionsSchema, { method: 'POST' }),
     addContact: (id: string, input: CreateLeadContactInput) => request(`/api/v1/leads/${encodeURIComponent(id)}/contacts`, leadContactSchema, { method: 'POST', body: JSON.stringify(input) }),
     updateContact: (leadId: string, contactId: string, isInterested: boolean) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/${encodeURIComponent(contactId)}`, leadContactSchema, { method: 'PATCH', body: JSON.stringify({ isInterested }) }),
     reviewContactOutreach: (leadId: string, contactId: string, input: z.infer<typeof reviewContactOutreachSchema>) => request(`/api/v1/leads/${encodeURIComponent(leadId)}/contacts/${encodeURIComponent(contactId)}/outreach-review`, leadContactSchema, { method: 'PATCH', body: JSON.stringify(input) }),

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { LEAD_STATUSES, UNASSIGNED_SEGMENT_FILTER } from '../leads/constants';
-import { ACCOUNT_MARKET_SEGMENTS, QUERY_BOOLEAN_VALUES } from './accounts.constants';
+import { ACCOUNT_CONTACT_MAX_PAGE_SIZE, ACCOUNT_CONTACT_PAGE_SIZE, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUSES, QUERY_BOOLEAN_VALUES } from './accounts.constants';
 
 export const createAccountSegmentSchema = z.object({ name: z.string().trim().min(2).max(80) }).strict();
 export type CreateAccountSegmentDto = z.infer<typeof createAccountSegmentSchema>;
@@ -9,14 +9,16 @@ export type AssignAccountSegmentDto = z.infer<typeof assignAccountSegmentSchema>
 export const updateAccountProfileSchema = z.object({ marketSegment: z.enum(ACCOUNT_MARKET_SEGMENTS).nullable(), studentCount: z.number().int().nonnegative().nullable() }).strict();
 export type UpdateAccountProfileDto = z.infer<typeof updateAccountProfileSchema>;
 export const accountIdSchema = z.string().uuid();
-export const ACCOUNT_SEGMENT_RESULT = { exists: 'segment_exists', accountNotFound: 'account_not_found', segmentNotFound: 'segment_not_found' } as const;
-export const DATABASE_UNIQUE_VIOLATION_CODE = '23505';
-export const ACCOUNT_SEGMENT_ERROR_CODE = { exists: 'ACCOUNT_SEGMENT_ALREADY_EXISTS', restricted: 'ACCOUNT_SEGMENT_MANAGEMENT_RESTRICTED', notFound: 'ACCOUNT_SEGMENT_NOT_FOUND', accountNotFound: 'ACCOUNT_NOT_FOUND' } as const;
-export const ACCOUNT_SEGMENT_AUDIT = { created: 'account.segment_created', changed: 'account.segment_changed', segmentEntity: 'account_segment', accountEntity: 'account' } as const;
+export const listAccountContactsSchema = z.object({ businessLineId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(ACCOUNT_CONTACT_MAX_PAGE_SIZE).default(ACCOUNT_CONTACT_PAGE_SIZE), offset: z.coerce.number().int().nonnegative().default(0) }).strict();
+export type ListAccountContactsQueryDto = z.infer<typeof listAccountContactsSchema>;
 export class AccountSegmentDto { constructor(readonly id: string, readonly name: string) {} }
 export class AccountSegmentRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null) {} }
 export class AccountSegmentRepositoryAssignDto { constructor(readonly organizationId: string, readonly accountId: string, readonly segmentId: string | null, readonly actorUserId: string, readonly correlationId: string | null) {} }
 export class AccountProfileRepositoryUpdateDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly marketSegment: UpdateAccountProfileDto['marketSegment'], readonly studentCount: number | null, readonly correlationId: string | null) {} }
+export class AccountContactsRepositoryDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly query: ListAccountContactsQueryDto) {} }
+export class AccountContactMutationRepositoryDto extends AccountContactsRepositoryDto { constructor(organizationId: string, accountId: string, userId: string, canManageAll: boolean, includeOwnedOpportunities: boolean, query: ListAccountContactsQueryDto, readonly personId: string, readonly correlationId: string | null) { super(organizationId, accountId, userId, canManageAll, includeOwnedOpportunities, query); } }
+export class AccountContactDto { constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null, readonly leadCount: number, readonly status: (typeof ACCOUNT_PERSON_STATUSES)[number]) {} }
+export class AccountContactPageDto { constructor(readonly data: AccountContactDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 
 export const listAccountsSchema = z.object({
   businessLineId: z.string().uuid().optional(),

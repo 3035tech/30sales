@@ -1,4 +1,5 @@
 export const ASSISTANT_RUNTIME_PROVIDER = 'anthropic' as const;
+export const ASSISTANT_RESPONSE_BLOCK_TYPE = { toolUse: 'tool_use' } as const;
 export const ASSISTANT_TRANSCRIPTION_PROVIDER = 'openai' as const;
 export const ASSISTANT_TRANSCRIPTION_MODEL = 'gpt-transcribe' as const;
 export const ASSISTANT_PRICING_VERSION = '2026-11-16' as const;

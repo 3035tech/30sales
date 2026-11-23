@@ -3,15 +3,19 @@ import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnu
 import { member as authMember, organization as authOrganization, user as authUser } from './auth-schema';
 import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
-import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS } from '../leads/constants';
+import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS, LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX, LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN, LEAD_QUALIFICATION_FACT_MAX_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_MIN_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_SOURCES, LEAD_QUALIFICATION_FACT_STATE, LEAD_QUALIFICATION_FACT_STATES } from '../leads/constants';
 import { CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_OPENING_MESSAGE_DEFAULT } from '../campaigns/campaigns.constants';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT, CHANNEL_OPERATION_MODES } from '../channels/channels.constants';
 import { BUSINESS_LINE_STATUSES } from '../business-lines/business-lines.constants';
+import { ACCOUNT_PERSON_STATUSES, ACCOUNT_PERSON_STATUS } from '../accounts/accounts.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
 export const contactOutreachDecision = pgEnum('contact_outreach_decision', CONTACT_OUTREACH_DECISIONS);
 export const contactOutreachBasis = pgEnum('contact_outreach_basis', CONTACT_OUTREACH_BASES);
+export const leadQualificationFactState = pgEnum('lead_qualification_fact_state', LEAD_QUALIFICATION_FACT_STATES);
+export const leadQualificationFactSource = pgEnum('lead_qualification_fact_source', LEAD_QUALIFICATION_FACT_SOURCES);
+export const accountPersonStatus = pgEnum('account_person_status', ACCOUNT_PERSON_STATUSES);
 export const campaignDraftStatus = pgEnum('campaign_draft_status', CAMPAIGN_DRAFT_STATUSES);
 export const accountMarketSegment = pgEnum('account_market_segment', ACCOUNT_MARKET_SEGMENTS);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
@@ -111,6 +115,24 @@ export const people = pgTable('people', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [unique('people_id_organization_unique').on(table.id, table.organizationId), index('people_org_email_idx').on(table.organizationId, table.email), index('people_org_phone_idx').on(table.organizationId, table.phone)]);
 
+export const accountPeople = pgTable('account_people', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  accountId: uuid('account_id').notNull(),
+  personId: uuid('person_id').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  status: accountPersonStatus('status').default(ACCOUNT_PERSON_STATUS.active).notNull(),
+  revokedByUserId: uuid('revoked_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'account_people_pk', columns: [table.organizationId, table.accountId, table.personId] }),
+  foreignKey({ name: 'account_people_account_tenant_fk', columns: [table.accountId, table.organizationId], foreignColumns: [accounts.id, accounts.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'account_people_person_tenant_fk', columns: [table.personId, table.organizationId], foreignColumns: [people.id, people.organizationId] }).onDelete('cascade'),
+  index('account_people_org_person_idx').on(table.organizationId, table.personId),
+  index('account_people_org_account_status_idx').on(table.organizationId, table.accountId, table.status),
+  check('account_people_revocation_check', sql`(${table.status} = ${sql.raw(`'${ACCOUNT_PERSON_STATUS.active}'`)} and ${table.revokedAt} is null) or (${table.status} = ${sql.raw(`'${ACCOUNT_PERSON_STATUS.revoked}'`)} and ${table.revokedAt} is not null)`),
+]);
+
 export const leads = pgTable('leads', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -166,7 +188,6 @@ export const leadContacts = pgTable('lead_contacts', {
   check('lead_contacts_outreach_review_check', sql`(${table.outreachDecision} = 'pending' and ${table.outreachBasis} is null and ${table.outreachEvidence} is null and ${table.outreachReviewedAt} is null) or (${table.outreachDecision} <> 'pending' and ${table.outreachBasis} is not null and ${table.outreachEvidence} is not null and ${table.outreachReviewedAt} is not null)`),
   index('lead_contacts_org_lead_idx').on(table.organizationId, table.leadId),
 ]);
-
 
 export const leadStatusHistory = pgTable('lead_status_history', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -663,6 +684,31 @@ export const messages = pgTable('messages', {
   unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
   index('messages_org_conversation_direction_created_idx').on(table.organizationId, table.conversationId, table.direction, table.createdAt),
+]);
+
+export const leadQualificationFacts = pgTable('lead_qualification_facts', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  leadId: uuid('lead_id').notNull(),
+  factKey: text('fact_key').notNull(),
+  value: text('value'),
+  state: leadQualificationFactState('state').notNull(),
+  source: leadQualificationFactSource('source').default('manual').notNull(),
+  evidence: text('evidence'),
+  sourceMessageId: uuid('source_message_id'),
+  confidence: numeric('confidence', { precision: 4, scale: 3, mode: 'number' }),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  recordedAt: timestamp('recorded_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'lead_qualification_facts_lead_tenant_fk', columns: [table.leadId, table.organizationId], foreignColumns: [leads.id, leads.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'lead_qualification_facts_message_tenant_fk', columns: [table.sourceMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  unique('lead_qualification_facts_id_org_unique').on(table.id, table.organizationId),
+  check('lead_qualification_facts_key_check', sql`length(${table.factKey}) between ${sql.raw(String(LEAD_QUALIFICATION_FACT_MIN_KEY_LENGTH))} and ${sql.raw(String(LEAD_QUALIFICATION_FACT_MAX_KEY_LENGTH))} and ${table.factKey} ~ '^[a-z][a-z0-9_]*$'`),
+  check('lead_qualification_facts_value_check', sql`(${table.state} in (${sql.raw(`'${LEAD_QUALIFICATION_FACT_STATE.unknown}'`)}, ${sql.raw(`'${LEAD_QUALIFICATION_FACT_STATE.notApplicable}'`)}) and ${table.value} is null) or (${table.state} not in (${sql.raw(`'${LEAD_QUALIFICATION_FACT_STATE.unknown}'`)}, ${sql.raw(`'${LEAD_QUALIFICATION_FACT_STATE.notApplicable}'`)}) and ${table.value} is not null and length(trim(${table.value})) between ${sql.raw(String(LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH))} and ${sql.raw(String(LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH))})`),
+  check('lead_qualification_facts_source_check', sql`(${table.source} = ${sql.raw(`'${LEAD_QUALIFICATION_FACT_SOURCE.conversation}'`)} and ${table.sourceMessageId} is not null) or (${table.source} <> ${sql.raw(`'${LEAD_QUALIFICATION_FACT_SOURCE.conversation}'`)} and ${table.sourceMessageId} is null)`),
+  check('lead_qualification_facts_confidence_check', sql`${table.confidence} is null or ${table.confidence} between ${sql.raw(String(LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN))} and ${sql.raw(String(LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX))}`),
+  check('lead_qualification_facts_evidence_length_check', sql`${table.evidence} is null or length(${table.evidence}) <= ${sql.raw(String(LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH))}`),
+  index('lead_qualification_facts_org_lead_recorded_idx').on(table.organizationId, table.leadId, table.recordedAt),
 ]);
 
 export const messageAttachments = pgTable('message_attachments', {

@@ -5,7 +5,7 @@ import { database } from '../db';
 import { accounts, activities, agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, campaignDraftAudiences, campaignDraftChannels, campaignDrafts, channelBusinessHours, conversations, leadContacts, leadStatusHistory, leads, messages, messagingChannels, opportunities, people, pipelineStages, outboxEvents, tasks } from '../db/schema';
 import { AUDIT_ACTOR_TYPE } from '../auth/authorization.constants';
 import { CONTACT_OUTREACH_DECISION, LEAD_STATUS, SDR_ACTIVE_CONVERSATION_STATUSES, SDR_AGENT_KEY, SDR_READINESS_BLOCKER, SDR_READINESS_BLOCKERS } from '../leads/constants';
-import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_LEASE_SECONDS, CAMPAIGN_OUTREACH_REVIEW_CODE, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
+import { CAMPAIGN_AUDIENCE_AUDIT_ACTION, CAMPAIGN_AUDIENCE_MAX_LEADS, CAMPAIGN_AUDIT, CAMPAIGN_DRAFT_STATUS, CAMPAIGN_ERROR_CODE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_OUTREACH_LEASE_SECONDS, CAMPAIGN_OUTREACH_REVIEW_CODE, CAMPAIGN_PENDING_REPLY_CONVERSATION_STATUSES, DATABASE_FOREIGN_KEY_VIOLATION_CODE } from './campaigns.constants';
 import { CampaignAudienceLeadDto, CampaignAudiencePreviewDto, CampaignAudiencePreviewRepositoryDto, CampaignAudienceSaveDto, CampaignAudienceSaveRepositoryDto, CampaignChannelPerformanceDto, CampaignChannelQuotaSnapshotDto, CampaignDeliveryConfirmDto, CampaignDeliveryConfirmRepositoryDto, CampaignDeliveryRetryDto, CampaignDeliveryRetryRepositoryDto, CampaignDeliveryReviewItemDto, CampaignDeliveryReviewPageDto, CampaignDeliveryReviewRepositoryDto, CampaignDraftCreateRepositoryDto, CampaignDraftDto, CampaignDraftListRepositoryDto, CampaignDraftPageDto, CampaignLeadPerformanceItemDto, CampaignLeadPerformancePageDto, CampaignLeadPerformanceRepositoryDto, CampaignOperationalSnapshotDto, CampaignOperationalSnapshotRepositoryDto, CampaignPerformanceDto, CampaignPerformanceRepositoryDto, CampaignPendingReplyDto, CampaignPendingRepliesPageDto, CampaignPendingRepliesRepositoryDto, CampaignSelectedChannelDto, CampaignSelectedChannelsRepositoryDto, CampaignStartRepositoryDto, CampaignStartResultDto, CampaignStatusChangeDto, CampaignStatusChangeRepositoryDto } from './campaigns.dto';
 import type { LeadRepositoryAccessDto } from '../leads/leads.dto';
 import type { SQL } from 'drizzle-orm';
@@ -185,7 +185,7 @@ export class CampaignsRepository {
       sql`${campaignDrafts.id}::text = ${outboxEvents.aggregateId}`,
       eq(leads.organizationId, input.organizationId),
       eq(leads.businessLineId, messagingChannels.businessLineId),
-      inArray(conversations.status, ['open', 'pending']),
+      inArray(conversations.status, CAMPAIGN_PENDING_REPLY_CONVERSATION_STATUSES),
       pendingInbound,
       campaignLineAccessCondition(input.access),
     );

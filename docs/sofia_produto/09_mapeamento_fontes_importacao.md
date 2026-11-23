@@ -101,7 +101,7 @@ Durante o preview, mostrar status de origem e destino sugerido lado a lado. Valo
 - Contrato de identificação de mensagem Chatwoot, autoria, mídia e estado de entrega.
 - Mapeamento de indicações, follow-ups pendentes, eventos CRM, handoffs e links entre as fontes.
 - Regras de colisão de telefone, merge, retenção de mensagens e provenance por campo.
-- Staging/database aprovado e plano de rollback; migrations 0001–0011 continuam sem aplicação.
+- Usar staging/banco aprovado e plano de rollback. A aplicação de migrations depende do ambiente; confira o journal Drizzle antes de iniciar importações.
 
 ## Escopo implementado do preview
 

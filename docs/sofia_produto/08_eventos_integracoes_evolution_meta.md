@@ -69,8 +69,8 @@ O webhook de mensagens do Cloud API reúne mensagens recebidas, recibos de saíd
 - A aba de monitoramento consulta o estado atual da Evolution a cada minuto, em grupos de até 20 canais, sem persistir cada leitura nem gerar auditoria recorrente. Exibe quando a última consulta falhou, quando o último sinal de conexão tem mais de cinco minutos e a contagem de falhas de entrega de mensagens recebidas por webhook nas últimas 24 horas. O endpoint limita IDs à organização ativa e exige permissão de leitura de integrações.
 - Respostas humanas são recusadas quando o estado conhecido é `connecting` ou `disconnected`. O runtime do assistente pula o envio nesses mesmos estados. Canais sem evento observado (`NULL`/desconhecido) seguem compatíveis com o comportamento anterior; Meta não usa esse bloqueio.
 - Ao entrar em `disconnected`, cada membro da organização recebe um alerta in-app, deduplicado por transição e gravado na mesma transação do estado. A notificação leva à área de canais; eventos repetidos enquanto desconectado não geram alertas novos.
-- Credenciais alteradas invalidam o estado anterior. A migration aditiva `0054_thin_sheva_callister.sql` foi gerada e ainda não foi aplicada.
-- A migration aditiva `0055_curved_shard.sql` adiciona o alvo tenant-scoped para canais na central de notificações e registra o novo tipo de alerta. Também ainda não foi aplicada.
+- Credenciais alteradas invalidam o estado anterior. A migration aditiva `0054_thin_sheva_callister.sql` implementa essa mudança; confira o journal Drizzle do ambiente para saber se foi aplicada.
+- A migration aditiva `0055_curved_shard.sql` adiciona o alvo tenant-scoped para canais na central de notificações e registra o novo tipo de alerta. Confira o journal Drizzle do ambiente para saber se foi aplicada.
 - A validação ponta a ponta do webhook remoto continua pendente; timestamps representam a ordem de recebimento local e callbacks atrasados podem atualizar o estado mais recente.
 
 ## Identidade WhatsApp sem telefone

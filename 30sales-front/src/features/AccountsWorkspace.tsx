@@ -1,13 +1,14 @@
 import { Button, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, RefreshCw, Search, SlidersHorizontal, Tags } from 'lucide-react'
+import { ArrowRight, Building2, RefreshCw, Search, SlidersHorizontal, Tags, UserMinus, UserPlus, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_FILTER, api, ApiError, type AccountMarketSegment, type AccountSegmentDto, type AccountSortBy, type LeadStatus } from '../lib/api'
-import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PROFILE_EMPTY_VALUE } from '../lib/accountConstants'
+import { ACCOUNT_CONTACT_ERROR_CODE, ACCOUNT_CONTACT_LIMITS, ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUS, ACCOUNT_PROFILE_EMPTY_VALUE } from '../lib/accountConstants'
 import { Modal } from '../components/ui/Modal'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import i18n from '../lib/i18n'
 import './AccountsWorkspace.css'
 import './AccountProfile.css'
@@ -45,6 +46,12 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
   const [profileMarketSegment, setProfileMarketSegment] = useState<AccountMarketSegment | typeof ACCOUNT_PROFILE_EMPTY_VALUE>(ACCOUNT_PROFILE_EMPTY_VALUE)
   const [profileStudentCount, setProfileStudentCount] = useState<number | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
+  const [contactsAccount, setContactsAccount] = useState<AccountRow | null>(null)
+  const [accountContacts, setAccountContacts] = useState<Awaited<ReturnType<typeof api.accounts.contacts>> | null>(null)
+  const [accountContactsOffset, setAccountContactsOffset] = useState<number>(ACCOUNT_CONTACT_LIMITS.offsetStart)
+  const [accountContactsLoading, setAccountContactsLoading] = useState(false)
+  const [accountContactsError, setAccountContactsError] = useState('')
+  const [contactToUnlink, setContactToUnlink] = useState<{ id: string; name: string } | null>(null)
   const studentRangeInvalid = studentCountMin !== null && studentCountMax !== null && studentCountMin > studentCountMax
 
   useEffect(() => { const timer = window.setTimeout(() => { setSearch(query); setOffset(0) }, 250); return () => window.clearTimeout(timer) }, [query])
@@ -80,6 +87,45 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     catch { setSegmentError(t('accounts.segmentAssignFailed')) }
   }
   const openProfile = (row: AccountRow) => { setSegmentError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount) }
+  const loadAccountContacts = async (accountId: string, offset: number) => {
+    setAccountContactsLoading(true)
+    setAccountContactsError('')
+    try {
+      const page = await api.accounts.contacts(accountId, { businessLineId, limit: ACCOUNT_CONTACT_LIMITS.pageSize, offset })
+      setAccountContacts(page)
+      setAccountContactsOffset(offset)
+    } catch { setAccountContactsError(t('accounts.contactsLoadFailed')) }
+    finally { setAccountContactsLoading(false) }
+  }
+  const openAccountContacts = (row: AccountRow) => {
+    setContactsAccount(row)
+    setAccountContacts(null)
+    setAccountContactsOffset(ACCOUNT_CONTACT_LIMITS.offsetStart)
+    void loadAccountContacts(row.id, ACCOUNT_CONTACT_LIMITS.offsetStart)
+  }
+  const unlinkAccountContact = async () => {
+    if (!contactsAccount || !contactToUnlink) return
+    setAccountContactsError('')
+    try {
+      await api.accounts.unlinkContact(contactsAccount.id, contactToUnlink.id, businessLineId)
+      setContactToUnlink(null)
+      await loadAccountContacts(contactsAccount.id, accountContactsOffset)
+      setRefresh((value) => value + 1)
+    } catch (caught) {
+      setAccountContactsError(caught instanceof ApiError && caught.code === ACCOUNT_CONTACT_ERROR_CODE.alreadyUnlinked ? t('accounts.contactAlreadyUnlinked') : t('accounts.contactUnlinkFailed'))
+    }
+  }
+  const restoreAccountContact = async (personId: string) => {
+    if (!contactsAccount) return
+    setAccountContactsError('')
+    try {
+      await api.accounts.restoreContact(contactsAccount.id, personId, businessLineId)
+      await loadAccountContacts(contactsAccount.id, accountContactsOffset)
+      setRefresh((value) => value + 1)
+    } catch (caught) {
+      setAccountContactsError(caught instanceof ApiError && caught.code === ACCOUNT_CONTACT_ERROR_CODE.alreadyLinked ? t('accountContacts.contactAlreadyLinked') : t('accountContacts.contactLinkFailed'))
+    }
+  }
   const saveProfile = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!profileAccount) return
@@ -94,7 +140,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
   }
 
   const columns: DataTableColumn<AccountRow, AccountSortBy>[] = [
-    { id: 'accountName', label: t('accounts.columns.account'), render: (row) => <div className="account-row-actions"><div className="account-name-primary"><Button className="account-name-cell account-name-link" type="button" onClick={() => onOpenLeads(row.name)}><Building2 size={16} /><strong>{row.name}</strong><ArrowRight size={14} /></Button><small>{row.marketSegment ? t(`accountProfileFields.marketSegments.${row.marketSegment}`) : t('accountProfileFields.unclassifiedMarketSegment')}{row.studentCount !== null && <span>{t('accountProfileFields.studentsShort', { count: new Intl.NumberFormat(i18n.language).format(row.studentCount) })}</span>}</small></div>{canUpdateProfile && <IconButton label={t('accountProfileFields.editProfileFor', { account: row.name })} onClick={() => openProfile(row)}><SlidersHorizontal size={15} /></IconButton>}</div> },
+    { id: 'accountName', label: t('accounts.columns.account'), render: (row) => <div className="account-row-actions"><div className="account-name-primary"><Button className="account-name-cell account-name-link" type="button" onClick={() => onOpenLeads(row.name)}><Building2 size={16} /><strong>{row.name}</strong><ArrowRight size={14} /></Button><small>{row.marketSegment ? t(`accountProfileFields.marketSegments.${row.marketSegment}`) : t('accountProfileFields.unclassifiedMarketSegment')}{row.studentCount !== null && <span>{t('accountProfileFields.studentsShort', { count: new Intl.NumberFormat(i18n.language).format(row.studentCount) })}</span>}</small></div><div className="account-row-icon-actions"><IconButton label={t('accountContacts.manageFor', { account: row.name })} onClick={() => openAccountContacts(row)}><Users size={15} /></IconButton>{canUpdateProfile && <IconButton label={t('accountProfileFields.editProfileFor', { account: row.name })} onClick={() => openProfile(row)}><SlidersHorizontal size={15} /></IconButton>}</div></div> },
     { id: 'segment', label: t('accounts.columns.segment'), render: (row) => canManageSegments ? <SelectField className="account-segment-select" aria-label={t('accounts.segmentFor', { account: row.name })} value={row.segmentId ?? ''} onChange={(event) => void assignSegment(row.id, event.target.value)}><option value="">{t('accounts.unsegmented')}</option>{segments.map((segment) => <option key={segment.id} value={segment.id}>{segment.name}</option>)}</SelectField> : row.segmentName ?? '—' },
     { id: 'contactCount', label: t('accounts.columns.contacts'), render: (row) => row.contactCount },
     { id: 'leadCount', label: t('accounts.columns.leads'), render: (row) => row.leadCount },
@@ -131,5 +177,18 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
         <div className="account-profile-actions"><Button type="button" onClick={() => setProfileAccount(null)}>{t('common.cancel')}</Button><Button className="primary" disabled={profileSaving}>{profileSaving ? t('common.saving') : t('accountProfileFields.saveProfile')}</Button></div>
       </form>
     </Modal>
+    <Modal open={contactsAccount !== null} onOpenChange={(open) => { if (!open) { setContactsAccount(null); setAccountContacts(null); setAccountContactsError(''); setContactToUnlink(null) } }} title={t('accountContacts.title')} description={contactsAccount?.name ?? ''} closeLabel={t('common.close')} className="account-contacts-modal">
+      <div className="account-contacts-intro"><Users size={18} aria-hidden="true" /><p>{t('accountContacts.description')}</p></div>
+      {accountContactsError && <><WorkspaceState kind="error" compact message={accountContactsError} /><Button type="button" onClick={() => contactsAccount && void loadAccountContacts(contactsAccount.id, accountContactsOffset)}>{t('accountContacts.retry')}</Button></>}
+      {accountContactsLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : accountContacts && !accountContactsError && (accountContacts.data.length ? <ul className="account-contact-directory-list">
+        {accountContacts.data.map((person) => <li key={person.id}><div><strong>{person.name}</strong><span>{person.email ?? person.phone ?? t('accountContacts.noDetails')}</span><small>{t('accountContacts.leadCount', { count: person.leadCount })} · {person.status === ACCOUNT_PERSON_STATUS.active ? t('accountContacts.active') : t('accountContacts.unlinked')}</small></div>{canUpdateProfile && (person.status === ACCOUNT_PERSON_STATUS.active ? <IconButton label={t('accountContacts.unlink', { name: person.name })} onClick={() => setContactToUnlink({ id: person.id, name: person.name })}><UserMinus size={16} /></IconButton> : <IconButton label={t('accountContacts.restore', { name: person.name })} onClick={() => void restoreAccountContact(person.id)}><UserPlus size={16} /></IconButton>)}</li>)}
+      </ul> : <WorkspaceState kind="empty" message={t('accountContacts.empty')} />)}
+      {accountContacts && accountContacts.pagination.total > ACCOUNT_CONTACT_LIMITS.pageSize && <div className="account-contact-directory-pagination">
+        <Button type="button" disabled={accountContactsOffset <= ACCOUNT_CONTACT_LIMITS.offsetStart || accountContactsLoading} onClick={() => contactsAccount && void loadAccountContacts(contactsAccount.id, Math.max(ACCOUNT_CONTACT_LIMITS.offsetStart, accountContactsOffset - ACCOUNT_CONTACT_LIMITS.pageSize))}>{t('common.previousPage')}</Button>
+        <span>{t('accountContacts.page', { page: Math.floor(accountContactsOffset / ACCOUNT_CONTACT_LIMITS.pageSize) + ACCOUNT_CONTACT_LIMITS.pageStart })}</span>
+        <Button type="button" disabled={!accountContacts.pagination.hasNextPage || accountContactsLoading} onClick={() => contactsAccount && void loadAccountContacts(contactsAccount.id, accountContactsOffset + ACCOUNT_CONTACT_LIMITS.pageSize)}>{t('common.nextPage')}</Button>
+      </div>}
+    </Modal>
+    <ConfirmDialog open={contactToUnlink !== null} onOpenChange={(open) => { if (!open) setContactToUnlink(null) }} title={t('accountContacts.unlinkTitle')} description={contactToUnlink ? t('accountContacts.unlinkConfirm', { name: contactToUnlink.name }) : ''} confirmLabel={t('accountContacts.unlinkAction')} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={unlinkAccountContact} />
   </section>
 }

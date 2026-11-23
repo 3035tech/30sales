@@ -1,0 +1,3 @@
+export const PAGINATION_OFFSET_START = 0;
+export const PAGINATION_PAGE_START = 1;
+export const PAGINATION_MINIMUM_PAGE_COUNT = 1;

@@ -2,6 +2,7 @@
 
 ## Polish após revisão do fechamento — 23/11/2026
 
+- Candidato local consolidado no commit `265ef2f` (`feat(crm): add lead qualification history`); árvore limpa após a consolidação. Sem push, aplicação de migration em ambiente compartilhado ou deploy.
 - Corrigido um `\\n` literal no CSS de contatos da conta, que invalidava o seletor de ações/estilos novos; regras foram separadas e a lista agora empilha conteúdo e ação em telas estreitas.
 - Ficha de contatos/qualificação de leads invalida a consulta inicial anterior ao trocar de lead ou fechar o modal, evitando respostas atrasadas exibirem dados da ficha errada.
 - Migration `0075_dear_wendell_rand.sql` recebeu o nome descritivo `0075_account_people_revocation.sql`, com tag correspondente no journal; SQL permanece idêntico. `drizzle-kit check` confirmou a cadeia.

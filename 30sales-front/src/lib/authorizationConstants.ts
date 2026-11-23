@@ -20,6 +20,19 @@ export const PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY = '30sales.platform-organ
 export const PLATFORM_ERROR_CODE = {
   organizationSlugAlreadyExists: 'ORGANIZATION_SLUG_ALREADY_EXISTS',
 } as const;
+export const PLATFORM_EVOLUTION_CHECK_ERROR = {
+  encryptionMissing: 'CHANNEL_CREDENTIALS_KEY_MISSING',
+  encryptionInvalid: 'CHANNEL_CREDENTIALS_KEY_INVALID',
+  notConfigured: 'PLATFORM_EVOLUTION_NOT_CONFIGURED',
+  configurationInvalid: 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID',
+  keyRejected: 'EVOLUTION_API_KEY_REJECTED',
+  endpointNotFound: 'EVOLUTION_DISCOVERY_ENDPOINT_NOT_FOUND',
+  targetBlocked: 'EVOLUTION_DISCOVERY_TARGET_BLOCKED',
+  timeout: 'EVOLUTION_DISCOVERY_TIMEOUT',
+  requestFailed: 'EVOLUTION_DISCOVERY_REQUEST_FAILED',
+  invalidResponse: 'EVOLUTION_DISCOVERY_INVALID_RESPONSE',
+} as const;
+export const PLATFORM_EVOLUTION_CHECK_SOURCE = { entered: 'entered', saved: 'saved' } as const;
 export const PLATFORM_ORGANIZATION_PAGE_SIZES = [10, 25, 50] as const;
 export const PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE = 25;
 export const PLATFORM_AI_USAGE_PAGE_SIZES = [10, 25, 50] as const;

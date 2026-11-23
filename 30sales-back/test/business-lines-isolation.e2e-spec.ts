@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { and, count, eq } from 'drizzle-orm';
 import { member, organization, user } from '../src/db/auth-schema';
-import { accounts, auditEvents, businessLineMembers, businessLines, conversations, leadStatusHistory, leads, messagingChannels, opportunities, opportunityStageHistory, people, pipelineStages, pipelines } from '../src/db/schema';
+import { accounts, activities, auditEvents, businessLineMembers, businessLines, campaignDrafts, conversations, leadStatusHistory, leads, messagingChannels, messages, opportunities, opportunityStageHistory, outboxEvents, people, pipelineStages, pipelines } from '../src/db/schema';
 import { BusinessLineCreateCommandDto, BusinessLineMembersCommandDto, BusinessLineUpdateCommandDto, createBusinessLineSchema, updateBusinessLineSchema } from '../src/business-lines/business-lines.dto';
 import { OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryTransitionDto, transitionOpportunitySchema } from '../src/opportunities/opportunities.dto';
 import { FunnelReportRepositoryQueryDto, funnelReportQuerySchema } from '../src/reports/reports.dto';
@@ -11,6 +11,8 @@ import { LeadRepositoryAccessDto, QualificationFactRepositoryDto, createQualific
 import { LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE } from '../src/leads/constants';
 import { ConversationControlDto } from '../src/inbox/inbox.dto';
 import { INBOX_COMMAND_RESULT } from '../src/inbox/inbox.constants';
+import { CampaignPerformanceRepositoryDto } from '../src/campaigns/campaigns.dto';
+import { CAMPAIGN_AUDIT, CAMPAIGN_ATTRIBUTABLE_DELIVERY_STATES, CAMPAIGN_DELIVERED_STATES, CAMPAIGN_MEETING_ACTIVITY_TYPE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_WON_OPPORTUNITY_STAGE } from '../src/campaigns/campaigns.constants';
 
 const integrationDatabaseUrl = process.env.BUSINESS_LINES_TEST_DATABASE_URL;
 const allowedTestDatabase = (() => {
@@ -36,6 +38,7 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let reportsRepository: InstanceType<typeof import('../src/reports/reports.repository').ReportsRepository>;
   let leadsRepository: InstanceType<typeof import('../src/leads/leads.repository').LeadsRepository>;
   let inboxRepository: InstanceType<typeof import('../src/inbox/inbox.repository').InboxRepository>;
+  let campaignsRepository: InstanceType<typeof import('../src/campaigns/campaigns.repository').CampaignsRepository>;
   let organizationAId: string;
   let organizationBId: string;
   let ownerAId: string;
@@ -68,6 +71,8 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     leadsRepository = new leadsRepositoryModule.LeadsRepository();
     const inboxRepositoryModule = jest.requireActual<typeof import('../src/inbox/inbox.repository')>('../src/inbox/inbox.repository');
     inboxRepository = new inboxRepositoryModule.InboxRepository();
+    const campaignsRepositoryModule = jest.requireActual<typeof import('../src/campaigns/campaigns.repository')>('../src/campaigns/campaigns.repository');
+    campaignsRepository = new campaignsRepositoryModule.CampaignsRepository();
   });
 
   beforeEach(async () => {
@@ -268,6 +273,78 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationAId))).limit(1);
     expect(conversation?.ownerUserId).toBeNull();
+  });
+
+  it('does not attribute a meeting on a pre-existing opportunity to an outbound campaign', async () => {
+    const campaignId = randomUUID();
+    const opportunityId = await createOpportunity(organizationAId, lineA1Id, ownerAId, 'Pre-existing campaign opportunity');
+    const [opportunity] = await database.select({ leadId: opportunities.leadId, accountId: opportunities.accountId, primaryPersonId: opportunities.primaryPersonId }).from(opportunities)
+      .where(and(eq(opportunities.organizationId, organizationAId), eq(opportunities.id, opportunityId))).limit(1);
+    const [channel] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
+      .where(and(eq(messagingChannels.organizationId, organizationAId), eq(messagingChannels.businessLineId, lineA1Id))).limit(1);
+    if (!opportunity || !channel) throw new Error('The campaign attribution fixtures are missing.');
+    const sentAt = new Date('2025-01-02T12:00:00.000Z');
+    await database.update(opportunities).set({ createdAt: new Date('2025-01-01T12:00:00.000Z'), stage: CAMPAIGN_WON_OPPORTUNITY_STAGE })
+      .where(and(eq(opportunities.organizationId, organizationAId), eq(opportunities.id, opportunityId)));
+    await database.insert(campaignDrafts).values({
+      id: campaignId,
+      organizationId: organizationAId,
+      channelId: channel.id,
+      name: 'Campaign attribution',
+      openingMessage: 'Hello',
+      windowStart: '09:00',
+      windowEnd: '17:00',
+      timeZone: 'America/Sao_Paulo',
+      dailyMessageLimit: 50,
+      minimumDelaySeconds: 10,
+      createdByUserId: ownerAId,
+    });
+    const conversationId = randomUUID();
+    await database.insert(conversations).values({
+      id: conversationId,
+      organizationId: organizationAId,
+      provider: 'evolution',
+      externalConversationId: `campaign-${conversationId}`,
+      channelId: channel.id,
+      accountId: opportunity.accountId,
+      personId: opportunity.primaryPersonId,
+      opportunityId,
+    });
+    await database.insert(messages).values({
+      organizationId: organizationAId,
+      conversationId,
+      direction: 'outbound',
+      actorType: 'assistant',
+      bodyText: 'Hello',
+      deliveryState: CAMPAIGN_DELIVERED_STATES[0],
+      idempotencyKey: `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${campaignId}:${opportunity.leadId}`,
+      occurredAt: sentAt,
+    });
+    await database.insert(outboxEvents).values({
+      organizationId: organizationAId,
+      eventType: CAMPAIGN_OUTREACH_EVENT,
+      aggregateType: CAMPAIGN_AUDIT.entity,
+      aggregateId: campaignId,
+      idempotencyKey: `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${campaignId}:${opportunity.leadId}`,
+      payload: { organizationId: organizationAId, actorUserId: ownerAId, campaignDraftId: campaignId, channelId: channel.id, leadId: opportunity.leadId },
+      status: CAMPAIGN_OUTBOX_STATUS.published,
+    });
+    await database.insert(activities).values({
+      organizationId: organizationAId,
+      opportunityId,
+      type: CAMPAIGN_MEETING_ACTIVITY_TYPE,
+      subject: 'Meeting booked after the campaign message',
+      occurredAt: new Date('2025-01-03T12:00:00.000Z'),
+      createdByUserId: ownerAId,
+    });
+
+    const performance = await campaignsRepository.performance(new CampaignPerformanceRepositoryDto(
+      organizationAId,
+      campaignId,
+      new LeadRepositoryAccessDto(organizationAId, ownerAId, true, true),
+    ));
+
+    expect(performance?.channels[0]).toMatchObject({ sent: 1, delivered: 1, meetings: 0, opportunitiesCreated: 0, won: 0 });
   });
 
   it('limits channel access to the member business lines and active organization', async () => {

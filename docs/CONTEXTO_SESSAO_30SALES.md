@@ -1,5 +1,12 @@
 # Contexto de continuidade — 30Sales
 
+## Continuação — métricas de campanha — 23/11/2026
+
+- Actions do commit `48f3c9f` concluiu com sucesso o build/publicação do backend: [run 45152646443](https://github.com/3035tech/30sales/actions/runs/45152646443). Nenhum deploy foi executado.
+- Corrigida a atribuição da métrica de reuniões: reunião ligada a oportunidade criada antes da mensagem outbound não conta como resultado da campanha. A mesma regra vale para o detalhe por lead; oportunidades criadas e ganhos já exigiam criação após a mensagem. Estados de entrega e tipo de atividade usados por essas consultas agora vêm de constantes de domínio.
+- Cobertura em PostgreSQL descartável: oportunidade marcada como ganha antes da campanha, reunião posterior à mensagem; a campanha mantém enviados/entregues em 1 e contabiliza reuniões, oportunidades criadas e ganhos em 0. `test:business-lines` passou com 16/16; backend `npm run build`, Jest unitário (8 suítes/28 testes) e `git diff --check` passaram. Container temporário removido.
+- Próximo: revisão, commit/push e verificar Actions da correção. A paridade completa ainda depende dos exports aprovados do n8n, baseline Twenty/Chatwoot, integração de agenda, providers configurados e smoke autenticado em teste. Sem migration compartilhada, deploy ou mensagens reais.
+
 ## Continuação do fechamento Sofia — 23/11/2026
 
 - Corrigida a janela de revogação de acesso nas commands mutáveis do Inbox: autorização, membership da organização, estado da linha e associação usuário-linha são revalidados dentro da transação. Locks `FOR SHARE` na linha e memberships serializam as commands com remoção/alteração dos vínculos. A atribuição também confirma o vínculo atual do responsável na mesma transação.

@@ -1,16 +1,43 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, gte, inArray, ilike, lt, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, ilike, lt, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { assistantRuns, auditEvents, platformAuditEvents, platformEvolutionConfiguration } from '../db/schema';
 import { invitation, member, organization, user } from '../db/auth-schema';
-import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_OWNER_INVITATION_VALIDITY_DAYS, PLATFORM_ROLE } from '../auth/authorization.constants';
+import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_INVITATION_VALIDITY_DAYS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_ROLE } from '../auth/authorization.constants';
 import { PLATFORM_AI_USAGE_AUDIT_ACTIONS, PLATFORM_AI_USAGE_AUDIT_OPERATIONS, PLATFORM_AI_USAGE } from './platform.constants';
-import { PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
+import { PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationMembersDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 
 type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto; invitationId: string };
 
 @Injectable()
 export class PlatformRepository {
+  async listOrganizationMembers(organizationId: string): Promise<PlatformOrganizationMembersDto | null> {
+    const [selectedOrganization] = await database.select({ id: organization.id }).from(organization).where(eq(organization.id, organizationId)).limit(1);
+    if (!selectedOrganization) return null;
+    const rows = await database.select({ id: member.id, role: member.role, userId: user.id, name: user.name, email: user.email })
+      .from(member).innerJoin(user, eq(user.id, member.userId))
+      .where(eq(member.organizationId, organizationId)).orderBy(asc(user.name), asc(user.id));
+    return new PlatformOrganizationMembersDto(rows.map((row) => ({ id: row.id, role: row.role, user: { id: row.userId, name: row.name, email: row.email } })));
+  }
+
+  async createOrganizationInvitation(organizationId: string, input: CreatePlatformOrganizationInvitationDto, actorUserId: string, correlationId: string | null): Promise<{ invitationId: string; email: string; organizationName: string } | 'not_found' | 'already_invited'> {
+    const now = new Date();
+    const email = input.email.toLowerCase();
+    const result = await database.transaction(async (transaction) => {
+      const [selectedOrganization] = await transaction.select({ id: organization.id, name: organization.name }).from(organization).where(eq(organization.id, organizationId)).for('update').limit(1);
+      if (!selectedOrganization) return 'not_found' as const;
+      const [existingInvitation] = await transaction.select({ id: invitation.id }).from(invitation)
+        .where(and(eq(invitation.organizationId, organizationId), eq(invitation.email, email), eq(invitation.status, AUTH_INVITATION_STATUS.pending), gt(invitation.expiresAt, now))).limit(1);
+      if (existingInvitation) return 'already_invited' as const;
+      const expiresAt = new Date(now.getTime() + ORGANIZATION_INVITATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
+      const [createdInvitation] = await transaction.insert(invitation).values({ organizationId, email, role: input.role, status: AUTH_INVITATION_STATUS.pending, expiresAt, inviterId: actorUserId }).returning({ id: invitation.id });
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.invitationCreated, entityType: PLATFORM_AUDIT_ENTITY_TYPE.invitation, entityId: createdInvitation.id, correlationId, afterState: { role: input.role, status: AUTH_INVITATION_STATUS.pending, expiresAt: expiresAt.toISOString(), createdByPlatformAdmin: true } });
+      return { invitationId: createdInvitation.id, organizationName: selectedOrganization.name };
+    });
+    if (result === 'not_found' || result === 'already_invited') return result;
+    return { ...result, email };
+  }
+
   async aiUsage(query: PlatformAiUsageQueryDto): Promise<PlatformAiUsagePointDto[]> {
     const from = new Date(`${query.from}T00:00:00.000Z`);
     const toExclusive = new Date(`${query.to}T00:00:00.000Z`);
@@ -141,7 +168,7 @@ export class PlatformRepository {
         if (existing) return null;
         const now = new Date();
         const [createdOrganization] = await transaction.insert(organization).values({ name: input.name, slug: input.slug, createdAt: now }).returning({ id: organization.id, name: organization.name, slug: organization.slug, createdAt: organization.createdAt });
-        const expiresAt = new Date(now.getTime() + PLATFORM_OWNER_INVITATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
+        const expiresAt = new Date(now.getTime() + ORGANIZATION_INVITATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
         const [ownerInvitation] = await transaction.insert(invitation).values({ organizationId: createdOrganization.id, email: input.ownerEmail.toLowerCase(), role: ORGANIZATION_ROLE.owner, status: AUTH_INVITATION_STATUS.pending, expiresAt, inviterId: actor.userId }).returning({ id: invitation.id });
         await transaction.insert(auditEvents).values([
           { organizationId: createdOrganization.id, actorUserId: actor.userId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.organizationCreated, entityType: PLATFORM_AUDIT_ENTITY_TYPE.organization, entityId: createdOrganization.id, correlationId, afterState: { name: createdOrganization.name, slug: createdOrganization.slug, createdByPlatformAdmin: true } },

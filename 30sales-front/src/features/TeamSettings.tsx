@@ -37,6 +37,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
     const result = await api.team.invite({ email, role, organizationId })
     setBusy(false)
     if (result.error) { setError(t('team.inviteFailed')); return }
+    if (!result.emailSent) { setEmail(''); setError(t('team.inviteFailed')); void refresh(); return }
     setEmail('')
     setMessage(t('team.invited', { email }))
     void refresh()

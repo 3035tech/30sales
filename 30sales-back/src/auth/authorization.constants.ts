@@ -15,6 +15,7 @@ export const ORGANIZATION_ROLE = {
   operations: 'operations',
   analyst: 'analyst',
 } as const;
+export const PLATFORM_INVITABLE_ORGANIZATION_ROLES = [ORGANIZATION_ROLE.admin, ORGANIZATION_ROLE.manager, ORGANIZATION_ROLE.bdr, ORGANIZATION_ROLE.sdr, ORGANIZATION_ROLE.closer, ORGANIZATION_ROLE.operations, ORGANIZATION_ROLE.analyst] as const;
 export type OrganizationRole = (typeof ORGANIZATION_ROLE)[keyof typeof ORGANIZATION_ROLE];
 export function hasOrganizationRole(role: string, expectedRoles: readonly OrganizationRole[]): boolean {
   const activeRoles = role.split(',').map((value) => value.trim());
@@ -26,7 +27,7 @@ export const ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES = [...ORGANIZATION_MANAGEM
 export const ORGANIZATION_REPORT_ROLES = [...ORGANIZATION_MANAGEMENT_ROLES, ORGANIZATION_ROLE.analyst] as const;
 
 export const AUTH_INVITATION_STATUS = { pending: 'pending' } as const;
-export const PLATFORM_OWNER_INVITATION_VALIDITY_DAYS = 7;
+export const ORGANIZATION_INVITATION_VALIDITY_DAYS = 7;
 export const PLATFORM_ADMIN_PROMOTION_CONFIRMATION = 'PROMOTE_VERIFIED_PLATFORM_ADMIN';
 export const PLATFORM_ADMIN_PROMOTION_FAILURE = 'Unable to promote the platform administrator.';
 export const PLATFORM_ADMIN_ACCOUNT_MISSING = 'The account does not exist; create and verify it through the normal invitation flow first.';
@@ -34,6 +35,8 @@ export const PLATFORM_ADMIN_EMAIL_UNVERIFIED = 'The platform administrator accou
 export const PLATFORM_INVITATION_PATH = '/accept-invitation';
 export const PLATFORM_API_PATH = '/api/v1/platform';
 export const PLATFORM_ORGANIZATION_API_PATH = `${PLATFORM_API_PATH}/organizations`;
+export const PLATFORM_ORGANIZATION_MEMBERS_PATH = 'members';
+export const PLATFORM_ORGANIZATION_INVITATIONS_PATH = 'invitations';
 export const BUSINESS_LINES_API_PATH = '/api/v1/business-lines';
 export const PLATFORM_ORGANIZATION_CONTEXT_HEADER = 'x-platform-organization-id';
 export const PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION = '23505';
@@ -42,6 +45,7 @@ export const PLATFORM_ERROR_CODE = {
   superAdminRequired: 'PLATFORM_ADMIN_REQUIRED',
   organizationSlugAlreadyExists: 'ORGANIZATION_SLUG_ALREADY_EXISTS',
   organizationNotFound: 'PLATFORM_ORGANIZATION_NOT_FOUND',
+  invitationAlreadyPending: 'PLATFORM_INVITATION_ALREADY_PENDING',
 } as const;
 export const PLATFORM_AUDIT_ACTION = {
   organizationCreated: 'organization.created',

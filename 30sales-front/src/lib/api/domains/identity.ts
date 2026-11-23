@@ -2,8 +2,10 @@ import { createAuthClient } from 'better-auth/react';
 import { organizationClient } from 'better-auth/client/plugins';
 import { z } from 'zod';
 import { access, roles, type OrganizationRole } from '../../permissions';
-import { memberSchema, invitationSchema, type TeamMemberDto, type InvitationDto } from '../contracts';
+import { memberSchema, invitationSchema, platformOrganizationInvitationResultSchema, platformOrganizationMembersSchema, type TeamMemberDto, type InvitationDto } from '../contracts';
 import { apiAuthFetch } from '../client';
+import { PLATFORM_ORGANIZATION_API_PATH, PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY } from '../../authorizationConstants';
+import { request } from '../request';
 
 const authClient = createAuthClient({ baseURL: import.meta.env.VITE_API_URL ?? '', fetchOptions: { customFetchImpl: apiAuthFetch }, plugins: [organizationClient({ ac: access, roles })] });
 
@@ -13,15 +15,31 @@ function authError(result: { error?: { message?: string } | null }): { message: 
 
 export const teamApi = {
     async listMembers(organizationId: string): Promise<{ data: TeamMemberDto[] | null; error: { message: string } | null }> {
+      if (sessionStorage.getItem(PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY) === organizationId) {
+        try {
+          const result = await request(`${PLATFORM_ORGANIZATION_API_PATH}/${encodeURIComponent(organizationId)}/members`, platformOrganizationMembersSchema);
+          return { data: result.members, error: null };
+        } catch (error) {
+          return { data: null, error: { message: error instanceof Error ? error.message : 'The team could not be loaded.' } };
+        }
+      }
       const result = await authClient.organization.listMembers({ query: { organizationId, limit: 100 } });
       const error = authError(result);
       if (error || !result.data) return { data: null, error: error ?? { message: 'The team could not be loaded.' } };
       const parsed = z.object({ members: z.array(memberSchema) }).safeParse(result.data);
       return parsed.success ? { data: parsed.data.members, error: null } : { data: null, error: { message: 'The member response is invalid.' } };
     },
-    async invite(input: { organizationId: string; email: string; role: OrganizationRole }): Promise<{ error: { message: string } | null }> {
+    async invite(input: { organizationId: string; email: string; role: OrganizationRole }): Promise<{ error: { message: string } | null; emailSent: boolean }> {
+      if (sessionStorage.getItem(PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY) === input.organizationId) {
+        try {
+          const result = await request(`${PLATFORM_ORGANIZATION_API_PATH}/${encodeURIComponent(input.organizationId)}/invitations`, platformOrganizationInvitationResultSchema, { method: 'POST', body: JSON.stringify({ email: input.email, role: input.role }) });
+          return { error: null, emailSent: result.emailSent };
+        } catch (error) {
+          return { error: { message: error instanceof Error ? error.message : 'The invitation could not be sent.' }, emailSent: false };
+        }
+      }
       const result = await authClient.organization.inviteMember({ ...input, resend: true });
-      return { error: authError(result) };
+      return { error: authError(result), emailSent: !result.error };
     },
   };
 

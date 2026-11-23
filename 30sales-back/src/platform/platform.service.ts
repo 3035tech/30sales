@@ -6,7 +6,7 @@ import { toWebHeaders } from '../common/http-headers';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
 import { PLATFORM_AI_USAGE } from './platform.constants';
-import { PlatformAiUsageDto, PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto } from './platform.dto';
+import { PlatformAiUsageDto, PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationInvitationResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto } from './platform.dto';
 import { PlatformRepository } from './platform.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { PlatformEvolutionConfigurationDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
@@ -98,6 +98,28 @@ export class PlatformService {
     const recorded = await this.repository.recordOrganizationAccess(organizationId, actor, request.correlationId);
     if (!recorded) throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
     return new PlatformOrganizationAccessResultDto(organizationId, true);
+  }
+
+  async listOrganizationMembers(request: ApiRequestDto, organizationId: string) {
+    await this.requireSuperAdmin(request);
+    const result = await this.repository.listOrganizationMembers(organizationId);
+    if (!result) throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
+    return result;
+  }
+
+  async inviteOrganizationMember(request: ApiRequestDto, organizationId: string, input: CreatePlatformOrganizationInvitationDto): Promise<PlatformOrganizationInvitationResultDto> {
+    const actor = await this.requireSuperAdmin(request);
+    const result = await this.repository.createOrganizationInvitation(organizationId, input, actor.userId, request.correlationId);
+    if (result === 'not_found') throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
+    if (result === 'already_invited') throw new ConflictException({ code: PLATFORM_ERROR_CODE.invitationAlreadyPending });
+    let emailSent = false;
+    try {
+      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { name: result.organizationName } });
+      emailSent = true;
+    } catch {
+      emailSent = false;
+    }
+    return new PlatformOrganizationInvitationResultDto(result.email, emailSent);
   }
 
   async createOrganization(request: ApiRequestDto, input: CreatePlatformOrganizationDto): Promise<PlatformOrganizationCreateResultDto> {

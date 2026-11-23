@@ -5,7 +5,8 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { toWebHeaders } from '../common/http-headers';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
-import { PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto } from './platform.dto';
+import { PLATFORM_AI_USAGE } from './platform.constants';
+import { PlatformAiUsageDto, PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto } from './platform.dto';
 import { PlatformRepository } from './platform.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { PlatformEvolutionConfigurationDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
@@ -26,6 +27,33 @@ export class PlatformService {
   async listOrganizations(request: ApiRequestDto, query: ListPlatformOrganizationsQueryDto): Promise<PlatformOrganizationListDto> {
     await this.requireSuperAdmin(request);
     return this.repository.listOrganizations(query);
+  }
+
+  async aiUsage(request: ApiRequestDto, query: PlatformAiUsageQueryDto): Promise<PlatformAiUsageDto> {
+    await this.requireSuperAdmin(request);
+    const points = await this.repository.aiUsage(query);
+    const aggregated = new Map<string, { point: PlatformAiUsagePointDto; costUnits: bigint | null }>();
+    for (const point of points) {
+      const key = JSON.stringify([point.organizationId, point.operation, point.model]);
+      const existing = aggregated.get(key);
+      const costUnits = decimalToUnits(point.estimatedCostUsd);
+      if (existing) {
+        existing.point = new PlatformAiUsagePointDto(point.organizationId, point.organizationName, point.organizationSlug, point.operation, point.model, existing.point.requestCount + point.requestCount, existing.point.inputTokens + point.inputTokens, existing.point.outputTokens + point.outputTokens, unitsToDecimal(sumCostUnits(existing.costUnits, costUnits)), existing.point.unpricedRequestCount + point.unpricedRequestCount);
+        existing.costUnits = sumCostUnits(existing.costUnits, costUnits);
+      } else {
+        aggregated.set(key, { point, costUnits });
+      }
+    }
+    const sorted = [...aggregated.values()].sort((left, right) => {
+      if (left.costUnits !== null && right.costUnits !== null && left.costUnits !== right.costUnits) return left.costUnits > right.costUnits ? -1 : 1;
+      if (left.costUnits !== null && right.costUnits === null) return -1;
+      if (left.costUnits === null && right.costUnits !== null) return 1;
+      return right.point.requestCount - left.point.requestCount || left.point.organizationName.localeCompare(right.point.organizationName);
+    });
+    const allPoints = sorted.map(({ point }) => point);
+    const totalCost = sorted.reduce<bigint | null>((total, item) => sumCostUnits(total, item.costUnits), null);
+    const pagedPoints = allPoints.slice(query.offset, query.offset + query.limit);
+    return new PlatformAiUsageDto(query.from, query.to, allPoints.reduce((total, point) => total + point.requestCount, 0), allPoints.reduce((total, point) => total + point.inputTokens, 0), allPoints.reduce((total, point) => total + point.outputTokens, 0), unitsToDecimal(totalCost), allPoints.reduce((total, point) => total + point.unpricedRequestCount, 0), pagedPoints, { limit: query.limit, offset: query.offset, total: allPoints.length, hasNextPage: query.offset + pagedPoints.length < allPoints.length }, new Date().toISOString());
   }
 
   async getEvolutionConfiguration(request: ApiRequestDto): Promise<PlatformEvolutionConfigurationDto> {
@@ -87,4 +115,25 @@ export class PlatformService {
     }
     return new PlatformOrganizationCreateResultDto(result.organization, { email: input.ownerEmail.toLowerCase(), invitationUrl: invitationUrl.toString(), emailSent });
   }
+}
+
+function decimalToUnits(value: string | null): bigint | null {
+  if (value === null) return null;
+  const [whole, fraction = ''] = value.split('.');
+  const paddedFraction = fraction.padEnd(PLATFORM_AI_USAGE.costDecimalPlaces, '0').slice(0, PLATFORM_AI_USAGE.costDecimalPlaces);
+  return BigInt(whole) * 10n ** BigInt(PLATFORM_AI_USAGE.costDecimalPlaces) + BigInt(paddedFraction);
+}
+
+function sumCostUnits(left: bigint | null, right: bigint | null): bigint | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left + right;
+}
+
+function unitsToDecimal(value: bigint | null): string | null {
+  if (value === null) return null;
+  const scale = 10n ** BigInt(PLATFORM_AI_USAGE.costDecimalPlaces);
+  const whole = value / scale;
+  const fraction = (value % scale).toString().padStart(PLATFORM_AI_USAGE.costDecimalPlaces, '0');
+  return `${whole}.${fraction}`;
 }

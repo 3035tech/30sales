@@ -12,7 +12,8 @@ export function getOrganizationRoles(role: string | null | undefined): Organizat
   const assignedRoles = role?.split(',').map((value) => value.trim()) ?? [];
   return ORGANIZATION_ROLE_NAMES.filter((candidate) => assignedRoles.includes(candidate));
 }
-export const PLATFORM_ORGANIZATION_API_PATH = '/api/v1/platform/organizations';
+export const PLATFORM_API_PATH = '/api/v1/platform';
+export const PLATFORM_ORGANIZATION_API_PATH = `${PLATFORM_API_PATH}/organizations`;
 export const BUSINESS_LINES_API_PATH = '/api/v1/business-lines';
 export const PLATFORM_ORGANIZATION_CONTEXT_HEADER = 'x-platform-organization-id';
 export const PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY = '30sales.platform-organization-context';
@@ -21,5 +22,10 @@ export const PLATFORM_ERROR_CODE = {
 } as const;
 export const PLATFORM_ORGANIZATION_PAGE_SIZES = [10, 25, 50] as const;
 export const PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE = 25;
+export const PLATFORM_AI_USAGE_PAGE_SIZES = [10, 25, 50] as const;
+export const PLATFORM_AI_USAGE_DEFAULT_PAGE_SIZE = 25;
+export const PLATFORM_AI_USAGE_DEFAULT_PAGE_OFFSET = 0;
+export const PLATFORM_AI_USAGE_MAXIMUM_RANGE_DAYS = 366;
+export const PLATFORM_AI_USAGE_MILLISECONDS_PER_DAY = 86_400_000;
 export const PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS = 250;
 export const ORGANIZATION_SLUG_PATTERN = '[a-z0-9]+(-[a-z0-9]+)*';

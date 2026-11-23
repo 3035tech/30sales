@@ -1,14 +1,15 @@
 import { Button, SelectField, TextField } from '../components/ui/FormControls'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { useEffect, useState } from 'react'
-import { ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
+import { Activity, ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { ApiError, api, type CreatePlatformOrganizationInput, type PlatformAuditEventDto, type PlatformOrganizationDto, type SessionDto } from '../lib/api'
 import { ORGANIZATION_SLUG_PATTERN, PLATFORM_ERROR_CODE, PLATFORM_ORGANIZATION_DEFAULT_PAGE_SIZE, PLATFORM_ORGANIZATION_PAGE_SIZES, PLATFORM_SEARCH_DEBOUNCE_MILLISECONDS } from '../lib/authorizationConstants'
 import { PlatformOrganizationPicker } from './PlatformOrganizationPicker'
+import { PlatformAiUsagePanel } from './PlatformAiUsagePanel'
 import './PlatformWorkspace.css'
 
-type PlatformTab = 'companies' | 'create' | 'integrations'
+type PlatformTab = 'companies' | 'create' | 'integrations' | 'aiUsage'
 
 
 function slugFromName(value: string) {
@@ -124,7 +125,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const tabs: PlatformTab[] = ['companies', 'create', 'integrations']
+    const tabs: PlatformTab[] = ['companies', 'create', 'integrations', 'aiUsage']
     const currentIndex = tabs.indexOf(activeTab)
     const nextTab = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(currentIndex + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
     setActiveTab(nextTab)
@@ -169,7 +170,9 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
         <Button type="button" role="tab" id="platform-tab-companies" aria-controls="platform-panel-companies" aria-selected={activeTab === 'companies'} tabIndex={activeTab === 'companies' ? 0 : -1} className={activeTab === 'companies' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('companies')}>{t('platform.companiesTab')}</Button>
         <Button type="button" role="tab" id="platform-tab-create" aria-controls="platform-panel-create" aria-selected={activeTab === 'create'} tabIndex={activeTab === 'create' ? 0 : -1} className={activeTab === 'create' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('create')}><Plus size={15} aria-hidden="true" />{t('platform.createTab')}</Button>
         <Button type="button" role="tab" id="platform-tab-integrations" aria-controls="platform-panel-integrations" aria-selected={activeTab === 'integrations'} tabIndex={activeTab === 'integrations' ? 0 : -1} className={activeTab === 'integrations' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('integrations')}>{t('platform.integrationsTab')}</Button>
+        <Button type="button" role="tab" id="platform-tab-aiUsage" aria-controls="platform-panel-aiUsage" aria-selected={activeTab === 'aiUsage'} tabIndex={activeTab === 'aiUsage' ? 0 : -1} className={activeTab === 'aiUsage' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('aiUsage')}><Activity size={15} aria-hidden="true" />{t('platformAiUsage.tab')}</Button>
       </div>
+      <div role="tabpanel" id="platform-panel-aiUsage" aria-labelledby="platform-tab-aiUsage" hidden={activeTab !== 'aiUsage'}>{activeTab === 'aiUsage' && <PlatformAiUsagePanel />}</div>
       <div role="tabpanel" id="platform-panel-integrations" aria-labelledby="platform-tab-integrations" hidden={activeTab !== 'integrations'}>
         <section className="platform-panel platform-create-panel">
           <div className="platform-panel-heading"><span className="card-icon"><Building2 size={18} /></span><div><h2>{t('platform.evolutionSettingsTitle')}</h2><p>{t('platform.evolutionSettingsHint')}</p></div></div>

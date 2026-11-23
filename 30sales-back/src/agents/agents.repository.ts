@@ -4,15 +4,18 @@ import { database } from '../db';
 import { agentSettings, assistantProfiles, auditEvents, businessLines, conversations, messages, messagingChannels } from '../db/schema';
 import { AssistantProfileDto, assistantProfileDirectionSchema, AssistantProfileRepositoryDto, AssistantSettingsDto, AssistantSettingsRepositoryDto } from './agents.dto';
 import { ASSISTANT_CONVERSATION_ASSIST_MODES, ASSISTANT_MANUAL_ACTION } from './agents.constants';
+import { ASSISTANT_PRICING_VERSION, estimateAssistantTokenCostUsd } from './assistant-runtime.constants';
 
 @Injectable()
 export class AgentsRepository {
   async recordManualReplyDraft(input: { organizationId: string; conversationId: string; actorUserId: string; correlationId: string | null; model: string; usageInputTokens: number | null; usageOutputTokens: number | null }): Promise<void> {
-    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.replyDrafted, entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens } });
+    const estimatedCostUsd = input.usageInputTokens !== null && input.usageOutputTokens !== null ? estimateAssistantTokenCostUsd(input.model, input.usageInputTokens, input.usageOutputTokens) : null;
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.replyDrafted, entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens, estimatedCostUsd, pricingVersion: ASSISTANT_PRICING_VERSION } });
   }
 
   async recordConversationConsultation(input: { organizationId: string; conversationId: string; actorUserId: string; correlationId: string | null; mode: (typeof ASSISTANT_CONVERSATION_ASSIST_MODES)[number]; model: string; usageInputTokens: number | null; usageOutputTokens: number | null }): Promise<void> {
-    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.conversationConsulted, entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { mode: input.mode, model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens } });
+    const estimatedCostUsd = input.usageInputTokens !== null && input.usageOutputTokens !== null ? estimateAssistantTokenCostUsd(input.model, input.usageInputTokens, input.usageOutputTokens) : null;
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.conversationConsulted, entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { mode: input.mode, model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens, estimatedCostUsd, pricingVersion: ASSISTANT_PRICING_VERSION } });
   }
 
   async loadManualReplyContext(organizationId: string, conversationId: string): Promise<{ ownerUserId: string | null; automationMode: string; status: string; model: string; systemPrompt: string; messages: Array<{ role: 'user' | 'assistant'; content: string }> } | null> {

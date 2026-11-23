@@ -811,3 +811,11 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 
 - A consulta tenant-scoped que já existia no repository agora tem endpoint paginado e aba “Respostas pendentes de campanhas” na operação de campanhas. Mostra conta/contato, campanha, número, prévia da última resposta, responsável, tarefa em aberto e horário; permite abrir a conversa no Inbox e atualizar a fila. Falhas permitem retentativa. A lista só considera conversas abertas/pendentes com resposta inbound sem outbound posterior, e usa o membership de linha existente para limitar acesso.
 - Importação de leads ficou fora deste slice. `git diff --check` passou; build/testes não executados. Próximo gate de fechamento continua sendo obter workflows n8n aprovados para demonstrar paridade e concluir definição da integração de agenda.
+
+### Consumo de IA para super admin — 23/11/2026
+
+- Console de plataforma ganhou a aba “Uso de IA”, exclusiva para super admin, com filtro de período, custo estimado, tokens de entrada/saída, execuções sem preço conhecido e agrupamento por empresa/operação/modelo. API limita o intervalo a um ano e agrega `assistant_runs` e eventos auditados de rascunho, consulta e qualificação; não expõe conteúdo de conversa.
+- Execuções manuais novas registram versão de preço junto da estimativa. O histórico anterior à instrumentação é indicado como sem custo conhecido. Interface pt-BR/en, paginação e retentativa integradas ao client centralizado.
+- Polish: validação local do intervalo, identificação dos valores da lista, custo com até dez casas decimais, última atualização e layout responsivo.
+- Builds front/back e oxlint focado no painel passaram; testes unitários (8 suítes/30 testes) e `drizzle-kit check` passaram na validação anterior. O teste de integração PostgreSQL foi incluído, mas não executado nesta retomada: o servidor local e o Docker não estavam disponíveis. `git diff --check` será confirmado ao fechar.
+- Alterações permanecem locais na branch `feature/lead-qualification-data`, sem commit, push, migration ou deploy. Próximo: revisão final do diff e decisão do usuário sobre commit/push; o push publica imagens, mas não faz rollout.

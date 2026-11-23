@@ -1,9 +1,9 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
-import { PLATFORM_ORGANIZATION_API_PATH } from '../auth/authorization.constants';
+import { PLATFORM_API_PATH, PLATFORM_ORGANIZATION_API_PATH } from '../auth/authorization.constants';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { checkPlatformEvolutionConnectionSchema, createPlatformOrganizationSchema, listPlatformOrganizationsSchema, platformAuditQuerySchema, platformOrganizationIdSchema, savePlatformEvolutionConfigurationSchema, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
+import { checkPlatformEvolutionConnectionSchema, createPlatformOrganizationSchema, listPlatformOrganizationsSchema, platformAiUsageQuerySchema, platformAuditQuerySchema, platformOrganizationIdSchema, savePlatformEvolutionConfigurationSchema, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 import { PlatformService } from './platform.service';
 
 @Controller(PLATFORM_ORGANIZATION_API_PATH)
@@ -30,4 +30,13 @@ export class PlatformController {
   @Post('integrations/evolution/check')
   @HttpCode(HttpStatus.OK)
   checkEvolutionConfiguration(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(checkPlatformEvolutionConnectionSchema)) input: CheckPlatformEvolutionConnectionDto) { return this.platformService.checkEvolutionConfiguration(request, input); }
+}
+
+@Controller(PLATFORM_API_PATH)
+export class PlatformAiUsageController {
+  constructor(private readonly platformService: PlatformService) {}
+  @Get('ai-usage')
+  aiUsage(@ApiRequest() request: ApiRequestDto, @Query(new ZodValidationPipe(platformAiUsageQuerySchema)) query: PlatformAiUsageQueryDto) {
+    return this.platformService.aiUsage(request, query);
+  }
 }

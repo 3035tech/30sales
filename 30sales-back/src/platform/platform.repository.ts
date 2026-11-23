@@ -1,15 +1,63 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, ilike, or } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, ilike, lt, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, platformAuditEvents, platformEvolutionConfiguration } from '../db/schema';
+import { assistantRuns, auditEvents, platformAuditEvents, platformEvolutionConfiguration } from '../db/schema';
 import { invitation, member, organization, user } from '../db/auth-schema';
 import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_OWNER_INVITATION_VALIDITY_DAYS, PLATFORM_ROLE } from '../auth/authorization.constants';
-import { PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
+import { PLATFORM_AI_USAGE_AUDIT_ACTIONS, PLATFORM_AI_USAGE_AUDIT_OPERATIONS, PLATFORM_AI_USAGE } from './platform.constants';
+import { PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 
 type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto; invitationId: string };
 
 @Injectable()
 export class PlatformRepository {
+  async aiUsage(query: PlatformAiUsageQueryDto): Promise<PlatformAiUsagePointDto[]> {
+    const from = new Date(`${query.from}T00:00:00.000Z`);
+    const toExclusive = new Date(`${query.to}T00:00:00.000Z`);
+    toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+    const runOperation = assistantRuns.operation;
+    const runRows = database.select({
+      organizationId: organization.id,
+      organizationName: organization.name,
+      organizationSlug: organization.slug,
+      operation: runOperation,
+      model: assistantRuns.modelKey,
+      requestCount: count().mapWith(Number),
+      inputTokens: sql<number>`coalesce(sum(${assistantRuns.usageInputTokens}), 0)::int`,
+      outputTokens: sql<number>`coalesce(sum(${assistantRuns.usageOutputTokens}), 0)::int`,
+      estimatedCostUsd: sql<string | null>`sum(${assistantRuns.estimatedCostUsd})::text`,
+      unpricedRequestCount: sql<number>`count(*) filter (where ${assistantRuns.estimatedCostUsd} is null)::int`,
+    }).from(assistantRuns).innerJoin(organization, eq(organization.id, assistantRuns.organizationId))
+      .where(and(gte(assistantRuns.startedAt, from), lt(assistantRuns.startedAt, toExclusive)))
+      .groupBy(organization.id, organization.name, organization.slug, runOperation, assistantRuns.modelKey);
+
+    const auditOperation = sql<string>`case ${auditEvents.action} when ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.replyDraft.action} then ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.replyDraft.operation} when ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.conversationConsultation.action} then ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.conversationConsultation.operation} else ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.qualificationSuggestions.operation} end`;
+    const auditModel = sql<string>`coalesce(${auditEvents.afterState}->>'model', ${PLATFORM_AI_USAGE.unknownModel})`;
+    const inputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageInputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageInputTokens')::integer else 0 end), 0)::int`;
+    const outputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageOutputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageOutputTokens')::integer else 0 end), 0)::int`;
+    const estimatedCost = sql<string | null>`sum(case when ${auditEvents.afterState}->>'estimatedCostUsd' ~ ${PLATFORM_AI_USAGE.jsonDecimalPattern} then (${auditEvents.afterState}->>'estimatedCostUsd')::numeric else null end)::text`;
+    const auditRows = database.select({
+      organizationId: organization.id,
+      organizationName: organization.name,
+      organizationSlug: organization.slug,
+      operation: auditOperation,
+      model: auditModel,
+      requestCount: count().mapWith(Number),
+      inputTokens,
+      outputTokens,
+      estimatedCostUsd: estimatedCost,
+      unpricedRequestCount: sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'estimatedCostUsd' ~ ${PLATFORM_AI_USAGE.jsonDecimalPattern} then 0 else 1 end), 0)::int`,
+    }).from(auditEvents).innerJoin(organization, eq(organization.id, auditEvents.organizationId))
+      .where(and(gte(auditEvents.occurredAt, from), lt(auditEvents.occurredAt, toExclusive), inArray(auditEvents.action, PLATFORM_AI_USAGE_AUDIT_ACTIONS)))
+      .groupBy(organization.id, organization.name, organization.slug, auditOperation, auditModel);
+
+    const [automated, audited] = await Promise.all([runRows, auditRows]);
+    return [
+      ...automated.map((row) => new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, row.operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount))),
+      ...audited.map((row) => new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, row.operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount))),
+    ];
+  }
+
   async getEvolutionConfiguration(): Promise<PlatformEvolutionConfigurationDto> {
     const [row] = await database.select({ displayName: platformEvolutionConfiguration.displayName, baseUrl: platformEvolutionConfiguration.baseUrl, updatedAt: platformEvolutionConfiguration.updatedAt }).from(platformEvolutionConfiguration).where(eq(platformEvolutionConfiguration.id, 'default')).limit(1);
     return new PlatformEvolutionConfigurationDto(Boolean(row), row?.displayName ?? null, row?.baseUrl ?? null, row?.updatedAt.toISOString() ?? null);

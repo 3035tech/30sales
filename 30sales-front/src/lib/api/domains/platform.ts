@@ -1,9 +1,15 @@
-import { PLATFORM_ORGANIZATION_API_PATH } from '../../authorizationConstants';
+import { PLATFORM_API_PATH, PLATFORM_ORGANIZATION_API_PATH } from '../../authorizationConstants';
 import { request } from '../request';
-import { type CheckPlatformEvolutionConnectionInput, type CreatePlatformOrganizationInput, type SavePlatformEvolutionConfigurationInput, platformAuditEventListSchema, platformEvolutionConfigurationSchema, platformEvolutionConnectionCheckSchema, platformOrganizationAccessSchema, platformOrganizationCreateSchema, platformOrganizationPageSchema } from '../contracts';
+import { type CheckPlatformEvolutionConnectionInput, type CreatePlatformOrganizationInput, type SavePlatformEvolutionConfigurationInput, platformAiUsageSchema, platformAuditEventListSchema, platformEvolutionConfigurationSchema, platformEvolutionConnectionCheckSchema, platformOrganizationAccessSchema, platformOrganizationCreateSchema, platformOrganizationPageSchema } from '../contracts';
 
 
 export const platformApi = {
+    aiUsage: (params: { from: string; to: string; limit?: number; offset?: number }) => {
+      const search = new URLSearchParams({ from: params.from, to: params.to });
+      if (params.limit !== undefined) search.set('limit', String(params.limit));
+      if (params.offset !== undefined) search.set('offset', String(params.offset));
+      return request(`${PLATFORM_API_PATH}/ai-usage?${search.toString()}`, platformAiUsageSchema);
+    },
     evolutionConfiguration: () => request(`${PLATFORM_ORGANIZATION_API_PATH}/integrations/evolution`, platformEvolutionConfigurationSchema),
     evolutionAudit: () => request(`${PLATFORM_ORGANIZATION_API_PATH}/integrations/evolution/audit?limit=10`, platformAuditEventListSchema),
     saveEvolutionConfiguration: (input: SavePlatformEvolutionConfigurationInput) => request(`${PLATFORM_ORGANIZATION_API_PATH}/integrations/evolution`, platformEvolutionConfigurationSchema, { method: 'PUT', body: JSON.stringify(input) }),

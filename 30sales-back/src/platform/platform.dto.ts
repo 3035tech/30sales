@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PLATFORM_AI_USAGE } from './platform.constants';
 
 const organizationSlugSchema = z.string().trim().min(3).max(80).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
 export const createPlatformOrganizationSchema = z.object({
@@ -10,8 +11,14 @@ export type CreatePlatformOrganizationDto = z.infer<typeof createPlatformOrganiz
 export const listPlatformOrganizationsSchema = z.object({ search: z.string().trim().max(160).optional(), limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export const platformOrganizationIdSchema = z.string().uuid();
 export const platformAuditQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(10), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const platformAiUsageQuerySchema = z.object({ from: z.string().date(), to: z.string().date(), limit: z.coerce.number().int().min(1).max(PLATFORM_AI_USAGE.maximumPageSize).default(PLATFORM_AI_USAGE.defaultPageSize), offset: z.coerce.number().int().min(PLATFORM_AI_USAGE.defaultPageOffset).default(PLATFORM_AI_USAGE.defaultPageOffset) }).strict().refine((query) => new Date(`${query.from}T00:00:00.000Z`).getTime() <= new Date(`${query.to}T00:00:00.000Z`).getTime(), { message: 'The start date must be before or equal to the end date.', path: ['from'] }).refine((query) => {
+  const from = new Date(`${query.from}T00:00:00.000Z`);
+  const to = new Date(`${query.to}T00:00:00.000Z`);
+  return (to.getTime() - from.getTime()) / PLATFORM_AI_USAGE.millisecondsPerDay < PLATFORM_AI_USAGE.maximumRangeDays;
+}, { message: 'The date range cannot exceed one year.', path: ['to'] });
 export type ListPlatformOrganizationsQueryDto = z.infer<typeof listPlatformOrganizationsSchema>;
 export type PlatformAuditQueryDto = z.infer<typeof platformAuditQuerySchema>;
+export type PlatformAiUsageQueryDto = z.infer<typeof platformAiUsageQuerySchema>;
 const validatePlatformEvolutionBaseUrl = (baseUrl: string, context: z.RefinementCtx) => {
   const url = new URL(baseUrl);
   const hostname = url.hostname.replace(/^\[|\]$/g, '').toLowerCase();
@@ -48,4 +55,11 @@ export class PlatformEvolutionConnectionCheckDto {
 }
 export class PlatformAuditEventDto {
   constructor(readonly id: string, readonly action: string, readonly actorName: string | null, readonly beforeState: unknown, readonly afterState: unknown, readonly occurredAt: string) {}
+}
+
+export class PlatformAiUsagePointDto {
+  constructor(readonly organizationId: string, readonly organizationName: string, readonly organizationSlug: string, readonly operation: string, readonly model: string, readonly requestCount: number, readonly inputTokens: number, readonly outputTokens: number, readonly estimatedCostUsd: string | null, readonly unpricedRequestCount: number) {}
+}
+export class PlatformAiUsageDto {
+  constructor(readonly from: string, readonly to: string, readonly requestCount: number, readonly inputTokens: number, readonly outputTokens: number, readonly estimatedCostUsd: string | null, readonly unpricedRequestCount: number, readonly points: PlatformAiUsagePointDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }, readonly generatedAt: string) {}
 }

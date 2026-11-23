@@ -13,6 +13,8 @@ import { ConversationControlDto } from '../src/inbox/inbox.dto';
 import { INBOX_COMMAND_RESULT } from '../src/inbox/inbox.constants';
 import { CampaignPerformanceRepositoryDto } from '../src/campaigns/campaigns.dto';
 import { CAMPAIGN_AUDIT, CAMPAIGN_ATTRIBUTABLE_DELIVERY_STATES, CAMPAIGN_DELIVERED_STATES, CAMPAIGN_MEETING_ACTIVITY_TYPE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_WON_OPPORTUNITY_STAGE } from '../src/campaigns/campaigns.constants';
+import { ASSISTANT_MANUAL_ACTION } from '../src/agents/agents.constants';
+import { platformAiUsageQuerySchema } from '../src/platform/platform.dto';
 
 const integrationDatabaseUrl = process.env.BUSINESS_LINES_TEST_DATABASE_URL;
 const allowedTestDatabase = (() => {
@@ -39,6 +41,7 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let leadsRepository: InstanceType<typeof import('../src/leads/leads.repository').LeadsRepository>;
   let inboxRepository: InstanceType<typeof import('../src/inbox/inbox.repository').InboxRepository>;
   let campaignsRepository: InstanceType<typeof import('../src/campaigns/campaigns.repository').CampaignsRepository>;
+  let platformRepository: InstanceType<typeof import('../src/platform/platform.repository').PlatformRepository>;
   let organizationAId: string;
   let organizationBId: string;
   let ownerAId: string;
@@ -73,6 +76,8 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     inboxRepository = new inboxRepositoryModule.InboxRepository();
     const campaignsRepositoryModule = jest.requireActual<typeof import('../src/campaigns/campaigns.repository')>('../src/campaigns/campaigns.repository');
     campaignsRepository = new campaignsRepositoryModule.CampaignsRepository();
+    const platformRepositoryModule = jest.requireActual<typeof import('../src/platform/platform.repository')>('../src/platform/platform.repository');
+    platformRepository = new platformRepositoryModule.PlatformRepository();
   });
 
   beforeEach(async () => {
@@ -553,6 +558,21 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     ]));
     expect(portfolioReport.wonAmountByCurrency).toHaveLength(2);
     expect(portfolioReport.salesTrend).toEqual([{ date: dateText, leadsCreated: 3, opportunitiesCreated: 3, won: 2, lost: 0 }]);
+  });
+
+  it('aggregates AI token costs by tenant and tolerates unpriced audit usage', async () => {
+    await database.insert(auditEvents).values([
+      { organizationId: organizationAId, actorUserId: ownerAId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.replyDrafted, entityType: 'conversation', afterState: { model: 'claude-sonnet-5-5', usageInputTokens: 800, usageOutputTokens: 120, estimatedCostUsd: '0.0028000000' }, occurredAt: new Date('2026-11-22T12:00:00.000Z') },
+      { organizationId: organizationBId, actorUserId: ownerBId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.replyDrafted, entityType: 'conversation', afterState: { model: 'claude-sonnet-5-5', usageInputTokens: 'unknown', usageOutputTokens: 40, estimatedCostUsd: 'unknown' }, occurredAt: new Date('2026-11-22T13:00:00.000Z') },
+    ]);
+
+    const query = platformAiUsageQuerySchema.parse({ from: '2026-11-22', to: '2026-11-23' });
+    const points = await platformRepository.aiUsage(query);
+
+    expect(points).toEqual(expect.arrayContaining([
+      expect.objectContaining({ organizationId: organizationAId, operation: 'manual_reply_draft', model: 'claude-sonnet-5-5', requestCount: 1, inputTokens: 800, outputTokens: 120, estimatedCostUsd: '0.0028000000', unpricedRequestCount: 0 }),
+      expect.objectContaining({ organizationId: organizationBId, operation: 'manual_reply_draft', model: 'claude-sonnet-5-5', requestCount: 1, inputTokens: 0, outputTokens: 40, estimatedCostUsd: null, unpricedRequestCount: 1 }),
+    ]));
   });
 
   it('backfills legacy pipeline data to one default line and remains idempotent', async () => {

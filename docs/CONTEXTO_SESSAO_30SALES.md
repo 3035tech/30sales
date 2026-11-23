@@ -1,5 +1,13 @@
 # Contexto de continuidade — 30Sales
 
+## Validação do candidato para teste Sofia — 23/11/2026
+
+- Branch `feature/lead-qualification-data`, commit `4f4ac23`, sincronizada com `origin`; árvore limpa antes deste registro.
+- GitHub Actions de build/publicação passaram para frontend e backend no SHA `4f4ac23`: [frontend](https://github.com/3035tech/30sales/actions/runs/45145556300), [backend](https://github.com/3035tech/30sales/actions/runs/45145556374).
+- Validação local repetida: `npm run build` passou no frontend e backend; `npm test -- --runInBand` passou com 8 suítes/28 testes; `npm exec drizzle-kit check` passou.
+- Banco PostgreSQL Docker descartável, criado apenas para este teste e removido ao final: as migrations completas do repositório foram aplicadas com sucesso; `test:business-lines` passou com 13/13 casos. A primeira execução sem schema preparado falhou por falta de `auth.organization`; após aplicar as migrations ao banco vazio, a suíte passou. Nenhum dado ou ambiente compartilhado foi usado.
+- **Resultado:** código pronto para iniciar QA em ambiente de teste. Isso não comprova paridade completa da Sofia nem prontidão para produção: continuam pendentes exports aprovados dos workflows n8n, baseline/reconciliação de Twenty e Chatwoot, definição e validação da agenda, configuração dos providers e smoke autenticado no ambiente de teste. Não houve deploy, envio de mensagens ou migration em ambiente compartilhado.
+
 ## Polish após revisão do fechamento — 23/11/2026
 
 - Candidato local consolidado no commit `265ef2f` (`feat(crm): add lead qualification history`); árvore limpa após a consolidação. Sem push, aplicação de migration em ambiente compartilhado ou deploy.

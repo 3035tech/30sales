@@ -2,6 +2,7 @@
 
 ## Validação do candidato para teste Sofia — 23/11/2026
 
+- Cobertura adicional de qualificação: o teste de integração cria dois fatos para o mesmo lead sem sobrescrever o anterior, confirma dois eventos de auditoria e bloqueia leitura/escrita por outra organização. `test:business-lines` passou com 14/14 casos após aplicar migrations num PostgreSQL descartável; container removido.
 - Branch `feature/lead-qualification-data`, commit `4f4ac23`, sincronizada com `origin`; árvore limpa antes deste registro.
 - GitHub Actions de build/publicação passaram para frontend e backend no SHA `4f4ac23`: [frontend](https://github.com/3035tech/30sales/actions/runs/45145556300), [backend](https://github.com/3035tech/30sales/actions/runs/45145556374).
 - Validação local repetida: `npm run build` passou no frontend e backend; `npm test -- --runInBand` passou com 8 suítes/28 testes; `npm exec drizzle-kit check` passou.

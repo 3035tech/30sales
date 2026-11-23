@@ -3,10 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { and, count, eq } from 'drizzle-orm';
 import { member, organization, user } from '../src/db/auth-schema';
-import { accounts, businessLineMembers, businessLines, leadStatusHistory, leads, messagingChannels, opportunities, opportunityStageHistory, people, pipelineStages, pipelines } from '../src/db/schema';
+import { accounts, auditEvents, businessLineMembers, businessLines, leadStatusHistory, leads, messagingChannels, opportunities, opportunityStageHistory, people, pipelineStages, pipelines } from '../src/db/schema';
 import { BusinessLineCreateCommandDto, BusinessLineMembersCommandDto, BusinessLineUpdateCommandDto, createBusinessLineSchema, updateBusinessLineSchema } from '../src/business-lines/business-lines.dto';
 import { OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryTransitionDto, transitionOpportunitySchema } from '../src/opportunities/opportunities.dto';
 import { FunnelReportRepositoryQueryDto, funnelReportQuerySchema } from '../src/reports/reports.dto';
+import { LeadRepositoryAccessDto, QualificationFactRepositoryDto, createQualificationFactSchema, listQualificationFactsSchema } from '../src/leads/leads.dto';
+import { LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE } from '../src/leads/constants';
 
 const integrationDatabaseUrl = process.env.BUSINESS_LINES_TEST_DATABASE_URL;
 const allowedTestDatabase = (() => {
@@ -30,6 +32,7 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let channelsRepository: InstanceType<typeof import('../src/channels/channels.repository').ChannelsRepository>;
   let opportunitiesRepository: InstanceType<typeof import('../src/opportunities/opportunities.repository').OpportunitiesRepository>;
   let reportsRepository: InstanceType<typeof import('../src/reports/reports.repository').ReportsRepository>;
+  let leadsRepository: InstanceType<typeof import('../src/leads/leads.repository').LeadsRepository>;
   let organizationAId: string;
   let organizationBId: string;
   let ownerAId: string;
@@ -58,6 +61,8 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     opportunitiesRepository = new opportunitiesRepositoryModule.OpportunitiesRepository();
     const reportsRepositoryModule = jest.requireActual<typeof import('../src/reports/reports.repository')>('../src/reports/reports.repository');
     reportsRepository = new reportsRepositoryModule.ReportsRepository();
+    const leadsRepositoryModule = jest.requireActual<typeof import('../src/leads/leads.repository')>('../src/leads/leads.repository');
+    leadsRepository = new leadsRepositoryModule.LeadsRepository();
   });
 
   beforeEach(async () => {
@@ -161,6 +166,73 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     expect(result).toBe('invalid_members');
     const members = await repository.listMembers(organizationAId, lineA1Id);
     expect(members?.data.map(({ userId }) => userId).sort()).toEqual([ownerAId, memberAId].sort());
+  });
+
+  it('stores qualification facts append-only, audits them, and blocks cross-tenant access', async () => {
+    const accountId = randomUUID();
+    const personId = randomUUID();
+    const leadId = randomUUID();
+    await database.insert(accounts).values({ id: accountId, organizationId: organizationAId, name: 'Qualification account' });
+    await database.insert(people).values({ id: personId, organizationId: organizationAId, name: 'Qualification contact' });
+    await database.insert(leads).values({ id: leadId, organizationId: organizationAId, businessLineId: lineA1Id, accountId, personId, createdByUserId: ownerAId });
+
+    const access = new LeadRepositoryAccessDto(organizationAId, ownerAId, true, false);
+    const firstFact = createQualificationFactSchema.parse({
+      factKey: LEAD_QUALIFICATION_FACT_KEY.need,
+      value: 'Automate the sales process',
+      state: LEAD_QUALIFICATION_FACT_STATE.confirmed,
+      source: LEAD_QUALIFICATION_FACT_SOURCE.manual,
+      evidence: 'The prospect confirmed this goal.',
+    });
+    const secondFact = createQualificationFactSchema.parse({
+      factKey: LEAD_QUALIFICATION_FACT_KEY.need,
+      value: 'Automate the sales process',
+      state: LEAD_QUALIFICATION_FACT_STATE.conflict,
+      source: LEAD_QUALIFICATION_FACT_SOURCE.manual,
+      evidence: 'A later review found conflicting requirements.',
+    });
+    const first = await leadsRepository.createQualificationFact(new QualificationFactRepositoryDto(organizationAId, leadId, ownerAId, access, firstFact, randomUUID()));
+    const second = await leadsRepository.createQualificationFact(new QualificationFactRepositoryDto(organizationAId, leadId, ownerAId, access, secondFact, randomUUID()));
+
+    expect(first).toMatchObject({ factKey: LEAD_QUALIFICATION_FACT_KEY.need, state: LEAD_QUALIFICATION_FACT_STATE.confirmed });
+    expect(second).toMatchObject({ factKey: LEAD_QUALIFICATION_FACT_KEY.need, state: LEAD_QUALIFICATION_FACT_STATE.conflict });
+    expect(second.id).not.toBe(first.id);
+
+    const page = await leadsRepository.listQualificationFacts(new QualificationFactRepositoryDto(
+      organizationAId,
+      leadId,
+      ownerAId,
+      access,
+      undefined,
+      null,
+      listQualificationFactsSchema.parse({}),
+    ));
+    const otherTenantAccess = new LeadRepositoryAccessDto(organizationBId, ownerBId, true, false);
+    const crossTenantFact = await leadsRepository.createQualificationFact(new QualificationFactRepositoryDto(
+      organizationBId,
+      leadId,
+      ownerBId,
+      otherTenantAccess,
+      firstFact,
+      randomUUID(),
+    ));
+    const crossTenantPage = await leadsRepository.listQualificationFacts(new QualificationFactRepositoryDto(
+      organizationBId,
+      leadId,
+      ownerBId,
+      otherTenantAccess,
+      undefined,
+      null,
+      listQualificationFactsSchema.parse({}),
+    ));
+    const auditRows = await database.select({ id: auditEvents.id }).from(auditEvents)
+      .where(and(eq(auditEvents.organizationId, organizationAId), eq(auditEvents.entityId, leadId), eq(auditEvents.action, LEAD_QUALIFICATION_FACT_AUDIT_ACTION)));
+
+    expect(page.data).toHaveLength(2);
+    expect(page.pagination.total).toBe(2);
+    expect(crossTenantFact).toBe(LEAD_QUALIFICATION_FACT_RESULT.leadNotFound);
+    expect(crossTenantPage.data).toHaveLength(0);
+    expect(auditRows).toHaveLength(2);
   });
 
   it('limits channel access to the member business lines and active organization', async () => {

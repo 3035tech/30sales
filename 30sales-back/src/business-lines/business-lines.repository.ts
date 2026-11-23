@@ -30,16 +30,16 @@ export class BusinessLinesRepository {
       if (!organization) return 'creator_not_member';
       const [actorMembership] = await transaction.select({ id: member.id }).from(member)
         .where(and(eq(member.organizationId, input.organizationId), eq(member.userId, input.actorUserId))).limit(1);
-      if (!actorMembership) return 'creator_not_member';
+      if (!actorMembership && !input.isPlatformOrganizationContext) return 'creator_not_member';
       const [existingDefault] = await transaction.select({ id: businessLines.id }).from(businessLines)
         .where(and(eq(businessLines.organizationId, input.organizationId), eq(businessLines.isDefault, true))).limit(1);
       const isDefault = !existingDefault;
       const [line] = await transaction.insert(businessLines).values({ organizationId: input.organizationId, name: input.input.name, slug: input.input.slug, description: input.input.description, isDefault, createdByUserId: input.actorUserId })
         .onConflictDoNothing({ target: [businessLines.organizationId, businessLines.slug] }).returning();
       if (!line) return 'duplicate_slug';
-      await transaction.insert(businessLineMembers).values({ organizationId: input.organizationId, businessLineId: line.id, memberId: actorMembership.id, createdByUserId: input.actorUserId });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: 'business_line.created', entityType: 'business_line', entityId: line.id, correlationId: input.correlationId, afterState: { name: line.name, slug: line.slug, initialMemberUserIds: [input.actorUserId] } });
-      return new BusinessLineRecordDto(line.id, line.name, line.slug, line.description, 'active', line.isDefault, 1, line.createdAt.toISOString());
+      if (actorMembership) await transaction.insert(businessLineMembers).values({ organizationId: input.organizationId, businessLineId: line.id, memberId: actorMembership.id, createdByUserId: input.actorUserId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: 'business_line.created', entityType: 'business_line', entityId: line.id, correlationId: input.correlationId, afterState: { name: line.name, slug: line.slug, initialMemberUserIds: actorMembership ? [input.actorUserId] : [] } });
+      return new BusinessLineRecordDto(line.id, line.name, line.slug, line.description, 'active', line.isDefault, actorMembership ? 1 : 0, line.createdAt.toISOString());
     });
   }
 

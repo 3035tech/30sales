@@ -24,7 +24,7 @@ export class TenantAccessService {
     if (requestedPlatformOrganizationId) {
       if (!z.string().uuid().safeParse(requestedPlatformOrganizationId).success) throw new ForbiddenException({ code: 'PLATFORM_CONTEXT_INVALID', message: 'The selected company context is unavailable.' });
       if (!await this.repository.isSuperAdminForExistingOrganization(session.user.id, requestedPlatformOrganizationId)) throw new ForbiddenException({ code: 'PLATFORM_CONTEXT_INVALID', message: 'The selected company context is unavailable.' });
-      return new TenantContextDto(session.user.id, requestedPlatformOrganizationId, 'owner');
+      return new TenantContextDto(session.user.id, requestedPlatformOrganizationId, 'owner', true);
     }
     const organizationId = session.session.activeOrganizationId;
     if (!organizationId) throw new ForbiddenException({ code: 'TENANT_REQUIRED', message: 'Select an organization to continue.' });

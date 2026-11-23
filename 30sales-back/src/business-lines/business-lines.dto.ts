@@ -44,7 +44,7 @@ export class BusinessLineMembersDto {
 }
 
 export class BusinessLineCreateCommandDto {
-  constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateBusinessLineDto, readonly correlationId: string | null) {}
+  constructor(readonly organizationId: string, readonly actorUserId: string, readonly input: CreateBusinessLineDto, readonly correlationId: string | null, readonly isPlatformOrganizationContext: boolean) {}
 }
 
 export class BusinessLineMembersCommandDto {

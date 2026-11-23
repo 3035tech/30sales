@@ -18,7 +18,7 @@ export class BusinessLinesService {
 
   async create(request: ApiRequestDto, input: CreateBusinessLineDto): Promise<BusinessLineRecordDto> {
     const context = await this.requireManager(request);
-    const result = await this.repository.create(new BusinessLineCreateCommandDto(context.organizationId, context.userId, input, request.correlationId));
+    const result = await this.repository.create(new BusinessLineCreateCommandDto(context.organizationId, context.userId, input, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'creator_not_member') throw new ForbiddenException({ code: BUSINESS_LINE_ERROR.creatorMembershipMissing, message: 'The business line creator must be an active member of the organization.' });
     if (result === 'duplicate_slug') throw new ConflictException({ code: BUSINESS_LINE_ERROR.duplicateSlug, message: 'A business line with this identifier already exists.' });
     return result;

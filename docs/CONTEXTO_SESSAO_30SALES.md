@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Continuação do fechamento Sofia — 23/11/2026
+
+- Corrigida a janela de revogação de acesso nas commands mutáveis do Inbox: autorização, membership da organização, estado da linha e associação usuário-linha são revalidados dentro da transação. Locks `FOR SHARE` na linha e memberships serializam as commands com remoção/alteração dos vínculos. A atribuição também confirma o vínculo atual do responsável na mesma transação.
+- Teste de integração PostgreSQL reproduz revogação entre leitura de acesso e `claim`; a operação retorna `not_found` e não assume a conversa. Suíte `test:business-lines`: 15/15; backend `npm run build` e Jest unitário: 8 suítes/28 testes passaram; `git diff --check` passou.
+- Próximo: remover o PostgreSQL temporário, rever diff, commit/push e conferir Actions. Isso não remove os bloqueios externos de paridade Sofia descritos abaixo; sem deploy nem migration em ambiente compartilhado.
+
 ## Validação do candidato para teste Sofia — 23/11/2026
 
 - Cobertura adicional de qualificação: o teste de integração cria dois fatos para o mesmo lead sem sobrescrever o anterior, confirma dois eventos de auditoria e bloqueia leitura/escrita por outra organização. `test:business-lines` passou com 14/14 casos após aplicar migrations num PostgreSQL descartável; container removido.

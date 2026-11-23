@@ -11,8 +11,10 @@ import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbou
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
+import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
+type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 
 type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing' | typeof CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached | typeof CHANNEL_CONNECTION_ERROR.unavailable;
@@ -33,24 +35,45 @@ export class InboxRepository {
       .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
       .innerJoin(businessLineMembers, and(eq(businessLineMembers.businessLineId, businessLines.id), eq(businessLineMembers.organizationId, businessLines.organizationId)))
       .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
-      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, 'active'))).limit(1);
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId), eq(authMember.userId, userId), eq(businessLines.status, BUSINESS_LINE_STATUS.active))).limit(1);
     return Boolean(lineAccess);
   }
 
-  private async canAssignToLine(organizationId: string, conversationId: string, assigneeUserId: string): Promise<boolean> {
-    const [line] = await database.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
+  private async canAccessConversationLineInTransaction(transaction: InboxTransaction, organizationId: string, conversationId: string, userId: string): Promise<boolean> {
+    const [actor] = await transaction.select({ id: authMember.id, role: authMember.role }).from(authMember)
+      .where(and(eq(authMember.organizationId, organizationId), eq(authMember.userId, userId))).for('share').limit(1);
+    if (!actor) return false;
+    if (hasOrganizationRole(actor.role, ORGANIZATION_MANAGEMENT_ROLES)) return true;
+
+    const [channel] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
       .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
-    if (!line?.businessLineId) return false;
-    const [membership] = await database.select({ businessLineId: businessLineMembers.businessLineId }).from(businessLineMembers)
-      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
-      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
-      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, line.businessLineId), eq(authMember.userId, assigneeUserId), eq(businessLines.status, 'active'))).limit(1);
-    return Boolean(membership);
+    if (!channel?.businessLineId) return false;
+    const [line] = await transaction.select({ id: businessLines.id, status: businessLines.status }).from(businessLines)
+      .where(and(eq(businessLines.id, channel.businessLineId), eq(businessLines.organizationId, organizationId))).for('share').limit(1);
+    if (!line || line.status !== BUSINESS_LINE_STATUS.active) return false;
+    const [lineMembership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, line.id), eq(businessLineMembers.memberId, actor.id))).for('share').limit(1);
+    return Boolean(lineMembership);
+  }
+
+  private async canAssignToLineInTransaction(transaction: InboxTransaction, organizationId: string, conversationId: string, assigneeUserId: string): Promise<boolean> {
+    const [assignee] = await transaction.select({ id: authMember.id }).from(authMember)
+      .where(and(eq(authMember.organizationId, organizationId), eq(authMember.userId, assigneeUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY[${conversationAssigneeRoleValues}]::text[]`)).for('share').limit(1);
+    if (!assignee) return false;
+    const [channel] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    if (!channel?.businessLineId) return false;
+    const [line] = await transaction.select({ id: businessLines.id, status: businessLines.status }).from(businessLines)
+      .where(and(eq(businessLines.id, channel.businessLineId), eq(businessLines.organizationId, organizationId))).for('share').limit(1);
+    if (!line || line.status !== BUSINESS_LINE_STATUS.active) return false;
+    const [lineMembership] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, line.id), eq(businessLineMembers.memberId, assignee.id))).for('share').limit(1);
+    return Boolean(lineMembership);
   }
 
   async reconcileContact(input: ConversationContactReconcileDto): Promise<ConversationContactReconcileResultDto | 'not_found' | 'missing_contact' | 'invalid_phone' | 'not_owner' | 'contact_shared_across_lines'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     const phone = input.phone?.trim();
     const digits = phone?.replace(/\D/g, '') ?? '';
     if (phone && (!/^\+[1-9][0-9\s().-]*$/.test(phone) || digits.length < 8 || digits.length > 15)) return INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone;
@@ -60,6 +83,7 @@ export class InboxRepository {
         .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
       if (conversation.ownerUserId !== input.actorUserId) return INBOX_CONTACT_RECONCILIATION_RESULT.notOwner;
       const [actor] = await transaction.select({ id: authMember.id, role: authMember.role }).from(authMember)
         .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).limit(1);
@@ -197,11 +221,11 @@ export class InboxRepository {
   }
 
   async addTag(input: ConversationTagMutationDto): Promise<ConversationTagDto | 'not_found' | 'not_owner'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       const name = input.name.trim().replace(/\s+/g, ' ');
       const normalizedName = name.toLocaleLowerCase('en-US');
@@ -216,11 +240,11 @@ export class InboxRepository {
   }
 
   async removeTag(input: ConversationTagRemoveDto): Promise<'ok' | 'not_found' | 'not_owner'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       const [removed] = await transaction.delete(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, input.conversationId), eq(conversationTagLinks.tagId, input.tagId))).returning({ tagId: conversationTagLinks.tagId });
       if (removed) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.tag_removed', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { tagId: input.tagId } });
@@ -229,11 +253,11 @@ export class InboxRepository {
   }
 
   async claim(input: ConversationControlDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       if (current.ownerUserId === input.actorUserId && current.automationMode === 'human') return new ConversationControlResultDto(current.id, input.actorUserId, 'human');
       const [updated] = await transaction.update(conversations).set({ ownerUserId: input.actorUserId, automationMode: 'human', updatedAt: new Date() })
@@ -245,11 +269,11 @@ export class InboxRepository {
   }
 
   async release(input: ConversationControlDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       if (!current.ownerUserId && current.automationMode === 'paused') return new ConversationControlResultDto(current.id, null, 'paused');
       const [updated] = await transaction.update(conversations).set({ ownerUserId: null, automationMode: 'paused', updatedAt: new Date() })
@@ -261,12 +285,12 @@ export class InboxRepository {
   }
 
   async assign(input: ConversationAssignDto): Promise<ConversationControlResultDto | 'owned' | 'not_found' | 'invalid_assignee'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
-    if (!await this.canAssignToLine(input.organizationId, input.conversationId, input.ownerUserId)) return 'invalid_assignee';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAssignToLineInTransaction(transaction, input.organizationId, input.conversationId, input.ownerUserId)) return 'invalid_assignee';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
         .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.ownerUserId), sql`string_to_array(replace(${authMember.role}, ' ', ''), ',') && ARRAY[${conversationAssigneeRoleValues}]::text[]`)).for('share').limit(1);
@@ -282,11 +306,11 @@ export class InboxRepository {
   }
 
   async setAutomationMode(input: ConversationAutomationUpdateDto): Promise<ConversationControlResultDto | 'owned' | 'not_found'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       const ownerUserId = input.mode === 'assistant' ? null : input.mode === 'human' ? input.actorUserId : current.ownerUserId;
       if (current.ownerUserId === ownerUserId && current.automationMode === input.mode) return new ConversationControlResultDto(current.id, current.ownerUserId, input.mode);
@@ -299,11 +323,11 @@ export class InboxRepository {
   }
 
   async setStatus(input: ConversationStatusUpdateDto): Promise<{ id: string; status: 'open' | 'resolved' } | 'not_owner' | 'not_found'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [current] = await transaction.select({ id: conversations.id, status: conversations.status, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       if (current.ownerUserId !== input.actorUserId) return 'not_owner';
       if (current.status === input.status) return { id: current.id, status: input.status };
       const [updated] = await transaction.update(conversations).set({ status: input.status, updatedAt: new Date() })
@@ -341,8 +365,8 @@ export class InboxRepository {
   }
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId)) return 'not_found';
     return database.transaction(async (transaction) => {
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.userId)) return 'not_found';
       if (!input.lastInboundMessageId) {
         const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
           .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
@@ -366,11 +390,11 @@ export class InboxRepository {
   }
 
   async addNote(input: ConversationNoteCreateDto): Promise<MessageRecordDto | 'not_found' | 'not_owner'> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
       const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
         .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);

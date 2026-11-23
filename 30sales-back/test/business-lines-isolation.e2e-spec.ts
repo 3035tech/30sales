@@ -3,12 +3,14 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { and, count, eq } from 'drizzle-orm';
 import { member, organization, user } from '../src/db/auth-schema';
-import { accounts, auditEvents, businessLineMembers, businessLines, leadStatusHistory, leads, messagingChannels, opportunities, opportunityStageHistory, people, pipelineStages, pipelines } from '../src/db/schema';
+import { accounts, auditEvents, businessLineMembers, businessLines, conversations, leadStatusHistory, leads, messagingChannels, opportunities, opportunityStageHistory, people, pipelineStages, pipelines } from '../src/db/schema';
 import { BusinessLineCreateCommandDto, BusinessLineMembersCommandDto, BusinessLineUpdateCommandDto, createBusinessLineSchema, updateBusinessLineSchema } from '../src/business-lines/business-lines.dto';
 import { OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryTransitionDto, transitionOpportunitySchema } from '../src/opportunities/opportunities.dto';
 import { FunnelReportRepositoryQueryDto, funnelReportQuerySchema } from '../src/reports/reports.dto';
 import { LeadRepositoryAccessDto, QualificationFactRepositoryDto, createQualificationFactSchema, listQualificationFactsSchema } from '../src/leads/leads.dto';
 import { LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE } from '../src/leads/constants';
+import { ConversationControlDto } from '../src/inbox/inbox.dto';
+import { INBOX_COMMAND_RESULT } from '../src/inbox/inbox.constants';
 
 const integrationDatabaseUrl = process.env.BUSINESS_LINES_TEST_DATABASE_URL;
 const allowedTestDatabase = (() => {
@@ -33,6 +35,7 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let opportunitiesRepository: InstanceType<typeof import('../src/opportunities/opportunities.repository').OpportunitiesRepository>;
   let reportsRepository: InstanceType<typeof import('../src/reports/reports.repository').ReportsRepository>;
   let leadsRepository: InstanceType<typeof import('../src/leads/leads.repository').LeadsRepository>;
+  let inboxRepository: InstanceType<typeof import('../src/inbox/inbox.repository').InboxRepository>;
   let organizationAId: string;
   let organizationBId: string;
   let ownerAId: string;
@@ -63,6 +66,8 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     reportsRepository = new reportsRepositoryModule.ReportsRepository();
     const leadsRepositoryModule = jest.requireActual<typeof import('../src/leads/leads.repository')>('../src/leads/leads.repository');
     leadsRepository = new leadsRepositoryModule.LeadsRepository();
+    const inboxRepositoryModule = jest.requireActual<typeof import('../src/inbox/inbox.repository')>('../src/inbox/inbox.repository');
+    inboxRepository = new inboxRepositoryModule.InboxRepository();
   });
 
   beforeEach(async () => {
@@ -233,6 +238,36 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     expect(crossTenantFact).toBe(LEAD_QUALIFICATION_FACT_RESULT.leadNotFound);
     expect(crossTenantPage.data).toHaveLength(0);
     expect(auditRows).toHaveLength(2);
+  });
+
+  it('denies an Inbox command when line membership is revoked after its access check', async () => {
+    const conversationId = randomUUID();
+    const [channel] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
+      .where(and(eq(messagingChannels.organizationId, organizationAId), eq(messagingChannels.businessLineId, lineA1Id))).limit(1);
+    if (!channel) throw new Error('The active line channel fixture is missing.');
+    const [actorMembership] = await database.select({ id: member.id }).from(member)
+      .where(and(eq(member.organizationId, organizationAId), eq(member.userId, memberAId))).limit(1);
+    if (!actorMembership) throw new Error('The active organization membership fixture is missing.');
+    await database.insert(conversations).values({
+      id: conversationId,
+      organizationId: organizationAId,
+      provider: 'evolution',
+      externalConversationId: `revocation-${conversationId}`,
+      channelId: channel.id,
+    });
+
+    await expect(inboxRepository.canAccessConversationLine(organizationAId, conversationId, memberAId)).resolves.toBe(true);
+    await database.delete(businessLineMembers).where(and(
+      eq(businessLineMembers.organizationId, organizationAId),
+      eq(businessLineMembers.businessLineId, lineA1Id),
+      eq(businessLineMembers.memberId, actorMembership.id),
+    ));
+
+    const claimResult = await inboxRepository.claim(new ConversationControlDto(organizationAId, conversationId, memberAId, randomUUID()));
+    expect(claimResult).toBe(INBOX_COMMAND_RESULT.notFound);
+    const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationAId))).limit(1);
+    expect(conversation?.ownerUserId).toBeNull();
   });
 
   it('limits channel access to the member business lines and active organization', async () => {

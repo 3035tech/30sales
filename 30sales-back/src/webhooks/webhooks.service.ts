@@ -6,16 +6,18 @@ import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
 import type { ChannelConnectionStatus } from '../channels/channels.dto';
 import { env } from '../config/env';
-import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
+import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type EvolutionGroupParticipantChange, type InterpretationFailureSignalInputDto, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter } from './message-status-webhook-adapters';
+import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
 import { WebhooksRepository } from './webhooks.repository';
-import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
+import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
 type JsonRecord = Record<string, unknown>;
 const knownEvolutionEvents: ReadonlySet<string> = new Set(Object.values(EVOLUTION_WEBHOOK_EVENT));
 
 @Injectable()
 export class WebhooksService {
-  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly channelsService: ChannelsService) {}
+  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly channelsService: ChannelsService, private readonly evolutionStatusAdapter = new EvolutionMessageStatusWebhookAdapter(), private readonly metaStatusAdapter = new MetaCloudMessageStatusWebhookAdapter(), private readonly evolutionMessageAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto), private readonly metaMessageAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto)) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
     if (mode !== 'subscribe' || !challenge || !this.matchesSecret(token, env.META_WEBHOOK_VERIFY_TOKEN)) throw new UnauthorizedException();
@@ -52,12 +54,12 @@ export class WebhooksService {
     let processed = 0;
     for (const item of data) {
       if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpsert) {
-        const message = this.normalizeEvolutionMessage(channel.id, channel.organizationId, item, payloadHash);
+        const message = this.evolutionMessageAdapter.normalize({ channelId: channel.id, organizationId: channel.organizationId, value: item, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) });
         if (message && await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesSet) {
         processed += await this.enqueueEvolutionHistorySnapshot(channel.id, channel.organizationId, item, payloadHash);
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpdate || eventName === EVOLUTION_WEBHOOK_EVENT.sendMessageUpdate) {
-        const status = this.normalizeEvolutionStatus(channel.id, channel.organizationId, item, payloadHash);
+        const status = this.evolutionStatusAdapter.normalize(channel.id, channel.organizationId, item, payloadHash);
         if (status) {
           const result = await this.repository.recordMessageStatus(status);
           if (result === 'updated') processed += 1;
@@ -80,6 +82,9 @@ export class WebhooksService {
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpsert || eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpdate || eventName === EVOLUTION_WEBHOOK_EVENT.groupUpdate) {
         const group = this.normalizeEvolutionGroupMetadata(channel.id, channel.organizationId, eventName, item, payloadHash);
         if (group && await this.repository.recordEvolutionGroupMetadata(group) === 'updated') processed += 1;
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.groupParticipantsUpdate) {
+        const update = this.normalizeEvolutionGroupParticipants(channel.id, channel.organizationId, item, payloadHash);
+        if (update && await this.repository.recordEvolutionGroupParticipants(update) === 'updated') processed += 1;
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.presenceUpdate) {
         processed += await this.publishEvolutionPresence(channel.id, channel.organizationId, item);
       } else {
@@ -138,7 +143,7 @@ export class WebhooksService {
   private async enqueueEvolutionHistorySnapshot(channelId: string, organizationId: string, value: unknown, payloadHash: string): Promise<number> {
     const data = this.record(value);
     const rawMessages = Array.isArray(data.messages) ? data.messages : [];
-    const messages = rawMessages.map((item) => this.normalizeEvolutionMessage(channelId, organizationId, item, payloadHash)).filter((message): message is IncomingWhatsappMessageDto => message !== null);
+    const messages = rawMessages.map((item) => this.evolutionMessageAdapter.normalize({ channelId, organizationId, value: item, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) })).filter((message): message is IncomingWhatsappMessageDto => message !== null);
     const snapshotEventId = createHash('sha256').update(`${channelId}:messages.set:${payloadHash}`).digest('hex');
     const event = new ProviderWebhookEventDto(organizationId, channelId, 'evolution', snapshotEventId, 'evolution.messages.set', 'sync', payloadHash);
     await this.repository.recordProviderEvent(event);
@@ -212,13 +217,13 @@ export class WebhooksService {
         const contacts = Array.isArray(value.contacts) ? value.contacts.map((contact) => this.record(contact)) : [];
         const messages = Array.isArray(value.messages) ? value.messages : [];
         for (const messageValue of messages) {
-          const message = this.normalizeCloudMessage(channel.id, channel.organizationId, messageValue, contacts, payloadHash);
+          const message = this.metaMessageAdapter.normalize({ channelId: channel.id, organizationId: channel.organizationId, value: messageValue, contacts, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) });
           if (!message) continue;
           if (await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
         }
         const statuses = Array.isArray(value.statuses) ? value.statuses : [];
         for (const statusValue of statuses) {
-          const status = this.normalizeCloudStatus(channel.id, channel.organizationId, statusValue, payloadHash);
+          const status = this.metaStatusAdapter.normalize(channel.id, channel.organizationId, statusValue, payloadHash);
           if (status) {
             const result = await this.repository.recordMessageStatus(status);
             if (result === 'updated') processed += 1;
@@ -277,6 +282,29 @@ export class WebhooksService {
     return new EvolutionGroupMetadataDto(organizationId, channelId, externalEventId, `${channelId}:${jid}`, jid, normalizedName, payloadHash);
   }
 
+  private normalizeEvolutionGroupParticipants(channelId: string, organizationId: string, value: unknown, payloadHash: string): EvolutionGroupParticipantsUpdateDto | null {
+    const data = this.record(value);
+    const groupJid = this.string(data.id) ?? this.string(data.jid) ?? this.string(data.groupJid) ?? this.string(data.remoteJid);
+    const rawParticipants = Array.isArray(data.participants) ? data.participants : [];
+    const rawAction = (this.string(data.action) ?? this.string(data.operation) ?? '').toLowerCase();
+    const action: EvolutionGroupParticipantChange['action'] | null = ['add', 'join', 'joined'].includes(rawAction) ? 'add'
+      : ['remove', 'leave', 'left'].includes(rawAction) ? 'remove'
+      : ['promote', 'promoted'].includes(rawAction) ? 'promote'
+      : ['demote', 'demoted'].includes(rawAction) ? 'demote' : null;
+    if (!groupJid?.endsWith('@g.us') || groupJid.length > 250 || !action) return null;
+    const participants: EvolutionGroupParticipantChange[] = rawParticipants.slice(0, 100).flatMap((entry): EvolutionGroupParticipantChange[] => {
+      const participant = typeof entry === 'string' ? { id: entry } : this.record(entry);
+      const externalParticipantId = this.string(participant.id) ?? this.string(participant.jid) ?? this.string(participant.phoneNumber);
+      if (!externalParticipantId || externalParticipantId.length > 250) return [];
+      const phoneDigits = externalParticipantId.split('@')[0].split(':')[0].replace(/\D/g, '');
+      return [{ externalParticipantId, phone: phoneDigits.length >= 8 && phoneDigits.length <= 15 ? `+${phoneDigits}` : null, displayName: this.string(participant.name) ?? this.string(participant.notify) ?? null, action }];
+    });
+    if (participants.length === 0) return null;
+    const fingerprint = createHash('sha256').update(JSON.stringify({ groupJid, action, participants, payloadHash })).digest('hex');
+    const externalEventId = createHash('sha256').update(`${channelId}:group.participants.update:${fingerprint}`).digest('hex');
+    return new EvolutionGroupParticipantsUpdateDto(organizationId, channelId, externalEventId, `${channelId}:${groupJid}`, participants, payloadHash);
+  }
+
   private normalizeEvolutionMessageMutation(channelId: string, organizationId: string, eventType: string, value: unknown, payloadHash: string): EvolutionMessageMutationDto | null {
     if (eventType !== EVOLUTION_WEBHOOK_EVENT.messagesEdited && eventType !== EVOLUTION_WEBHOOK_EVENT.messagesDelete) return null;
     const data = this.record(value);
@@ -299,7 +327,7 @@ export class WebhooksService {
       : Object.keys(this.record(data.message)).length > 0 ? this.record(data.message) : {};
     const editedContent = Object.keys(this.record(edited.message)).length > 0 ? this.record(edited.message) : edited;
     const bodyText = eventType === EVOLUTION_WEBHOOK_EVENT.messagesEdited
-      ? this.extractEvolutionText(this.unwrapEvolutionMessage(Object.keys(content).length > 0 ? content : editedContent))?.slice(0, 16000) ?? null
+      ? this.evolutionMessageAdapter.extractText(this.evolutionMessageAdapter.unwrap(Object.keys(content).length > 0 ? content : editedContent))?.slice(0, 16000) ?? null
       : null;
     return new EvolutionMessageMutationDto(organizationId, channelId, rawMessageId, externalEventId, eventType, bodyText, payloadHash);
   }
@@ -337,60 +365,6 @@ export class WebhooksService {
     return 'other';
   }
 
-  private normalizeEvolutionStatus(channelId: string, organizationId: string, value: unknown, payloadHash: string): WhatsappMessageStatusDto | null {
-    const data = this.record(value);
-    const key = this.record(data.key);
-    const externalMessageId = this.string(data.keyId) ?? this.string(key.id);
-    const update = this.record(data.update);
-    const rawStatus = update.status ?? data.status;
-    const deliveryState = this.mapEvolutionStatus(rawStatus);
-    if (!externalMessageId || externalMessageId.length > 250 || !deliveryState) return null;
-    const occurredAt = this.toDate(update.timestamp ?? data.messageTimestamp ?? data.timestamp);
-    const eventVersion = update.timestamp ?? data.messageTimestamp ?? data.timestamp;
-    const externalEventId = this.statusEventId(channelId, externalMessageId, deliveryState, eventVersion, payloadHash);
-    return new WhatsappMessageStatusDto(organizationId, channelId, 'evolution', externalMessageId, externalEventId, deliveryState, occurredAt, payloadHash);
-  }
-
-  private normalizeCloudStatus(channelId: string, organizationId: string, value: unknown, payloadHash: string): WhatsappMessageStatusDto | null {
-    const status = this.record(value);
-    const externalMessageId = this.string(status.id);
-    const deliveryState = this.mapCloudStatus(this.string(status.status));
-    if (!externalMessageId || externalMessageId.length > 250 || !deliveryState) return null;
-    const occurredAt = this.toDate(status.timestamp);
-    const externalEventId = this.statusEventId(channelId, externalMessageId, deliveryState, status.timestamp, payloadHash);
-    return new WhatsappMessageStatusDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, externalEventId, deliveryState, occurredAt, payloadHash);
-  }
-
-  private statusEventId(channelId: string, messageId: string, state: MessageDeliveryState, providerTimestamp: unknown, payloadHash: string): string {
-    const eventVersion = typeof providerTimestamp === 'string' || typeof providerTimestamp === 'number' ? String(providerTimestamp) : payloadHash;
-    return createHash('sha256').update(`${channelId}:${messageId}:${state}:${eventVersion}`).digest('hex');
-  }
-
-  private mapCloudStatus(status: string | null): MessageDeliveryState | null {
-    if (status === 'sent') return 'accepted';
-    if (status === 'delivered') return 'delivered';
-    if (status === 'read') return 'read';
-    if (status === 'failed') return 'failed';
-    return null;
-  }
-
-  private mapEvolutionStatus(status: unknown): MessageDeliveryState | null {
-    if (typeof status === 'number') {
-      if (status === 0) return 'failed';
-      if (status === 1 || status === 2) return 'accepted';
-      if (status === 3) return 'delivered';
-      if (status === 4 || status === 5) return 'read';
-      return null;
-    }
-    if (typeof status !== 'string') return null;
-    const normalized = status.toUpperCase();
-    if (normalized === 'ERROR' || normalized === 'FAILED') return 'failed';
-    if (normalized === 'PENDING' || normalized === 'SERVER_ACK' || normalized === 'SENT') return 'accepted';
-    if (normalized === 'DELIVERY_ACK' || normalized === 'DELIVERED') return 'delivered';
-    if (normalized === 'READ' || normalized === 'PLAYED') return 'read';
-    return null;
-  }
-
   private assertCloudSignature(signature: string | undefined, rawBody: Buffer): void {
     if (!env.META_APP_SECRET || !signature?.startsWith('sha256=')) throw new UnauthorizedException();
     const expected = createHmac('sha256', env.META_APP_SECRET).update(rawBody).digest();
@@ -400,87 +374,6 @@ export class WebhooksService {
     if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new UnauthorizedException();
   }
 
-  private normalizeEvolutionMessage(channelId: string, organizationId: string, value: unknown, payloadHash: string): IncomingWhatsappMessageDto | null {
-    const data = this.record(value);
-    const key = this.record(data.key);
-    if (key.fromMe === true) return null;
-    const remoteJid = this.string(key.remoteJid) ?? this.string(data.remoteJid);
-    if (!remoteJid || remoteJid === 'status@broadcast') return null;
-    const isGroup = remoteJid.endsWith('@g.us');
-    if (isGroup && remoteJid.length > 250) return null;
-    const altJid = this.string(key.remoteJidAlt) ?? this.string(data.remoteJidAlt);
-    const participantJid = this.string(key.participantAlt) ?? this.string(data.participantAlt) ?? this.string(key.participant) ?? this.string(data.participant);
-    if (!isGroup && remoteJid.includes('@lid') && !altJid) return null;
-    const selectedJid = isGroup
-      ? (participantJid?.endsWith('@s.whatsapp.net') || participantJid?.endsWith('@c.us') ? participantJid : '')
-      : (altJid?.endsWith('@s.whatsapp.net') || altJid?.endsWith('@c.us') ? altJid : remoteJid);
-    const senderPhone = this.phoneDigits(selectedJid.split('@')[0].split(':')[0]);
-    const externalMessageId = this.string(key.id);
-    if ((!isGroup && !this.isValidPhone(senderPhone)) || !externalMessageId || externalMessageId.length > 250) return null;
-    const messageContent = this.unwrapEvolutionMessage(this.record(data.message));
-    const rawMessageType = this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent);
-    const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
-    const reaction = this.extractEvolutionReaction(messageContent);
-    const quotedMessage = this.extractEvolutionQuotedMessage(messageContent);
-    const richContent = this.extractEvolutionRichContent(messageContent);
-    const bodyText = (reaction?.emoji ?? richContent?.title ?? this.extractEvolutionText(messageContent))?.slice(0, 16000) ?? null;
-    const authorName = this.string(data.pushName)?.trim().slice(0, 160) || null;
-    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || quotedMessage || richContent || isGroup
-      ? { reaction, quotedMessage, richContent, ...(isGroup ? { author: { name: authorName, phone: this.isValidPhone(senderPhone) ? senderPhone : null } } : {}) }
-      : null;
-    const mediaType = this.asMediaType(rawMessageType);
-    const mediaContent = mediaType ? this.record(messageContent[`${mediaType}Message`]) : {};
-    const media = mediaType ? this.createMedia(channelId, organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), mediaContent) : null;
-    const occurredAt = this.toDate(data.messageTimestamp);
-    const groupName = this.string(data.groupName) ?? this.string(data.subject);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (this.isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup ? null : this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media, evolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null);
-  }
-
-  private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
-    const message = this.record(value);
-    let senderPhone = this.phoneDigits(this.string(message.from) ?? '');
-    const rawSenderId = this.string(message.user_id) ?? this.string(message.from_user_id);
-    let senderExternalId = this.normalizeExternalIdentity(rawSenderId);
-    let contact = contacts.find((candidate) => (this.isValidPhone(senderPhone) && this.phoneDigits(this.string(candidate.wa_id) ?? '') === senderPhone)
-      || (senderExternalId !== null && this.normalizeExternalIdentity(this.string(candidate.user_id)) === senderExternalId));
-    if (!senderExternalId) senderExternalId = this.normalizeExternalIdentity(this.string(contact?.user_id));
-    if (!this.isValidPhone(senderPhone)) senderPhone = this.phoneDigits(this.string(contact?.wa_id) ?? '');
-    if (!this.isValidPhone(senderPhone)) senderPhone = '';
-    const externalMessageId = this.string(message.id);
-    const messageType = (this.string(message.type) ?? 'unknown').slice(0, 80);
-    if ((!senderPhone && !senderExternalId) || !externalMessageId || externalMessageId.length > 250) return null;
-    if (!contact && senderExternalId) contact = contacts.find((candidate) => this.normalizeExternalIdentity(this.string(candidate.user_id)) === senderExternalId);
-    const profile = this.record(contact?.profile);
-    const occurredAt = this.toDate(message.timestamp);
-    const bodyText = this.extractCloudText(message, messageType)?.slice(0, 16000) ?? null;
-    const mediaType = this.asMediaType(messageType);
-    const mediaContent = mediaType ? this.record(message[mediaType]) : {};
-    const mediaId = this.string(mediaContent.id);
-    const media = mediaType && mediaId ? this.createMedia(channelId, organizationId, mediaType, mediaId, JSON.stringify({ mediaId }), mediaContent) : null;
-    const externalConversationId = senderExternalId ? `${channelId}:${META_EXTERNAL_RECORD_TYPE.businessScopedUserId}:${senderExternalId}` : `${channelId}:${senderPhone}`;
-    const senderName = this.string(profile.name)?.trim().slice(0, 160) || senderExternalId;
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'whatsapp_cloud_api', externalMessageId, externalConversationId, senderPhone || null, senderExternalId, senderName, messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
-  }
-
-  private createMedia(channelId: string, organizationId: string, mediaType: InboundMediaType, sourceMediaId: string | null, sourcePayload: string, mediaContent: JsonRecord): InboundMediaDto {
-    const encrypted = this.credentialCrypto.encryptPayload(organizationId, channelId, sourcePayload);
-    const rawSize = mediaContent.file_size ?? mediaContent.fileLength;
-    const parsedSize = typeof rawSize === 'number' ? rawSize : typeof rawSize === 'string' ? Number(rawSize) : NaN;
-    const sizeBytes = Number.isSafeInteger(parsedSize) && parsedSize >= 0 && parsedSize <= 1_073_741_824 ? parsedSize : null;
-    const rawHash = this.string(mediaContent.sha256) ?? this.string(mediaContent.fileSha256);
-    const rawMimeType = this.string(mediaContent.mime_type) ?? this.string(mediaContent.mimetype);
-    const rawFileName = this.string(mediaContent.filename) ?? this.string(mediaContent.fileName);
-    return new InboundMediaDto(mediaType, sourceMediaId, encrypted.ciphertext, encrypted.iv, encrypted.authTag,
-      rawMimeType && rawMimeType.length <= 120 && /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(rawMimeType) ? rawMimeType : null,
-      rawFileName ? rawFileName.replace(/[\\/\r\n\u0000-\u001f]/g, '_').slice(0, 255) : null,
-      sizeBytes, rawHash?.slice(0, 128) ?? null);
-  }
-
-  private asMediaType(value: string): InboundMediaType | null {
-    const normalized = value.toLowerCase().replace(/message$/, '');
-    if (normalized === 'image' || normalized === 'video' || normalized === 'audio' || normalized === 'document' || normalized === 'sticker') return normalized;
-    return null;
-  }
 
   private classifyCloserSignal(bodyText: string | null): 'human_requested' | 'buying_intent' | 'question' | null {
     if (!bodyText?.trim()) return null;
@@ -497,106 +390,6 @@ export class WebhooksService {
     return null;
   }
 
-  private extractEvolutionText(message: JsonRecord): string | null {
-    for (const key of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage']) {
-      const nested = this.record(message[key]);
-      if (Object.keys(nested).length > 0) {
-        const unwrapped = this.record(nested.message);
-        if (Object.keys(unwrapped).length > 0) return this.extractEvolutionText(unwrapped);
-      }
-    }
-    const direct = this.string(message.conversation) ?? this.string(this.record(message.extendedTextMessage).text);
-    if (direct) return direct;
-    const location = this.record(message.locationMessage);
-    const latitude = typeof location.degreesLatitude === 'number' ? String(location.degreesLatitude) : null;
-    const longitude = typeof location.degreesLongitude === 'number' ? String(location.degreesLongitude) : null;
-    const address = this.string(location.address) ?? this.string(location.name);
-    if (latitude && longitude) return [address, `${latitude}, ${longitude}`].filter(Boolean).join(' · ');
-    const contact = this.record(message.contactMessage);
-    const vcard = this.string(contact.vcard);
-    if (vcard) return [this.string(contact.displayName), ...vcard.split(/\r?\n/).filter((line) => /^TEL(?:;[^:]*)?:/i.test(line)).map((line) => line.slice(line.indexOf(':') + 1))].filter(Boolean).join(' · ');
-    const contacts = this.record(message.contactsArrayMessage);
-    const contactList = Array.isArray(contacts.contacts) ? contacts.contacts.map((entry) => this.record(entry)).map((entry) => this.string(entry.displayName)).filter((name): name is string => Boolean(name)) : [];
-    if (contactList.length) return contactList.join(', ');
-    for (const key of ['imageMessage', 'videoMessage', 'documentMessage']) {
-      const nested = this.record(message[key]);
-      const caption = this.string(nested.caption) ?? this.string(this.record(nested.message).documentMessage && this.record(this.record(nested.message).documentMessage).caption);
-      if (caption) return caption;
-    }
-    for (const key of ['buttonsResponseMessage', 'templateButtonReplyMessage']) {
-      const nested = this.record(message[key]);
-      const text = this.string(nested.selectedDisplayText) ?? this.string(nested.selectedButtonId);
-      if (text) return text;
-    }
-    const listReply = this.record(this.record(message.listResponseMessage).singleSelectReply);
-    return this.string(listReply.title) ?? this.string(this.record(message.listResponseMessage).title);
-  }
-
-  private extractEvolutionReaction(message: JsonRecord): { targetExternalMessageId: string; emoji: string } | null {
-    const reaction = this.record(message.reactionMessage);
-    const targetExternalMessageId = this.string(this.record(reaction.key).id);
-    const emoji = this.string(reaction.text)?.trim();
-    return targetExternalMessageId && targetExternalMessageId.length <= 250 && emoji && [...emoji].length <= 32
-      ? { targetExternalMessageId, emoji }
-      : null;
-  }
-
-  private extractEvolutionQuotedMessage(message: JsonRecord): { externalMessageId: string | null; bodyText: string | null } | null {
-    const contentKeys = ['extendedTextMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage', 'buttonsResponseMessage', 'listResponseMessage', 'templateButtonReplyMessage'];
-    const messageContext = contentKeys.map((key) => this.record(this.record(message[key]).contextInfo)).find((context) => Object.keys(this.record(context.quotedMessage)).length > 0)
-      ?? this.record(message.contextInfo);
-    const quoted = this.record(messageContext.quotedMessage);
-    if (!Object.keys(quoted).length) return null;
-    const externalMessageId = this.string(messageContext.stanzaId);
-    const bodyText = this.extractEvolutionText(quoted)?.trim().slice(0, 2000) ?? null;
-    if (!externalMessageId && !bodyText) return null;
-    return { externalMessageId: externalMessageId && externalMessageId.length <= 250 ? externalMessageId : null, bodyText };
-  }
-
-  private extractEvolutionRichContent(message: JsonRecord): { kind: 'poll'; title: string; options: string[] } | null {
-    for (const key of ['pollCreationMessage', 'pollCreationMessageV2', 'pollCreationMessageV3']) {
-      const poll = this.record(message[key]);
-      const title = this.string(poll.name)?.trim().slice(0, 4096);
-      if (!title) continue;
-      const options = Array.isArray(poll.options)
-        ? poll.options.slice(0, 20).map((option) => this.string(this.record(option).optionName)?.trim().slice(0, 200) ?? '').filter(Boolean)
-        : [];
-      return { kind: 'poll', title, options };
-    }
-    return null;
-  }
-
-  private extractCloudText(message: JsonRecord, type: string): string | null {
-    if (type === 'text') return this.string(this.record(message.text).body);
-    if (['image', 'video', 'document'].includes(type)) return this.string(this.record(message[type]).caption);
-    if (type === 'button') return this.string(this.record(message.button).text);
-    if (type === 'interactive') {
-      const interactive = this.record(message.interactive);
-      return this.string(this.record(interactive.button_reply).title) ?? this.string(this.record(interactive.list_reply).title);
-    }
-    if (type === 'location') {
-      const location = this.record(message.location);
-      return this.string(location.name) ?? this.string(location.address);
-    }
-    return null;
-  }
-
-  private inferEvolutionMessageType(message: JsonRecord): string {
-    const content = this.unwrapEvolutionMessage(message);
-    if (typeof content.conversation === 'string' || typeof content.extendedTextMessage === 'object') return 'text';
-    const type = Object.keys(content).find((key) => key.endsWith('Message'));
-    return type?.replace(/Message$/, '').toLowerCase() ?? 'unknown';
-  }
-
-  private unwrapEvolutionMessage(message: JsonRecord): JsonRecord {
-    for (const key of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage']) {
-      const nested = this.record(message[key]);
-      const unwrapped = this.record(nested.message);
-      if (Object.keys(unwrapped).length > 0) return this.unwrapEvolutionMessage(unwrapped);
-    }
-    return message;
-  }
-
   private toDate(value: unknown): Date {
     const timestamp = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
     return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp) : new Date();
@@ -605,10 +398,6 @@ export class WebhooksService {
   private phoneDigits(value: string): string { return value.split('@')[0].split(':')[0].replace(/\D/g, ''); }
   private isValidPhone(value: string): boolean { return value.length >= 8 && value.length <= 15 && value[0] !== '0'; }
 
-  private normalizeExternalIdentity(value: string | null): string | null {
-    const normalized = value?.trim() ?? '';
-    return normalized.length > 0 && normalized.length <= 250 && /^[a-z0-9._:-]+$/i.test(normalized) ? normalized : null;
-  }
   private record(value: unknown): JsonRecord {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     const record: JsonRecord = {};

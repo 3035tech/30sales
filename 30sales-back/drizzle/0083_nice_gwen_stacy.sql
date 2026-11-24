@@ -1,0 +1,2 @@
+DROP INDEX "messages_org_conversation_occurred_idx";--> statement-breakpoint
+CREATE INDEX "messages_org_conversation_occurred_idx" ON "messages" USING btree ("organization_id","conversation_id","occurred_at","id");

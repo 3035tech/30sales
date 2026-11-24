@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
@@ -58,7 +58,7 @@ export class WebhooksRepository {
       const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
       if (!conversation) return 'unmatched';
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { [input.provider]: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (!message) return 'duplicate';
       if (input.media) await transaction.insert(messageAttachments).values({ organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: input.provider, mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext, sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType, fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256 });
@@ -110,6 +110,36 @@ export class WebhooksRepository {
       if (!conversation) return 'unmatched';
       await transaction.update(conversations).set({ displayName: input.displayName, providerRecipientId: input.providerRecipientId, updatedAt: new Date() })
         .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
+      return 'updated';
+    });
+  }
+
+  async recordEvolutionGroupParticipants(input: EvolutionGroupParticipantsUpdateDto): Promise<'updated' | 'unmatched' | 'duplicate'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId, provider: 'evolution', externalEventId: input.externalEventId,
+        eventType: 'evolution.group.participants.update', payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group, participantCount: input.participants.length },
+        status: 'processed', attempts: '1', processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.conversationType, 'group'), eq(conversations.externalConversationId, input.externalConversationId)))
+        .for('update').limit(1);
+      if (!conversation) return 'unmatched';
+      for (const participant of input.participants) {
+        const present = participant.action !== 'remove';
+        const isAdmin = participant.action === 'promote' ? true : participant.action === 'demote' ? false : undefined;
+        await transaction.insert(conversationGroupParticipants).values({
+          organizationId: input.organizationId, conversationId: conversation.id, provider: 'evolution',
+          externalParticipantId: participant.externalParticipantId, phone: participant.phone,
+          displayName: participant.displayName, isPresent: present, ...(isAdmin === undefined ? {} : { isAdmin }), updatedAt: new Date(),
+        }).onConflictDoUpdate({
+          target: [conversationGroupParticipants.organizationId, conversationGroupParticipants.conversationId, conversationGroupParticipants.provider, conversationGroupParticipants.externalParticipantId],
+          set: { phone: participant.phone, displayName: participant.displayName, isPresent: present, ...(isAdmin === undefined ? {} : { isAdmin }), updatedAt: new Date() },
+        });
+      }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
       return 'updated';
     });
@@ -270,10 +300,10 @@ export class WebhooksRepository {
         const lockKey = `${input.organizationId}:${input.channelId}:${input.externalConversationId}`;
         await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
         let [groupConversation] = await transaction.select({ id: conversations.id }).from(conversations)
-          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, 'evolution'), eq(conversations.channelId, input.channelId), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
         if (!groupConversation) {
           [groupConversation] = await transaction.insert(conversations).values({
-            organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
+            organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId,
             channelId: input.channelId, conversationType: 'group', displayName: input.displayName, providerRecipientId: input.providerRecipientId,
             status: 'open', automationMode: 'paused', lastMessageAt: input.occurredAt,
           }).returning({ id: conversations.id });
@@ -281,12 +311,12 @@ export class WebhooksRepository {
         const [groupMessage] = await transaction.insert(messages).values({
           organizationId: input.organizationId, conversationId: groupConversation.id, externalMessageId: input.externalMessageId,
           direction: 'inbound', actorType: 'contact', bodyText: input.bodyText,
-          providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined,
+          providerMetadata: input.evolutionMetadata ? { [input.provider]: input.evolutionMetadata } : undefined,
           deliveryState: 'received', occurredAt: input.occurredAt,
         }).onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
         if (!groupMessage) return 'duplicate';
         if (input.media) await transaction.insert(messageAttachments).values({
-          organizationId: input.organizationId, messageId: groupMessage.id, channelId: input.channelId, provider: 'evolution',
+          organizationId: input.organizationId, messageId: groupMessage.id, channelId: input.channelId, provider: input.provider,
           mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext,
           sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType,
           fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256,
@@ -360,7 +390,7 @@ export class WebhooksRepository {
         opportunityId = lead?.opportunityId ?? null;
       }
 
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { [input.provider]: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (message) {
         if (input.media) await transaction.insert(messageAttachments).values({

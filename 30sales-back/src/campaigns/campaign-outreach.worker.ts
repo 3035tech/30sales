@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/commo
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_HEALTH_STATUS } from '../channels/channels.dto';
-import { WhatsappTextProviderService } from '../inbox/whatsapp-text-provider.service';
+import { ChannelMessagingAdapterRegistry } from '../inbox/channel-messaging-adapter.registry';
 import { CampaignsRepository } from './campaigns.repository';
 
 @Injectable()
@@ -11,7 +11,7 @@ export class CampaignOutreachWorker implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: CampaignsRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly channelsService: ChannelsService) {}
+  constructor(private readonly repository: CampaignsRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly channelsService: ChannelsService) {}
 
   onModuleInit(): void {
     this.timer = setInterval(() => { void this.processNext() }, 1000);
@@ -37,7 +37,7 @@ export class CampaignOutreachWorker implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const credentials = await this.credentialResolver.resolve(outreach.organizationId, outreach.channelId, outreach.credentials);
-      const result = await this.textProvider.send({ provider: outreach.provider, providerChannelId: outreach.providerChannelId, recipientPhone: outreach.recipientPhone, bodyText: outreach.bodyText, credentials });
+      const result = await this.messagingAdapters.sendText({ providerChannelId: outreach.providerChannelId, recipientPhone: outreach.recipientPhone, bodyText: outreach.bodyText, credentials, targetMessage: null, mode: 'reply' });
       await this.repository.finishOutreach({ ...outreach, deliveryState: result.deliveryState, externalMessageId: result.externalMessageId });
     } catch (error) {
       if (outreach) {

@@ -14,7 +14,7 @@ import type { IncomingMediaFile } from './outbound-media';
 import { PLATFORM_ORGANIZATION_CONTEXT_HEADER } from '../auth/authorization.constants';
 
 const conversationIdSchema = z.string().uuid();
-const listMessagesSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0) }).strict();
+const listMessagesSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(100), offset: z.coerce.number().int().min(0).default(0), search: z.string().trim().max(200).optional().default('') }).strict();
 type ListMessagesQueryDto = z.infer<typeof listMessagesSchema>;
 @Controller('api/v1/conversations')
 export class InboxController {
@@ -33,6 +33,8 @@ export class InboxController {
   tags(@ApiRequest() request: ApiRequestDto) { return this.inboxService.tags(request); }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
+  @Get(':id/group-participants')
+  groupParticipants(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string) { return this.inboxService.groupParticipants(request, conversationId); }
   @Post(':id/read')
   markRead(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(markConversationReadSchema)) input: MarkConversationReadInputDto) { return this.inboxService.markRead(request, conversationId, input); }
   @Post(':id/claim')

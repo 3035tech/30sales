@@ -1,7 +1,7 @@
 import { request, requestBlob } from '../request';
 import { apiEventSource } from '../client';
 import { z } from 'zod';
-import { type ConversationDto, channelSchema, conversationPageSchema, conversationTagSchema, messageSchema } from '../contracts';
+import { type ConversationDto, channelSchema, conversationPageSchema, conversationGroupParticipantsSchema, conversationTagSchema, messageSchema } from '../contracts';
 
 
 export const inboxApi = {
@@ -23,12 +23,14 @@ export const inboxApi = {
     channels: () => request('/api/v1/conversations/channels', z.array(channelSchema)),
     tags: () => request('/api/v1/conversations/tags', z.array(conversationTagSchema)),
     assignees: () => request('/api/v1/conversations/assignees', z.array(z.object({ id: z.string().uuid(), name: z.string(), role: z.string() }))),
-    messages: (conversationId: string, params: { limit?: number; offset?: number } = {}) => {
+    messages: (conversationId: string, params: { limit?: number; offset?: number; search?: string } = {}) => {
       const search = new URLSearchParams();
       if (params.limit !== undefined) search.set('limit', String(params.limit));
       if (params.offset !== undefined) search.set('offset', String(params.offset));
+      if (params.search) search.set('search', params.search);
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
+    groupParticipants: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/group-participants`, conversationGroupParticipantsSchema),
     downloadAttachment: (attachmentId: string) => requestBlob(`/api/v1/attachments/${encodeURIComponent(attachmentId)}/content`),
     markRead: (conversationId: string, lastInboundMessageId: string | null) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, z.object({ conversationId: z.string().uuid(), lastReadAt: z.string().nullable() }), { method: 'POST', body: JSON.stringify({ lastInboundMessageId }) }),
     claim: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/claim`, z.object({ id: z.string().uuid(), ownerUserId: z.string().uuid().nullable(), automationMode: z.enum(['assistant','human','paused']) }), { method: 'POST' }),

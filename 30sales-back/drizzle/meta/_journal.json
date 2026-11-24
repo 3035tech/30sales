@@ -575,6 +575,20 @@
       "when": 1795536606854,
       "tag": "0081_evolution_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1795546921083,
+      "tag": "0082_nifty_northstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1795547024686,
+      "tag": "0083_nice_gwen_stacy",
+      "breakpoints": true
     }
   ]
 }

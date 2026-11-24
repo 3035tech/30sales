@@ -1,5 +1,55 @@
 # Contexto de continuidade — 30Sales
 
+## Evolution e Inbox — mensagens, adapters, grupos e histórico — 24/11/2026
+
+- Exibição de mensagens: anexos disponíveis de imagem, áudio e vídeo são carregados sob demanda na timeline; imagens de cartões Evolution aparecem no cartão; documentos/PDF continuam abrindo ou baixando pelo fluxo autenticado. Mensagens de localização, contatos e respostas interativas preservam o conteúdo normalizado no texto visível.
+- Separação de providers: envio de texto, reply, reação, mídia, contato, consulta de participantes e download inbound passam por adapters Evolution/Meta; normalização de mensagens e recibos recebidos também saiu de `WebhooksService`. Cada adapter declara capacidades, sem habilitar reply a grupos Meta enquanto o envio desse fluxo não está suportado.
+- Grupos: conversas conservam nome/JID, mensagens identificam autor Evolution e o painel de detalhes mostra participantes. Nova tabela tenant-scoped persiste participantes, telefone/nome, papel admin e presença; snapshots atualizam o estado completo e `GROUP_PARTICIPANTS_UPDATE` registra entradas, saídas e mudanças de admin com dedupe.
+- Resiliência do painel de grupo: se a consulta de participantes ao provider falhar, a API devolve o último snapshot persistido com `stale: true`; a interface informa que a lista pode estar desatualizada.
+- Históricos extensos: a timeline tem busca no servidor em texto e transcrição, carrega mensagens em páginas de 100 e aplica `content-visibility` às bolhas fora da viewport. A listagem de conversas continua paginada no servidor. Índice de mensagens inclui timestamp e ID para ordenar estável.
+- Migrations Drizzle geradas `0082`–`0083` para participantes e ajuste do índice. Builds de produção frontend e backend passaram; `git diff --check` passou. Nenhum teste automatizado, webhook/envio real, migration aplicada, commit, push ou deploy nesta fatia.
+- Limites: validação visual com payload real de campanha e mídia permanece pendente; Meta Groups/identidade de membros dependem da elegibilidade e capabilities do produto Meta configurado. A migration precisa ser aplicada pelo fluxo normal de rollout.
+
+## Recibos WhatsApp isolados por provider — 24/11/2026
+
+- A normalização de status Evolution e Meta saiu de `WebhooksService` para adapters específicos. Contrato `WhatsappMessageStatusDto`, hash/idempotência, timestamp, eventos não correspondentes e progressão monotônica no repository permanecem iguais; leitura da equipe continua separada do recibo de leitura do contato.
+- Build Nest e `git diff --check` passaram. Testes automatizados, webhook real, commit, push e deploy não foram executados.
+- Próximo passo arquitetural: extrair normalização de mensagens recebidas por provider, preservando o comando canônico tenant-aware e sem habilitar ingestão de grupos Meta antes da compatibilidade de identidade/metadata.
+
+## Imagens de cartões no Inbox — 24/11/2026
+
+- Imagens de mensagens Evolution com conteúdo rico de cartão agora são apresentadas dentro do cartão no Inbox. O blob autenticado só é solicitado quando a imagem se aproxima da viewport; falha mantém um placeholder e as ações de abrir/baixar.
+- Build Vite e `git diff --check` passaram. Testes automatizados, payload novo real, commit, push e deploy não foram executados.
+
+## Indicador de leitura no Inbox — 24/11/2026
+
+- A leitura segue armazenada por usuário no backend. Após a confirmação do endpoint, a conversa agora remove imediatamente o indicador local de não lida; a fila sincroniza em segundo plano e mantém a regra de filtro “Não lidas”. Falha ao registrar leitura preserva o indicador.
+- Conversas não lidas destacam nome e prévia; ações de resposta/reação ficam fora da área de texto do balão no desktop e permanecem visíveis e alcançáveis em telas pequenas.
+- Build frontend e `git diff --check` passaram; sem testes automatizados.
+
+## Inbox com mais área e cartões Evolution — 24/11/2026
+
+- Inbox ampliado para usar a altura disponível: lista de conversas mais larga, histórico com rolagem própria, painel de lead/contato sobreposto quando aberto e carregamento de mensagens anteriores em blocos de 100. Ao abrir uma conversa, a timeline posiciona no fim; atualizações ao vivo preservam páginas de histórico carregadas.
+- Lista agora mostra nome, telefone, horário e prévia da última mensagem com ticks de saída. Balões de saída usam verde e exibem ✓/✓✓, com ✓✓ azul para lida; responder e reagir ficam junto ao balão, e a fileira redundante de emojis do compositor foi removida.
+- Webhook Evolution reconhece conteúdo de template hidratado como cartão (título, texto e URL segura) e tenta preservar a imagem como anexo para exibição/abertura autenticada. Inbox renderiza o cartão e ação externa apenas para URLs HTTP(S). Meta mantém contrato canônico independente, sem ativar grupos Meta.
+- Builds de frontend e backend e `git diff --check` passaram nesta fatia. Testes automatizados, validação com novo payload real da Evolution, envio e deploy não foram executados.
+
+## Clareza de status e limite diário — 24/11/2026
+
+- Ajustados os textos da configuração de canais para explicitar que o limite conta envios do número, ignora mensagens recebidas, inclui envios aguardando confirmação e exclui falhas confirmadas. O contador agora se chama “Envios computados hoje”; o reinício continua exibindo a meia-noite e o fuso configurado.
+- Inbox distingue “Lida pelo contato” (status do envio) de “Não lidas pela equipe” (leitura da conversa pelo usuário). O estado `received` permanece próprio das mensagens inbound.
+- O valor `1 de 500` da captura não prova divergência: ele pode incluir outro envio do dia que não está marcado como falha. A regra no backend conta mensagens outbound do canal com status diferente de `failed`; para confirmar um caso específico seria necessário comparar os registros daquele canal.
+- Build Vite e `git diff --check` passaram. Não rodei testes automatizados nem alterei a lógica do contador.
+
+## Arquitetura Evolution × Meta para Inbox — 24/11/2026
+
+- A intenção é integração completa por adapters para ciclo de entrada/saída, anexos, contatos, grupos, estado do canal e capacidades; a Inbox e as regras tenant-aware permanecem no domínio 30Sales. Decisões e lacunas estão em [`sofia_produto/14_adapters_integracao_whatsapp.md`](sofia_produto/14_adapters_integracao_whatsapp.md).
+- Fatia local atual: contratos/registry para envio de texto, mídia, contato e download inbound; consulta de participantes Evolution e Meta; prévia autenticada de anexos na Inbox. Meta Groups API existe para empresas elegíveis com OBA, então não assumir incompatibilidade geral com grupos.
+- Ainda aberto antes de considerar a separação completa: extrair normalização/autenticação de webhooks por provider; generalizar ingestão, identidade/metadata e persistência de grupo (incluindo BSUID Meta); permitir envio Meta a grupo apenas via capacidade elegível; cobrir estados/status, mídia e tipos de mensagem por contratos canônicos. Nenhuma chamada real ou deploy.
+- Ordem ajustada após rastrear `WebhooksService` até `WebhooksRepository`: primeiro generalizar o comando de entrada e persistência canônica (provider, identidade, mídia, tipo e metadata); depois mover autenticação/normalização de envelopes para adapters. A extração isolada agora deixaria lógica duplicada ou habilitaria incorretamente grupos Meta no ramo hardcoded como Evolution. Próxima fatia precisa manter a ingestão de grupos Meta bloqueada e provar mensagens individuais dos dois providers sem mudança semântica.
+- Primeiro ajuste dessa etapa: `recordIncomingMessage` agora persiste uma conversa de grupo sob `input.provider` (inclusive busca/deduplicação da conversa), registra metadata na chave do provider e associa anexos ao provider correto. Grupos Meta continuam sem normalização/ingestão ativada e envio permanece bloqueado. Builds Nest e Vite e `git diff --check` passaram; sem testes automatizados, migration, envio real ou deploy.
+- Frontend Vite passou após prévia de imagem/vídeo/áudio/PDF; backend Nest passou após correção de narrowing tenant-safe e consulta de membros. Sem testes automatizados conforme escopo desta rodada; executar ambos os builds novamente após as alterações finais.
+
 ## Respostas citadas e reações no Inbox — 24/11/2026
 
 - O compositor oferece atalhos de emoji para enviar como texto. Mensagens com ID externo permitem resposta citada e reação por emoji; a API valida o alvo no mesmo tenant/conversa, rejeita mensagem apagada ou sem ID externo e exige uma única sequência de emoji para reação.

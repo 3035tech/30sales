@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { env } from '../config/env';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
-import { WhatsappTextProviderService } from '../inbox/whatsapp-text-provider.service';
+import { ChannelMessagingAdapterRegistry } from '../inbox/channel-messaging-adapter.registry';
 import { AssistantLanguageModelService, AssistantRuntimeModelError } from './assistant-language-model.service';
 import { AssistantRuntimeRepository } from './assistant-runtime.repository';
 import { assistantInboundEventSchema, type AssistantQueueEventDto } from './assistant-runtime.dto';
@@ -23,7 +23,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private processing = false;
 
-  constructor(private readonly repository: AssistantRuntimeRepository, private readonly model: AssistantLanguageModelService, private readonly transcription: AssistantAudioTranscriptionService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly webhooks: WebhooksService) {}
+  constructor(private readonly repository: AssistantRuntimeRepository, private readonly model: AssistantLanguageModelService, private readonly transcription: AssistantAudioTranscriptionService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly webhooks: WebhooksService) {}
 
   onModuleInit(): void {
     if (!env.ANTHROPIC_API_KEY) {
@@ -142,7 +142,7 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
         result: execution.result,
         send: async (channel) => {
           const credentials = await this.credentialResolver.resolve(context.event.organizationId, channel.channelId, channel.credentials);
-          return this.textProvider.send({ provider: channel.provider, providerChannelId: channel.providerChannelId, recipientPhone: channel.recipientPhone, bodyText: execution.result.replyText, credentials });
+          return this.messagingAdapters.sendText({ providerChannelId: channel.providerChannelId, recipientPhone: channel.recipientPhone, bodyText: execution.result.replyText, credentials, targetMessage: null, mode: 'reply' });
         },
       });
       await this.repository.completeAssistantRunDelivery({

@@ -53,6 +53,24 @@ export class EvolutionGroupMetadataDto {
   ) {}
 }
 
+export type EvolutionGroupParticipantChange = {
+  externalParticipantId: string;
+  phone: string | null;
+  displayName: string | null;
+  action: 'add' | 'remove' | 'promote' | 'demote';
+};
+
+export class EvolutionGroupParticipantsUpdateDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly externalEventId: string,
+    readonly externalConversationId: string,
+    readonly participants: EvolutionGroupParticipantChange[],
+    readonly payloadHash: string,
+  ) {}
+}
+
 export type EvolutionHistoryBatchDto = {
   id: string;
   organizationId: string;
@@ -80,7 +98,7 @@ export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'stick
 export type EvolutionMessageMetadata = {
   reaction: { targetExternalMessageId: string; emoji: string } | null;
   quotedMessage: { externalMessageId: string | null; bodyText: string | null } | null;
-  richContent?: { kind: 'poll'; title: string; options: string[] } | null;
+  richContent?: { kind: 'poll'; title: string; options: string[] } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
   author?: { name: string | null; phone: string | null } | null;
 };
 
@@ -139,7 +157,7 @@ export class IncomingWhatsappMessageDto {
 const evolutionMessageMetadataSchema = z.object({
   reaction: z.object({ targetExternalMessageId: z.string().min(1).max(250), emoji: z.string().min(1).max(32) }).nullable(),
   quotedMessage: z.object({ externalMessageId: z.string().max(250).nullable(), bodyText: z.string().max(2000).nullable() }).nullable(),
-  richContent: z.object({ kind: z.literal('poll'), title: z.string().max(4096), options: z.array(z.string().max(200)).max(20) }).nullable().optional(),
+  richContent: z.union([z.object({ kind: z.literal('poll'), title: z.string().max(4096), options: z.array(z.string().max(200)).max(20) }).strict(), z.object({ kind: z.literal('card'), title: z.string().max(500).nullable(), body: z.string().max(4096).nullable(), buttonLabel: z.string().max(120).nullable(), buttonUrl: z.string().url().max(2048).nullable() }).strict()]).nullable().optional(),
   author: z.object({ name: z.string().max(160).nullable(), phone: z.string().max(20).nullable() }).nullable().optional(),
 }).strict();
 

@@ -6,9 +6,7 @@ import { TenantAccessService } from '../leads/tenant-access.service';
 import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
-import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
-import { WhatsappMediaProviderService } from './whatsapp-media-provider.service';
-import { WhatsappContactProviderService } from './whatsapp-contact-provider.service';
+import { ChannelMessagingAdapterRegistry } from './channel-messaging-adapter.registry';
 import { MEDIA_STORAGE, type MediaStorage } from '../attachments/media-storage';
 import { prepareOutboundMedia, type IncomingMediaFile, type PreparedOutboundMedia } from './outbound-media';
 import { OUTBOUND_MEDIA_ERROR, OUTBOUND_MEDIA_TYPE } from './outbound-media.constants';
@@ -16,10 +14,11 @@ import { InboxRealtimeService } from './inbox-realtime.service';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
+import { ConversationGroupParticipantsResultDto } from './inbox.dto';
 
 @Injectable()
 export class InboxService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly mediaProvider: WhatsappMediaProviderService, private readonly contactProvider: WhatsappContactProviderService, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.realtime.stream(context.organizationId, context.userId);
@@ -41,11 +40,31 @@ export class InboxService {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.repository.listAssignees(context.organizationId);
   }
-  async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
+  async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number; search: string }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, query.limit, query.offset, context.isPlatformOrganizationContext));
+    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, query.limit, query.offset, query.search, context.isPlatformOrganizationContext));
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
+  }
+  async groupParticipants(request: ApiRequestDto, conversationId: string): Promise<ConversationGroupParticipantsResultDto> {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    const target = await this.repository.getGroupParticipantsTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);
+    if (!target) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
+    if (target.provider !== 'evolution' && target.provider !== 'whatsapp_cloud_api') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
+    if (!target.providerChannelId || !target.groupJid || !target.groupJid.endsWith('@g.us') || !target.credentialsCiphertext || !target.credentialsIv || !target.credentialsAuthTag) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
+    const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, { ciphertext: target.credentialsCiphertext, iv: target.credentialsIv, authTag: target.credentialsAuthTag });
+    if (credentials.provider !== target.provider) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The channel provider configuration is invalid.' });
+    let result: Awaited<ReturnType<ChannelMessagingAdapterRegistry['listGroupParticipants']>>;
+    try {
+      result = await this.messagingAdapters.listGroupParticipants({ providerChannelId: target.providerChannelId, groupJid: target.groupJid, credentials });
+    } catch (error) {
+      const cached = await this.repository.listStoredGroupParticipants(context.organizationId, conversationId, target.provider);
+      if (cached.length > 0) return new ConversationGroupParticipantsResultDto(true, cached, true);
+      throw error;
+    }
+    if (!result.supported) return new ConversationGroupParticipantsResultDto(false, []);
+    const participants = await this.repository.syncGroupParticipantsSnapshot({ organizationId: context.organizationId, conversationId, provider: target.provider, participants: result.participants });
+    return new ConversationGroupParticipantsResultDto(true, participants);
   }
   async markRead(request: ApiRequestDto, conversationId: string, input: MarkConversationReadInputDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -149,11 +168,12 @@ export class InboxService {
     try {
       const credentials = await this.credentialResolver.resolve(organizationId, prepared.channelId, prepared.credentials);
       if (credentials.provider !== prepared.provider) throw new Error('Channel credential provider mismatch.');
+      const destination = { providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, credentials };
       delivery = contact
-        ? await this.contactProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, contact, credentials })
+        ? await this.messagingAdapters.sendContact({ ...destination, contact })
         : media
-          ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
-          : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials, targetMessage: prepared.targetMessage, mode });
+          ? await this.messagingAdapters.sendMedia({ ...destination, bodyText: bodyText ?? '', media })
+          : await this.messagingAdapters.sendText({ ...destination, bodyText: bodyText ?? '', targetMessage: prepared.targetMessage, mode });
     } catch {
       delivery = { deliveryState: 'failed', externalMessageId: null };
     }

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationReads, conversationTagLinks, conversationTags, conversations, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
@@ -21,6 +21,48 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
+  async getGroupParticipantsTarget(organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false) {
+    const canRead = isPlatformOrganizationContext
+      ? Boolean((await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1))[0])
+      : await this.canAccessConversationLine(organizationId, conversationId, userId);
+    if (!canRead) return null;
+    const [target] = await database.select({ provider: conversations.provider, conversationType: conversations.conversationType, groupJid: conversations.providerRecipientId,
+      channelId: messagingChannels.id, providerChannelId: messagingChannels.providerChannelId, credentialsCiphertext: messagingChannels.credentialsCiphertext,
+      credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
+      .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    return target?.conversationType === 'group' && target.groupJid && target.credentialsCiphertext && target.credentialsIv && target.credentialsAuthTag ? target : null;
+  }
+
+  async syncGroupParticipantsSnapshot(input: { organizationId: string; conversationId: string; provider: string; participants: Array<{ id: string; phone: string | null; name: string | null; isAdmin: boolean }> }) {
+    await database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId), eq(conversations.conversationType, 'group'), eq(conversations.provider, input.provider))).for('update').limit(1);
+      if (!conversation) return;
+      await transaction.update(conversationGroupParticipants).set({ isPresent: false, updatedAt: new Date() })
+        .where(and(eq(conversationGroupParticipants.organizationId, input.organizationId), eq(conversationGroupParticipants.conversationId, input.conversationId), eq(conversationGroupParticipants.provider, input.provider)));
+      for (const participant of input.participants.slice(0, 1000)) {
+        if (!participant.id || participant.id.length > 250) continue;
+        await transaction.insert(conversationGroupParticipants).values({
+          organizationId: input.organizationId, conversationId: input.conversationId, provider: input.provider,
+          externalParticipantId: participant.id, phone: participant.phone, displayName: participant.name,
+          isAdmin: participant.isAdmin, isPresent: true, updatedAt: new Date(),
+        }).onConflictDoUpdate({
+          target: [conversationGroupParticipants.organizationId, conversationGroupParticipants.conversationId, conversationGroupParticipants.provider, conversationGroupParticipants.externalParticipantId],
+          set: { phone: participant.phone, displayName: participant.name, isAdmin: participant.isAdmin, isPresent: true, updatedAt: new Date() },
+        });
+      }
+    });
+    return this.listStoredGroupParticipants(input.organizationId, input.conversationId, input.provider);
+  }
+
+  listStoredGroupParticipants(organizationId: string, conversationId: string, provider: string) {
+    return database.select({ id: conversationGroupParticipants.externalParticipantId, phone: conversationGroupParticipants.phone, name: conversationGroupParticipants.displayName, isAdmin: conversationGroupParticipants.isAdmin })
+      .from(conversationGroupParticipants)
+      .where(and(eq(conversationGroupParticipants.organizationId, organizationId), eq(conversationGroupParticipants.conversationId, conversationId), eq(conversationGroupParticipants.provider, provider), eq(conversationGroupParticipants.isPresent, true)))
+      .orderBy(asc(conversationGroupParticipants.displayName), asc(conversationGroupParticipants.externalParticipantId));
+  }
+
   async canAccessConversationLine(organizationId: string, conversationId: string, userId: string): Promise<boolean> {
     const [membership] = await database.select({ role: authMember.role }).from(authMember)
       .where(and(eq(authMember.organizationId, organizationId), eq(authMember.userId, userId))).limit(1);
@@ -191,6 +233,8 @@ export class InboxRepository {
       .where(and(...conditions))
       .orderBy(desc(sql`coalesce(${conversations.lastMessageAt}, ${conversations.createdAt})`), desc(conversations.id))
       .limit(input.query.limit).offset(input.query.offset);
+    const latestMessages = rows.length ? await database.selectDistinctOn([messages.conversationId], { conversationId: messages.conversationId, bodyText: sql<string | null>`left(${messages.bodyText}, 180)`, direction: messages.direction, deliveryState: messages.deliveryState }).from(messages).where(and(eq(messages.organizationId, input.organizationId), inArray(messages.conversationId, rows.map((row) => row.id)))).orderBy(messages.conversationId, desc(messages.occurredAt), desc(messages.id)) : [];
+    const latestMessageByConversation = new Map(latestMessages.map((message) => [message.conversationId, message]));
     const conversationPersonIds = rows.flatMap((row) => row.personId ? [row.personId] : []);
     const leadRows = conversationPersonIds.length ? await database.select({ accountId: leads.accountId, personId: sql<string>`coalesce(${leadContacts.personId}, ${leads.personId})`, status: leads.status, source: leads.source, nextActionAt: leads.nextActionAt, updatedAt: leads.updatedAt }).from(leads)
       .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId), inArray(leadContacts.personId, conversationPersonIds)))
@@ -207,7 +251,7 @@ export class InboxRepository {
       if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name));
       else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name)]);
     }
-    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; const canReply = row.conversationType === 'group' ? row.provider === 'evolution' : Boolean(row.personPhone); return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(canReply && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName, row.providerArchived, row.providerPinned, row.providerUnreadCount, row.providerDeleted, row.conversationType === 'group' ? 'group' : 'direct', row.displayName); });
+    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; const canReply = row.conversationType === 'group' ? row.provider === 'evolution' : Boolean(row.personPhone); return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(canReply && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName, row.providerArchived, row.providerPinned, row.providerUnreadCount, row.providerDeleted, row.conversationType === 'group' ? 'group' : 'direct', row.displayName, latestMessageByConversation.get(row.id)?.bodyText ?? null, latestMessageByConversation.get(row.id)?.direction ?? null, latestMessageByConversation.get(row.id)?.deliveryState ?? null); });
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
@@ -359,7 +403,7 @@ export class InboxRepository {
       : await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId);
     if (!canReadConversation) return null;
     const rows = await database.select({ id: messages.id, externalMessageId: messages.externalMessageId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, transcriptText: messages.transcriptText, isDeleted: messages.isDeleted, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
-      .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
+      .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId), input.search ? or(ilike(messages.bodyText, `%${input.search}%`), ilike(messages.transcriptText, `%${input.search}%`)) : undefined, input.search ? eq(messages.isDeleted, false) : undefined))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
     const attachmentRows = rows.length ? await database.select({ messageId: messageAttachments.messageId, id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status })
       .from(messageAttachments).where(and(eq(messageAttachments.organizationId, input.organizationId), inArray(messageAttachments.messageId, rows.map((row) => row.id)))) : [];

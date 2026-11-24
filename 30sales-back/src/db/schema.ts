@@ -45,7 +45,7 @@ export type MessageProviderMetadata = {
   evolution?: {
     reaction?: { targetExternalMessageId: string; emoji: string } | null;
     quotedMessage?: { externalMessageId: string | null; bodyText: string | null } | null;
-    richContent?: { kind: 'poll'; title: string; options: string[] } | null;
+    richContent?: { kind: 'poll'; title: string; options: string[] } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
     author?: { name: string | null; phone: string | null } | null;
   } | null;
 };
@@ -623,6 +623,23 @@ export const conversations = pgTable('conversations', {
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),
 ]);
 
+export const conversationGroupParticipants = pgTable('conversation_group_participants', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  provider: text('provider').notNull(),
+  externalParticipantId: text('external_participant_id').notNull(),
+  phone: text('phone'),
+  displayName: text('display_name'),
+  isAdmin: boolean('is_admin').default(false).notNull(),
+  isPresent: boolean('is_present').default(true).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'conversation_group_participants_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  unique('conversation_group_participants_org_conversation_provider_participant_unique').on(table.organizationId, table.conversationId, table.provider, table.externalParticipantId),
+  index('conversation_group_participants_org_conversation_present_idx').on(table.organizationId, table.conversationId, table.isPresent, table.displayName),
+  check('conversation_group_participants_external_id_length_check', sql`length(${table.externalParticipantId}) between 1 and 250`),
+]);
+
 export const opportunityConversationContexts = pgTable('opportunity_conversation_contexts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -701,7 +718,7 @@ export const messages = pgTable('messages', {
   unique('messages_id_organization_unique').on(table.id, table.organizationId),
   unique('messages_conversation_external_unique').on(table.organizationId, table.conversationId, table.externalMessageId),
   unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
-  index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt),
+  index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt, table.id),
   index('messages_org_conversation_direction_created_idx').on(table.organizationId, table.conversationId, table.direction, table.createdAt),
 ]);
 

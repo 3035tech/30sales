@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, Mail, RefreshCw, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { Modal } from '../components/ui/Modal'
 import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { api, type TeamMemberDto } from '../lib/api'
 import { roleNames, type OrganizationRole } from '../lib/permissions'
@@ -15,7 +16,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
   const [role, setRole] = useState<OrganizationRole>(ORGANIZATION_ROLE.sdr)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [inviteOpen, setInviteOpen] = useState(false)
   const [loadError, setLoadError] = useState(false)
 
   const refresh = async () => {
@@ -23,21 +24,20 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
     setLoadError(false)
     const result = await api.team.listMembers(organizationId)
     setLoading(false)
-    if (result.error) { setError(t('team.loadFailed')); setLoadError(true); return }
+    if (result.error) { setLoadError(true); return }
     setMembers(result.data ?? [])
-    setError('')
   }
   useEffect(() => { void refresh() }, [organizationId])
 
   const invite = async (event: React.FormEvent) => {
     event.preventDefault()
     setBusy(true)
-    setError('')
     const result = await api.team.invite({ email, role, organizationId })
     setBusy(false)
     if (result.error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.inviteFailed')); return }
     if (!result.emailSent) { setEmail(''); notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.inviteFailed')); void refresh(); return }
     setEmail('')
+    setInviteOpen(false)
     notifySystemAlert(SYSTEM_ALERT_KIND.success, t('team.invited', { email }))
     void refresh()
   }
@@ -55,14 +55,9 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
         {loading && members.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
         {loading && members.length === 0 ? <WorkspaceState kind="loading" compact message={t('team.loading')} /> : loadError && members.length === 0 ? <WorkspaceState kind="error" message={t('team.loadFailed')} /> : members.length === 0 ? <WorkspaceState kind="empty" message={t('team.empty')} /> : <div className="member-list">{members.map((member) => <div className="member-row" key={member.id}><span className="avatar">{member.user.name.slice(0, 1)}</span><span className="member-person"><strong>{member.user.name}</strong><small>{member.user.email}</small></span><span className="role-badge">{member.role.split(',').map(labelRole).join(', ')}</span></div>)}</div>}
       </section>
-      <section className="team-panel invite-panel"><div className="panel-heading"><span className="card-icon"><Mail size={18} /></span><div><h3>{t('team.inviteTitle')}</h3><p>{t('team.inviteHint')}</p></div></div>
-        <form className="invite-form" onSubmit={invite}><label>{t('common.email')}<TextField type="email" normalize="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('team.emailPlaceholder')} required /></label>
-          <label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== ORGANIZATION_ROLE.owner).map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label>
-          <Button className="primary" disabled={busy}>{busy ? t('team.sending') : t('team.sendInvite')}<ArrowRight size={16} /></Button>
-        </form>
-        {error && !loadError && <WorkspaceState kind="error" compact message={error} />}
-      </section>
+      <section className="team-panel invite-panel"><div className="panel-heading"><span className="card-icon"><Mail size={18} /></span><div><h3>{t('team.inviteTitle')}</h3><p>{t('team.inviteHint')}</p></div></div><Button className="primary" type="button" onClick={() => setInviteOpen(true)}><Mail size={16} />{t('team.sendInvite')}</Button></section>
     </div>
+    <Modal open={inviteOpen} onOpenChange={setInviteOpen} title={t('team.inviteTitle')} description={t('team.inviteHint')} closeLabel={t('common.close')} className="team-invite-modal"><form className="invite-form" onSubmit={invite}><label>{t('common.email')}<TextField type="email" normalize="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder={t('team.emailPlaceholder')} required /></label><label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== ORGANIZATION_ROLE.owner).map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label><Button className="primary" disabled={busy}>{busy ? t('team.sending') : t('team.sendInvite')}<ArrowRight size={16} /></Button></form></Modal>
     <p className="footer-note"><span className="dot" />{t('team.verifyNote')}</p>
   </div>
 }

@@ -1,10 +1,12 @@
 import { Button, CalendarField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, ChevronLeft, ChevronRight, RefreshCw, Send, Plus, X } from 'lucide-react'
+import { ArrowDown, ArrowDownLeft, ArrowRight, ArrowUp, Check, ChevronLeft, ChevronRight, RefreshCw, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { Modal } from '../components/ui/Modal'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import './HandoffsWorkspace.css'
 import './HandoffReadiness.css'
 
@@ -83,8 +85,8 @@ export function HandoffsWorkspace() {
       const confirmedReadiness = readinessFields.filter((field) => readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${readiness[field].trim()}`)
       const missingReadiness = readinessFields.filter((field) => !readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${t('handoffReadiness.notConfirmed')}`)
       await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
-      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); setCreateFormOpen(false); if (handoffId) setSearchParams({})
-    } catch { setError(t('errors.createHandoff')) }
+      setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); setCreateFormOpen(false); if (handoffId) setSearchParams({}); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('handoffs.created'))
+    } catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('errors.createHandoff')) }
     finally { setSaving(false) }
   }
   const accept = async (handoff: HandoffDto) => {
@@ -111,9 +113,9 @@ export function HandoffsWorkspace() {
   }
 
   return <section className="leads-page handoffs-page">
-    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><div className="handoff-header-actions"><Button type="button" className={createFormOpen ? '' : 'primary'} aria-label={createFormOpen ? t('handoffs.closeForm') : undefined} aria-expanded={createFormOpen} aria-controls="new-handoff-form" onClick={() => setCreateFormOpen((open) => !open)}>{createFormOpen ? <X size={16} /> : <><Plus size={16} />{t('handoffs.new')}</>}</Button><Button type="button" className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></div></header>
-    <form id="new-handoff-form" className="handoff-form" hidden={!createFormOpen} onSubmit={create}>
-      <div className="lead-form-title"><Send size={18} /><div><strong>{t('handoffs.new')}</strong><small>{t('handoffs.newHint')}</small></div></div>
+    <header className="leads-heading"><div><p className="eyebrow">{t('handoffs.eyebrow')}</p><h2>{t('handoffs.title')}</h2><p className="muted">{t('handoffs.description')}</p></div><div className="handoff-header-actions"><Button type="button" className="primary" onClick={() => setCreateFormOpen(true)}><Plus size={16} />{t('handoffs.new')}</Button><Button type="button" className="refresh" onClick={() => void refresh()} aria-label={t('handoffs.refresh')}><RefreshCw size={16} /></Button></div></header>
+    <Modal open={createFormOpen} onOpenChange={setCreateFormOpen} title={t('handoffs.new')} description={t('handoffs.newHint')} closeLabel={t('common.close')} className="handoff-create-modal">
+    <form id="new-handoff-form" className="handoff-form" onSubmit={create}>
       <div className="handoff-fields">
         <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required disabled={leadOptionsState !== 'ready'}><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField>{leadOptionsState === 'loading' && <small aria-live="polite">{t('common.loading')}</small>}{leadOptionsState === 'error' && <small className="ui-field-error" role="alert">{t('handoffs.leadsLoadFailed')}</small>}{leadOptionsState === 'ready' && leads.length === 0 && <small>{t('handoffs.noRespondedLeads')}</small>}</label>
         <label>{t('handoffs.reason')}<TextField value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
@@ -126,6 +128,7 @@ export function HandoffsWorkspace() {
         <Button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</Button>
       </div>
     </form>
+    </Modal>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="handoff-tabs" role="group" aria-label={t('handoffs.views')}>
       {statuses.map((item) => <Button key={item} type="button" aria-pressed={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}

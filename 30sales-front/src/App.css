@@ -70,3 +70,5 @@
 .rail>.mobile-nav-toggle.ui-button{display:none}
 @media(max-width:640px){.rail{padding:12px 17px}.rail .brand{padding:0}.rail .nav-group{margin-bottom:8px}}
 @media(max-width:640px){.rail>.mobile-nav-toggle.ui-button{display:grid}}
+.lead-create-modal .lead-form,.task-create-modal .task-form,.handoff-create-modal .handoff-form{margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}.task-header-actions,.channel-header-actions{display:flex;align-items:center;gap:9px}.lead-create-modal .lead-fields,.task-create-modal .task-fields,.handoff-create-modal .handoff-fields{margin-bottom:0}
+.channel-create-modal .channel-form,.channel-credentials-modal .channel-form,.assistant-profile-modal .assistant-profile-editor,.ui-modal .pipeline-stage-create,.ui-modal .pipeline-management-create{margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}

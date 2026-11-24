@@ -7,6 +7,7 @@ import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { ACCOUNT_SEGMENT_FILTER, api, ApiError, CONTACT_OUTREACH_BASIS, CONTACT_OUTREACH_BASIS_VALUES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISION_VALUES, LEAD_SOURCE_VALUES, SDR_PREVIEW_PAGE_SIZE, parseLeadStatus, type AccountSegmentDto, type BusinessLineDto, type CreateLeadContactInput, type CreateLeadInput, type CreateQualificationFactInput, type LeadAssigneeDto, type LeadContactDto, type LeadDto, type LeadDuplicateCandidateDto, type LeadSortBy, type LeadStatus, type QualificationFactDto, type QualificationFactPageDto, type QualificationSuggestionDto, type SdrPreviewChannelDto, type SdrPreviewDto, type SdrReadinessDto } from '../lib/api'
 import { ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS } from '../lib/accountConstants'
@@ -453,11 +454,12 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
       setShowForm(false)
       setOffset(0)
       setRefreshVersion((version) => version + 1)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('leads.createSucceeded'))
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'LEAD_POSSIBLE_DUPLICATES') {
-        try { const result = await api.leads.checkDuplicates(form); if (result.candidates.length) { setDuplicateCandidates(result.candidates); setError('') } else setError(t('errors.saveLead')) }
-        catch { setError(t('leadDuplicateReview.checkFailed')) }
-      } else setError(t('errors.saveLead'))
+        try { const result = await api.leads.checkDuplicates(form); if (result.candidates.length) { setDuplicateCandidates(result.candidates); setError('') } else notifySystemAlert(SYSTEM_ALERT_KIND.error, t('errors.saveLead')) }
+        catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('leadDuplicateReview.checkFailed')) }
+      } else notifySystemAlert(SYSTEM_ALERT_KIND.error, t('errors.saveLead'))
     }
     finally { setSaving(false) }
   }
@@ -470,7 +472,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
       const result = await api.leads.checkDuplicates(form)
       if (result.candidates.length) { setDuplicateCandidates(result.candidates); setDuplicateOverrideReason(''); return }
       await saveLead()
-    } catch { setError(t('leadDuplicateReview.checkFailed')) }
+    } catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('leadDuplicateReview.checkFailed')) }
     finally { setCheckingDuplicates(false) }
   }
 
@@ -681,7 +683,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
 
   return <section className="leads-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
-      <div className="lead-actions"><Button type="button" className="primary add-lead" disabled={businessLines.length === 0} onClick={() => setShowForm((value) => !value)}><Plus size={16} />{showForm ? t('leads.closeForm') : t('leads.addLead')}</Button><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button></div>
+      <div className="lead-actions"><Button type="button" className="primary add-lead" disabled={businessLines.length === 0} onClick={() => setShowForm(true)}><Plus size={16} />{t('leads.addLead')}</Button><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button></div>
     </header>
     <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab(CAMPAIGN_WORKSPACE_TAB.campaigns) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
@@ -787,8 +789,8 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
         <p className="form-hint">{t('sdrPreview.noSend')}</p>
       </>}
     </Modal>
-    {showForm && <form className="lead-form" onSubmit={createLead}>
-      <div className="lead-form-title"><Users size={18} /><div><strong>{t('leads.newLead')}</strong><small>{t('leads.newLeadHint')}</small></div></div>
+    <Modal open={showForm} onOpenChange={(open) => { setShowForm(open); if (!open) { setError(''); setDuplicateCandidates(null); setDuplicateOverrideReason('') } }} title={t('leads.newLead')} description={t('leads.newLeadHint')} closeLabel={t('common.close')} className="lead-create-modal">
+    <form className="lead-form" onSubmit={createLead}>
       {businessLines.length === 0 ? <WorkspaceState kind="empty" compact message={t('businessLines.empty')} /> : <div className="lead-fields">
         <label>{t('businessLines.title')}<SelectField value={form.businessLineId} onChange={(event) => updateLeadForm({ businessLineId: event.target.value })} required><option value="" disabled>{t('businessLines.selectLine')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label>
         <label>{t('leads.company')}<TextField value={form.accountName} onChange={(event) => updateLeadForm({ accountName: event.target.value })} minLength={2} maxLength={160} required /></label>
@@ -799,7 +801,8 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
       <p className="form-hint">{t('leads.contactChannelHint')}</p>
       {duplicateCandidates && <section className="lead-duplicate-review" aria-live="polite"><div><strong>{t('leadDuplicateReview.title')}</strong><p>{t('leadDuplicateReview.hint')}</p></div><ul>{duplicateCandidates.map((candidate) => <li key={candidate.id}><span><strong>{candidate.accountName}{candidate.contactName ? ` · ${candidate.contactName}` : ''}</strong><small>{t(`leadStatuses.${candidate.status}`)} · {candidate.matchedBy.map((match) => t(`leadDuplicateReview.matchedBy.${match}`)).join(', ')}</small></span></li>)}</ul><label>{t('leadDuplicateReview.overrideReason')}<TextareaField value={duplicateOverrideReason} onChange={(event) => setDuplicateOverrideReason(event.target.value)} minLength={3} maxLength={500} required /></label><div className="lead-duplicate-actions"><Button type="button" className="status-change-cancel" disabled={saving} onClick={() => { setDuplicateCandidates(null); setDuplicateOverrideReason('') }}>{t('common.cancel')}</Button><Button type="button" className="primary" disabled={saving || duplicateOverrideReason.trim().length < 3} onClick={() => void saveLead(duplicateOverrideReason.trim())}>{saving ? t('common.saving') : t('leadDuplicateReview.createAnyway')}</Button></div></section>}
       {!duplicateCandidates && <Button className="primary" disabled={saving || checkingDuplicates || businessLines.length === 0}>{checkingDuplicates ? t('leadDuplicateReview.checking') : saving ? t('common.saving') : t('leads.saveLead')}</Button>}
-    </form>}
+    </form>
+    </Modal>
     <Modal open={contactsLead !== null} onOpenChange={(open) => { if (!open) { contactsRequestId.current += 1; setContactsLead(null); setContactsError(''); setAccountContactsError(''); setAccountContacts(null); setQualificationFactsError(''); setQualificationFacts(null); setQualificationFactForm(defaultQualificationFactForm); setContactForm({ name: '', email: '', phone: '', jobTitle: '', isInterested: false, referralNote: '', notes: '' }) } }} title={t('leadContacts.title', { company: contactsLead?.accountName ?? '' })} description={t('leadContacts.description')} closeLabel={t('common.close')} className="lead-contacts-modal">
       {contactsError && <WorkspaceState kind="error" compact message={contactsError} />}
       {contactsLoading ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>

@@ -1,5 +1,6 @@
 import { Button, SelectField, TextField } from '../components/ui/FormControls'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { Modal } from '../components/ui/Modal'
 import { useEffect, useState } from 'react'
 import { Activity, ArrowRight, Building2, ChevronLeft, ChevronRight, Copy, LogOut, Plus, RefreshCw, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -9,7 +10,7 @@ import { PlatformOrganizationPicker } from './PlatformOrganizationPicker'
 import { PlatformAiUsagePanel } from './PlatformAiUsagePanel'
 import './PlatformWorkspace.css'
 
-type PlatformTab = 'companies' | 'create' | 'integrations' | 'aiUsage'
+type PlatformTab = 'companies' | 'integrations' | 'aiUsage'
 
 
 function slugFromName(value: string) {
@@ -44,6 +45,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const [slugEdited, setSlugEdited] = useState(false)
   const [ownerEmail, setOwnerEmail] = useState('')
   const [activeTab, setActiveTab] = useState<PlatformTab>('companies')
+  const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false)
   const [evolutionConfiguration, setEvolutionConfiguration] = useState<{ configured: boolean; displayName: string | null; baseUrl: string | null; updatedAt: string | null } | null>(null)
   const [evolutionDisplayName, setEvolutionDisplayName] = useState('Evolution principal')
   const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
@@ -126,7 +128,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const tabs: PlatformTab[] = ['companies', 'create', 'integrations', 'aiUsage']
+    const tabs: PlatformTab[] = ['companies', 'integrations', 'aiUsage']
     const currentIndex = tabs.indexOf(activeTab)
     const nextTab = event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[tabs.length - 1] : tabs[(currentIndex + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]
     setActiveTab(nextTab)
@@ -173,10 +175,10 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
       <header className="platform-heading"><div><p className="eyebrow">{t('platform.eyebrow')}</p><h1>{t('platform.title')}</h1><p>{t('platform.description')}</p></div><Button className="refresh" type="button" aria-label={t('platform.refresh')} onClick={() => setRefreshVersion((current) => current + 1)}><RefreshCw size={16} /></Button></header>
       <div className="platform-tabs" role="tablist" aria-label={t('platform.sections')}>
         <Button type="button" role="tab" id="platform-tab-companies" aria-controls="platform-panel-companies" aria-selected={activeTab === 'companies'} tabIndex={activeTab === 'companies' ? 0 : -1} className={activeTab === 'companies' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('companies')}>{t('platform.companiesTab')}</Button>
-        <Button type="button" role="tab" id="platform-tab-create" aria-controls="platform-panel-create" aria-selected={activeTab === 'create'} tabIndex={activeTab === 'create' ? 0 : -1} className={activeTab === 'create' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('create')}><Plus size={15} aria-hidden="true" />{t('platform.createTab')}</Button>
         <Button type="button" role="tab" id="platform-tab-integrations" aria-controls="platform-panel-integrations" aria-selected={activeTab === 'integrations'} tabIndex={activeTab === 'integrations' ? 0 : -1} className={activeTab === 'integrations' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('integrations')}>{t('platform.integrationsTab')}</Button>
         <Button type="button" role="tab" id="platform-tab-aiUsage" aria-controls="platform-panel-aiUsage" aria-selected={activeTab === 'aiUsage'} tabIndex={activeTab === 'aiUsage' ? 0 : -1} className={activeTab === 'aiUsage' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setActiveTab('aiUsage')}><Activity size={15} aria-hidden="true" />{t('platformAiUsage.tab')}</Button>
       </div>
+      {activeTab === 'companies' && <div className="platform-create-action"><Button type="button" className="primary" onClick={() => { setError(''); setCreatedMessage(''); setCreateOrganizationOpen(true) }}><Plus size={15} aria-hidden="true" />{t('platform.createTab')}</Button></div>}
       <div role="tabpanel" id="platform-panel-aiUsage" aria-labelledby="platform-tab-aiUsage" hidden={activeTab !== 'aiUsage'}>{activeTab === 'aiUsage' && <PlatformAiUsagePanel />}</div>
       <div role="tabpanel" id="platform-panel-integrations" aria-labelledby="platform-tab-integrations" hidden={activeTab !== 'integrations'}>
         <section className="platform-panel platform-create-panel">
@@ -220,9 +222,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
         {total > 0 && <footer className="platform-pagination"><label>{t('table.rowsPerPage')}<SelectField value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setOffset(0) }}>{PLATFORM_ORGANIZATION_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</SelectField></label><span>{t('table.range', { from: offset + 1, to: Math.min(offset + pageSize, total), total })}</span><div><Button type="button" disabled={offset === 0 || loading} aria-label={t('common.previousPage')} onClick={() => setOffset((current) => Math.max(0, current - pageSize))}><ChevronLeft size={16} /></Button><Button type="button" disabled={!hasNextPage || loading} aria-label={t('common.nextPage')} onClick={() => setOffset((current) => current + pageSize)}><ChevronRight size={16} /></Button></div></footer>}
       </section>
       </div>
-      <div role="tabpanel" id="platform-panel-create" aria-labelledby="platform-tab-create" hidden={activeTab !== 'create'}>
-      <section className="platform-panel platform-create-panel">
-        <div className="platform-panel-heading"><span className="card-icon"><Plus size={18} /></span><div><h2>{t('platform.createTitle')}</h2><p>{t('platform.createHint')}</p></div></div>
+      <Modal open={createOrganizationOpen} onOpenChange={setCreateOrganizationOpen} title={t('platform.createTitle')} description={t('platform.createHint')} closeLabel={t('common.close')} className="platform-create-modal">
         <form className="platform-company-form" onSubmit={(event) => void submit(event)}>
           <label>{t('platform.companyName')}<TextField value={name} onChange={(event) => { const value = event.target.value; setName(value); if (!slugEdited) setSlug(slugFromName(value)) }} maxLength={160} required /></label>
           <label>{t('platform.companySlug')}<TextField value={slug} onChange={(event) => { setSlug(event.target.value); setSlugEdited(true) }} maxLength={80} pattern={ORGANIZATION_SLUG_PATTERN} required /><small>{t('platform.companySlugHint')}</small></label>
@@ -231,8 +231,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
         </form>
         {error && <WorkspaceState kind="error" compact message={error} />}
         {createdMessage && <div className="platform-result" role="status"><strong>{createdMessage}</strong>{invitationUrl && <div className="platform-invitation-link"><a href={invitationUrl} target="_blank" rel="noreferrer">{t('platform.openInvitation')}</a><Button type="button" onClick={() => void copyInvitation()}><Copy size={15} />{copied ? t('platform.copied') : t('platform.copyInvitation')}</Button></div>}{!invitationEmailSent && invitationUrl && <small>{t('platform.invitationFallback')}</small>}</div>}
-      </section>
-      </div>
+      </Modal>
     </div>
   </main>
 }

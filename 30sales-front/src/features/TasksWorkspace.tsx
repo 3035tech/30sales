@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type LeadDto, type TaskDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { Modal } from '../components/ui/Modal'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import './TasksWorkspace.css'
 
 type TaskView = 'overdue' | 'today' | 'upcoming'
@@ -30,6 +32,7 @@ export function TasksWorkspace() {
   const [leads, setLeads] = useState<LeadDto[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [createTaskOpen, setCreateTaskOpen] = useState(false)
   const [completionSaving, setCompletionSaving] = useState(false)
   const [error, setError] = useState('')
   const [leadId, setLeadId] = useState('')
@@ -71,8 +74,9 @@ export function TasksWorkspace() {
     event.preventDefault(); setSaving(true); setError('')
     try {
       await api.tasks.create(leadId, { title: title.trim(), dueAt: new Date(dueAt).toISOString() })
-      setTitle(''); setDueAt(''); setOffset(0); setRefreshTick((tick) => tick + 1)
-    } catch { setError(t('errors.saveTask')) }
+      setTitle(''); setDueAt(''); setCreateTaskOpen(false); setOffset(0); setRefreshTick((tick) => tick + 1)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('tasks.created'))
+    } catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('errors.saveTask')) }
     finally { setSaving(false) }
   }
   const complete = async (event: React.FormEvent, task: TaskDto) => {
@@ -88,13 +92,13 @@ export function TasksWorkspace() {
 
   return <section className="leads-page tasks-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('tasks.eyebrow')}</p><h2>{t('tasks.title')}</h2><p className="muted">{t('tasks.description')}</p></div>
-      <Button className="refresh" onClick={() => void refresh()} aria-label={t('tasks.refresh')}><RefreshCw size={16} /></Button>
+      <div className="task-header-actions"><Button className="primary" onClick={() => setCreateTaskOpen(true)} disabled={!leads.length}><Plus size={16} />{t('tasks.newTask')}</Button><Button className="refresh" onClick={() => void refresh()} aria-label={t('tasks.refresh')}><RefreshCw size={16} /></Button></div>
     </header>
     <div className="task-views" role="tablist" aria-label={t('tasks.views')}>
       {(['overdue', 'today', 'upcoming'] as const).map((item) => <Button key={item} role="tab" aria-selected={view === item} className={view === item ? 'selected' : ''} onClick={() => { setView(item); setOffset(0); if (taskId) { const next = new URLSearchParams(searchParams); next.delete('taskId'); setSearchParams(next, { replace: true }) } }}>{t(`tasks.${item}`)}</Button>)}
     </div>
+    <Modal open={createTaskOpen} onOpenChange={setCreateTaskOpen} title={t('tasks.newTask')} description={t('tasks.newTaskHint')} closeLabel={t('common.close')} className="task-create-modal">
     <form className="task-form" onSubmit={createTask}>
-      <div className="lead-form-title"><Plus size={18} /><div><strong>{t('tasks.newTask')}</strong><small>{t('tasks.newTaskHint')}</small></div></div>
       <div className="task-fields">
         <label>{t('tasks.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required><option value="">{t('tasks.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField></label>
         <label>{t('tasks.action')}<TextField value={title} onChange={(event) => setTitle(event.target.value)} minLength={2} maxLength={240} placeholder={t('tasks.actionPlaceholder')} required /></label>
@@ -102,6 +106,7 @@ export function TasksWorkspace() {
         <Button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('tasks.addTask')}</Button>
       </div>
     </form>
+    </Modal>
     {error && tasks.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     <div className="lead-list-panel task-list">
       <div className="lead-list-toolbar"><div><h3>{t(`tasks.${view}`)}</h3><p>{taskId ? t('tasks.selectedTask') : t('tasks.count', { count: total })}</p></div><CalendarClock size={18} /></div>

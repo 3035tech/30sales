@@ -1,11 +1,12 @@
 import { Button, CheckboxField, IconButton, SelectField, TextareaField, TextField } from '../components/ui/FormControls'
 import { useEffect, useState } from 'react'
-import { Bot, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
+import { Bot, Pencil, Plus, RotateCcw, Save, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { Modal } from '../components/ui/Modal'
 import { ApiError, api, type AssistantProfileDto, type AssistantSettingsDto } from '../lib/api'
 import type { BusinessLineDto } from '../lib/api'
 import './AssistantSettingsWorkspace.css'
@@ -152,8 +153,8 @@ export function AssistantSettingsWorkspace() {
       {profileError && <WorkspaceState kind="error" compact message={profileError} />}
       {profiles.length === 0 && !profileDraft && <p className="assistant-profile-empty">{t('assistantSettings.profilesEmpty')}</p>}
       <div className="assistant-profile-list">{profiles.map((profile) => <article className="assistant-profile-card" key={profile.id}><div><strong>{profile.name}</strong><span>{t(`assistantSettings.${profile.direction}`)} · {profile.enabled ? t('assistantSettings.enabled') : t('assistantSettings.disabled')}</span></div><div className="assistant-profile-actions"><IconButton label={t('assistantSettings.editProfile', { name: profile.name })} onClick={() => startProfile(profile)}><Pencil size={15} /></IconButton><IconButton label={t('assistantSettings.deleteProfile', { name: profile.name })} onClick={() => setProfileToDelete(profile)}><Trash2 size={15} /></IconButton></div></article>)}</div>
+      <Modal open={profileDraft !== null} onOpenChange={(open) => { if (!open) { setProfileDraft(null); setProfileEditingId(null) } }} title={t(profileEditingId ? 'assistantSettings.editProfileTitle' : 'assistantSettings.newProfile')} closeLabel={t('common.close')} className="assistant-profile-modal">
       {profileDraft && <form className="assistant-profile-editor" onSubmit={(event) => void saveProfile(event)}>
-        <div className="assistant-profile-editor-heading"><h4>{t(profileEditingId ? 'assistantSettings.editProfileTitle' : 'assistantSettings.newProfile')}</h4><Button type="button" onClick={() => { setProfileDraft(null); setProfileEditingId(null) }} aria-label={t('common.cancel')}><X size={16} /></Button></div>
         <label><span>{t('assistantSettings.profileName')}</span><TextField required minLength={2} maxLength={120} value={profileDraft.name} placeholder={t('assistantSettings.profileNamePlaceholder')} onChange={(event) => setProfileDraft({ ...profileDraft, name: event.target.value })} /></label>
         <label><span>{t('assistantSettings.direction')}</span><SelectField value={profileDraft.direction} onChange={(event) => setProfileDraft({ ...profileDraft, direction: event.target.value as 'inbound' | 'outbound' })}><option value="inbound">{t('assistantSettings.inbound')}</option><option value="outbound">{t('assistantSettings.outbound')}</option></SelectField></label>
         <label><span>{t('assistantSettings.model')}</span><SelectField value={profileDraft.model} onChange={(event) => setProfileDraft({ ...profileDraft, model: event.target.value })}>{(settings?.availableModels ?? []).map((option) => <option key={option.id} value={option.id}>{option.name} · {option.provider}</option>)}</SelectField></label>
@@ -162,6 +163,7 @@ export function AssistantSettingsWorkspace() {
         <label className="assistant-profile-prompt"><span>{t('assistantSettings.prompt')}</span><small>{t('assistantSettings.profilePromptHint')}</small><TextareaField required={profileDraft.enabled} minLength={profileDraft.enabled ? 100 : undefined} maxLength={30000} rows={12} value={profileDraft.systemPrompt} onChange={(event) => setProfileDraft({ ...profileDraft, systemPrompt: event.target.value })} /></label>
         <footer><Button type="submit" className="primary" disabled={profileSaving}>{profileSaving ? t('assistantSettings.saving') : <><Save size={15} />{t('assistantSettings.saveProfile')}</>}</Button></footer>
       </form>}
+      </Modal>
     </section>}
     {!businessLineId && <p className="assistant-profile-empty">{t('assistantSettings.profilesNeedLine')}</p>}
     <ConfirmDialog open={profileToDelete !== null} onOpenChange={(open) => { if (!open) setProfileToDelete(null) }} title={t('common.confirmAction')} description={profileToDelete ? t('assistantSettings.deleteProfileConfirm', { name: profileToDelete.name }) : ''} confirmLabel={t('assistantSettings.deleteProfile', { name: profileToDelete?.name ?? '' })} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={deleteProfile} />

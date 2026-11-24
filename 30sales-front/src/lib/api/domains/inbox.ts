@@ -45,6 +45,7 @@ export const inboxApi = {
       form.set('idempotencyKey', input.idempotencyKey);
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/media`, messageSchema, { method: 'POST', body: form });
     },
+    sendContactMessage: (conversationId: string, input: { fullName: string; phoneNumber: string; organization?: string; email?: string; url?: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/contact`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addTag: (conversationId: string, name: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name }) }),
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),

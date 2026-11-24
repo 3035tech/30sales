@@ -17,6 +17,24 @@ const INBOX_MEDIA_LIMIT_BYTES = 16 * 1024 * 1024
 const INBOX_FILE_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf'
 const INBOX_AUDIO_ACCEPT = 'audio/mpeg,audio/aac,audio/ogg,audio/amr,audio/mp4,audio/wav'
 const inboxStreamUpdateSchema = z.object({ conversationId: z.string().uuid() }).passthrough()
+const messageUrlPattern = /(https?:\/\/[^\s<>"']+)/gi
+
+function InboxMessageBody({ text }: { text: string }) {
+  const parts = text.split(messageUrlPattern)
+  return <p>{parts.map((part, index) => {
+    if (!/^https?:\/\//i.test(part)) return <span key={index}>{part}</span>
+    const match = part.match(/^(.*?)([.,!?;:)\]}]*)$/)
+    const urlText = match?.[1] ?? part
+    const suffix = match?.[2] ?? ''
+    try {
+      const url = new URL(urlText)
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return <span key={index}>{part}</span>
+      return <span key={index}><a href={url.href} target="_blank" rel="noopener noreferrer">{urlText}</a>{suffix}</span>
+    } catch {
+      return <span key={index}>{part}</span>
+    }
+  })}</p>
+}
 
 export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
   const { t } = useTranslation()
@@ -28,6 +46,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [messagesConversationId, setMessagesConversationId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
   const [mediaDraft, setMediaDraft] = useState<File | null>(null)
+  const [contactMode, setContactMode] = useState(false)
+  const [contactDraft, setContactDraft] = useState({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' })
   const attachmentInputRef = useRef<HTMLInputElement>(null)
   const audioInputRef = useRef<HTMLInputElement>(null)
   const conversationQueueRef = useRef<HTMLElement>(null)
@@ -129,7 +149,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(conversationSearch.trim()), 250); return () => window.clearTimeout(timer) }, [conversationSearch])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { setMessageDraft(''); setMediaDraft(null); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode(INBOX_COMPOSER_MODE.reply) }, [selectedId])
+  useEffect(() => { setMessageDraft(''); setMediaDraft(null); setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setComposerMode(INBOX_COMPOSER_MODE.reply) }, [selectedId])
   useEffect(() => {
     if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
@@ -261,16 +281,18 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   }
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
-    if (!selected || (composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || (!messageDraft.trim() && !mediaDraft) || (composerMode === INBOX_COMPOSER_MODE.note && mediaDraft) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && messageDraft.trim())) return
+    if (!selected || (composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || (!contactMode && !messageDraft.trim() && !mediaDraft) || (contactMode && (!contactDraft.fullName.trim() || !contactDraft.phoneNumber.trim())) || (composerMode === INBOX_COMPOSER_MODE.note && mediaDraft) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && messageDraft.trim())) return
     setSendingMessage(true); setMessageSendError('')
     try {
       const message = composerMode === INBOX_COMPOSER_MODE.reply
-        ? mediaDraft
+        ? contactMode
+          ? await api.inbox.sendContactMessage(selected.id, { fullName: contactDraft.fullName.trim(), phoneNumber: contactDraft.phoneNumber.trim(), ...(contactDraft.organization.trim() ? { organization: contactDraft.organization.trim() } : {}), ...(contactDraft.email.trim() ? { email: contactDraft.email.trim() } : {}), ...(contactDraft.url.trim() ? { url: contactDraft.url.trim() } : {}), idempotencyKey: messageKey })
+          : mediaDraft
           ? await api.inbox.sendMediaMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey, file: mediaDraft })
           : await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
         : await api.inbox.addNote(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
-      setMessageDraft(''); setMediaDraft(null); setMessageKey(crypto.randomUUID())
+      setMessageDraft(''); setMediaDraft(null); setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageKey(crypto.randomUUID())
       if (composerMode === INBOX_COMPOSER_MODE.reply && message.deliveryState === INBOX_DELIVERY_STATE.unknown) setMessageSendError(t('inbox.deliveryUnknown'))
       if (composerMode === INBOX_COMPOSER_MODE.reply && message.deliveryState === INBOX_DELIVERY_STATE.failed) setMessageSendError(t('inbox.deliveryFailed'))
     } catch (error) {
@@ -278,6 +300,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.invalidContent) setMessageSendError(t('inboxComposer.mediaInvalid'))
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.tooLarge) setMessageSendError(t('inboxComposer.mediaTooLarge'))
       else if (error instanceof ApiError && error.code === INBOX_MEDIA_ERROR_CODE.audioCaptionUnsupported) setMessageSendError(t('inboxComposer.audioCaptionUnsupported'))
+      else if (error instanceof ApiError && error.code === INBOX_CONTACT_ERROR_CODE.invalidPhone) setMessageSendError(t('inbox.contactReconciliation.invalidPhone'))
       else if (error instanceof ApiError && error.code === INBOX_SEND_ERROR_CODE.dailyChannelLimitReached) setMessageSendError(t('inbox.dailyChannelLimitReached'))
       else if (error instanceof ApiError && error.code === INBOX_SEND_ERROR_CODE.channelConnectionUnavailable) setMessageSendError(t('inbox.channelConnectionUnavailable'))
       else setMessageSendError(t('inbox.sendFailed'))
@@ -312,6 +335,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     event.currentTarget.value = ''
     if (!file) return
     if (file.size > INBOX_MEDIA_LIMIT_BYTES) { setMessageSendError(t('inboxComposer.mediaTooLarge')); return }
+    if (contactMode) { setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }) }
     setMediaDraft(file)
     setMessageSendError(file.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && messageDraft.trim() ? t('inboxComposer.audioCaptionUnsupported') : '')
   }
@@ -422,17 +446,18 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           <div className="inbox-messages" role="log" aria-label={t('inbox.thread')} aria-relevant="additions text" aria-atomic="false">
             {messagesLoading ? <div className="inbox-message-state"><WorkspaceState kind="loading" compact message={t('common.loading')} /></div> : messagesLoadError && messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="error" compact message={t('inbox.messagesFailed')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState></div> : <>{messagesLoadError && <WorkspaceState kind="error" compact message={t('inbox.messagesFailed')} detail={t('table.resultsRetained')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState>}{messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="empty" compact message={t('inbox.noMessagesYet')} detail={t('inbox.emptyMessagesHint')} /></div> : messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
-              {message.isDeleted ? <p className="inbox-message-deleted">{t('inbox.messageDeleted')}</p> : <>{message.bodyText ? <p>{message.bodyText}</p> : !message.transcriptText && message.attachments.length === 0 && <p>{t('inbox.nonTextMessage')}</p>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <IconButton label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void downloadAttachment(attachment)}><Download size={14} aria-hidden="true" /></IconButton>}</div>)}</>}{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
+              {message.isDeleted ? <p className="inbox-message-deleted">{t('inbox.messageDeleted')}</p> : <>{message.bodyText ? <InboxMessageBody text={message.bodyText} /> : !message.transcriptText && message.attachments.length === 0 && <p>{t('inbox.nonTextMessage')}</p>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <IconButton label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void downloadAttachment(attachment)}><Download size={14} aria-hidden="true" /></IconButton>}</div>)}</>}{message.direction !== 'internal' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}
             </article>)}</>}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>
-            <div className="inbox-composer-modes"><Button type="button" className={composerMode === INBOX_COMPOSER_MODE.reply ? 'active' : ''} onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.reply); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</Button><Button type="button" className={composerMode === INBOX_COMPOSER_MODE.note ? 'active' : ''} onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.note); setMessageSendError('') }} disabled={sendingMessage || Boolean(mediaDraft)}>{t('inboxComposer.noteMode')}</Button></div>
+            <div className="inbox-composer-modes"><Button type="button" className={composerMode === INBOX_COMPOSER_MODE.reply ? 'active' : ''} onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.reply); setMessageSendError('') }} disabled={sendingMessage}>{t('inboxComposer.replyMode')}</Button><Button type="button" className={composerMode === INBOX_COMPOSER_MODE.note ? 'active' : ''} onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.note); setMessageSendError('') }} disabled={sendingMessage || Boolean(mediaDraft) || contactMode}>{t('inboxComposer.noteMode')}</Button></div>
             {composerMode === INBOX_COMPOSER_MODE.reply && !canSend && <p>{t('inbox.replyUnavailable')}</p>}
             {composerMode === INBOX_COMPOSER_MODE.note && !canAddNote && <p>{t('inboxComposer.noteUnavailable')}</p>}
-            <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
-            {composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || assistantConsultLoading} onClick={() => { setAssistantConsultMode(ASSISTANT_CONVERSATION_ASSIST_MODE.summary); setAssistantQuestion(''); setAssistantQuestionValidationAttempted(false); setAssistantConsultResult(null); setAssistantConsultError(false); setAssistantConsultOpen(true) }}><MessageSquareText size={15} />{t('inboxComposer.aiConsult')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith(INBOX_AUDIO_MIME_PREFIX) ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
+            <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || contactMode} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
+            {composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || assistantConsultLoading || contactMode} onClick={() => { setAssistantConsultMode(ASSISTANT_CONVERSATION_ASSIST_MODE.summary); setAssistantQuestion(''); setAssistantQuestionValidationAttempted(false); setAssistantConsultResult(null); setAssistantConsultError(false); setAssistantConsultOpen(true) }}><MessageSquareText size={15} />{t('inboxComposer.aiConsult')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || Boolean(mediaDraft)} onClick={() => { setContactMode((active) => !active); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageDraft(''); setMessageSendError('') }}><UserRound size={15} />{t(contactMode ? 'inboxComposer.cancelContact' : 'inboxComposer.attachContact')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith(INBOX_AUDIO_MIME_PREFIX) ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
+            {contactMode && <div className="inbox-contact-draft"><label>{t('inboxComposer.contactName')}<TextField required maxLength={160} value={contactDraft.fullName} onChange={(event) => setContactDraft((current) => ({ ...current, fullName: event.target.value }))} /></label><label>{t('inboxComposer.contactPhone')}<TextField required type="tel" maxLength={40} value={contactDraft.phoneNumber} onChange={(event) => setContactDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="+55 11 99999-0000" /></label><label>{t('inboxComposer.contactOrganization')}<TextField maxLength={160} value={contactDraft.organization} onChange={(event) => setContactDraft((current) => ({ ...current, organization: event.target.value }))} /></label><label>{t('inboxComposer.contactEmail')}<TextField type="email" maxLength={254} value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} /></label><label>{t('inboxComposer.contactUrl')}<TextField type="url" maxLength={2048} value={contactDraft.url} onChange={(event) => setContactDraft((current) => ({ ...current, url: event.target.value }))} placeholder="https://" /></label></div>}
             {messageSendError && <p className="inbox-send-error" role="status">{messageSendError}</p>}
-            <div><small>{messageDraft.length}/4096</small><Button type="submit" disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || (!messageDraft.trim() && !mediaDraft) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
+            <div><small>{contactMode ? '' : `${messageDraft.length}/4096`}</small><Button type="submit" disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || (!contactMode && !messageDraft.trim() && !mediaDraft) || (contactMode && (!contactDraft.fullName.trim() || !contactDraft.phoneNumber.trim())) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
           </form>
           <footer className="inbox-readonly-note">{t('inbox.readOnly')}</footer>
         </>}

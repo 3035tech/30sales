@@ -39,6 +39,15 @@ export const sendConversationMessageSchema = z.object({ bodyText: z.string().tri
 export type SendConversationMessageDto = z.infer<typeof sendConversationMessageSchema>;
 export const sendConversationMediaSchema = z.object({ bodyText: z.string().trim().max(4096).optional(), idempotencyKey: z.string().uuid() }).strict();
 export type SendConversationMediaDto = z.infer<typeof sendConversationMediaSchema>;
+export const sendConversationContactSchema = z.object({
+  fullName: z.string().trim().min(2).max(160),
+  phoneNumber: z.string().trim().min(8).max(40),
+  organization: z.string().trim().max(160).optional(),
+  email: z.email().max(254).optional(),
+  url: z.url().max(2048).refine((value) => ['http:', 'https:'].includes(new URL(value).protocol)).optional(),
+  idempotencyKey: z.string().uuid(),
+}).strict();
+export type SendConversationContactDto = z.infer<typeof sendConversationContactSchema>;
 export type OutboundMediaInputDto = { readonly id: string; readonly mediaType: typeof OUTBOUND_MEDIA_TYPE[keyof typeof OUTBOUND_MEDIA_TYPE]; readonly mimeType: string; readonly fileName: string; readonly sizeBytes: number; readonly sha256: string };
 export const createConversationNoteSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type CreateConversationNoteDto = z.infer<typeof createConversationNoteSchema>;

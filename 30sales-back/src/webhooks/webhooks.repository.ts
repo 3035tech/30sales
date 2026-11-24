@@ -83,7 +83,7 @@ export class WebhooksRepository {
         ...(input.deleted === null ? {} : { providerDeleted: input.deleted }),
         updatedAt: new Date(),
       }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
-      await transaction.execute(sql`select pg_notify('inbox_events', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, kind: 'conversation' })})`);
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
       return 'updated';
     });
   }

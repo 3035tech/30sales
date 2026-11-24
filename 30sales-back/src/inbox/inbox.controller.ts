@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, conversationAutomationModeSchema, conversationStatusUpdateSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema } from './inbox.dto';
-import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationMessageDto, SendConversationMediaDto } from './inbox.dto';
+import { assignConversationSchema, conversationAutomationModeSchema, conversationStatusUpdateSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema } from './inbox.dto';
+import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 import { OUTBOUND_MEDIA_LIMIT_BYTES } from './outbound-media.constants';
 import type { IncomingMediaFile } from './outbound-media';
@@ -52,6 +52,8 @@ export class InboxController {
   @Post(':id/messages/media')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: OUTBOUND_MEDIA_LIMIT_BYTES, files: 1, fields: 2, parts: 3 } }))
   sendMedia(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMediaSchema)) input: SendConversationMediaDto, @UploadedFile() file: IncomingMediaFile | undefined) { return this.inboxService.sendMediaMessage(request, conversationId, input, file); }
+  @Post(':id/messages/contact')
+  sendContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationContactSchema)) input: SendConversationContactDto) { return this.inboxService.sendContactMessage(request, conversationId, input); }
   @Post(':id/notes')
   addNote(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(createConversationNoteSchema)) input: CreateConversationNoteDto) { return this.inboxService.addNote(request, conversationId, input); }
   @Post(':id/tags')

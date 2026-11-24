@@ -3,11 +3,12 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { WhatsappTextProviderService } from './whatsapp-text-provider.service';
 import { WhatsappMediaProviderService } from './whatsapp-media-provider.service';
+import { WhatsappContactProviderService } from './whatsapp-contact-provider.service';
 import { MEDIA_STORAGE, type MediaStorage } from '../attachments/media-storage';
 import { prepareOutboundMedia, type IncomingMediaFile, type PreparedOutboundMedia } from './outbound-media';
 import { OUTBOUND_MEDIA_ERROR, OUTBOUND_MEDIA_TYPE } from './outbound-media.constants';
@@ -18,7 +19,7 @@ import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_R
 
 @Injectable()
 export class InboxService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly mediaProvider: WhatsappMediaProviderService, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly textProvider: WhatsappTextProviderService, private readonly mediaProvider: WhatsappMediaProviderService, private readonly contactProvider: WhatsappContactProviderService, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.realtime.stream(context.organizationId, context.userId);
@@ -111,7 +112,14 @@ export class InboxService {
     if (media.metadata.mediaType === OUTBOUND_MEDIA_TYPE.audio && bodyText) throw new BadRequestException({ code: OUTBOUND_MEDIA_ERROR.audioCaptionUnsupported, message: 'Audio messages cannot include a caption. Send the text separately.' });
     return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, media);
   }
-  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null): Promise<MessageRecordDto> {
+  async sendContactMessage(request: ApiRequestDto, conversationId: string, input: SendConversationContactDto): Promise<MessageRecordDto> {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const phoneDigits = input.phoneNumber.replace(/\D/g, '');
+    if (phoneDigits.length < 8 || phoneDigits.length > 15 || phoneDigits.startsWith('0')) throw new BadRequestException({ code: 'INVALID_CONTACT_PHONE', message: 'Enter a valid international phone number, including the country code.' });
+    const bodyText = [input.fullName, `+${phoneDigits}`, input.organization, input.email, input.url].filter(Boolean).join(' · ');
+    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, null, input);
+  }
+  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null, contact: SendConversationContactDto | null = null): Promise<MessageRecordDto> {
     const prepared = await this.repository.prepareMessageSend(new ConversationMessageSendDto(organizationId, conversationId, userId, bodyText, idempotencyKey, correlationId, media?.metadata ?? null));
     if (prepared === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (prepared === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can send a human reply.' });
@@ -139,9 +147,11 @@ export class InboxService {
     try {
       const credentials = await this.credentialResolver.resolve(organizationId, prepared.channelId, prepared.credentials);
       if (credentials.provider !== prepared.provider) throw new Error('Channel credential provider mismatch.');
-      delivery = media
-        ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
-        : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials });
+      delivery = contact
+        ? await this.contactProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, contact, credentials })
+        : media
+          ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
+          : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials });
     } catch {
       delivery = { deliveryState: 'failed', externalMessageId: null };
     }

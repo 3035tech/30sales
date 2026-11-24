@@ -29,6 +29,7 @@
 .inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
 .inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-message a { color:#245b9a; text-decoration:underline; overflow-wrap:anywhere; }
 .inbox-tag-manager { display:grid; gap:7px; padding:10px 18px; border-bottom:1px solid var(--line,#e7e9ed); color:#475569; font-size:var(--font-size-sm); }
 .inbox-tag-manager>div:last-child { display:flex; gap:7px; }
 .inbox-tag-manager input { min-width:0; flex:1; min-height:31px; border:1px solid #dbe2ea; border-radius:6px; padding:6px 8px; font:inherit; }
@@ -53,6 +54,9 @@
 .inbox-composer .inbox-composer-tools .inbox-media-selection>span { display:flex; align-items:center; gap:6px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection>small { flex:none; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection .ui-icon-button { flex:none; min-height:38px; width:38px; padding:8px; border:1px solid transparent; background:transparent; color:#475569; }
+.inbox-contact-draft { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; padding:12px; border:1px solid #dce5e0; border-radius:8px; background:#f8fbf9; }
+.inbox-contact-draft label { display:grid; gap:5px; color:#405246; font-size:var(--font-size-sm); }
+.inbox-contact-draft label:first-child { grid-column:1/-1; }
 .inbox-assistant-consult-modal { max-width: 720px; }
 .inbox-assistant-consult-result { display:grid; gap:14px; padding:16px; border:1px solid var(--line,#dce4ec); border-radius:10px; background:var(--surface-subtle,#f8fafc); color:var(--text,#263445); }
 .inbox-assistant-consult-result h3,.inbox-assistant-consult-result p { margin:0; }
@@ -72,7 +76,7 @@
 .inbox-empty { display: grid; align-content: center; justify-items: center; gap: 10px; min-height: 140px; padding: 24px; color: var(--muted, #6f7785); text-align: center; }
 .inbox-empty strong { color: inherit; }
 .thread-empty { min-height: 300px; }
-@media (max-width: 760px) { .inbox-layout { grid-template-columns: minmax(0, 1fr); max-height: none; min-height: 0; } .inbox-conversations { max-height: 250px; border-right: 0; border-bottom: 1px solid var(--line, #e7e9ed); } .inbox-message { max-width: 92%; } .inbox-qualification-columns { grid-template-columns:minmax(0,1fr); } .thread-empty { min-height: 140px; } }
+@media (max-width: 760px) { .inbox-layout { grid-template-columns: minmax(0, 1fr); max-height: none; min-height: 0; } .inbox-conversations { max-height: 250px; border-right: 0; border-bottom: 1px solid var(--line, #e7e9ed); } .inbox-message { max-width: 92%; } .inbox-qualification-columns { grid-template-columns:minmax(0,1fr); } .inbox-contact-draft { grid-template-columns:minmax(0,1fr); } .inbox-contact-draft label:first-child { grid-column:auto; } .thread-empty { min-height: 140px; } }
 .inbox-list-pagination>div.inbox-pagination-summary { display: grid; gap: 8px; }
 .inbox-list-pagination>div.inbox-pagination-summary>span { text-align: left; }
 .inbox-list-pagination .inbox-pagination-summary label { flex-wrap: nowrap; white-space: nowrap; }

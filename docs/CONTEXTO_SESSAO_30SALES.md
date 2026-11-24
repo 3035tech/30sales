@@ -4,6 +4,12 @@
 
 - Adicionados testes com payloads sintéticos redigidos: `PRESENCE_UPDATE` de grupo mantém tenant/canal/JID/participante no roteamento; `MESSAGES_SET` com `isLatest`/`progress` enfileira mensagens diretas e de grupo com identificadores externos consistentes.
 - Backend: 11 suítes/42 testes, build Nest, `drizzle-kit check` e `git diff --check` passaram com variáveis fictícias de teste. Sem conexão real à Evolution e sem migration/deploy.
+
+## Acompanhamento do rollout — 24/11/2026
+
+- Argo CD consultado em modo somente leitura: `sales-back` estava saudável, mas sincronizado à revisão GitOps `3e4da26` e rodando a imagem `main@sha256:b778b3bb…`, ainda sem evidência de conter os commits recentes do Inbox. O evento de startup probe recusada visto antes não se repetia no estado atual.
+- O workflow de publicação do backend acionado pelo commit `de8f3ac` continuava `in_progress`; GitHub Actions ainda não disponibilizava logs do passo de build. Nenhum deploy foi iniciado.
+- Permanecem sem confirmação: aplicação das migrations `0079`–`0081` no banco de teste e entrega de payload real da Evolution 2.3.7. A sessão não tem `DATABASE_URL`/`TEST_DATABASE_URL` nem payload real redigido; fixtures sintéticos não fecham esses gates.
 - Estado de migration remoto continua não confirmado: `DATABASE_URL` e `TEST_DATABASE_URL` não estão configuradas localmente. Os fixtures validam o formato implementado, não substituem webhook real da versão 2.3.7.
 
 ## Continuação — presença Evolution no Inbox — 24/11/2026

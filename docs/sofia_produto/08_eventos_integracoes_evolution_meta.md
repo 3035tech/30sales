@@ -37,7 +37,7 @@ O nome canônico abaixo transforma os nomes em maiúsculas da Evolution em minú
 
 Uma instância foi inspecionada no Manager em 17/11/2026: o webhook estava desligado, a URL vazia e todos os eventos desmarcados. Portanto, ela ainda não entrega eventos ao 30Sales. A configuração pela tela Canais do 30Sales habilita URL, segredo e eventos; a captura no Manager é evidência de configuração efetiva somente depois que a ação for executada.
 
-Snapshots de mensagens e contatos `*_SET` são registrados sem persistir o payload bruto. `MESSAGES_SET` é convertido em mensagens normalizadas, cifrado e colocado na fila `evolution_history_batches` em lotes de até 25, com retry limitado e limpeza do payload ao concluir ou esgotar tentativas. A reconciliação exige conversa direta já conhecida; mensagens anteriores à conversa e mensagens de grupo não criam contatos/conversas. `CHATS_SET` atualiza estado dos chats diretos já existentes. A migration da fila precisa ser aplicada antes de ativar este worker no ambiente.
+Snapshots de mensagens e contatos `*_SET` são registrados sem persistir o payload bruto. `MESSAGES_SET` é convertido em mensagens normalizadas, cifrado e colocado na fila `evolution_history_batches` em lotes de até 25, com retry limitado e limpeza do payload ao concluir ou esgotar tentativas. A reconciliação exige conversa direta ou de grupo já conhecida; mensagens anteriores à conversa não criam contatos/conversas. `CHATS_SET` atualiza estado dos chats diretos já existentes. A migration da fila precisa ser aplicada antes de ativar este worker no ambiente.
 
 ## Inventário Meta WhatsApp
 

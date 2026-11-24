@@ -58,7 +58,6 @@ export class PlatformRepository {
       .where(and(gte(assistantRuns.startedAt, from), lt(assistantRuns.startedAt, toExclusive)))
       .groupBy(organization.id, organization.name, organization.slug, runOperation, assistantRuns.modelKey);
 
-    const auditOperation = sql<string>`case ${auditEvents.action} when ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.replyDraft.action} then ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.replyDraft.operation} when ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.conversationConsultation.action} then ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.conversationConsultation.operation} else ${PLATFORM_AI_USAGE_AUDIT_OPERATIONS.qualificationSuggestions.operation} end`;
     const auditModel = sql<string>`coalesce(${auditEvents.afterState}->>'model', ${PLATFORM_AI_USAGE.unknownModel})`;
     const inputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageInputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageInputTokens')::integer else 0 end), 0)::int`;
     const outputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageOutputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageOutputTokens')::integer else 0 end), 0)::int`;
@@ -67,7 +66,7 @@ export class PlatformRepository {
       organizationId: organization.id,
       organizationName: organization.name,
       organizationSlug: organization.slug,
-      operation: auditOperation,
+      action: auditEvents.action,
       model: auditModel,
       requestCount: count().mapWith(Number),
       inputTokens,
@@ -76,12 +75,15 @@ export class PlatformRepository {
       unpricedRequestCount: sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'estimatedCostUsd' ~ ${PLATFORM_AI_USAGE.jsonDecimalPattern} then 0 else 1 end), 0)::int`,
     }).from(auditEvents).innerJoin(organization, eq(organization.id, auditEvents.organizationId))
       .where(and(gte(auditEvents.occurredAt, from), lt(auditEvents.occurredAt, toExclusive), inArray(auditEvents.action, PLATFORM_AI_USAGE_AUDIT_ACTIONS)))
-      .groupBy(organization.id, organization.name, organization.slug, auditOperation, auditModel);
+      .groupBy(organization.id, organization.name, organization.slug, auditEvents.action, auditModel);
 
     const [automated, audited] = await Promise.all([runRows, auditRows]);
     return [
       ...automated.map((row) => new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, row.operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount))),
-      ...audited.map((row) => new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, row.operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount))),
+      ...audited.map((row) => {
+        const operation = Object.values(PLATFORM_AI_USAGE_AUDIT_OPERATIONS).find((candidate) => candidate.action === row.action)?.operation ?? PLATFORM_AI_USAGE_AUDIT_OPERATIONS.qualificationSuggestions.operation;
+        return new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount));
+      }),
     ];
   }
 

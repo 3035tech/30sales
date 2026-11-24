@@ -310,7 +310,14 @@ export class ChannelsRepository {
   }
 
   private isUniqueViolation(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && 'code' in error && error.code === '23505';
+    let current = error;
+    const seen = new Set<object>();
+    while (typeof current === 'object' && current !== null && !seen.has(current)) {
+      seen.add(current);
+      if ('code' in current && current.code === '23505') return true;
+      current = 'cause' in current ? current.cause : null;
+    }
+    return false;
   }
 
   private toSafeErrorCode(errorCode: string | null): string | null {

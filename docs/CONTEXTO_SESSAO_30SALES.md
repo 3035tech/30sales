@@ -17,7 +17,9 @@
 - Corrigido o contrato frontend para aceitar metadata Evolution opcional de reply/reação, evitando rejeitar respostas com metadados parciais durante o carregamento do histórico.
 - Verificações: build backend Nest, build frontend Vite, `drizzle-kit check`, `git diff --check` e 4 suítes focadas (14 testes) passaram. O teste e2e de PostgreSQL exige `BUSINESS_LINES_TEST_DATABASE_URL` apontando para banco de teste e ainda não foi executado.
 - Status honesto das seis frentes: conteúdo e sincronização Evolution têm cobertura parcial; recibos fora de ordem com retry/dead-letter/manual replay, filtros de ledger e verificação de deriva do webhook durante monitoramento estão implementados. Confirmação ponta a ponta de callbacks continua pendente. Capacidades Meta específicas estão adiadas por escopo. Ver [`sofia_produto/08_eventos_integracoes_evolution_meta.md`](sofia_produto/08_eventos_integracoes_evolution_meta.md).
-- Tudo segue local na branch `feature/lead-qualification-data`, sem commit, push, migration aplicada, chamada de provider real ou deploy. Próximo gate: validar callbacks Evolution com instância autorizada e confirmar a movimentação dos recibos no ledger.
+- O hotfix de DI do `WebhooksService` foi publicado em `main` no commit `34bd2bd` após o log de produção mostrar `Object` no token dos adapters; build e teste de resolução Nest passaram. O workflow de build/publicação estava em andamento na última consulta, sem sincronização manual do ArgoCD.
+- Cobertura local adicional confirma que `MESSAGES_UPDATE` encaminha recibo `READ` e que `SEND_MESSAGE_UPDATE` sem mensagem correspondente é guardado para reconciliação. Duas suítes focadas passaram (7 testes). A validação real ponta a ponta e a conferência do ledger seguem pendentes até haver callback de instância Evolution autorizada; nenhuma mensagem real foi enviada.
+- Próximo gate: acompanhar o workflow/rollout normal e validar callback Evolution em instância autorizada, confirmando a movimentação dos recibos no ledger.
 
 ## Reprodução e prévia de áudio no Inbox — 24/11/2026
 

@@ -16,6 +16,8 @@ describe('WebhooksService Evolution events', () => {
     enqueueEvolutionHistoryBatch: jest.fn(),
     recordIncomingMessage: jest.fn(),
     recordEvolutionOutgoingMessage: jest.fn(),
+    recordMessageStatus: jest.fn(),
+    recordUnmatchedMessageStatus: jest.fn(),
   };
   const credentialCrypto = { encryptPayload: jest.fn() };
   const credentialResolver = { resolve: jest.fn() };
@@ -45,6 +47,8 @@ describe('WebhooksService Evolution events', () => {
     repository.enqueueEvolutionHistoryBatch.mockResolvedValue(true);
     repository.recordIncomingMessage.mockResolvedValue('created');
     repository.recordEvolutionOutgoingMessage.mockResolvedValue('created');
+    repository.recordMessageStatus.mockResolvedValue('updated');
+    repository.recordUnmatchedMessageStatus.mockResolvedValue('created');
   });
 
   async function ingest(data: unknown, event: string): Promise<{ accepted: true; processed: number }> {
@@ -127,5 +131,41 @@ describe('WebhooksService Evolution events', () => {
     expect(JSON.parse(serializedBatch as string)).toEqual(expect.arrayContaining([
       expect.objectContaining({ externalMessageId: 'message-outbound-history', isFromMe: true }),
     ]));
+  });
+
+  it('routes Evolution read receipts through the status adapter and tenant-scoped repository command', async () => {
+    const result = await ingest({
+      keyId: 'outbound-message-id',
+      update: { status: 'READ', timestamp: 1_795_541_400 },
+    }, 'MESSAGES_UPDATE');
+
+    expect(result).toEqual({ accepted: true, processed: 1 });
+    expect(repository.recordMessageStatus).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      channelId,
+      provider: 'evolution',
+      externalMessageId: 'outbound-message-id',
+      deliveryState: 'read',
+      occurredAt: new Date(1_795_541_400_000),
+    }));
+    expect(repository.recordUnmatchedMessageStatus).not.toHaveBeenCalled();
+  });
+
+  it('retains unmatched Evolution receipts for reconciliation without claiming a message update', async () => {
+    repository.recordMessageStatus.mockResolvedValue('unmatched');
+
+    const result = await ingest({
+      keyId: 'message-not-yet-synced',
+      update: { status: 'DELIVERY_ACK', timestamp: 1_795_541_400 },
+    }, 'SEND_MESSAGE_UPDATE');
+
+    expect(result).toEqual({ accepted: true, processed: 1 });
+    expect(repository.recordUnmatchedMessageStatus).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      channelId,
+      provider: 'evolution',
+      externalMessageId: 'message-not-yet-synced',
+      deliveryState: 'delivered',
+    }));
   });
 });

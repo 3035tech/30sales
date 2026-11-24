@@ -21,6 +21,7 @@ export const INBOX_AUDIO_RECORDING = {
 } as const;
 export const INBOX_AUDIO_PLAYER = {
   bars: 48,
+  compactBars: 28,
   maxWaveformDurationSeconds: 300,
   minimumSeconds: 0,
   fallbackSeekMaximumSeconds: 1,

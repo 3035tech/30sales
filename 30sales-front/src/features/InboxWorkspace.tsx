@@ -47,10 +47,11 @@ function formatAudioTime(seconds: number): string {
   return hours > INBOX_AUDIO_PLAYER.minimumSeconds ? `${hours}:${formattedMinutes}:${formattedSeconds}` : `${formattedMinutes}:${formattedSeconds}`
 }
 
-function InboxAudioPlayer({ src, file, label }: {
+function InboxAudioPlayer({ src, file, label, compact = false }: {
   src?: string
   file?: Blob
   label: string
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -71,6 +72,7 @@ function InboxAudioPlayer({ src, file, label }: {
   }, [file])
 
   const audioSrc = src ?? fileSrc
+  const waveformBars = compact ? INBOX_AUDIO_PLAYER.compactBars : INBOX_AUDIO_PLAYER.bars
   useEffect(() => {
     waveformRequestRef.current += 1
     setPlaying(false)
@@ -97,8 +99,8 @@ function InboxAudioPlayer({ src, file, label }: {
       context = new AudioContext()
       const decoded = await context.decodeAudioData(bytes)
       const channel = decoded.getChannelData(0)
-      const samplesPerBar = Math.max(INBOX_AUDIO_PLAYER.minimumSampleCount, Math.floor(channel.length / INBOX_AUDIO_PLAYER.bars))
-      const levels = Array.from({ length: INBOX_AUDIO_PLAYER.bars }, (_, index) => {
+      const samplesPerBar = Math.max(INBOX_AUDIO_PLAYER.minimumSampleCount, Math.floor(channel.length / waveformBars))
+      const levels = Array.from({ length: waveformBars }, (_, index) => {
         const start = index * samplesPerBar
         const end = Math.min(channel.length, start + samplesPerBar)
         let peak = 0
@@ -132,14 +134,14 @@ function InboxAudioPlayer({ src, file, label }: {
     setCurrentTime(nextTime)
   }
 
-  return <div className="inbox-audio-player" role="group" aria-label={label}>
+  return <div className={`inbox-audio-player${compact ? ' is-compact' : ''}`} role="group" aria-label={label}>
     <audio ref={audioRef} src={audioSrc || undefined} preload="metadata" onLoadedMetadata={() => void loadWaveform()} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onError={() => setFailed(true)} />
     <Button type="button" className="inbox-audio-play" onClick={() => void togglePlayback()} disabled={!audioSrc || failed} aria-label={playing ? t('inbox.audioPause') : t('inbox.audioPlay')}>
       {playing ? <Pause size={17} aria-hidden="true" /> : <Play size={17} aria-hidden="true" />}
     </Button>
     <div className="inbox-audio-track">
       <div className="inbox-audio-waveform" aria-hidden="true" style={{ '--audio-progress': `${duration ? (currentTime / duration) * 100 : 0}%` } as React.CSSProperties}>
-        {waveform.length ? waveform.map((height, index) => <span key={index} className={duration > 0 && index / INBOX_AUDIO_PLAYER.bars < currentTime / duration ? 'played' : ''} style={{ height: `${height}%` }} />) : <span className="inbox-audio-waveform-placeholder" />}
+        {waveform.length ? waveform.map((height, index) => <span key={index} className={duration > 0 && index / waveformBars < currentTime / duration ? 'played' : ''} style={{ height: `${height}%` }} />) : <span className="inbox-audio-waveform-placeholder" />}
       </div>
       <input type="range" min={INBOX_AUDIO_PLAYER.minimumSeconds} max={duration || INBOX_AUDIO_PLAYER.fallbackSeekMaximumSeconds} step={INBOX_AUDIO_PLAYER.seekStepSeconds} value={Math.min(currentTime, duration || INBOX_AUDIO_PLAYER.minimumSeconds)} onChange={(event) => seek(event.currentTarget.value)} aria-label={t('inbox.audioSeek')} aria-valuetext={t('inbox.audioPosition', { current: formatAudioTime(currentTime), duration: formatAudioTime(duration) })} disabled={!audioSrc || failed || duration <= INBOX_AUDIO_PLAYER.minimumSeconds} style={{ '--audio-progress': `${duration ? (currentTime / duration) * 100 : 0}%` } as React.CSSProperties} />
       <div className="inbox-audio-time"><span>{formatAudioTime(currentTime)}</span><span>{formatAudioTime(duration)}</span></div>
@@ -780,7 +782,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} onKeyDown={(event) => { if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return; event.preventDefault(); event.currentTarget.form?.requestSubmit() }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || contactMode} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
             {composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_ATTACHMENT_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || assistantConsultLoading || contactMode} onClick={() => { setAssistantConsultMode(ASSISTANT_CONVERSATION_ASSIST_MODE.summary); setAssistantQuestion(''); setAssistantQuestionValidationAttempted(false); setAssistantConsultResult(null); setAssistantConsultError(false); setAssistantConsultOpen(true) }}><MessageSquareText size={15} />{t('inboxComposer.aiConsult')}</Button><IconButton className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode || Boolean(mediaDraft)} onClick={() => attachmentInputRef.current?.click()} label={t('inboxComposer.attachFile')}><Paperclip size={17} aria-hidden="true" /></IconButton><IconButton className={`inbox-media-action${audioRecording ? ' is-recording' : ''}`} disabled={!canSend || sendingMessage || draftingReply || contactMode || Boolean(mediaDraft)} onClick={() => audioRecording ? stopAudioRecording() : void startAudioRecording()} aria-pressed={audioRecording} label={t(audioRecording ? 'inboxComposer.stopAudioRecording' : 'inboxComposer.sendAudio')}>{audioRecording ? <Square size={16} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}</IconButton><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || Boolean(mediaDraft)} onClick={() => { setContactMode((active) => !active); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageDraft(''); setMessageSendError('') }}><UserRound size={15} />{t(contactMode ? 'inboxComposer.cancelContact' : 'inboxComposer.attachContact')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith(INBOX_AUDIO_MIME_PREFIX) ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
             {audioRecording && <div className="inbox-audio-recording" role="status" aria-label={t('inboxComposer.audioRecordingInProgress')}><span className="inbox-audio-recording-live"><i aria-hidden="true" />{t('inboxComposer.audioRecordingInProgress')}</span><div className="inbox-audio-waveform" aria-hidden="true">{audioRecordingWaveform.map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}</div><time>{formatAudioTime(audioRecordingDuration)}</time></div>}
-            {mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && <div className="inbox-audio-preview"><span>{t("inbox.audioPreview")}</span><InboxAudioPlayer file={mediaDraft} label={mediaDraft.name} /></div>}
+            {mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && <div className="inbox-audio-preview"><span>{t("inbox.audioPreview")}</span><InboxAudioPlayer file={mediaDraft} label={mediaDraft.name} compact /></div>}
             {contactMode && <div className="inbox-contact-draft"><label>{t('inboxComposer.contactName')}<TextField required maxLength={160} value={contactDraft.fullName} onChange={(event) => setContactDraft((current) => ({ ...current, fullName: event.target.value }))} /></label><label>{t('inboxComposer.contactPhone')}<TextField required type="tel" maxLength={40} value={contactDraft.phoneNumber} onChange={(event) => setContactDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="+55 11 99999-0000" /></label><label>{t('inboxComposer.contactOrganization')}<TextField maxLength={160} value={contactDraft.organization} onChange={(event) => setContactDraft((current) => ({ ...current, organization: event.target.value }))} /></label><label>{t('inboxComposer.contactEmail')}<TextField type="email" maxLength={254} value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} /></label><label>{t('inboxComposer.contactUrl')}<TextField type="url" maxLength={2048} value={contactDraft.url} onChange={(event) => setContactDraft((current) => ({ ...current, url: event.target.value }))} placeholder="https://" /></label></div>}
             {messageSendError && <div className="inbox-send-error" role="status"><p>{messageSendError}</p>{unknownDeliveryPending && <Button type="button" disabled={sendingMessage} onClick={() => { setMessageKey(crypto.randomUUID()); setUnknownDeliveryPending(false); setMessageSendError('') }}>{t('inboxRetry.prepareResend')}</Button>}</div>}
             <div><small>{contactMode ? '' : `${messageDraft.length}/4096`}</small><Button type="submit" disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || unknownDeliveryPending || (!contactMode && !messageDraft.trim() && !mediaDraft) || (contactMode && (!contactDraft.fullName.trim() || !contactDraft.phoneNumber.trim())) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>

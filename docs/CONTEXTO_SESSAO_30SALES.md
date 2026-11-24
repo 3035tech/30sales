@@ -1,5 +1,10 @@
 # Contexto de continuidade — 30Sales
 
+## Polimento da onda de áudio no Inbox — 24/11/2026
+
+- A prévia antes do envio usa player compacto, waveform com menos barras, menor altura e contraste mais suave; a gravação ao vivo também ocupa menos altura e usa tons mais discretos. Players do histórico e da janela de anexo mantêm tamanho normal.
+- Build de produção do frontend e `git diff --check` passaram. Sem teste visual em navegador nesta fatia.
+
 ## Evolução das seis frentes Evolution/Meta — 24/11/2026
 
 - Reconciliação durável Evolution implementada sobre o ledger `inbox_events`: recibos fora de ordem ficam pendentes e um worker periódico, tenant/channel-scoped, tenta associá-los à mensagem outbound. Após tentativas limitadas sem correspondência, ficam como falha revisável com código estável. Quando o retorno do envio traz o ID externo atrasado, o caminho de confirmação também reabre o evento pendente ou dead-letter e o conclui, preservando correlation ID. Nenhum reenvio automático e nenhuma migration.

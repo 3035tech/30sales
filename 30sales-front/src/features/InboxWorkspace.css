@@ -290,11 +290,27 @@
 .inbox-audio-track input[type=range]:disabled { cursor:not-allowed; opacity:.55; }
 .inbox-audio-time { display:flex; justify-content:space-between; color:#64748b; font-size:var(--font-size-xs); font-variant-numeric:tabular-nums; }
 .inbox-audio-error { color:#b42318; }
-.inbox-audio-preview { display:grid; gap:4px; padding:5px 10px; border:1px solid #c9dbef; border-radius:8px; background:#f4f8fc; color:#475569; font-size:var(--font-size-xs); }
-.inbox-audio-preview .inbox-audio-player { padding:4px 0; }
+.inbox-audio-preview { display:flex; align-items:center; gap:12px; width:fit-content; max-width:100%; padding:5px 9px; border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; color:#64748b; font-size:var(--font-size-xs); }
+.inbox-audio-preview>span { max-width:104px; line-height:1.3; }
+.inbox-audio-preview .inbox-audio-player { flex:0 1 480px; min-width:220px; padding:0; gap:8px; }
+@media(max-width:760px) { .inbox-audio-preview { width:100%; gap:8px; } .inbox-audio-preview .inbox-audio-player { min-width:0; } }
+.inbox-audio-player.is-compact .inbox-audio-play { width:30px; height:30px; min-height:30px; background:#44617e; }
+.inbox-audio-player.is-compact .inbox-audio-play:hover:not(:disabled) { background:#344e69; }
+.inbox-audio-player.is-compact .inbox-audio-play svg { width:14px; height:14px; }
+.inbox-audio-player.is-compact .inbox-audio-track { gap:2px; }
+.inbox-audio-player.is-compact .inbox-audio-waveform { height:18px; gap:1px; }
+.inbox-audio-player.is-compact .inbox-audio-waveform span { min-width:1px; max-width:3px; border-radius:2px; background:#cbd5df; }
+.inbox-audio-player.is-compact .inbox-audio-waveform span.played { background:#63a985; }
+.inbox-audio-player.is-compact .inbox-audio-waveform .inbox-audio-waveform-placeholder { height:3px; }
+.inbox-audio-player.is-compact .inbox-audio-track input[type=range] { inset:0 0 13px; height:18px; }
+.inbox-audio-player.is-compact .inbox-audio-track input[type=range]::-webkit-slider-runnable-track { height:18px; }
+.inbox-audio-player.is-compact .inbox-audio-track input[type=range]::-moz-range-track { height:18px; }
+.inbox-audio-player.is-compact .inbox-audio-track input[type=range]::-webkit-slider-thumb { width:8px; height:8px; margin-top:5px; background:#44617e; box-shadow:0 0 0 1px #44617e; }
+.inbox-audio-player.is-compact .inbox-audio-track input[type=range]::-moz-range-thumb { width:6px; height:6px; background:#44617e; box-shadow:0 0 0 1px #44617e; }
+.inbox-audio-player.is-compact .inbox-audio-time { font-size:11px; }
 .inbox-inline-image-placeholder { display:grid; min-height:160px; place-items:center; padding:16px; color:#64748b; font-size:var(--font-size-sm); }
 .inbox-inline-image-tools { display:flex; align-items:center; justify-content:space-between; min-height:36px; padding:0 8px 0 14px; color:#64748b; font-size:var(--font-size-xs); }
 .inbox-inline-image-tools>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-rich-card-action { display:flex; align-items:center; justify-content:center; min-height:44px; padding:8px 12px; border-top:1px solid var(--line,#e7e9ed); color:#16834f; font-weight:600; text-decoration:none !important; }
 .inbox-rich-card-action:hover { background:#f2fbf6; }
-.inbox-audio-recording{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:12px;padding:9px 12px;border:1px solid #fecaca;border-radius:9px;background:#fff7f7;color:#475569}.inbox-audio-recording-live{display:inline-flex;align-items:center;gap:7px;color:#b42318;font-size:var(--font-size-sm);font-weight:650;white-space:nowrap}.inbox-audio-recording-live i{width:8px;height:8px;border-radius:50%;background:#dc2626;animation:inbox-audio-recording-pulse 1.2s ease-in-out infinite}.inbox-audio-recording .inbox-audio-waveform{gap:3px}.inbox-audio-recording .inbox-audio-waveform span{background:#d85d5d;transition:height .1s linear}.inbox-audio-recording time{color:#475569;font-size:var(--font-size-sm);font-variant-numeric:tabular-nums}.inbox-composer .inbox-composer-tools .inbox-media-action.is-recording{border-color:#f0b7b7;background:#fff4f4;color:#b42318}@keyframes inbox-audio-recording-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.inbox-audio-recording-live i{animation:none}}
+.inbox-audio-recording{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:10px;padding:6px 10px;border:1px solid #eadfe0;border-radius:8px;background:#fbf8f8;color:#475569}.inbox-audio-recording-live{display:inline-flex;align-items:center;gap:7px;color:#9f4b4b;font-size:var(--font-size-xs);font-weight:600;white-space:nowrap}.inbox-audio-recording-live i{width:7px;height:7px;border-radius:50%;background:#c76b6b;animation:inbox-audio-recording-pulse 1.2s ease-in-out infinite}.inbox-audio-recording .inbox-audio-waveform{height:20px;gap:2px}.inbox-audio-recording .inbox-audio-waveform span{max-height:20px;background:#d4a0a0;transition:height .1s linear}.inbox-audio-recording time{color:#64748b;font-size:var(--font-size-xs);font-variant-numeric:tabular-nums}.inbox-composer .inbox-composer-tools .inbox-media-action.is-recording{border-color:#eadfe0;background:#fbf5f5;color:#9f4b4b}@keyframes inbox-audio-recording-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.inbox-audio-recording-live i{animation:none}}

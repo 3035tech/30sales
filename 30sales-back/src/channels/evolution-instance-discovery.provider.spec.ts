@@ -39,4 +39,24 @@ describe('EvolutionInstanceDiscoveryProvider', () => {
 
     await expect(provider.list(credentials)).resolves.toEqual([]);
   });
+
+  it('accepts the documented wrapped Evolution instance response', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue(Response.json([
+      { instance: { instanceName: 'sales', owner: '15551234567@s.whatsapp.net', profileName: 'Sales team', status: 'open' } },
+    ]));
+
+    await expect(provider.list(credentials)).resolves.toEqual([
+      expect.objectContaining({ instanceName: 'sales', displayName: 'Sales team', phoneNumber: '+15551234567', status: 'connected' }),
+    ]);
+  });
+
+  it('accepts the flat instance response returned by the configured Evolution server', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue(Response.json([
+      { id: 'instance-id', name: 'sales', connectionStatus: 'open', ownerJid: '15551234567@s.whatsapp.net', profileName: 'Sales team', token: 'must-not-be-returned' },
+    ]));
+
+    await expect(provider.list(credentials)).resolves.toEqual([
+      expect.objectContaining({ instanceName: 'sales', displayName: 'Sales team', phoneNumber: '+15551234567', status: 'connected' }),
+    ]);
+  });
 });

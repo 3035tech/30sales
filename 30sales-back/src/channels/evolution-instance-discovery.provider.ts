@@ -17,8 +17,25 @@ export const EVOLUTION_DISCOVERY_ERROR = {
   responseTooLarge: 'EVOLUTION_DISCOVERY_RESPONSE_TOO_LARGE',
   invalidResponse: 'EVOLUTION_DISCOVERY_INVALID_RESPONSE',
 } as const;
-const evolutionInstanceSchema = z.object({ instance: z.object({ instanceName: z.string().trim().min(1).max(200), owner: z.string().max(200).optional(), profileName: z.string().max(200).optional(), status: z.string().max(40).optional() }).passthrough() }).passthrough();
-const evolutionInstancesSchema = z.array(evolutionInstanceSchema).max(EVOLUTION_DISCOVERY_LIMITS.instances);
+const evolutionInstanceDetailsSchema = z.object({
+  instanceName: z.string().trim().min(1).max(200),
+  owner: z.string().max(200).nullable().optional(),
+  profileName: z.string().max(200).nullable().optional(),
+  status: z.string().max(40).nullable().optional(),
+});
+const wrappedEvolutionInstanceSchema = z.object({ instance: evolutionInstanceDetailsSchema }).transform(({ instance }) => instance);
+const flatEvolutionInstanceSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  ownerJid: z.string().max(200).nullable().optional(),
+  profileName: z.string().max(200).nullable().optional(),
+  connectionStatus: z.string().max(40).nullable().optional(),
+}).transform(({ name, ownerJid, profileName, connectionStatus }) => ({
+  instanceName: name,
+  owner: ownerJid,
+  profileName,
+  status: connectionStatus,
+}));
+const evolutionInstancesSchema = z.array(z.union([wrappedEvolutionInstanceSchema, flatEvolutionInstanceSchema])).max(EVOLUTION_DISCOVERY_LIMITS.instances);
 
 export class EvolutionInstanceDiscoveryDto {
   constructor(readonly instanceName: string, readonly displayName: string, readonly phoneNumber: string | null, readonly status: ChannelHealthStatus) {}
@@ -55,7 +72,7 @@ export class EvolutionInstanceDiscoveryProvider {
     }
     const parsed = evolutionInstancesSchema.safeParse(result.payload);
     if (!parsed.success) throw new ServiceUnavailableException({ code: EVOLUTION_DISCOVERY_ERROR.invalidResponse, message: 'The Evolution API returned an unsupported discovery response.' });
-    return parsed.data.map(({ instance }) => new EvolutionInstanceDiscoveryDto(instance.instanceName, instance.profileName?.trim() || instance.instanceName, this.toE164(instance.owner), this.toHealthStatus(instance.status)));
+    return parsed.data.map((instance) => new EvolutionInstanceDiscoveryDto(instance.instanceName, instance.profileName?.trim() || instance.instanceName, this.toE164(instance.owner ?? undefined), this.toHealthStatus(instance.status ?? undefined)));
   }
 
   private toE164(owner: string | undefined): string | null {

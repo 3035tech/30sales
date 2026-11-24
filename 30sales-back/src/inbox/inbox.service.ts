@@ -56,7 +56,7 @@ export class InboxService {
   }
   async claim(request: ApiRequestDto, conversationId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.claim(new ConversationControlDto(context.organizationId, conversationId, context.userId, request.correlationId));
+    const result = await this.repository.claim(new ConversationControlDto(context.organizationId, conversationId, context.userId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_ALREADY_ASSIGNED', message: 'Another teammate already owns this conversation.' });
     return result;
@@ -103,24 +103,24 @@ export class InboxService {
   }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, input.bodyText, input.idempotencyKey, request.correlationId, null);
+    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, input.bodyText, input.idempotencyKey, request.correlationId, null, null, context.isPlatformOrganizationContext);
   }
   async sendMediaMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMediaDto, file: IncomingMediaFile | undefined): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
     const media = prepareOutboundMedia(file);
     const bodyText = input.bodyText?.trim() || null;
     if (media.metadata.mediaType === OUTBOUND_MEDIA_TYPE.audio && bodyText) throw new BadRequestException({ code: OUTBOUND_MEDIA_ERROR.audioCaptionUnsupported, message: 'Audio messages cannot include a caption. Send the text separately.' });
-    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, media);
+    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, media, null, context.isPlatformOrganizationContext);
   }
   async sendContactMessage(request: ApiRequestDto, conversationId: string, input: SendConversationContactDto): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
     const phoneDigits = input.phoneNumber.replace(/\D/g, '');
     if (phoneDigits.length < 8 || phoneDigits.length > 15 || phoneDigits.startsWith('0')) throw new BadRequestException({ code: 'INVALID_CONTACT_PHONE', message: 'Enter a valid international phone number, including the country code.' });
     const bodyText = [input.fullName, `+${phoneDigits}`, input.organization, input.email, input.url].filter(Boolean).join(' · ');
-    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, null, input);
+    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, null, input, context.isPlatformOrganizationContext);
   }
-  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null, contact: SendConversationContactDto | null = null): Promise<MessageRecordDto> {
-    const prepared = await this.repository.prepareMessageSend(new ConversationMessageSendDto(organizationId, conversationId, userId, bodyText, idempotencyKey, correlationId, media?.metadata ?? null));
+  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null, contact: SendConversationContactDto | null, isPlatformOrganizationContext: boolean): Promise<MessageRecordDto> {
+    const prepared = await this.repository.prepareMessageSend(new ConversationMessageSendDto(organizationId, conversationId, userId, bodyText, idempotencyKey, correlationId, media?.metadata ?? null, isPlatformOrganizationContext));
     if (prepared === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (prepared === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can send a human reply.' });
     if (prepared === 'automation_not_human') throw new ConflictException({ code: 'CONVERSATION_NOT_IN_HUMAN_MODE', message: 'Assume the conversation before sending a human reply.' });

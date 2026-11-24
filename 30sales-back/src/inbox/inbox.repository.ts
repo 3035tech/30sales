@@ -39,7 +39,12 @@ export class InboxRepository {
     return Boolean(lineAccess);
   }
 
-  private async canAccessConversationLineInTransaction(transaction: InboxTransaction, organizationId: string, conversationId: string, userId: string): Promise<boolean> {
+  private async canAccessConversationLineInTransaction(transaction: InboxTransaction, organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false): Promise<boolean> {
+    if (isPlatformOrganizationContext) {
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+      return Boolean(conversation);
+    }
     const [actor] = await transaction.select({ id: authMember.id, role: authMember.role }).from(authMember)
       .where(and(eq(authMember.organizationId, organizationId), eq(authMember.userId, userId))).for('share').limit(1);
     if (!actor) return false;
@@ -257,7 +262,7 @@ export class InboxRepository {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       if (current.ownerUserId === input.actorUserId && current.automationMode === 'human') return new ConversationControlResultDto(current.id, input.actorUserId, 'human');
       const [updated] = await transaction.update(conversations).set({ ownerUserId: input.actorUserId, automationMode: 'human', updatedAt: new Date() })
@@ -417,10 +422,10 @@ export class InboxRepository {
       const [conversation] = await transaction.select({ id: conversations.id, personId: conversations.personId, channelId: conversations.channelId, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
-      const [membership] = await transaction.select({ role: authMember.role }).from(authMember)
-        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).for('share').limit(1);
-      if (!membership) return 'not_found';
-      if (!hasOrganizationRole(membership.role, ORGANIZATION_MANAGEMENT_ROLES)) {
+      const membership = input.isPlatformOrganizationContext ? null : (await transaction.select({ role: authMember.role }).from(authMember)
+        .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).for('share').limit(1))[0] ?? null;
+      if (!input.isPlatformOrganizationContext && !membership) return 'not_found';
+      if (!input.isPlatformOrganizationContext && membership && !hasOrganizationRole(membership.role, ORGANIZATION_MANAGEMENT_ROLES)) {
         if (!conversation.channelId) return 'not_found';
         const [channelLine] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(messagingChannels)
           .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);

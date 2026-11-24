@@ -122,26 +122,28 @@
 
 .inbox-transcript{padding:8px 10px;border-left:2px solid var(--brand-primary,#287b51);background:rgba(40,123,81,.06);border-radius:0 6px 6px 0}.inbox-transcript strong{display:block;margin-bottom:3px;font-size:var(--font-size-xs)}
 
-/* Keep the sales context on the left, active conversation in the center, and queue on the right. */
-.inbox-layout{height:max(520px,min(780px,calc(100vh - 280px)));max-height:none;grid-template-areas:"contact thread conversations"}
-.inbox-contact-panel{border-left:0;border-right:1px solid var(--line,#e7e9ed)}
-.inbox-conversations{min-height:0;overflow:hidden;border-right:0;border-left:1px solid var(--line,#e7e9ed)}
+/* Keep the conversation queue, active thread, and contact context in workflow order. */
+.inbox-layout{height:max(620px,min(1100px,calc(100vh - 420px)));max-height:none;grid-template-columns:minmax(260px,320px) minmax(0,1fr) minmax(260px,320px);grid-template-areas:"conversations thread contact"}
+.inbox-contact-panel{border-left:1px solid var(--line,#e7e9ed);border-right:0}
+.inbox-conversations{min-height:0;overflow:hidden;border-right:1px solid var(--line,#e7e9ed);border-left:0}
 .inbox-conversation-list-heading,.inbox-conversation-filters,.inbox-list-pagination{flex:0 0 auto}
 .inbox-conversation-items{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
 .inbox-conversation-copy{flex:1 1 0%;}
 .inbox-thread-heading{align-items:flex-start;gap:12px}
 .inbox-control-actions{max-width:58%;}
 .inbox-messages{min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.inbox-message-state{display:grid;flex:1 1 auto;min-height:0;place-items:center;padding:24px}
+.inbox-message-state>.workspace-state{width:min(100%,680px)}
 .inbox-conversation:focus-visible{position:relative;z-index:1;outline:2px solid var(--ui-focus-ring,#2563eb);outline-offset:-2px}
 .inbox-context-toggle{white-space:nowrap}
-.inbox-context-collapsed .inbox-layout{grid-template-columns:minmax(0,1fr) minmax(260px,320px);grid-template-areas:"thread conversations"}
+.inbox-context-collapsed .inbox-layout{grid-template-columns:minmax(260px,320px) minmax(0,1fr);grid-template-areas:"conversations thread"}
 .inbox-context-collapsed .inbox-contact-panel{display:none}
 @media(max-width:1400px){
-  .inbox-layout{height:auto;grid-template-columns:minmax(230px,.8fr) minmax(360px,1.2fr);grid-template-rows:minmax(560px,auto) 420px;grid-template-areas:"contact thread" "conversations conversations"}
+  .inbox-layout{height:auto;grid-template-columns:minmax(230px,.8fr) minmax(360px,1.2fr);grid-template-rows:minmax(560px,auto) 360px;grid-template-areas:"conversations thread" "contact contact"}
   .inbox-thread{min-height:560px}
   .inbox-contact-panel{height:auto;max-height:560px;border-right:1px solid var(--line,#e7e9ed)}
-  .inbox-conversations{height:420px;max-height:420px;border-top:1px solid var(--line,#e7e9ed);border-left:0}
-  .inbox-context-collapsed .inbox-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(560px,auto) 420px;grid-template-areas:"thread" "conversations"}
+  .inbox-conversations{height:auto;max-height:none;border-top:0;border-left:0}
+  .inbox-context-collapsed .inbox-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:360px minmax(560px,auto);grid-template-areas:"conversations" "thread"}
 }
 @media(max-width:760px){
   .inbox-layout{height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:auto;grid-template-areas:"conversations" "thread" "contact"}

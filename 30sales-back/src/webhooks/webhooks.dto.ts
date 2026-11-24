@@ -27,6 +27,43 @@ export class EvolutionContactUpdateDto {
   ) {}
 }
 
+export class EvolutionChatStateDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly externalEventId: string,
+    readonly externalConversationId: string,
+    readonly archived: boolean | null,
+    readonly pinned: boolean | null,
+    readonly unreadCount: number | null,
+    readonly deleted: boolean | null,
+    readonly payloadHash: string,
+  ) {}
+}
+
+export type EvolutionHistoryBatchDto = {
+  id: string;
+  organizationId: string;
+  channelId: string;
+  externalEventId: string;
+  payloadCiphertext: string;
+  payloadIv: string;
+  payloadAuthTag: string;
+  attempts: number;
+};
+
+export class EvolutionMessageMutationDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly externalMessageId: string,
+    readonly externalEventId: string,
+    readonly eventType: 'messages.edited' | 'messages.delete',
+    readonly bodyText: string | null,
+    readonly payloadHash: string,
+  ) {}
+}
+
 export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker';
 
 export class InboundMediaDto {
@@ -76,6 +113,15 @@ export class IncomingWhatsappMessageDto {
     readonly media: InboundMediaDto | null = null,
   ) {}
 }
+
+export const evolutionHistoryMessageSchema = z.object({
+  organizationId: z.string().uuid(), channelId: z.string().uuid(), provider: z.literal('evolution'),
+  externalMessageId: z.string().min(1).max(250), externalConversationId: z.string().min(1).max(300),
+  senderPhone: z.string().nullable(), senderExternalId: z.string().nullable(), senderName: z.string().nullable(),
+  messageType: z.string().max(80), closerSignal: z.enum(['human_requested', 'buying_intent', 'question']).nullable(),
+  bodyText: z.string().nullable(), occurredAt: z.coerce.date(), payloadHash: z.string().min(1),
+  media: z.object({ mediaType: z.enum(['image', 'video', 'audio', 'document', 'sticker']), sourceMediaId: z.string().nullable(), sourceCiphertext: z.string(), sourceIv: z.string(), sourceAuthTag: z.string(), mimeType: z.string().nullable(), fileName: z.string().nullable(), sizeBytes: z.number().int().nullable(), sha256: z.string().nullable() }).nullable(),
+}).strict();
 
 export type MessageDeliveryState = 'accepted' | 'delivered' | 'read' | 'failed';
 

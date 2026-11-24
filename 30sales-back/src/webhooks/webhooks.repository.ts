@@ -1,17 +1,93 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { EvolutionContactUpdateDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 
+type WebhooksTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
+type OutboundMessageStatusTarget = { id: string; conversationId: string; deliveryState: string; ownerUserId: string | null; businessLineId: string | null };
+
 @Injectable()
 export class WebhooksRepository {
+  async enqueueEvolutionHistoryBatch(input: { organizationId: string; channelId: string; externalEventId: string; payloadCiphertext: string; payloadIv: string; payloadAuthTag: string }): Promise<boolean> {
+    const [batch] = await database.insert(evolutionHistoryBatches).values(input).onConflictDoNothing({ target: [evolutionHistoryBatches.organizationId, evolutionHistoryBatches.externalEventId] }).returning({ id: evolutionHistoryBatches.id });
+    return Boolean(batch);
+  }
+
+  async claimEvolutionHistoryBatch(): Promise<EvolutionHistoryBatchDto | null> {
+    return database.transaction(async (transaction) => {
+      const staleLock = new Date(Date.now() - 5 * 60_000);
+      const [batch] = await transaction.select().from(evolutionHistoryBatches)
+        .where(or(and(eq(evolutionHistoryBatches.status, 'queued'), sql`${evolutionHistoryBatches.availableAt} <= now()`), and(eq(evolutionHistoryBatches.status, 'processing'), sql`${evolutionHistoryBatches.lockedAt} < ${staleLock}`)))
+        .orderBy(evolutionHistoryBatches.availableAt, evolutionHistoryBatches.createdAt).for('update', { skipLocked: true }).limit(1);
+      if (!batch) return null;
+      const [updated] = await transaction.update(evolutionHistoryBatches).set({ status: 'processing', attempts: batch.attempts + 1, lockedAt: new Date() })
+        .where(and(eq(evolutionHistoryBatches.id, batch.id), eq(evolutionHistoryBatches.organizationId, batch.organizationId))).returning();
+      return updated ? { id: updated.id, organizationId: updated.organizationId, channelId: updated.channelId, externalEventId: updated.externalEventId, payloadCiphertext: updated.payloadCiphertext, payloadIv: updated.payloadIv, payloadAuthTag: updated.payloadAuthTag, attempts: updated.attempts } : null;
+    });
+  }
+
+  async completeEvolutionHistoryBatch(input: Pick<EvolutionHistoryBatchDto, 'id' | 'organizationId'>): Promise<void> {
+    await database.update(evolutionHistoryBatches).set({ status: 'completed', payloadCiphertext: '', payloadIv: '', payloadAuthTag: '', lockedAt: null, completedAt: new Date(), lastErrorCode: null })
+      .where(and(eq(evolutionHistoryBatches.id, input.id), eq(evolutionHistoryBatches.organizationId, input.organizationId), eq(evolutionHistoryBatches.status, 'processing')));
+  }
+
+  async failEvolutionHistoryBatch(input: Pick<EvolutionHistoryBatchDto, 'id' | 'organizationId' | 'attempts'>, errorCode: string): Promise<void> {
+    const terminal = input.attempts >= 5;
+    const backoffSeconds = Math.min(300, 2 ** input.attempts * 5);
+    await database.update(evolutionHistoryBatches).set({ status: terminal ? 'failed' : 'queued', ...(terminal ? { payloadCiphertext: '', payloadIv: '', payloadAuthTag: '' } : { availableAt: new Date(Date.now() + backoffSeconds * 1000) }), lockedAt: null, lastErrorCode: errorCode })
+      .where(and(eq(evolutionHistoryBatches.id, input.id), eq(evolutionHistoryBatches.organizationId, input.organizationId), eq(evolutionHistoryBatches.status, 'processing')));
+  }
+
+  async recordHistoricalIncomingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate' | 'unmatched'> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+      if (!conversation) return 'unmatched';
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, deliveryState: 'received', occurredAt: input.occurredAt })
+        .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
+      if (!message) return 'duplicate';
+      if (input.media) await transaction.insert(messageAttachments).values({ organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: input.provider, mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext, sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType, fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256 });
+      await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
+        .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
+      return 'created';
+    });
+  }
+
+  async recordEvolutionChatState(input: EvolutionChatStateDto): Promise<'updated' | 'unmatched' | 'duplicate'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId,
+        provider: 'evolution',
+        externalEventId: input.externalEventId,
+        eventType: 'evolution.chat.state',
+        payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.chat },
+        status: 'processed', attempts: '1', processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+      if (!conversation) return 'unmatched';
+      await transaction.update(conversations).set({
+        ...(input.archived === null ? {} : { providerArchived: input.archived }),
+        ...(input.pinned === null ? {} : { providerPinned: input.pinned }),
+        ...(input.unreadCount === null ? {} : { providerUnreadCount: input.unreadCount }),
+        ...(input.deleted === null ? {} : { providerDeleted: input.deleted }),
+        updatedAt: new Date(),
+      }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('inbox_events', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, kind: 'conversation' })})`);
+      return 'updated';
+    });
+  }
+
   async findEvolutionChannel(channelId: string): Promise<WebhookChannelDto | null> {
     const [row] = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, businessLineId: messagingChannels.businessLineId, operationMode: messagingChannels.operationMode, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId, isActive: messagingChannels.isActive, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag })
       .from(messagingChannels).where(and(eq(messagingChannels.id, channelId), eq(messagingChannels.provider, 'evolution'), isNull(messagingChannels.deletedAt))).limit(1);
@@ -43,6 +119,35 @@ export class WebhooksRepository {
       processedAt: new Date(),
     }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
     return event ? 'created' : 'duplicate';
+  }
+
+  async recordUnmatchedMessageStatus(input: WhatsappMessageStatusDto): Promise<'created' | 'duplicate'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId,
+        provider: input.provider,
+        externalEventId: input.externalEventId,
+        eventType: 'messages.status.unmatched',
+        payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, externalMessageId: input.externalMessageId, deliveryState: input.deliveryState },
+        status: 'processed',
+        attempts: '1',
+        processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId })
+        .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.externalMessageId), eq(messages.direction, 'outbound'), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId)))
+        .for('update').limit(1);
+      if (!message) return 'created';
+
+      await transaction.update(inboxEvents).set({ eventType: 'messages.status', payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState } })
+        .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
+      await this.applyMessageStatus(transaction, input, message);
+      return 'created';
+    });
   }
 
   async updateKnownEvolutionContact(input: EvolutionContactUpdateDto): Promise<'updated' | 'duplicate' | 'unmatched'> {
@@ -277,6 +382,45 @@ export class WebhooksRepository {
     });
   }
 
+  async applyEvolutionMessageMutation(input: EvolutionMessageMutationDto): Promise<'updated' | 'duplicate' | 'unmatched' | 'unchanged'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId,
+        provider: 'evolution',
+        externalEventId: input.externalEventId,
+        eventType: input.eventType,
+        payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: 'message', externalMessageId: input.externalMessageId },
+        status: 'processed',
+        attempts: '1',
+        processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+
+      const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, isDeleted: messages.isDeleted })
+        .from(messages)
+        .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.externalMessageId, input.externalMessageId), eq(conversations.provider, 'evolution'), eq(conversations.channelId, input.channelId)))
+        .for('update').limit(1);
+      if (!message) {
+        if (input.eventType === 'messages.delete') await transaction.update(inboxEvents).set({ eventType: 'messages.delete.unmatched' })
+          .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
+        return 'unmatched';
+      }
+      if (input.eventType === 'messages.delete') {
+        if (message.isDeleted) return 'unchanged';
+        await transaction.update(messages).set({ isDeleted: true, bodyText: null, transcriptText: null })
+          .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      } else {
+        if (!input.bodyText || message.isDeleted) return 'unchanged';
+        await transaction.update(messages).set({ bodyText: input.bodyText })
+          .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      }
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: message.conversationId, occurredAt: new Date().toISOString() })})`);
+      return 'updated';
+    });
+  }
+
   async recordMessageStatus(input: WhatsappMessageStatusDto): Promise<'updated' | 'duplicate' | 'unmatched' | 'unchanged'> {
     return database.transaction(async (transaction) => {
       const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId })
@@ -290,8 +434,12 @@ export class WebhooksRepository {
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
-      const current = message.deliveryState;
-      const next = this.nextDeliveryState(current, input.deliveryState);
+      return this.applyMessageStatus(transaction, input, message);
+    });
+  }
+
+  private async applyMessageStatus(transaction: WebhooksTransaction, input: WhatsappMessageStatusDto, message: OutboundMessageStatusTarget): Promise<'updated' | 'unchanged'> {
+      const next = this.nextDeliveryState(message.deliveryState, input.deliveryState);
       if (!next) return 'unchanged';
       await transaction.update(messages).set({ deliveryState: next })
         .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
@@ -315,7 +463,6 @@ export class WebhooksRepository {
       }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: message.conversationId, occurredAt: input.occurredAt.toISOString() })})`);
       return 'updated';
-    });
   }
 
   private nextDeliveryState(current: string, incoming: 'accepted' | 'delivered' | 'read' | 'failed'): 'accepted' | 'delivered' | 'read' | 'failed' | null {

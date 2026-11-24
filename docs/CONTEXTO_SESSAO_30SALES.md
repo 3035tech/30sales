@@ -1,5 +1,24 @@
 # Contexto de continuidade — 30Sales
 
+## Continuação — estado de chats Evolution — 24/11/2026
+
+- Conversas diretas já existentes sincronizam `archived`, `pinned`, `unreadCount` e remoção via `CHATS_SET/UPSERT/UPDATE/DELETE`. O estado técnico do provider não substitui status comercial nem leitura por usuário; a exclusão remota preserva conversa/mensagens. Chats sem conversa correspondente e grupos permanecem no ledger. A versão Evolution 2.3.7 usada pelo ambiente tem issue upstream que descarta `archived`/`unreadCount` antes do webhook; o receptor é best-effort e não consegue recuperar campos que o provider não envia.
+- O Inbox expõe badges de arquivada/fixada/removida e contador do WhatsApp, pt-BR/en. Migration aditiva `0078_evolution_chat_state.sql` gerada; não aplicada em ambiente compartilhado.
+- Builds Vite/Nest e `drizzle-kit check` passaram nesta rodada; testes automatizados não foram executados.
+- `MESSAGES_SET` agora usa a tabela específica `evolution_history_batches`: lotes de até 25 mensagens normalizadas, cifradas com AAD tenant/canal, deduplicação, lease recuperável, retry exponencial limitado a cinco tentativas e expurgo do payload após sucesso/falha terminal. O worker só importa inbound para conversas diretas existentes, atualiza a timeline sem reabrir conversa e não gera outbox, notificações ou eventos de closer. Migration `0079_evolution_history_batches.sql` gerada, não aplicada. Build Nest e `drizzle-kit check` passaram; sem testes automatizados, commit, push ou deploy.
+- Ainda pendentes: grupos/JID no envio e Inbox, presença, reações/citações estruturadas, tipos ricos e confirmação de payload real de MESSAGES_SET na instância 2.3.7. A migration 0079 precisa ser aplicada antes que o worker possa processar lotes no ambiente.
+
+## Continuação — integração Evolution e webhooks — 24/11/2026
+
+- Implementação adicional Evolution → Inbox: recibos `SEND_MESSAGE_UPDATE` agora passam pelo reconciliador existente; `MESSAGES_EDITED` atualiza texto quando o conteúdo chega legível; `MESSAGES_DELETE` marca tombstone e oculta corpo/transcrição/anexo na interface; IDs do evento são deduplicados e a timeline recebe notificação live. Eventos com hífens são normalizados para o nome canônico. Localização e vCard básicos são renderizados como texto. Migration aditiva `0077_evolution_inbox_message_tombstones.sql` adiciona `messages.is_deleted`; contratos/API e Inbox mostram estado apagado localizado.
+- Builds Nest e Vite passaram; `drizzle-kit check` passou. Não rodei testes automatizados nem validei evento real na Evolution. A árvore permanece local, com as mudanças anteriores desta integração também presentes; sem commit, push, alteração do Manager ou deploy.
+- Ainda fora da sincronização: importação de histórico por `MESSAGES_SET` (precisa lote/job limitado para não bloquear callback nem reprocessar conversas antigas), estado de chats/arquivamento/leitura, grupos, presença, respostas/citações, botões/listas/enquetes/reação estruturada, e edição cujo texto a Evolution 2.3.7 não fornece. A release 2.3.8 reporta correção de mensagens recebidas em atraso quando a instância fica aberta; avaliar atualização pelo GitOps antes de atribuir perdas de inbound ao 30Sales.
+
+- Revisado o cadastro e fluxo de callbacks Evolution v2.3.7. O backend passa a confirmar cada configuração com `GET /webhook/find/{instance}`, conferindo URL, cabeçalho secreto, modos e lista integral de eventos. O inventário documenta `MESSAGES_EDITED` e `SEND_MESSAGE_UPDATE`, aceitos no schema/API da tag 2.3.7 mesmo ausentes da lista da interface Manager.
+- Corrigida a associação de recibos de entrega fora de ordem: status que chega antes do retorno do envio fica no ledger sem corpo/número e é reconciliado quando o ID externo é persistido; status tardio segue o processamento normal. O ID externo do evento mantém deduplicação entre os dois caminhos.
+- Validação backend: build passou; Jest passou com 10 suítes/40 testes; `git diff --check` passou. Foi alinhado um teste antigo ao comportamento atual de exclusão local sem chamar DELETE remoto. Nenhum teste real de envio pelo Inbox foi feito: a sessão anterior não tinha conversa para o telefone de teste e nenhuma mensagem adicional foi enviada.
+- Alterações locais, sem commit, push, configuração no Evolution online ou deploy. Para confirmar callback fim a fim, é necessário retomar com conversa de teste existente no Inbox e configuração Evolution acessível; repetir configuração por Canais agora também valida a leitura de retorno.
+
 ## Continuação — métricas de campanha — 23/11/2026
 
 - Actions do commit `48f3c9f` concluiu com sucesso o build/publicação do backend: [run 45152646443](https://github.com/3035tech/30sales/actions/runs/45152646443). Nenhum deploy foi executado.

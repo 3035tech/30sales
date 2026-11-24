@@ -20,7 +20,7 @@ export class AttachmentsRepository {
       }).from(messageAttachments)
         .innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
         .innerJoin(messagingChannels, and(eq(messagingChannels.id, messageAttachments.channelId), eq(messagingChannels.organizationId, messageAttachments.organizationId)))
-        .where(and(eq(messagingChannels.isActive, true), isNotNull(messagingChannels.credentialsCiphertext), isNotNull(messagingChannels.credentialsIv), isNotNull(messagingChannels.credentialsAuthTag),
+        .where(and(eq(messages.isDeleted, false), eq(messagingChannels.isActive, true), isNotNull(messagingChannels.credentialsCiphertext), isNotNull(messagingChannels.credentialsIv), isNotNull(messagingChannels.credentialsAuthTag),
           lte(messageAttachments.availableAt, now), or(eq(messageAttachments.status, 'pending'), and(eq(messageAttachments.status, 'processing'), lte(messageAttachments.lockedUntil, now)))))
         .orderBy(asc(messageAttachments.availableAt), asc(messageAttachments.id)).limit(limit).for('update', { of: messageAttachments, skipLocked: true });
       if (!rows.length) return [];
@@ -57,7 +57,7 @@ export class AttachmentsRepository {
     return database.transaction(async (transaction) => {
       const [attachment] = await transaction.select({ storageKey: messageAttachments.storageKey, fileName: messageAttachments.fileName, status: messageAttachments.status })
         .from(messageAttachments).innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
-        .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, 'available'), isNotNull(messageAttachments.storageKey))).limit(1);
+        .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messages.isDeleted, false), eq(messageAttachments.status, 'available'), isNotNull(messageAttachments.storageKey))).limit(1);
       if (!attachment?.storageKey) return null;
       await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'message_attachment.download_requested', entityType: 'message_attachment', entityId: attachmentId, correlationId });
       return new MediaAttachmentDownloadDto(attachment.storageKey, attachment.fileName);

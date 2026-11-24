@@ -42,7 +42,7 @@ export class InboxService {
   }
   async messages(request: ApiRequestDto, conversationId: string, query: { limit: number; offset: number }): Promise<MessageRecordDto[]> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, query.limit, query.offset));
+    const records = await this.repository.listMessages(new ConversationMessagesQueryDto(context.organizationId, conversationId, context.userId, query.limit, query.offset, context.isPlatformOrganizationContext));
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
   }

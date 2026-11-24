@@ -583,6 +583,10 @@ export const conversations = pgTable('conversations', {
   personId: uuid('person_id'),
   opportunityId: uuid('opportunity_id'),
   status: conversationStatus('status').default('open').notNull(),
+  providerArchived: boolean('provider_archived'),
+  providerPinned: boolean('provider_pinned'),
+  providerUnreadCount: integer('provider_unread_count'),
+  providerDeleted: boolean('provider_deleted'),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   automationMode: text('automation_mode').default('assistant').notNull(),
   assistantQualificationIntent: text('assistant_qualification_intent'),
@@ -674,6 +678,7 @@ export const messages = pgTable('messages', {
   actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   bodyText: text('body_text'),
   transcriptText: text('transcript_text'),
+  isDeleted: boolean('is_deleted').default(false).notNull(),
   deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),
   idempotencyKey: text('idempotency_key'),
   occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
@@ -946,6 +951,29 @@ export const jobs = pgTable('jobs', {
   unique('jobs_org_idempotency_unique').on(table.organizationId, table.idempotencyKey),
   index('jobs_org_status_available_idx').on(table.organizationId, table.status, table.availableAt),
   index('jobs_org_aggregate_idx').on(table.organizationId, table.aggregateType, table.aggregateId),
+]);
+
+export const evolutionHistoryBatches = pgTable('evolution_history_batches', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  channelId: uuid('channel_id').notNull(),
+  externalEventId: text('external_event_id').notNull(),
+  payloadCiphertext: text('payload_ciphertext').notNull(),
+  payloadIv: text('payload_iv').notNull(),
+  payloadAuthTag: text('payload_auth_tag').notNull(),
+  status: text('status').default('queued').notNull(),
+  attempts: integer('attempts').default(0).notNull(),
+  availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
+  lockedAt: timestamp('locked_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  lastErrorCode: text('last_error_code'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'evolution_history_batches_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
+  unique('evolution_history_batches_org_event_unique').on(table.organizationId, table.externalEventId),
+  check('evolution_history_batches_status_check', sql`${table.status} in ('queued', 'processing', 'completed', 'failed')`),
+  check('evolution_history_batches_attempts_check', sql`${table.attempts} >= 0`),
+  index('evolution_history_batches_status_available_idx').on(table.status, table.availableAt),
 ]);
 
 export const auditEvents = pgTable('audit_events', {

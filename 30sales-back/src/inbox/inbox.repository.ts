@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationReads, conversationTagLinks, conversationTags, conversations, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
@@ -175,7 +175,7 @@ export class InboxRepository {
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
       .leftJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .where(and(...conditions));
-    const rows = await database.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, provider: conversations.provider, status: conversations.status, accountName: accounts.name, personName: people.name, personEmail: people.email, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, businessLineId: messagingChannels.businessLineId, businessLineName: businessLines.name, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.assistantQualificationIntent, qualificationSummary: conversations.assistantQualificationSummary, confirmedFacts: conversations.assistantConfirmedFacts, unknowns: conversations.assistantUnknowns, nextStep: conversations.assistantNextStep, qualificationUpdatedAt: conversations.assistantQualificationUpdatedAt, unread: unreadExists })
+    const rows = await database.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, provider: conversations.provider, status: conversations.status, providerArchived: conversations.providerArchived, providerPinned: conversations.providerPinned, providerUnreadCount: conversations.providerUnreadCount, providerDeleted: conversations.providerDeleted, accountName: accounts.name, personName: people.name, personEmail: people.email, personPhone: people.phone, lastMessageAt: conversations.lastMessageAt, createdAt: conversations.createdAt, channelId: conversations.channelId, channelName: messagingChannels.displayName, channelPhoneNumber: messagingChannels.phoneNumber, channelProvider: messagingChannels.provider, businessLineId: messagingChannels.businessLineId, businessLineName: businessLines.name, channelActive: messagingChannels.isActive, channelConfigured: messagingChannels.credentialsCiphertext, ownerUserId: conversations.ownerUserId, ownerName: authUser.name, automationMode: conversations.automationMode, qualificationIntent: conversations.assistantQualificationIntent, qualificationSummary: conversations.assistantQualificationSummary, confirmedFacts: conversations.assistantConfirmedFacts, unknowns: conversations.assistantUnknowns, nextStep: conversations.assistantNextStep, qualificationUpdatedAt: conversations.assistantQualificationUpdatedAt, unread: unreadExists })
       .from(conversations)
       .leftJoin(accounts, and(eq(accounts.id, conversations.accountId), eq(accounts.organizationId, conversations.organizationId)))
       .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
@@ -202,7 +202,7 @@ export class InboxRepository {
       if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name));
       else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name)]);
     }
-    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName); });
+    const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(row.personPhone && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName, row.providerArchived, row.providerPinned, row.providerUnreadCount, row.providerDeleted); });
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }
 
@@ -349,8 +349,11 @@ export class InboxRepository {
   }
 
   async listMessages(input: ConversationMessagesQueryDto): Promise<MessageRecordDto[] | null> {
-    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId)) return null;
-    const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, transcriptText: messages.transcriptText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
+    const canReadConversation = input.isPlatformOrganizationContext
+      ? Boolean((await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1))[0])
+      : await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId);
+    if (!canReadConversation) return null;
+    const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, transcriptText: messages.transcriptText, isDeleted: messages.isDeleted, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
       .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
     const attachmentRows = rows.length ? await database.select({ messageId: messageAttachments.messageId, id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status })
@@ -361,7 +364,7 @@ export class InboxRepository {
       if (messageAttachmentsForRow) messageAttachmentsForRow.push(new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status));
       else attachmentsByMessage.set(attachment.messageId, [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)]);
     }
-    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText));
+    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText, row.isDeleted));
   }
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
@@ -473,11 +476,44 @@ export class InboxRepository {
       const [row] = await transaction.update(messages).set({ deliveryState: input.deliveryState, externalMessageId: input.externalMessageId })
         .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       if (!row) return null;
+      let finalDeliveryState = row.deliveryState;
+      if (row.direction === 'outbound' && input.externalMessageId) {
+        const [conversation] = await transaction.select({ channelId: conversations.channelId, provider: conversations.provider }).from(conversations)
+          .where(and(eq(conversations.id, row.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+        if (conversation) {
+          const unmatchedEvents = await transaction.select({ id: inboxEvents.id, payloadRedacted: inboxEvents.payloadRedacted })
+            .from(inboxEvents)
+            .where(and(
+              eq(inboxEvents.organizationId, input.organizationId),
+              eq(inboxEvents.provider, conversation.provider),
+              eq(inboxEvents.eventType, 'messages.status.unmatched'),
+              sql`${inboxEvents.payloadRedacted}->>'channelId' = ${conversation.channelId}`,
+              sql`${inboxEvents.payloadRedacted}->>'externalMessageId' = ${input.externalMessageId}`,
+            ))
+            .orderBy(asc(inboxEvents.receivedAt))
+            .for('update');
+          for (const event of unmatchedEvents) {
+            const payload = event.payloadRedacted;
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('deliveryState' in payload)) continue;
+            const eventDeliveryState = payload.deliveryState;
+            if (eventDeliveryState !== 'accepted' && eventDeliveryState !== 'delivered' && eventDeliveryState !== 'read' && eventDeliveryState !== 'failed') continue;
+            finalDeliveryState = this.nextDeliveryState(finalDeliveryState, eventDeliveryState) ?? finalDeliveryState;
+            await transaction.update(inboxEvents).set({
+              eventType: 'messages.status',
+              payloadRedacted: { channelId: conversation.channelId, eventFamily: 'message', messageId: row.id, deliveryState: eventDeliveryState },
+            }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
+          }
+        }
+        if (finalDeliveryState !== row.deliveryState) {
+          await transaction.update(messages).set({ deliveryState: finalDeliveryState })
+            .where(and(eq(messages.id, row.id), eq(messages.organizationId, input.organizationId)));
+        }
+      }
       const [actor] = row.actorUserId ? await transaction.select({ name: authUser.name }).from(authUser).where(eq(authUser.id, row.actorUserId)).limit(1) : [];
       const attachments = await transaction.select({ id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status }).from(messageAttachments)
         .where(and(eq(messageAttachments.messageId, row.id), eq(messageAttachments.organizationId, input.organizationId)));
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: `conversation.message_${input.deliveryState}`, entityType: 'conversation', entityId: row.conversationId, correlationId: input.correlationId, afterState: { messageId: row.id, deliveryState: input.deliveryState, externalMessageId: input.externalMessageId } });
-      if (input.deliveryState === 'failed' && row.direction === 'outbound') {
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: `conversation.message_${finalDeliveryState}`, entityType: 'conversation', entityId: row.conversationId, correlationId: input.correlationId, afterState: { messageId: row.id, deliveryState: finalDeliveryState, externalMessageId: input.externalMessageId } });
+      if (finalDeliveryState === 'failed' && row.direction === 'outbound') {
         const [conversation] = await transaction.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
           .where(and(eq(conversations.id, row.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
         const recipientUserId = conversation?.ownerUserId ?? input.actorUserId;
@@ -492,8 +528,15 @@ export class InboxRepository {
         }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: row.occurredAt.toISOString() })})`);
-      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)));
+      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, finalDeliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)));
     });
+  }
+
+  private nextDeliveryState(current: string, incoming: 'accepted' | 'delivered' | 'read' | 'failed'): 'accepted' | 'delivered' | 'read' | 'failed' | null {
+    if (current === incoming || current === 'read' || current === 'failed') return null;
+    if (incoming === 'failed') return current === 'requested' || current === 'accepted' || current === 'unknown' ? 'failed' : null;
+    const rank: Record<string, number> = { requested: 0, unknown: 0, accepted: 1, delivered: 2, read: 3 };
+    return (rank[incoming] ?? -1) > (rank[current] ?? -1) ? incoming : null;
   }
 
   async markOutboundAttachmentAvailable(organizationId: string, messageId: string, attachmentId: string, storageKey: string): Promise<boolean> {

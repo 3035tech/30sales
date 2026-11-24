@@ -68,6 +68,8 @@ export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'stick
 export type EvolutionMessageMetadata = {
   reaction: { targetExternalMessageId: string; emoji: string } | null;
   quotedMessage: { externalMessageId: string | null; bodyText: string | null } | null;
+  richContent?: { kind: 'poll'; title: string; options: string[] } | null;
+  author?: { name: string | null; phone: string | null } | null;
 };
 
 export class InboundMediaDto {
@@ -116,17 +118,23 @@ export class IncomingWhatsappMessageDto {
     readonly payloadHash: string,
     readonly media: InboundMediaDto | null = null,
     readonly evolutionMetadata: EvolutionMessageMetadata | null = null,
+    readonly conversationType: 'direct' | 'group' = 'direct',
+    readonly displayName: string | null = null,
+    readonly providerRecipientId: string | null = null,
   ) {}
 }
 
 const evolutionMessageMetadataSchema = z.object({
   reaction: z.object({ targetExternalMessageId: z.string().min(1).max(250), emoji: z.string().min(1).max(32) }).nullable(),
   quotedMessage: z.object({ externalMessageId: z.string().max(250).nullable(), bodyText: z.string().max(2000).nullable() }).nullable(),
+  richContent: z.object({ kind: z.literal('poll'), title: z.string().max(4096), options: z.array(z.string().max(200)).max(20) }).nullable().optional(),
+  author: z.object({ name: z.string().max(160).nullable(), phone: z.string().max(20).nullable() }).nullable().optional(),
 }).strict();
 
 export const evolutionHistoryMessageSchema = z.object({
   organizationId: z.string().uuid(), channelId: z.string().uuid(), provider: z.literal('evolution'),
   externalMessageId: z.string().min(1).max(250), externalConversationId: z.string().min(1).max(300),
+  conversationType: z.enum(['direct', 'group']).optional().default('direct'), displayName: z.string().max(160).nullable().optional().default(null), providerRecipientId: z.string().max(250).nullable().optional().default(null),
   senderPhone: z.string().nullable(), senderExternalId: z.string().nullable(), senderName: z.string().nullable(),
   messageType: z.string().max(80), closerSignal: z.enum(['human_requested', 'buying_intent', 'question']).nullable(),
   bodyText: z.string().nullable(), occurredAt: z.coerce.date(), payloadHash: z.string().min(1), evolutionMetadata: evolutionMessageMetadataSchema.nullable().optional().default(null),

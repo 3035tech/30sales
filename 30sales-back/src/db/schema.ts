@@ -45,6 +45,8 @@ export type MessageProviderMetadata = {
   evolution?: {
     reaction?: { targetExternalMessageId: string; emoji: string } | null;
     quotedMessage?: { externalMessageId: string | null; bodyText: string | null } | null;
+    richContent?: { kind: 'poll'; title: string; options: string[] } | null;
+    author?: { name: string | null; phone: string | null } | null;
   } | null;
 };
 
@@ -584,6 +586,9 @@ export const conversations = pgTable('conversations', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   provider: text('provider').notNull(),
   externalConversationId: text('external_conversation_id').notNull(),
+  conversationType: text('conversation_type').default('direct').notNull(),
+  displayName: text('display_name'),
+  providerRecipientId: text('provider_recipient_id'),
   channelId: uuid('channel_id'),
   accountId: uuid('account_id'),
   personId: uuid('person_id'),
@@ -612,6 +617,7 @@ export const conversations = pgTable('conversations', {
   unique('conversations_id_organization_unique').on(table.id, table.organizationId),
   unique('conversations_provider_external_unique').on(table.organizationId, table.provider, table.externalConversationId),
   check('conversations_automation_mode_check', sql`${table.automationMode} in ('assistant', 'human', 'paused')`),
+  check('conversations_type_check', sql`${table.conversationType} in ('direct', 'group')`),
   index('conversations_org_status_last_message_idx').on(table.organizationId, table.status, table.lastMessageAt),
   index('conversations_org_owner_last_message_idx').on(table.organizationId, table.ownerUserId, table.lastMessageAt),
   index('conversations_org_channel_last_message_idx').on(table.organizationId, table.channelId, table.lastMessageAt),

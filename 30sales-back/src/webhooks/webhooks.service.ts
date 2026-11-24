@@ -103,6 +103,7 @@ export class WebhooksService {
         parsed.data.messageType, parsed.data.closerSignal, parsed.data.bodyText, parsed.data.occurredAt, parsed.data.payloadHash,
         parsed.data.media ? new InboundMediaDto(parsed.data.media.mediaType, parsed.data.media.sourceMediaId, parsed.data.media.sourceCiphertext, parsed.data.media.sourceIv, parsed.data.media.sourceAuthTag, parsed.data.media.mimeType, parsed.data.media.fileName, parsed.data.media.sizeBytes, parsed.data.media.sha256) : null,
         parsed.data.evolutionMetadata,
+        parsed.data.conversationType, parsed.data.displayName, parsed.data.providerRecipientId,
       ));
       if (result === 'created') processed += 1;
     }
@@ -369,25 +370,35 @@ export class WebhooksService {
     const key = this.record(data.key);
     if (key.fromMe === true) return null;
     const remoteJid = this.string(key.remoteJid) ?? this.string(data.remoteJid);
-    if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return null;
+    if (!remoteJid || remoteJid === 'status@broadcast') return null;
+    const isGroup = remoteJid.endsWith('@g.us');
+    if (isGroup && remoteJid.length > 250) return null;
     const altJid = this.string(key.remoteJidAlt) ?? this.string(data.remoteJidAlt);
-    if (remoteJid.includes('@lid') && !altJid) return null;
-    const selectedJid = altJid?.endsWith('@s.whatsapp.net') || altJid?.endsWith('@c.us') ? altJid : remoteJid;
-    const senderPhone = this.phoneDigits(selectedJid);
+    const participantJid = this.string(key.participantAlt) ?? this.string(data.participantAlt) ?? this.string(key.participant) ?? this.string(data.participant);
+    if (!isGroup && remoteJid.includes('@lid') && !altJid) return null;
+    const selectedJid = isGroup
+      ? (participantJid?.endsWith('@s.whatsapp.net') || participantJid?.endsWith('@c.us') ? participantJid : '')
+      : (altJid?.endsWith('@s.whatsapp.net') || altJid?.endsWith('@c.us') ? altJid : remoteJid);
+    const senderPhone = this.phoneDigits(selectedJid.split('@')[0].split(':')[0]);
     const externalMessageId = this.string(key.id);
-    if (!this.isValidPhone(senderPhone) || !externalMessageId || externalMessageId.length > 250) return null;
+    if ((!isGroup && !this.isValidPhone(senderPhone)) || !externalMessageId || externalMessageId.length > 250) return null;
     const messageContent = this.unwrapEvolutionMessage(this.record(data.message));
     const rawMessageType = this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent);
     const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
     const reaction = this.extractEvolutionReaction(messageContent);
     const quotedMessage = this.extractEvolutionQuotedMessage(messageContent);
-    const bodyText = (reaction?.emoji ?? this.extractEvolutionText(messageContent))?.slice(0, 16000) ?? null;
-    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || quotedMessage ? { reaction, quotedMessage } : null;
+    const richContent = this.extractEvolutionRichContent(messageContent);
+    const bodyText = (reaction?.emoji ?? richContent?.title ?? this.extractEvolutionText(messageContent))?.slice(0, 16000) ?? null;
+    const authorName = this.string(data.pushName)?.trim().slice(0, 160) || null;
+    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || quotedMessage || richContent || isGroup
+      ? { reaction, quotedMessage, richContent, ...(isGroup ? { author: { name: authorName, phone: this.isValidPhone(senderPhone) ? senderPhone : null } } : {}) }
+      : null;
     const mediaType = this.asMediaType(rawMessageType);
     const mediaContent = mediaType ? this.record(messageContent[`${mediaType}Message`]) : {};
     const media = mediaType ? this.createMedia(channelId, organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), mediaContent) : null;
     const occurredAt = this.toDate(data.messageTimestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, null, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media, evolutionMetadata);
+    const groupName = this.string(data.groupName) ?? this.string(data.subject);
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (this.isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup ? null : this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media, evolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null);
   }
 
   private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
@@ -505,6 +516,19 @@ export class WebhooksService {
     const bodyText = this.extractEvolutionText(quoted)?.trim().slice(0, 2000) ?? null;
     if (!externalMessageId && !bodyText) return null;
     return { externalMessageId: externalMessageId && externalMessageId.length <= 250 ? externalMessageId : null, bodyText };
+  }
+
+  private extractEvolutionRichContent(message: JsonRecord): { kind: 'poll'; title: string; options: string[] } | null {
+    for (const key of ['pollCreationMessage', 'pollCreationMessageV2', 'pollCreationMessageV3']) {
+      const poll = this.record(message[key]);
+      const title = this.string(poll.name)?.trim().slice(0, 4096);
+      if (!title) continue;
+      const options = Array.isArray(poll.options)
+        ? poll.options.slice(0, 20).map((option) => this.string(this.record(option).optionName)?.trim().slice(0, 200) ?? '').filter(Boolean)
+        : [];
+      return { kind: 'poll', title, options };
+    }
+    return null;
   }
 
   private extractCloudText(message: JsonRecord, type: string): string | null {

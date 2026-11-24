@@ -230,13 +230,57 @@ export class WebhooksRepository {
 
   async recordIncomingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate'> {
     return database.transaction(async (transaction) => {
-      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalMessageId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: 'message', messageType: input.messageType, direction: 'inbound' }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const eventExternalId = input.conversationType === 'group' ? `${input.externalConversationId}:${input.externalMessageId}` : input.externalMessageId;
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: eventExternalId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: 'message', messageType: input.messageType, direction: 'inbound' }, status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
       const [channel] = await transaction.select({ operationMode: messagingChannels.operationMode, businessLineId: messagingChannels.businessLineId, inboundAssistantProfileId: messagingChannels.inboundAssistantProfileId, outboundAssistantProfileId: messagingChannels.outboundAssistantProfileId }).from(messagingChannels)
         .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId))).limit(1);
       if (!channel) throw new Error('Inbound message channel is unavailable in the active organization.');
+
+      if (input.conversationType === 'group') {
+        const lockKey = `${input.organizationId}:${input.channelId}:${input.externalConversationId}`;
+        await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
+        let [groupConversation] = await transaction.select({ id: conversations.id }).from(conversations)
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, 'evolution'), eq(conversations.channelId, input.channelId), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+        if (!groupConversation) {
+          [groupConversation] = await transaction.insert(conversations).values({
+            organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
+            channelId: input.channelId, conversationType: 'group', displayName: input.displayName, providerRecipientId: input.providerRecipientId,
+            status: 'open', automationMode: 'paused', lastMessageAt: input.occurredAt,
+          }).returning({ id: conversations.id });
+        }
+        const [groupMessage] = await transaction.insert(messages).values({
+          organizationId: input.organizationId, conversationId: groupConversation.id, externalMessageId: input.externalMessageId,
+          direction: 'inbound', actorType: 'contact', bodyText: input.bodyText,
+          providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined,
+          deliveryState: 'received', occurredAt: input.occurredAt,
+        }).onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
+        if (!groupMessage) return 'duplicate';
+        if (input.media) await transaction.insert(messageAttachments).values({
+          organizationId: input.organizationId, messageId: groupMessage.id, channelId: input.channelId, provider: 'evolution',
+          mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext,
+          sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType,
+          fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256,
+        });
+        await transaction.update(conversations).set({ status: 'open', displayName: input.displayName, providerRecipientId: input.providerRecipientId,
+          lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
+          .where(and(eq(conversations.id, groupConversation.id), eq(conversations.organizationId, input.organizationId)));
+        await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: groupConversation.id, occurredAt: input.occurredAt.toISOString() })})`);
+        const memberships = await transaction.select({ userId: authMember.userId, role: authMember.role, businessLineId: businessLineMembers.businessLineId, lineStatus: businessLines.status }).from(authMember)
+          .leftJoin(businessLineMembers, and(eq(businessLineMembers.memberId, authMember.id), eq(businessLineMembers.organizationId, authMember.organizationId), channel.businessLineId ? eq(businessLineMembers.businessLineId, channel.businessLineId) : sql`false`))
+          .leftJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId), eq(businessLines.status, 'active')))
+          .where(eq(authMember.organizationId, input.organizationId));
+        const recipients = memberships.filter(({ role, businessLineId, lineStatus }) => hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES)
+          || (Boolean(channel.businessLineId) && businessLineId === channel.businessLineId && lineStatus === 'active'
+            && hasOrganizationRole(role, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES))).map(({ userId }) => userId);
+        if (recipients.length) await transaction.insert(userNotifications).values(recipients.map((recipientUserId) => ({
+          organizationId: input.organizationId, recipientUserId, conversationId: groupConversation.id,
+          notificationType: USER_NOTIFICATION_TYPE.inboxNewMessage, idempotencyKey: `inbox-new-message:${groupMessage.id}`,
+        }))).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+        return 'created';
+      }
 
       const externalRecordId = input.senderExternalId ? `${input.channelId}:${input.senderExternalId}` : null;
       const lockKey = `${input.organizationId}:${input.channelId}:${externalRecordId ?? input.senderPhone ?? input.externalMessageId}`;

@@ -5,7 +5,12 @@
 - A timeline reconhece `pollCreationMessage`, V2 e V3, extraindo pergunta e até 20 opções para metadata estruturada já compatível com `messages.provider_metadata`. Não interpreta votos criptografados; renderiza opções na conversa.
 - Webhook Evolution agora aceita grupos `@g.us`, mantém o participante como metadata do autor, e cria conversa sem contato/lead e sem automação. Inbox lista o nome do grupo, envia texto/mídia para o JID e notifica membros autorizados da linha/organização. Grupos só respondem via Evolution; canais Cloud seguem individuais.
 - Migration aditiva `0081_evolution_groups.sql` modela tipo, nome e destinatário externo da conversa; gerada, não aplicada. Histórico opcional continua compatível com lotes anteriores e só acrescenta mensagens a conversa já conhecida. Builds Nest/Vite, `drizzle-kit check` e `git diff --check` passaram. Testes automatizados não executados; nenhum payload real da Evolution foi usado.
-- Limites conhecidos: título do grupo depende de `groupName`/`subject` no payload e usa o JID como fallback; votos de enquete criptografados não são interpretados; grupos não passam por Sofia/automação nem entram em leads. Próximo gate: revisão final e build/typecheck antes de commit/push, sem aplicar migration nem fazer deploy.
+- Limites conhecidos: sem título no primeiro evento, grupo usa JID até chegar um evento de metadados; votos de enquete criptografados não são interpretados; grupos não passam por Sofia/automação nem entram em leads. Próximo gate: build/typecheck, sem aplicar migration nem fazer deploy.
+
+## Continuação — nomes de grupos via eventos Evolution — 24/11/2026
+
+- Em andamento: `GROUPS_UPSERT` e `GROUP_UPDATE` atualizam o título e JID de grupos já conhecidos na mesma organização/canal. Eventos são deduplicados no ledger e atualizam a timeline via SSE; não criam conversas sem mensagens nem importam agenda de grupos. `GROUP_PARTICIPANTS_UPDATE` continua somente no ledger.
+- Sem migration. Builds e revisão ainda pendentes. Nenhum evento real foi enviado/testado.
 
 ## Continuação — envio de texto e metadata Evolution — 24/11/2026
 

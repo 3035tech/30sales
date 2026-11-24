@@ -41,6 +41,18 @@ export class EvolutionChatStateDto {
   ) {}
 }
 
+export class EvolutionGroupMetadataDto {
+  constructor(
+    readonly organizationId: string,
+    readonly channelId: string,
+    readonly externalEventId: string,
+    readonly externalConversationId: string,
+    readonly providerRecipientId: string,
+    readonly displayName: string,
+    readonly payloadHash: string,
+  ) {}
+}
+
 export type EvolutionHistoryBatchDto = {
   id: string;
   organizationId: string;

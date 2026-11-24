@@ -4,7 +4,7 @@ import { database } from '../db';
 import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
@@ -83,6 +83,25 @@ export class WebhooksRepository {
         ...(input.deleted === null ? {} : { providerDeleted: input.deleted }),
         updatedAt: new Date(),
       }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
+      return 'updated';
+    });
+  }
+
+  async recordEvolutionGroupMetadata(input: EvolutionGroupMetadataDto): Promise<'updated' | 'unmatched' | 'duplicate'> {
+    return database.transaction(async (transaction) => {
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId, provider: 'evolution', externalEventId: input.externalEventId,
+        eventType: 'evolution.group.metadata', payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group },
+        status: 'processed', attempts: '1', processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.conversationType, 'group'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+      if (!conversation) return 'unmatched';
+      await transaction.update(conversations).set({ displayName: input.displayName, providerRecipientId: input.providerRecipientId, updatedAt: new Date() })
+        .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
       return 'updated';
     });

@@ -6,7 +6,7 @@ import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
 import type { ChannelConnectionStatus } from '../channels/channels.dto';
 import { env } from '../config/env';
-import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
+import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
@@ -77,6 +77,9 @@ export class WebhooksService {
         }
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.contactsSet || eventName === EVOLUTION_WEBHOOK_EVENT.contactsUpsert || eventName === EVOLUTION_WEBHOOK_EVENT.contactsUpdate) {
         processed += await this.syncKnownEvolutionContact(channel.id, channel.organizationId, item);
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpsert || eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpdate || eventName === EVOLUTION_WEBHOOK_EVENT.groupUpdate) {
+        const group = this.normalizeEvolutionGroupMetadata(channel.id, channel.organizationId, eventName, item, payloadHash);
+        if (group && await this.repository.recordEvolutionGroupMetadata(group) === 'updated') processed += 1;
       } else {
         const safeEventName = eventName.replace(/[^a-z0-9._-]/g, '_').slice(0, 120);
         const normalizedEventName = this.isKnownEvolutionEvent(safeEventName) ? safeEventName : `unknown.${safeEventName || 'event'}`;
@@ -240,6 +243,16 @@ export class WebhooksService {
     const fingerprint = createHash('sha256').update(JSON.stringify(value) ?? '').digest('hex');
     const externalEventId = createHash('sha256').update(`${channelId}:${eventName}:${jid}:${fingerprint}`).digest('hex');
     return new EvolutionChatStateDto(organizationId, channelId, externalEventId, `${channelId}:${phoneDigits}`, archived, pinned, unreadCount, deleted, payloadHash);
+  }
+
+  private normalizeEvolutionGroupMetadata(channelId: string, organizationId: string, eventName: string, value: unknown, payloadHash: string): EvolutionGroupMetadataDto | null {
+    const data = this.record(value);
+    const jid = this.string(data.id) ?? this.string(data.jid) ?? this.string(data.groupJid) ?? this.string(data.remoteJid);
+    const displayName = this.string(data.subject) ?? this.string(data.name);
+    if (!jid?.endsWith('@g.us') || jid.length > 250 || !displayName?.trim()) return null;
+    const normalizedName = displayName.trim().slice(0, 160);
+    const externalEventId = createHash('sha256').update(`${channelId}:${eventName}:${jid}:${normalizedName}:${payloadHash}`).digest('hex');
+    return new EvolutionGroupMetadataDto(organizationId, channelId, externalEventId, `${channelId}:${jid}`, jid, normalizedName, payloadHash);
   }
 
   private normalizeEvolutionMessageMutation(channelId: string, organizationId: string, eventType: string, value: unknown, payloadHash: string): EvolutionMessageMutationDto | null {

@@ -19,6 +19,7 @@ function parseAssistantScheduleMode(value: string): ChannelDto['assistantSchedul
 const MONITORING_CHECK_INTERVAL_MS = 60_000
 const MONITORING_CHECK_BATCH_SIZE = 20
 const MONITORING_SIGNAL_STALE_MS = 5 * 60_000
+const PAIRING_STATUS_POLL_INTERVAL_MS = 4_000
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const
 type EditableBusinessHour = { dayOfWeek: number; enabled: boolean; startTime: string; endTime: string }
 const emptyForm: CreateChannelInput = { businessLineId: '', provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
@@ -343,6 +344,14 @@ export function ChannelsWorkspace() {
     }
   }
 
+  const closePairingModal = useCallback(() => {
+    pairingRequestId.current += 1
+    setConnectionChannel(null)
+    setConnectionResult(null)
+    setConnectionError(false)
+    setConnectionLoading(false)
+  }, [])
+
   const configureEvolutionWebhook = async (channelId: string) => {
     setConfiguringWebhookIds((current) => [...current, channelId])
     try {
@@ -361,13 +370,62 @@ export function ChannelsWorkspace() {
     setConnectionChannel(channel); setConnectionResult(null); setConnectionError(false); setConnectionLoading(true)
     try {
       const result = await api.channels.connectEvolution(channel.id)
-      if (pairingRequestId.current === requestId) { setConnectionResult(result); setRefresh((version) => version + 1) }
+      if (pairingRequestId.current === requestId) {
+        setConnectionResult(result)
+        setRefresh((version) => version + 1)
+        if (result.status === CHANNEL_CONNECTION_STATUS.connected) {
+          notifySystemAlert(result.webhookConfigured ? SYSTEM_ALERT_KIND.success : SYSTEM_ALERT_KIND.error, t(result.webhookConfigured ? 'channels.connection.connected' : 'channels.pairingWebhookFailed'))
+          closePairingModal()
+        }
+      }
     } catch {
       if (pairingRequestId.current === requestId) setConnectionError(true)
     } finally {
       if (pairingRequestId.current === requestId) setConnectionLoading(false)
     }
   }
+
+  useEffect(() => {
+    const channel = connectionChannel
+    const result = connectionResult
+    if (!channel || !result?.qrDataUrl || result.status === CHANNEL_CONNECTION_STATUS.connected) return
+
+    let active = true
+    let checkInFlight = false
+    const checkPairingStatus = async () => {
+      if (checkInFlight) return
+      checkInFlight = true
+      try {
+        const monitoring = await api.channels.monitoringCheck([channel.id])
+        const liveStatus = monitoring.data.find((item) => item.channelId === channel.id)
+        if (!active || liveStatus?.status !== CHANNEL_CONNECTION_STATUS.connected) return
+
+        const persistedHealth = await api.channels.healthCheck(channel.id).catch(() => null)
+        if (!active) return
+        const checkedAt = persistedHealth?.status === CHANNEL_CONNECTION_STATUS.connected ? persistedHealth.checkedAt : liveStatus.checkedAt
+        const connectedHealth: ChannelHealthCheckDto = { status: CHANNEL_CONNECTION_STATUS.connected, checkedAt }
+        setHealthChecks((current) => ({ ...current, [channel.id]: connectedHealth }))
+        setHealthCheckErrors((current) => ({ ...current, [channel.id]: false }))
+        setChannels((current) => current.map((item) => item.id === channel.id
+          ? { ...item, connectionStatus: CHANNEL_CONNECTION_STATUS.connected, connectionUpdatedAt: checkedAt, hasEverConnected: true }
+          : item))
+        if (persistedHealth?.status === CHANNEL_CONNECTION_STATUS.connected) setRefresh((version) => version + 1)
+        notifySystemAlert(result.webhookConfigured ? SYSTEM_ALERT_KIND.success : SYSTEM_ALERT_KIND.error, t(result.webhookConfigured ? 'channels.connection.connected' : 'channels.pairingWebhookFailed'))
+        closePairingModal()
+      } catch {
+        // Keep the QR open and retry while Evolution is temporarily unavailable.
+      } finally {
+        checkInFlight = false
+      }
+    }
+
+    void checkPairingStatus()
+    const timer = window.setInterval(() => void checkPairingStatus(), PAIRING_STATUS_POLL_INTERVAL_MS)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [closePairingModal, connectionChannel, connectionResult, t])
 
   const monitoringCounts = monitoringChannels.reduce((counts, channel) => {
     const status = toMonitoringConnectionStatus(monitoringChecks[channel.id]?.status, channel.connectionStatus)
@@ -466,7 +524,7 @@ export function ChannelsWorkspace() {
         <Button type="submit" variant="primary" disabled={savingPolicy}>{savingPolicy ? t('common.saving') : t('channels.savePolicy')}</Button>
       </form>
     </Modal>
-    <Modal open={connectionChannel !== null} onOpenChange={(open) => { if (!open) { pairingRequestId.current += 1; setConnectionChannel(null); setConnectionResult(null); setConnectionError(false); setConnectionLoading(false) } }} title={t('channels.pairingTitle', { name: connectionChannel?.displayName ?? '' })} description={t('channels.pairingDescription')} closeLabel={t('common.close')} className="channel-pairing-modal">
+    <Modal open={connectionChannel !== null} onOpenChange={(open) => { if (!open) closePairingModal() }} title={t('channels.pairingTitle', { name: connectionChannel?.displayName ?? '' })} description={t('channels.pairingDescription')} closeLabel={t('common.close')} className="channel-pairing-modal">
       {connectionLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
       {connectionError && <WorkspaceState kind="error" compact message={t('channels.pairingFailed')} />}
       {connectionResult && <div className="channel-pairing-content"><p role="status">{t(`channels.connection.${connectionResult.status}`)}</p>{connectionResult.qrDataUrl ? <img src={connectionResult.qrDataUrl} alt={t('channels.pairingQrAlt')} /> : <WorkspaceState kind="empty" compact message={t(connectionResult.status === CHANNEL_CONNECTION_STATUS.connected ? 'channels.pairingAlreadyConnected' : 'channels.pairingQrUnavailable')} />}{!connectionResult.webhookConfigured && <WorkspaceState kind="error" compact message={t('channels.pairingWebhookFailed')} />}<Button type="button" disabled={connectionLoading || connectionResult.status === CHANNEL_CONNECTION_STATUS.connected} onClick={() => connectionChannel && void requestEvolutionConnection(connectionChannel)}><RefreshCw size={15} />{t('channels.refreshPairingQr')}</Button></div>}

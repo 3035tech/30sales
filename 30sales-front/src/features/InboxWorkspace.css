@@ -209,7 +209,7 @@
 }
 
 /* WhatsApp-inspired density: conversations and the message history get the viewport. */
-.inbox-layout { position:relative; height: max(680px, calc(100dvh - 285px)); grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
+.inbox-layout { position:relative; height: max(680px, calc(100dvh - 200px)); grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
 .inbox-context-collapsed .inbox-layout { grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
 .inbox-conversations { min-height: 0; }
 .inbox-contact-panel { position:absolute; z-index:5; inset:0 0 0 auto; width:min(350px, 42%); box-shadow:-12px 0 28px rgba(15,23,42,.12); }
@@ -221,7 +221,7 @@
 .inbox-list-ticks { display:inline-flex; flex:0 0 auto; color:#687782; }
 .inbox-list-ticks.is-read,.inbox-outbound-status.is-read { color:#36a9e7; }
 .inbox-unread-indicator { background:#25a865; }
-.inbox-messages { flex:1 1 0; min-height:0; }
+.inbox-messages { flex:1 1 0; min-height:0; padding:14px; }
 .inbox-message { position:relative; max-width:min(88%, 920px); padding:10px 13px 8px; border-radius:12px; box-shadow:0 1px 1px rgba(15,23,42,.06); }
 .inbox-message { content-visibility:auto; contain-intrinsic-size:auto 120px; }
 .inbox-message.inbound { border-top-left-radius:4px; }
@@ -242,9 +242,12 @@
 .inbox-message-search input { min-width:100px; }
 @media (max-width: 760px) { .inbox-message-search { flex-wrap:wrap; } .inbox-message-search label { width:100%; } }
 @media (max-width: 1400px) {
-  .inbox-layout,.inbox-context-collapsed .inbox-layout { height:max(640px,calc(100dvh - 270px)); grid-template-columns:minmax(280px,340px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); grid-template-areas:"conversations thread"; }
+  .inbox-layout,.inbox-context-collapsed .inbox-layout { height:max(640px,calc(100dvh - 190px)); grid-template-columns:minmax(280px,340px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); grid-template-areas:"conversations thread"; }
   .inbox-context-collapsed .inbox-contact-panel { display:none; }
 }
+.inbox-composer { gap:5px; padding:8px 14px; }
+.inbox-composer textarea { min-height:60px; max-height:128px; }
+.inbox-readonly-note { padding:8px 14px; font-size:var(--font-size-sm); line-height:1.4; }
 @media (max-width: 760px) {
   .inbox-layout,.inbox-context-collapsed .inbox-layout { height:auto; grid-template-columns:minmax(0,1fr); grid-template-rows:360px minmax(620px,auto); grid-template-areas:"conversations" "thread"; }
   .inbox-message-actions,.inbox-message.inbound .inbox-message-actions,.inbox-message.outbound .inbox-message-actions { top:4px; right:8px; left:auto; transform:none; opacity:1; }

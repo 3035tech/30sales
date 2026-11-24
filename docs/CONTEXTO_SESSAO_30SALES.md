@@ -1,5 +1,10 @@
 # Contexto de continuidade — 30Sales
 
+## Mais histórico visível no Inbox — 24/11/2026
+
+- Aumentada a altura útil do painel de conversa com base no viewport e reduzidos padding/altura inicial do compositor, reservando mais tela para a timeline. Em larguras menores, permanece o layout responsivo existente.
+- Build de produção Vite e `git diff --check` passaram; sem validação visual em navegador.
+
 ## Recuperação manual de mídia inbound no Inbox — 24/11/2026
 
 - Anexos inbound que falharam ainda com mídia cifrada de origem agora podem ser reenfileirados por ação compacta no próprio cartão. A API exige contexto ativo da organização, verifica mensagem não apagada, status terminal e material-fonte preservado; atualiza estado em transação, registra auditoria e notifica a timeline. Não tenta reenviar conteúdo ao contato.

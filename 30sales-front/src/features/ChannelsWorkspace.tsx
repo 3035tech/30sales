@@ -231,12 +231,12 @@ export function ChannelsWorkspace() {
     setChannelToDelete(null)
     setDeletingId(channel.id); setError('')
     try {
-      const result = await api.channels.delete(channel.id)
+      await api.channels.delete(channel.id)
       setChannels((current) => current.filter((item) => item.id !== channel.id))
       if (offset > 0 && rows.length - 1 <= offset) setOffset((current) => Math.max(0, current - limit))
-      notifySystemAlert(result.remoteInstanceDeleted ? SYSTEM_ALERT_KIND.success : SYSTEM_ALERT_KIND.info, t(result.remoteInstanceDeleted ? 'channels.deleteSucceeded' : 'channels.deleteSucceededRemotePending'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('channels.deleteSucceeded'))
     }
-    catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('channels.deleteFailed')) }
+    catch (error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t(error instanceof ApiError && error.code === 'CHANNEL_ALREADY_PAIRED' ? 'channels.deletePairedBlocked' : 'channels.deleteFailed')) }
     finally { setDeletingId('') }
   }
   const saveQuota = async (event: React.FormEvent) => {

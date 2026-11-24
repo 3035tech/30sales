@@ -1,0 +1,1 @@
+ALTER TABLE "messaging_channels" ADD COLUMN "paired_at" timestamp with time zone;

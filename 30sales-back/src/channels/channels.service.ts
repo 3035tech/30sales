@@ -30,7 +30,6 @@ export class ChannelsService {
   }
   async create(request: ApiRequestDto, input: CreateChannelDto): Promise<ChannelRecordDto> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
-    if (input.provider === CHANNEL_PROVIDER.evolution) await this.assertPlatformEvolutionConfigured();
     const result = await this.repository.create(new ChannelRepositoryCreateDto(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), input, request.correlationId));
     if (result === 'duplicate') throw new ConflictException({ code: 'CHANNEL_ALREADY_CONFIGURED', message: 'The phone number or provider channel is already configured in this organization.' });
     if (result === 'business_line_not_found') throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'The selected business line was not found in the active organization.' });
@@ -52,24 +51,12 @@ export class ChannelsService {
     await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
     const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
-    if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can currently be removed from the provider through this action.' });
-    let remoteInstanceDeleted = false;
-    try {
-      const configuration = await this.repository.platformEvolutionCredentials();
-      if (configuration) {
-        const secrets = platformEvolutionSecretsSchema.parse(JSON.parse(this.credentialCrypto.decryptPayload('platform', 'evolution', configuration)) as unknown);
-        const credentials = { baseUrl: configuration.baseUrl, apiKey: secrets.apiKey };
-        await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
-        await this.evolutionConnection.delete(target.providerChannelId, credentials);
-        remoteInstanceDeleted = true;
-      }
-    } catch {
-      // A provider failure must not trap an invalid or unpaired local channel.
-    }
-    const deleted = await this.repository.softDelete(new ChannelRepositoryDeleteDto(context.organizationId, channelId, context.userId, canManageAllLines, remoteInstanceDeleted, request.correlationId));
-    if (deleted === false) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel could not be archived after provider removal.' });
+    if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can currently be removed through this action.' });
+    const deleted = await this.repository.softDelete(new ChannelRepositoryDeleteDto(context.organizationId, channelId, context.userId, canManageAllLines, false, request.correlationId));
+    if (deleted === 'paired') throw new ConflictException({ code: 'CHANNEL_ALREADY_PAIRED', message: 'A WhatsApp number that has connected to Evolution cannot be deleted.' });
+    if (deleted === false) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel could not be archived.' });
     if (deleted === 'provider_mismatch') throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can be removed through this action.' });
-    return { deleted: true, historyPreserved: true, remoteInstanceDeleted };
+    return { deleted: true, historyPreserved: true, remoteInstanceDeleted: false };
   }
   async saveScheduleException(request: ApiRequestDto, channelId: string, input: ChannelScheduleExceptionInputDto): Promise<ChannelScheduleExceptionDto[]> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');

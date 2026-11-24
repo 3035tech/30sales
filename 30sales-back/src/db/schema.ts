@@ -428,6 +428,7 @@ export const messagingChannels = pgTable('messaging_channels', {
   dailyLimitTimeZone: text('daily_limit_time_zone').default(CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT).notNull(),
   connectionStatus: text('connection_status'),
   connectionUpdatedAt: timestamp('connection_updated_at', { withTimezone: true }),
+  pairedAt: timestamp('paired_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),

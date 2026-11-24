@@ -533,6 +533,13 @@
       "when": 1795381239249,
       "tag": "0075_account_people_revocation",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1795514728107,
+      "tag": "0076_exotic_ozymandias",
+      "breakpoints": true
     }
   ]
 }

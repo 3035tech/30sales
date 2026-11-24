@@ -1,5 +1,12 @@
 # Contexto de continuidade — 30Sales
 
+## Envio de áudio WebM pela Evolution — 24/11/2026
+
+- A captura de `MEDIA_TYPE_UNSUPPORTED` veio da API antes de qualquer chamada à Evolution. O código atual aceita `audio/webm`; o workflow do backend do commit `31d3a60` concluiu a publicação da imagem com sucesso (`45508650225`), incluindo esse suporte e o hotfix de DI. A publicação da imagem não comprova rollout no cluster.
+- O adapter Evolution agora envia áudio em multipart para `sendWhatsAppAudio`, preservando o arquivo, o nome e o MIME original, mantendo também o campo base64 esperado pelo endpoint. Isso evita perder metadados do WebM no transporte backend→Evolution.
+- Build Nest e `git diff --check` passaram. Não foram executados testes automatizados, chamada real à Evolution, sincronização manual do ArgoCD ou envio de mensagem.
+- Próximo passo: commit/push e acompanhar a publicação da alteração do adapter pelo workflow normal; após rollout autorizado, repetir um envio de voz e inspecionar eventual rejeição posterior do provider.
+
 ## Polimento da onda de áudio no Inbox — 24/11/2026
 
 - A prévia antes do envio usa player compacto, waveform com menos barras, menor altura e contraste mais suave; a gravação ao vivo também ocupa menos altura e usa tons mais discretos. Players do histórico e da janela de anexo mantêm tamanho normal.

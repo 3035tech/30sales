@@ -9,6 +9,8 @@ import type { ChannelMessagingAdapter, ContactMessageFields, GroupParticipant, G
 
 const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024;
 const MAX_GROUP_PARTICIPANTS_RESPONSE_BYTES = 256 * 1024;
+const EVOLUTION_AUDIO_MESSAGE_ENDPOINT = 'sendWhatsAppAudio';
+const EVOLUTION_AUDIO_FORM_FIELD = { number: 'number', audio: 'audio', file: 'file' } as const;
 const groupParticipantsSchema = z.object({ participants: z.array(z.object({ id: z.string().max(250), name: z.string().max(160).nullish(), admin: z.union([z.string(), z.boolean()]).nullish() }).passthrough()).max(1000) });
 
 @Injectable()
@@ -30,11 +32,16 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     const credentials = this.credentials(input.credentials);
     const { metadata, content } = input.media;
     const audio = metadata.mediaType === OUTBOUND_MEDIA_TYPE.audio;
-    const endpoint = audio ? 'sendWhatsAppAudio' : 'sendMedia';
-    const body = audio
-      ? { number: input.recipientPhone, audio: content.toString('base64') }
-      : { number: input.recipientPhone, mediatype: metadata.mediaType, mimetype: metadata.mimeType, caption: input.bodyText, media: content.toString('base64'), fileName: metadata.fileName };
+    const endpoint = audio ? EVOLUTION_AUDIO_MESSAGE_ENDPOINT : 'sendMedia';
     const url = `${credentials.baseUrl.replace(/\/+$/, '')}/message/${endpoint}/${encodeURIComponent(input.providerChannelId)}`;
+    if (audio) {
+      const form = new FormData();
+      form.set(EVOLUTION_AUDIO_FORM_FIELD.number, input.recipientPhone);
+      form.set(EVOLUTION_AUDIO_FORM_FIELD.audio, content.toString('base64'));
+      form.set(EVOLUTION_AUDIO_FORM_FIELD.file, new Blob([Uint8Array.from(content)], { type: metadata.mimeType }), metadata.fileName);
+      return this.postForm(url, form, { apikey: credentials.apiKey }, 30_000);
+    }
+    const body = { number: input.recipientPhone, mediatype: metadata.mediaType, mimetype: metadata.mimeType, caption: input.bodyText, media: content.toString('base64'), fileName: metadata.fileName };
     return this.post(url, body, { apikey: credentials.apiKey }, 30_000);
   }
 
@@ -83,6 +90,17 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
     let response: Response;
     try { response = await fetch(url, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
+    catch { return { deliveryState: 'unknown', externalMessageId: null }; }
+    if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
+    const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    const externalMessageId = result.ok ? this.readMessageId(result.payload) : null;
+    return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
+  }
+
+  private async postForm(url: string, body: FormData, headers: Record<string, string>, timeout: number): Promise<ProviderSendResult> {
+    try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
+    let response: Response;
+    try { response = await fetch(url, { method: 'POST', headers: { ...headers, accept: 'application/json' }, body, signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
     catch { return { deliveryState: 'unknown', externalMessageId: null }; }
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
     const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);

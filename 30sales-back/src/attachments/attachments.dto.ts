@@ -31,3 +31,6 @@ export class MediaAttachmentWorkDto {
 export class MediaAttachmentDownloadDto {
   constructor(readonly storageKey: string, readonly fileName: string | null) {}
 }
+export class RetryMediaAttachmentDto {
+  constructor(readonly id: string, readonly status: 'pending') {}
+}

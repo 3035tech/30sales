@@ -1,4 +1,4 @@
-import { Controller, Get, Param, StreamableFile } from '@nestjs/common';
+import { Controller, Get, Param, Post, StreamableFile } from '@nestjs/common';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -8,6 +8,11 @@ import { AttachmentsService } from './attachments.service';
 @Controller('api/v1/attachments')
 export class AttachmentsController {
   constructor(private readonly service: AttachmentsService) {}
+
+  @Post(':id/retry')
+  retry(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) id: string) {
+    return this.service.retry(request, id);
+  }
 
   @Get(':id/content')
   async download(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(z.string().uuid())) id: string): Promise<StreamableFile> {

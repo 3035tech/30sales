@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { auditEvents, messageAttachments, messages, messagingChannels } from '../db/schema';
-import { MediaAttachmentDownloadDto, MediaAttachmentWorkDto } from './attachments.dto';
+import { MediaAttachmentDownloadDto, MediaAttachmentWorkDto, RetryMediaAttachmentDto } from './attachments.dto';
 
 @Injectable()
 export class AttachmentsRepository {
@@ -61,6 +61,23 @@ export class AttachmentsRepository {
       if (!attachment?.storageKey) return null;
       await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'message_attachment.download_requested', entityType: 'message_attachment', entityId: attachmentId, correlationId });
       return new MediaAttachmentDownloadDto(attachment.storageKey, attachment.fileName);
+    });
+  }
+
+  async retryFailed(organizationId: string, attachmentId: string, userId: string, correlationId: string | null): Promise<RetryMediaAttachmentDto | null> {
+    return database.transaction(async (transaction) => {
+      const [attachment] = await transaction.select({ conversationId: messages.conversationId })
+        .from(messageAttachments)
+        .innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
+        .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messages.isDeleted, false), eq(messageAttachments.status, 'failed'),
+          isNotNull(messageAttachments.sourceCiphertext), isNotNull(messageAttachments.sourceIv), isNotNull(messageAttachments.sourceAuthTag)))
+        .limit(1).for('update', { of: messageAttachments });
+      if (!attachment) return null;
+      await transaction.update(messageAttachments).set({ status: 'pending', attemptCount: 0, availableAt: new Date(), lockedUntil: null, lastErrorCode: null, updatedAt: new Date() })
+        .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, 'failed')));
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'message_attachment.retry_requested', entityType: 'message_attachment', entityId: attachmentId, correlationId });
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId, conversationId: attachment.conversationId, occurredAt: new Date().toISOString() })})`);
+      return new RetryMediaAttachmentDto(attachmentId, 'pending');
     });
   }
 }

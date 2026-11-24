@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Recuperação manual de mídia inbound no Inbox — 24/11/2026
+
+- Anexos inbound que falharam ainda com mídia cifrada de origem agora podem ser reenfileirados por ação compacta no próprio cartão. A API exige contexto ativo da organização, verifica mensagem não apagada, status terminal e material-fonte preservado; atualiza estado em transação, registra auditoria e notifica a timeline. Não tenta reenviar conteúdo ao contato.
+- Builds backend Nest e frontend Vite e `git diff --check` passaram; testes automatizados, inspeção de logs da instância e implantação não executados.
+- Limite: a recuperação depende da mídia de origem ainda estar preservada; se o provider não conseguir mais fornecê-la, o item falhará novamente e precisará de diagnóstico operacional.
+
 ## Recuperação de áudio recebido da Evolution — 24/11/2026
 
 - Captura real mostrou mensagem de áudio recebida na timeline, mas o attachment terminou como `failed`. A Evolution v2.3.7 tem relato upstream de falha em `getBase64FromMediaMessage` para alguns áudios recebidos de iOS; o fluxo atual buscava somente usando o objeto enviado pelo webhook.

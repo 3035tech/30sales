@@ -3,6 +3,7 @@ import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { AttachmentsRepository } from './attachments.repository';
 import { MEDIA_STORAGE, type MediaStorage } from './media-storage';
+import { RetryMediaAttachmentDto } from './attachments.dto';
 
 @Injectable()
 export class AttachmentsService {
@@ -18,5 +19,12 @@ export class AttachmentsService {
     } catch {
       throw new ServiceUnavailableException({ code: 'MESSAGE_ATTACHMENT_UNAVAILABLE', message: 'The attachment content is temporarily unavailable.' });
     }
+  }
+
+  async retry(request: ApiRequestDto, attachmentId: string): Promise<RetryMediaAttachmentDto> {
+    const context = await this.access.require(request, 'read', 'inbox');
+    const result = await this.repository.retryFailed(context.organizationId, attachmentId, context.userId, request.correlationId);
+    if (!result) throw new NotFoundException({ code: 'MESSAGE_ATTACHMENT_NOT_RETRYABLE', message: 'The failed attachment is not available for retry in the active organization.' });
+    return result;
   }
 }

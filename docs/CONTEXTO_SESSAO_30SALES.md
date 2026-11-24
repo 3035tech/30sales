@@ -1,5 +1,10 @@
 # Contexto de continuidade — 30Sales
 
+## Painel de dados do lead no Inbox — 24/11/2026
+
+- Painel lateral de dados do lead fixado à área visível da janela em desktop, com altura própria e rolagem; impede que o painel fique parcialmente fora do Inbox quando aberto. Em telas menores continua no fluxo responsivo abaixo do histórico.
+- Build de produção Vite e `git diff --check` passaram; sem validação visual em navegador.
+
 ## Mais histórico visível no Inbox — 24/11/2026
 
 - Aumentada a altura útil do painel de conversa com base no viewport e reduzidos padding/altura inicial do compositor, reservando mais tela para a timeline. Em larguras menores, permanece o layout responsivo existente.

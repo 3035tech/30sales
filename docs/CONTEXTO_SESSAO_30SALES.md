@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Fixtures de webhooks Evolution — 24/11/2026
+
+- Adicionados testes com payloads sintéticos redigidos: `PRESENCE_UPDATE` de grupo mantém tenant/canal/JID/participante no roteamento; `MESSAGES_SET` com `isLatest`/`progress` enfileira mensagens diretas e de grupo com identificadores externos consistentes.
+- Backend: 11 suítes/42 testes, build Nest, `drizzle-kit check` e `git diff --check` passaram com variáveis fictícias de teste. Sem conexão real à Evolution e sem migration/deploy.
+- Estado de migration remoto continua não confirmado: `DATABASE_URL` e `TEST_DATABASE_URL` não estão configuradas localmente. Os fixtures validam o formato implementado, não substituem webhook real da versão 2.3.7.
+
 ## Continuação — presença Evolution no Inbox — 24/11/2026
 
 - Eventos `PRESENCE_UPDATE` reconhecem `composing` e `recording` para conversas Evolution existentes. O backend publica um evento SSE efêmero; a interface mostra “Digitando…”/“Gravando áudio…” e limpa após 10 segundos ou ao trocar de conversa.

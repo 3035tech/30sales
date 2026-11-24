@@ -27,6 +27,38 @@ describe('EvolutionIncomingMessageWebhookAdapter', () => {
     expect(message?.bodyText).toBe('Oferta\nÚltimo dia');
   });
 
+  it('preserves media messages and campaign card images for authenticated history rendering', () => {
+    const mediaFixtures = [
+      { type: 'imageMessage', mediaType: 'image' },
+      { type: 'videoMessage', mediaType: 'video' },
+      { type: 'audioMessage', mediaType: 'audio' },
+      { type: 'documentMessage', mediaType: 'document' },
+    ] as const;
+
+    for (const [index, fixture] of mediaFixtures.entries()) {
+      const message = normalize({
+        key: { remoteJid: '5511999999999@s.whatsapp.net', id: `media-${fixture.mediaType}`, fromMe: false },
+        messageTimestamp: 1_795_541_400,
+        message: { [fixture.type]: { mimetype: `${fixture.mediaType}/test`, fileName: `fixture-${fixture.mediaType}`, fileLength: index + 1 } },
+      });
+
+      expect(message?.media).toMatchObject({ mediaType: fixture.mediaType, mimeType: `${fixture.mediaType}/test` });
+      expect(message?.media?.sourceCiphertext).toBe('ciphertext');
+    }
+
+    const campaign = normalize({
+      key: { remoteJid: '5511999999999@s.whatsapp.net', id: 'campaign-card-image', fromMe: false },
+      messageTimestamp: 1_795_541_400,
+      message: { templateMessage: { hydratedTemplate: {
+        hydratedTitleText: 'Último dia', hydratedContentText: 'Oferta de hoje',
+        imageMessage: { mimetype: 'image/jpeg', fileLength: 512 },
+      } } },
+    });
+
+    expect(campaign?.evolutionMetadata?.richContent).toMatchObject({ kind: 'card', title: 'Último dia', body: 'Oferta de hoje' });
+    expect(campaign?.media).toMatchObject({ mediaType: 'image', mimeType: 'image/jpeg' });
+  });
+
   it('preserves the normalized type when message content is not yet supported', () => {
     const message = normalize({
       key: { remoteJid: '5511999999999@s.whatsapp.net', id: 'unsupported-message', fromMe: false },

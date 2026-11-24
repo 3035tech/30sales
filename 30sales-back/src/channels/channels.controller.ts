@@ -44,4 +44,7 @@ export class ChannelsController {
   connectEvolution(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.connectEvolution(request, channelId); }
   @Get(':id/events')
   listWebhookEvents(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Query(new ZodValidationPipe(channelWebhookEventsQuerySchema)) query: ChannelWebhookEventsQueryDto) { return this.channelsService.listWebhookEvents(request, channelId, query); }
+  @Post(':id/events/:eventId/retry')
+  @HttpCode(HttpStatus.OK)
+  retryWebhookEvent(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Param('eventId', new ZodValidationPipe(channelIdSchema)) eventId: string) { return this.channelsService.retryWebhookEvent(request, channelId, eventId); }
 }

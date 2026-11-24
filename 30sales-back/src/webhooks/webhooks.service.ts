@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
@@ -9,6 +9,7 @@ import { env } from '../config/env';
 import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type EvolutionGroupParticipantChange, type InterpretationFailureSignalInputDto, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
 import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter } from './message-status-webhook-adapters';
 import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
+import { EvolutionWebhookEnvelopeAdapter, matchesWebhookSecret, MetaCloudWebhookEnvelopeAdapter } from './provider-webhook-envelope.adapters';
 import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
@@ -17,31 +18,25 @@ const knownEvolutionEvents: ReadonlySet<string> = new Set(Object.values(EVOLUTIO
 
 @Injectable()
 export class WebhooksService {
+  private readonly evolutionEnvelopeAdapter = new EvolutionWebhookEnvelopeAdapter();
+  private readonly metaEnvelopeAdapter = new MetaCloudWebhookEnvelopeAdapter();
+
   constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly channelsService: ChannelsService, private readonly evolutionStatusAdapter = new EvolutionMessageStatusWebhookAdapter(), private readonly metaStatusAdapter = new MetaCloudMessageStatusWebhookAdapter(), private readonly evolutionMessageAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto), private readonly metaMessageAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto)) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
-    if (mode !== 'subscribe' || !challenge || !this.matchesSecret(token, env.META_WEBHOOK_VERIFY_TOKEN)) throw new UnauthorizedException();
-    return challenge;
+    return this.metaEnvelopeAdapter.verifyChallenge(mode, token, challenge, env.META_WEBHOOK_VERIFY_TOKEN);
   }
 
   async ingestEvolution(channelId: string, presentedWebhookSecret: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {
     const channel = await this.repository.findEvolutionChannel(channelId);
     if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
     const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
-    if (credentials.provider !== 'evolution' || !this.matchesSecret(presentedWebhookSecret, credentials.webhookSecret)) throw new UnauthorizedException();
+    if (credentials.provider !== 'evolution') throw new UnauthorizedException();
+    this.evolutionEnvelopeAdapter.authenticate(presentedWebhookSecret, credentials.webhookSecret);
 
-    const event = this.record(payload);
-    const instance = this.string(event.instance);
-    const eventName = this.string(event.event)?.toLowerCase().replaceAll('_', '.').replaceAll('-', '.') ?? '';
-    if (instance !== channel.providerChannelId) throw new UnauthorizedException();
-    const eventData = this.record(event.data);
-    const data = eventName === EVOLUTION_WEBHOOK_EVENT.chatsSet && Array.isArray(eventData.chats)
-      ? eventData.chats
-      : eventName === EVOLUTION_WEBHOOK_EVENT.contactsSet && Array.isArray(eventData.contacts)
-      ? eventData.contacts
-      : eventName === EVOLUTION_WEBHOOK_EVENT.messagesDelete && Array.isArray(eventData.keys)
-      ? eventData.keys
-      : Array.isArray(event.data) ? event.data : [event.data];
+    const envelope = this.evolutionEnvelopeAdapter.normalize(payload);
+    const { eventName, items: data } = envelope;
+    if (envelope.instance !== channel.providerChannelId) throw new UnauthorizedException();
     if (eventName === EVOLUTION_WEBHOOK_EVENT.connectionUpdate) {
       const connectionEvent = this.record(data[0]);
       const rawState = this.string(connectionEvent.state) ?? this.string(connectionEvent.status);
@@ -169,7 +164,7 @@ export class WebhooksService {
     if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
     const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
     const signalSecret = credentials.provider === 'evolution' ? credentials.webhookSecret : credentials.signalSecret;
-    if (!this.matchesSecret(webhookSecret, signalSecret)) throw new UnauthorizedException();
+    if (!matchesWebhookSecret(webhookSecret, signalSecret)) throw new UnauthorizedException();
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     const outcome = await this.repository.recordInterpretationFailure(new InterpretationFailureSignalDto(channel.organizationId, channel.id, credentials.provider, input, payloadHash));
     return { accepted: true, outcome };
@@ -194,47 +189,39 @@ export class WebhooksService {
   }
 
   async ingestCloud(signature: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {
-    this.assertCloudSignature(signature, rawBody);
-    const root = this.record(payload);
-    const entries = Array.isArray(root.entry) ? root.entry : [];
+    this.metaEnvelopeAdapter.authenticate(signature, rawBody, env.META_APP_SECRET);
     const payloadHash = createHash('sha256').update(rawBody).digest('hex');
     let processed = 0;
-    for (const entryValue of entries) {
-      const entry = this.record(entryValue);
-      const changes = Array.isArray(entry.changes) ? entry.changes : [];
-      for (const changeValue of changes) {
-        const change = this.record(changeValue);
-        const field = (this.string(change.field)?.replace(/[^a-z0-9_-]/gi, '_').slice(0, 120)) || 'unknown';
-        const value = this.record(change.value);
-        const metadata = this.record(value.metadata);
-        const phoneNumberId = this.string(metadata.phone_number_id) ?? this.string(value.phone_number_id);
-        const channel = phoneNumberId
-          ? await this.repository.findCloudChannel(phoneNumberId)
-          : await this.repository.findCloudAccountChannel(this.string(entry.id) ?? '');
-        if (!channel?.isActive) continue;
-        if (field !== META_WHATSAPP_WEBHOOK_FIELD.messages) {
-          const fingerprint = createHash('sha256').update(JSON.stringify(changeValue) ?? '').digest('hex');
-          const eventId = createHash('sha256').update(`${channel.id}:${field}:${fingerprint}`).digest('hex');
-          const eventDto = new ProviderWebhookEventDto(channel.organizationId, channel.id, 'whatsapp_cloud_api', eventId, `meta.${field}`, this.metaEventFamily(field), fingerprint);
-          if (await this.repository.recordProviderEvent(eventDto) === 'created') processed += 1;
-          continue;
-        }
-        if (!phoneNumberId) continue;
-        const contacts = Array.isArray(value.contacts) ? value.contacts.map((contact) => this.record(contact)) : [];
-        const messages = Array.isArray(value.messages) ? value.messages : [];
-        for (const messageValue of messages) {
-          const message = this.metaMessageAdapter.normalize({ channelId: channel.id, organizationId: channel.organizationId, value: messageValue, contacts, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) });
-          if (!message) continue;
-          if (await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
-        }
-        const statuses = Array.isArray(value.statuses) ? value.statuses : [];
-        for (const statusValue of statuses) {
-          const status = this.metaStatusAdapter.normalize(channel.id, channel.organizationId, statusValue, payloadHash);
-          if (status) {
-            const result = await this.repository.recordMessageStatus(status);
-            if (result === 'updated') processed += 1;
-            if (result === 'unmatched') processed += await this.recordUnmatchedStatus(status);
-          }
+    for (const change of this.metaEnvelopeAdapter.normalize(payload)) {
+      const { field, value } = change;
+      const metadata = this.record(value.metadata);
+      const phoneNumberId = this.string(metadata.phone_number_id) ?? this.string(value.phone_number_id);
+      const channel = phoneNumberId
+        ? await this.repository.findCloudChannel(phoneNumberId)
+        : await this.repository.findCloudAccountChannel(change.entryId ?? '');
+      if (!channel?.isActive) continue;
+      if (field !== META_WHATSAPP_WEBHOOK_FIELD.messages) {
+        const fingerprint = createHash('sha256').update(JSON.stringify(change) ?? '').digest('hex');
+        const eventId = createHash('sha256').update(`${channel.id}:${field}:${fingerprint}`).digest('hex');
+        const eventDto = new ProviderWebhookEventDto(channel.organizationId, channel.id, 'whatsapp_cloud_api', eventId, `meta.${field}`, this.metaEventFamily(field), fingerprint);
+        if (await this.repository.recordProviderEvent(eventDto) === 'created') processed += 1;
+        continue;
+      }
+      if (!phoneNumberId) continue;
+      const contacts = Array.isArray(value.contacts) ? value.contacts.map((contact) => this.record(contact)) : [];
+      const messages = Array.isArray(value.messages) ? value.messages : [];
+      for (const messageValue of messages) {
+        const message = this.metaMessageAdapter.normalize({ channelId: channel.id, organizationId: channel.organizationId, value: messageValue, contacts, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) });
+        if (!message) continue;
+        if (await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
+      }
+      const statuses = Array.isArray(value.statuses) ? value.statuses : [];
+      for (const statusValue of statuses) {
+        const status = this.metaStatusAdapter.normalize(channel.id, channel.organizationId, statusValue, payloadHash);
+        if (status) {
+          const result = await this.repository.recordMessageStatus(status);
+          if (result === 'updated') processed += 1;
+          if (result === 'unmatched') processed += await this.recordUnmatchedStatus(status);
         }
       }
     }
@@ -371,16 +358,6 @@ export class WebhooksService {
     return 'other';
   }
 
-  private assertCloudSignature(signature: string | undefined, rawBody: Buffer): void {
-    if (!env.META_APP_SECRET || !signature?.startsWith('sha256=')) throw new UnauthorizedException();
-    const expected = createHmac('sha256', env.META_APP_SECRET).update(rawBody).digest();
-    const suppliedHex = signature.slice('sha256='.length);
-    if (!/^[a-f0-9]{64}$/i.test(suppliedHex)) throw new UnauthorizedException();
-    const supplied = Buffer.from(suppliedHex, 'hex');
-    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new UnauthorizedException();
-  }
-
-
   private classifyCloserSignal(bodyText: string | null): 'human_requested' | 'buying_intent' | 'question' | null {
     if (!bodyText?.trim()) return null;
     const normalized = bodyText.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim();
@@ -411,10 +388,4 @@ export class WebhooksService {
     return record;
   }
   private string(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null; }
-  private matchesSecret(presented: string | undefined, expected: string | undefined): boolean {
-    if (!presented || !expected) return false;
-    const actual = Buffer.from(presented);
-    const wanted = Buffer.from(expected);
-    return actual.length === wanted.length && timingSafeEqual(actual, wanted);
-  }
 }

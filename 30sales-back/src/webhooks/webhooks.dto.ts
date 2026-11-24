@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
+import { PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES } from './provider-webhook-events.constants';
 
 export type WebhookProvider = 'evolution' | 'whatsapp_cloud_api';
 export type ProviderEventFamily = (typeof PROVIDER_EVENT_FAMILY)[keyof typeof PROVIDER_EVENT_FAMILY];
@@ -177,7 +177,7 @@ export const evolutionHistoryMessageSchema = z.object({
   isFromMe: z.boolean().optional().default(false),
 }).strict();
 
-export type MessageDeliveryState = 'accepted' | 'delivered' | 'read' | 'failed';
+export type MessageDeliveryState = (typeof PROVIDER_MESSAGE_DELIVERY_STATES)[number];
 
 export class WhatsappMessageStatusDto {
   constructor(

@@ -1,4 +1,5 @@
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
+import { EVOLUTION_WEBHOOK_CONFIGURATION_STATUS } from './channels.constants';
 
 describe('EvolutionWebhookConfigurationProvider', () => {
   const provider = new EvolutionWebhookConfigurationProvider();
@@ -57,5 +58,24 @@ describe('EvolutionWebhookConfigurationProvider', () => {
     await expect(provider.configure(credentials, instanceName, channelId)).rejects.toMatchObject({
       response: { code: 'EVOLUTION_WEBHOOK_NOT_CONFIRMED' },
     });
+  });
+
+  it('reports webhook drift when the saved callback no longer matches this channel', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue(Response.json({
+      enabled: true,
+      url: 'https://old.example.com/webhook',
+      webhookByEvents: false,
+      webhookBase64: false,
+      headers: { 'x-30sales-webhook-key': credentials.webhookSecret },
+      events: [],
+    }));
+
+    await expect(provider.checkConfiguration(credentials, instanceName, channelId)).resolves.toBe(EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.drifted);
+  });
+
+  it('reports a missing webhook separately from a provider outage', async () => {
+    globalThis.fetch = jest.fn().mockResolvedValue(new Response(null, { status: 404 }));
+
+    await expect(provider.checkConfiguration(credentials, instanceName, channelId)).resolves.toBe(EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notConfigured);
   });
 });

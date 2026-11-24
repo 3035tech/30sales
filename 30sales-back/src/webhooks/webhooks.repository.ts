@@ -1,17 +1,24 @@
 import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
+import { requestContext } from '../common/request-context';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
-import { META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY } from './provider-webhook-events.constants';
+import { EVOLUTION_STATUS_RECONCILIATION, META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from './provider-webhook-events.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
+import { CHANNEL_PROVIDER } from '../channels/channels.constants';
 
 type WebhooksTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 type OutboundMessageStatusTarget = { id: string; conversationId: string; deliveryState: string; ownerUserId: string | null; businessLineId: string | null };
+
+function withRequestCorrelation(payload: { [key: string]: import('../db/schema').JsonValue }): { [key: string]: import('../db/schema').JsonValue } {
+  const correlationId = requestContext.getStore()?.correlationId;
+  return correlationId ? { ...payload, correlationId } : payload;
+}
 
 @Injectable()
 export class WebhooksRepository {
@@ -76,7 +83,7 @@ export class WebhooksRepository {
       const [event] = await transaction.insert(inboxEvents).values({
         organizationId: input.organizationId, provider: 'evolution', externalEventId: eventId,
         eventType: 'evolution.messages.outgoing_echo', payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageType: input.messageType, direction: 'outbound' },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageType: input.messageType, direction: 'outbound' }),
         status: 'processed', attempts: '1', processedAt: new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
@@ -178,7 +185,7 @@ export class WebhooksRepository {
         externalEventId: input.externalEventId,
         eventType: 'evolution.chat.state',
         payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.chat },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.chat }),
         status: 'processed', attempts: '1', processedAt: new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
@@ -202,7 +209,7 @@ export class WebhooksRepository {
       const [event] = await transaction.insert(inboxEvents).values({
         organizationId: input.organizationId, provider: 'evolution', externalEventId: input.externalEventId,
         eventType: 'evolution.group.metadata', payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group }),
         status: 'processed', attempts: '1', processedAt: new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
@@ -221,7 +228,7 @@ export class WebhooksRepository {
       const [event] = await transaction.insert(inboxEvents).values({
         organizationId: input.organizationId, provider: 'evolution', externalEventId: input.externalEventId,
         eventType: 'evolution.group.participants.update', payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group, participantCount: input.participants.length },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.group, participantCount: input.participants.length }),
         status: 'processed', attempts: '1', processedAt: new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
@@ -271,7 +278,7 @@ export class WebhooksRepository {
       externalEventId: input.externalEventId,
       eventType: input.eventType,
       payloadHash: input.payloadHash,
-      payloadRedacted: { channelId: input.channelId, eventFamily: input.eventFamily },
+      payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: input.eventFamily }),
       status: 'processed',
       attempts: '1',
       processedAt: new Date(),
@@ -281,16 +288,17 @@ export class WebhooksRepository {
 
   async recordUnmatchedMessageStatus(input: WhatsappMessageStatusDto): Promise<'created' | 'duplicate'> {
     return database.transaction(async (transaction) => {
+      const isEvolutionStatus = input.provider === CHANNEL_PROVIDER.evolution;
       const [event] = await transaction.insert(inboxEvents).values({
         organizationId: input.organizationId,
         provider: input.provider,
         externalEventId: input.externalEventId,
-        eventType: 'messages.status.unmatched',
+        eventType: PROVIDER_MESSAGE_STATUS_EVENT.unmatched,
         payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, externalMessageId: input.externalMessageId, deliveryState: input.deliveryState },
-        status: 'processed',
-        attempts: '1',
-        processedAt: new Date(),
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, externalMessageId: input.externalMessageId, deliveryState: input.deliveryState }),
+        status: isEvolutionStatus ? WEBHOOK_EVENT_PROCESSING_STATE.pending : WEBHOOK_EVENT_PROCESSING_STATE.processed,
+        attempts: String(EVOLUTION_STATUS_RECONCILIATION.initialAttempts),
+        processedAt: isEvolutionStatus ? null : new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
@@ -301,11 +309,85 @@ export class WebhooksRepository {
         .for('update').limit(1);
       if (!message) return 'created';
 
-      await transaction.update(inboxEvents).set({ eventType: 'messages.status', payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState } })
+      await transaction.update(inboxEvents).set({ eventType: PROVIDER_MESSAGE_STATUS_EVENT.matched, status: WEBHOOK_EVENT_PROCESSING_STATE.processed, processedAt: new Date(), lastErrorCode: null, payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState }) })
         .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
       await this.applyMessageStatus(transaction, input, message);
       return 'created';
     });
+  }
+
+  async reconcilePendingEvolutionMessageStatuses(): Promise<{ readonly reconciled: number; readonly deadLettered: number }> {
+    return database.transaction(async (transaction) => {
+      const retryBefore = new Date(Date.now() - EVOLUTION_STATUS_RECONCILIATION.initialRetryDelayMs);
+      const pendingEvents = await transaction.select({
+        id: inboxEvents.id,
+        organizationId: inboxEvents.organizationId,
+        externalEventId: inboxEvents.externalEventId,
+        payloadHash: inboxEvents.payloadHash,
+        payloadRedacted: inboxEvents.payloadRedacted,
+        receivedAt: inboxEvents.receivedAt,
+        attempts: inboxEvents.attempts,
+      }).from(inboxEvents).where(and(
+        eq(inboxEvents.provider, CHANNEL_PROVIDER.evolution),
+        eq(inboxEvents.eventType, PROVIDER_MESSAGE_STATUS_EVENT.unmatched),
+        eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending),
+        lte(inboxEvents.receivedAt, retryBefore),
+      )).orderBy(inboxEvents.receivedAt).for('update', { skipLocked: true }).limit(EVOLUTION_STATUS_RECONCILIATION.batchSize);
+
+      let reconciled = 0;
+      let deadLettered = 0;
+      for (const event of pendingEvents) {
+        const payload = this.asJsonRecord(event.payloadRedacted);
+        const channelId = typeof payload?.channelId === 'string' ? payload.channelId : null;
+        const externalMessageId = typeof payload?.externalMessageId === 'string' ? payload.externalMessageId : null;
+        const deliveryState = PROVIDER_MESSAGE_DELIVERY_STATES.find((state) => state === payload?.deliveryState) ?? null;
+        const attempts = Number(event.attempts) + EVOLUTION_STATUS_RECONCILIATION.attemptIncrement;
+        const invalidPayload = !channelId || !externalMessageId || !deliveryState;
+
+        if (invalidPayload) {
+          await transaction.update(inboxEvents).set({ status: WEBHOOK_EVENT_PROCESSING_STATE.failed, attempts: String(attempts), processedAt: new Date(), lastErrorCode: EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode })
+            .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
+          deadLettered += 1;
+          continue;
+        }
+
+        const [message] = await transaction.select({ id: messages.id, conversationId: messages.conversationId, deliveryState: messages.deliveryState, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId })
+          .from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+          .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+          .where(and(eq(messages.organizationId, event.organizationId), eq(messages.externalMessageId, externalMessageId), eq(messages.direction, 'outbound'), eq(conversations.provider, CHANNEL_PROVIDER.evolution), eq(conversations.channelId, channelId)))
+          .for('update').limit(1);
+
+        if (message) {
+          const status = new WhatsappMessageStatusDto(event.organizationId, channelId, CHANNEL_PROVIDER.evolution, externalMessageId, event.externalEventId, deliveryState, event.receivedAt, event.payloadHash);
+          await this.applyMessageStatus(transaction, status, message);
+          const correlationId = typeof payload?.correlationId === 'string' ? payload.correlationId : null;
+          await transaction.update(inboxEvents).set({
+            eventType: PROVIDER_MESSAGE_STATUS_EVENT.matched,
+            status: WEBHOOK_EVENT_PROCESSING_STATE.processed,
+            attempts: String(attempts),
+            processedAt: new Date(),
+            lastErrorCode: null,
+            payloadRedacted: withRequestCorrelation({ channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState, ...(correlationId ? { correlationId } : {}) }),
+          }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
+          reconciled += 1;
+          continue;
+        }
+
+        const exhausted = attempts >= EVOLUTION_STATUS_RECONCILIATION.maximumAttempts;
+        await transaction.update(inboxEvents).set({
+          status: exhausted ? WEBHOOK_EVENT_PROCESSING_STATE.failed : WEBHOOK_EVENT_PROCESSING_STATE.pending,
+          attempts: String(attempts),
+          processedAt: exhausted ? new Date() : null,
+          lastErrorCode: exhausted ? EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode : null,
+        }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
+        if (exhausted) deadLettered += 1;
+      }
+      return { reconciled, deadLettered };
+    });
+  }
+
+  private asJsonRecord(value: JsonValue): Record<string, JsonValue> | null {
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
   }
 
   async updateKnownEvolutionContact(input: EvolutionContactUpdateDto): Promise<'updated' | 'duplicate' | 'unmatched'> {
@@ -316,7 +398,7 @@ export class WebhooksRepository {
         externalEventId: input.externalEventId,
         eventType: 'evolution.contacts.updated',
         payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.contact },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.contact }),
         status: 'processed',
         attempts: '1',
         processedAt: new Date(),
@@ -363,7 +445,7 @@ export class WebhooksRepository {
       if (!acceptedHandoff && !hasCloserRole) return 'unroutable';
 
       const externalEventId = 'agent.interpretation_failure:' + input.channelId + ':' + input.input.externalMessageId;
-      const [inboxEvent] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId, eventType: 'agent.interpretation_failure', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, sourceMessageId: source.messageId }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [inboxEvent] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId, eventType: 'agent.interpretation_failure', payloadHash: input.payloadHash, payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, sourceMessageId: source.messageId }), status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!inboxEvent) return 'duplicate';
 
@@ -389,7 +471,7 @@ export class WebhooksRepository {
   async recordIncomingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate'> {
     return database.transaction(async (transaction) => {
       const eventExternalId = input.conversationType === 'group' ? `${input.externalConversationId}:${input.externalMessageId}` : input.externalMessageId;
-      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: eventExternalId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: 'message', messageType: input.messageType, direction: 'inbound' }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: eventExternalId, eventType: 'messages.upsert', payloadHash: input.payloadHash, payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: 'message', messageType: input.messageType, direction: 'inbound' }), status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 
@@ -592,7 +674,7 @@ export class WebhooksRepository {
         externalEventId: input.externalEventId,
         eventType: input.eventType,
         payloadHash: input.payloadHash,
-        payloadRedacted: { channelId: input.channelId, eventFamily: 'message', externalMessageId: input.externalMessageId },
+        payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: 'message', externalMessageId: input.externalMessageId }),
         status: 'processed',
         attempts: '1',
         processedAt: new Date(),
@@ -632,7 +714,7 @@ export class WebhooksRepository {
         .for('update').limit(1);
       if (!message) return 'unmatched';
 
-      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalEventId, eventType: 'messages.status', payloadHash: input.payloadHash, payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState }, status: 'processed', attempts: '1', processedAt: new Date() })
+      const [event] = await transaction.insert(inboxEvents).values({ organizationId: input.organizationId, provider: input.provider, externalEventId: input.externalEventId, eventType: 'messages.status', payloadHash: input.payloadHash, payloadRedacted: withRequestCorrelation({ channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: message.id, deliveryState: input.deliveryState }), status: 'processed', attempts: '1', processedAt: new Date() })
         .onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
 

@@ -1,9 +1,13 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
+import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { env } from '../config/env';
+import { EVOLUTION_WEBHOOK_CONFIGURATION_STATUS } from './channels.constants';
+import type { EvolutionWebhookConfigurationStatus } from './channels.dto';
 import type { ChannelCredentialsDto } from './channels.dto';
 
 const EVOLUTION_WEBHOOK_CONFIG_TIMEOUT_MS = 8_000;
+const EVOLUTION_WEBHOOK_CONFIG_RESPONSE_LIMIT_BYTES = 64 * 1024;
 const EVOLUTION_WEBHOOK_PATH = '/webhook/set';
 // Keep this allowlist aligned with the events exposed by the Evolution v2.3.7 manager.
 const EVOLUTION_WEBHOOK_EVENTS = [
@@ -44,18 +48,38 @@ export class EvolutionWebhookConfigurationProvider {
     });
     if (!response.ok) throw new ServiceUnavailableException({ code: 'EVOLUTION_WEBHOOK_REJECTED', message: 'The Evolution API rejected the webhook configuration.' });
 
-    const verification = await this.request(credentials, `/webhook/find/${encodeURIComponent(instanceName)}`, {
-      method: 'GET',
-      headers: { accept: 'application/json', apikey: credentials.apiKey },
-    });
-    if (!verification.ok || !await this.matchesConfiguration(verification, callbackUrl, credentials.webhookSecret)) {
+    const configurationStatus = await this.checkConfiguration(credentials, instanceName, channelId);
+    if (configurationStatus !== EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.confirmed) {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_WEBHOOK_NOT_CONFIRMED', message: 'The Evolution API did not confirm the webhook URL, secret header, or subscribed events.' });
     }
   }
 
+  async checkConfiguration(credentials: Extract<ChannelCredentialsDto, { provider: 'evolution' }>, instanceName: string, channelId: string): Promise<EvolutionWebhookConfigurationStatus> {
+    if (!credentials.webhookSecret) return EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notConfigured;
+    try { await assertPublicEvolutionTarget(credentials.baseUrl); }
+    catch { return EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.unavailable; }
+    let response: Response;
+    try {
+      response = await this.request(credentials, `/webhook/find/${encodeURIComponent(instanceName)}`, {
+        method: 'GET',
+        headers: { accept: 'application/json', apikey: credentials.apiKey },
+      });
+    } catch {
+      return EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.unavailable;
+    }
+    if (response.status === 404) return EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notConfigured;
+    if (!response.ok) return EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.unavailable;
+    const callbackUrl = new URL(`/api/v1/webhooks/evolution/${encodeURIComponent(channelId)}`, env.FRONTEND_URL).toString();
+    return await this.matchesConfiguration(response, callbackUrl, credentials.webhookSecret)
+      ? EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.confirmed
+      : EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.drifted;
+  }
+
   private async matchesConfiguration(response: Response, callbackUrl: string, webhookSecret: string): Promise<boolean> {
     try {
-      const body: unknown = await response.json();
+      const result = await readLimitedJsonResponse(response, EVOLUTION_WEBHOOK_CONFIG_RESPONSE_LIMIT_BYTES);
+      if (!result.ok) return false;
+      const body = result.payload;
       const envelope = isRecord(body) && isRecord(body.webhook) ? body.webhook : body;
       const root = isRecord(envelope) && isRecord(envelope.webhook) ? envelope.webhook : envelope;
       if (!isRecord(root)) return false;

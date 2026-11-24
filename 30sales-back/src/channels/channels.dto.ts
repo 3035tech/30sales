@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_OPERATION_MODES, CHANNEL_PROVIDER, CHANNEL_PROVIDERS } from './channels.constants';
+import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_OPERATION_MODES, CHANNEL_PROVIDER, CHANNEL_PROVIDERS, EVOLUTION_WEBHOOK_CONFIGURATION_STATUSES } from './channels.constants';
 import { CHANNEL_DAILY_MESSAGE_LIMIT_MAX, CHANNEL_DAILY_MESSAGE_LIMIT_MIN } from './channels.constants';
 import type { eventProcessingState } from '../db/schema';
 
@@ -69,13 +69,15 @@ export const CHANNEL_HEALTH_STATUS = { notConfigured: 'not_configured', connecte
 export const CHANNEL_HEALTH_STATUSES = [CHANNEL_HEALTH_STATUS.notConfigured, CHANNEL_HEALTH_STATUS.connected, CHANNEL_HEALTH_STATUS.connecting, CHANNEL_HEALTH_STATUS.disconnected, CHANNEL_HEALTH_STATUS.reachable, CHANNEL_HEALTH_STATUS.credentialsInvalid, CHANNEL_HEALTH_STATUS.configurationError, CHANNEL_HEALTH_STATUS.unavailable, CHANNEL_HEALTH_STATUS.unknown] as const;
 export const channelHealthStatusSchema = z.enum(CHANNEL_HEALTH_STATUSES);
 export type ChannelHealthStatus = z.infer<typeof channelHealthStatusSchema>;
+export const evolutionWebhookConfigurationStatusSchema = z.enum(EVOLUTION_WEBHOOK_CONFIGURATION_STATUSES);
+export type EvolutionWebhookConfigurationStatus = z.infer<typeof evolutionWebhookConfigurationStatusSchema>;
 export class ChannelHealthCheckDto {
   constructor(readonly status: ChannelHealthStatus, readonly checkedAt: string) {}
 }
 export const channelMonitoringCheckSchema = z.object({ channelIds: z.array(z.string().uuid()).min(1).max(20).refine((ids) => new Set(ids).size === ids.length) }).strict();
 export type ChannelMonitoringCheckInputDto = z.infer<typeof channelMonitoringCheckSchema>;
 export class ChannelMonitoringStatusDto {
-  constructor(readonly channelId: string, readonly status: ChannelHealthStatus, readonly checkedAt: string, readonly failedDeliveries: number) {}
+  constructor(readonly channelId: string, readonly status: ChannelHealthStatus, readonly checkedAt: string, readonly failedDeliveries: number, readonly webhookConfigurationStatus: EvolutionWebhookConfigurationStatus) {}
 }
 export class ChannelMonitoringCheckDto {
   constructor(readonly data: ChannelMonitoringStatusDto[], readonly checkedAt: string) {}
@@ -84,14 +86,16 @@ export const channelConnectionStatusSchema = z.enum(CHANNEL_CONNECTION_STATUSES)
 export type ChannelConnectionStatus = z.infer<typeof channelConnectionStatusSchema>;
 export class EvolutionInstanceListDto { constructor(readonly channelId: string, readonly instances: import('./evolution-instance-discovery.provider').EvolutionInstanceDiscoveryDto[]) {} }
 export class EvolutionWebhookConfigurationDto { constructor(readonly configured: true, readonly configuredAt: string) {} }
-export const channelWebhookEventsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0) }).strict();
+export const channelWebhookEventsQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(25), offset: z.coerce.number().int().min(0).default(0), status: z.enum(['pending', 'processing', 'processed', 'failed']).optional(), eventFamily: z.string().trim().min(1).max(40).optional(), search: z.string().trim().min(1).max(120).optional() }).strict();
 export type ChannelWebhookEventsQueryDto = z.infer<typeof channelWebhookEventsQuerySchema>;
 export class ChannelWebhookEventRecordDto {
-  constructor(readonly id: string, readonly provider: string, readonly eventType: string, readonly eventFamily: string, readonly status: typeof eventProcessingState.enumValues[number], readonly attempts: number, readonly receivedAt: string, readonly processedAt: string | null, readonly lastErrorCode: string | null) {}
+  constructor(readonly id: string, readonly provider: string, readonly eventType: string, readonly eventFamily: string, readonly status: typeof eventProcessingState.enumValues[number], readonly attempts: number, readonly receivedAt: string, readonly processedAt: string | null, readonly lastErrorCode: string | null, readonly correlationId: string | null) {}
 }
 export class ChannelWebhookEventsPageDto {
   constructor(readonly data: ChannelWebhookEventRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {}
 }
+export class ChannelWebhookEventRetryDto { constructor(readonly organizationId: string, readonly channelId: string, readonly eventId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly correlationId: string | null) {} }
+export class ChannelWebhookEventRetryResultDto { constructor(readonly queued: true) {} }
 export class ChannelConnectionStatusUpdateDto {
   constructor(readonly organizationId: string, readonly channelId: string, readonly status: ChannelConnectionStatus, readonly updatedAt: Date) {}
 }

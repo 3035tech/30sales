@@ -3,13 +3,13 @@ import { randomBytes } from 'node:crypto';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
-import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ChannelScheduleExceptionDto, ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto } from './channels.dto';
+import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ChannelScheduleExceptionDto, ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto, EvolutionWebhookConfigurationStatus } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
 import { ChannelsRepository } from './channels.repository';
 import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
-import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, EvolutionInstanceListDto, EvolutionWebhookConfigurationDto, ChannelRepositoryDeleteDto } from './channels.dto';
-import { CHANNEL_CONNECTION_STATUS, CHANNEL_PROVIDER } from './channels.constants';
+import { ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRetryDto, ChannelWebhookEventRetryResultDto, EvolutionInstanceListDto, EvolutionWebhookConfigurationDto, ChannelRepositoryDeleteDto } from './channels.dto';
+import { CHANNEL_CONNECTION_STATUS, CHANNEL_MONITORING_CHECK_CONCURRENCY, CHANNEL_PROVIDER, CHANNEL_WEBHOOK_EVENT_RETRY, EVOLUTION_WEBHOOK_CONFIGURATION_STATUS } from './channels.constants';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 import { EvolutionConnectionProvider, EvolutionConnectionResultDto } from './evolution-connection.provider';
 import { ChannelCredentialResolverService } from './channel-credential-resolver.service';
@@ -111,22 +111,37 @@ export class ChannelsService {
     if (targets.length !== input.channelIds.length) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'One or more channels are unavailable or do not use Evolution API.' });
     const checkedAt = new Date();
     const failureCounts = await this.repository.recentFailedDeliveryCounts(context.organizationId, targets.map((target) => target.id), new Date(checkedAt.getTime() - 24 * 60 * 60 * 1000));
-    const data = await Promise.all(targets.map(async (target) => {
+    const data: ChannelMonitoringStatusDto[] = [];
+    for (let offset = 0; offset < targets.length; offset += CHANNEL_MONITORING_CHECK_CONCURRENCY) {
+      const batch = targets.slice(offset, offset + CHANNEL_MONITORING_CHECK_CONCURRENCY);
+      data.push(...await Promise.all(batch.map(async (target) => {
       let status: ChannelHealthStatus = CHANNEL_HEALTH_STATUS.unknown;
+      let webhookConfigurationStatus: EvolutionWebhookConfigurationStatus = EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notChecked;
       if (!target.isActive) status = CHANNEL_HEALTH_STATUS.unknown;
-      else if (!target.credentials) status = CHANNEL_HEALTH_STATUS.notConfigured;
+      else if (!target.credentials) {
+        status = CHANNEL_HEALTH_STATUS.notConfigured;
+        webhookConfigurationStatus = EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notConfigured;
+      }
       else {
         try {
           const credentials = await this.credentialResolver.resolve(context.organizationId, target.id, target.credentials);
-          status = credentials.provider === CHANNEL_PROVIDER.evolution
-            ? await this.healthProvider.check(target, credentials)
-            : CHANNEL_HEALTH_STATUS.configurationError;
+          if (credentials.provider === CHANNEL_PROVIDER.evolution) {
+            [status, webhookConfigurationStatus] = await Promise.all([
+              this.healthProvider.check(target, credentials),
+              this.evolutionWebhookConfiguration.checkConfiguration(credentials, target.providerChannelId, target.id),
+            ]);
+          } else {
+            status = CHANNEL_HEALTH_STATUS.configurationError;
+            webhookConfigurationStatus = EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.notChecked;
+          }
         } catch {
           status = CHANNEL_HEALTH_STATUS.configurationError;
+          webhookConfigurationStatus = EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.unavailable;
         }
       }
-      return new ChannelMonitoringStatusDto(target.id, status, checkedAt.toISOString(), failureCounts.get(target.id) ?? 0);
-    }));
+        return new ChannelMonitoringStatusDto(target.id, status, checkedAt.toISOString(), failureCounts.get(target.id) ?? 0, webhookConfigurationStatus);
+      })));
+    }
     return new ChannelMonitoringCheckDto(data, checkedAt.toISOString());
   }
 
@@ -214,6 +229,13 @@ export class ChannelsService {
     const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return this.repository.listWebhookEvents(context.organizationId, channelId, context.userId, canManageAllLines, query);
+  }
+
+  async retryWebhookEvent(request: ApiRequestDto, channelId: string, eventId: string): Promise<ChannelWebhookEventRetryResultDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    const queued = await this.repository.retryEvolutionWebhookEvent(new ChannelWebhookEventRetryDto(context.organizationId, channelId, eventId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), request.correlationId));
+    if (!queued) throw new NotFoundException({ code: 'CHANNEL_WEBHOOK_EVENT_NOT_RETRYABLE', message: 'The failed Evolution receipt event is unavailable for retry.' });
+    return new ChannelWebhookEventRetryResultDto(CHANNEL_WEBHOOK_EVENT_RETRY.resultQueued);
   }
 
   async recordEvolutionConnectionStatus(organizationId: string, channelId: string, status: ChannelConnectionStatus, updatedAt = new Date()): Promise<void> {

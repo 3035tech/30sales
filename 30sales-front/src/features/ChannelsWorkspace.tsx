@@ -1,7 +1,7 @@
 import { Button, CheckboxField, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
 import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CalendarClock, Check, ChevronLeft, ChevronRight, Link2, Plus, Power, QrCode, RefreshCw, Search, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
+import { Activity, CalendarClock, Check, ChevronLeft, ChevronRight, Link2, Plus, Power, QrCode, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
@@ -9,7 +9,8 @@ import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
-import { ApiError, api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
+import { CHANNEL_PROVIDER, CHANNEL_WEBHOOK_EVENT, CHANNEL_WEBHOOK_EVENT_RETRY_ERROR, EVOLUTION_WEBHOOK_CONFIGURATION_STATUS } from '../lib/channelConstants'
+import { ApiError, api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_FAMILIES, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventFamily, type ChannelWebhookEventStatus, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
 import './ChannelsWorkspace.css'
 
 type SortKey = 'displayName' | 'businessLine' | 'provider' | 'phoneNumber' | 'status' | 'dailyMessageCount'
@@ -100,6 +101,11 @@ export function ChannelsWorkspace() {
   const [webhookEventsError, setWebhookEventsError] = useState(false)
   const [webhookEventsOffset, setWebhookEventsOffset] = useState(0)
   const [webhookEventsLimit, setWebhookEventsLimit] = useState(25)
+  const [webhookEventsRefresh, setWebhookEventsRefresh] = useState(0)
+  const [retryingWebhookEventId, setRetryingWebhookEventId] = useState<string | null>(null)
+  const [webhookEventStatus, setWebhookEventStatus] = useState<ChannelWebhookEventStatus | ''>('')
+  const [webhookEventFamily, setWebhookEventFamily] = useState<ChannelWebhookEventFamily | ''>('')
+  const [webhookEventSearch, setWebhookEventSearch] = useState('')
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
   const [viewMode, setViewMode] = useState<ChannelsView>('channels')
@@ -175,12 +181,16 @@ export function ChannelsWorkspace() {
     if (!eventsChannel) return
     let active = true
     setWebhookEventsLoading(true); setWebhookEventsError(false)
-    api.channels.webhookEvents(eventsChannel.id, webhookEventsLimit, webhookEventsOffset)
+    const debounce = window.setTimeout(() => api.channels.webhookEvents(eventsChannel.id, webhookEventsLimit, webhookEventsOffset, {
+      ...(webhookEventStatus ? { status: webhookEventStatus } : {}),
+      ...(webhookEventFamily ? { eventFamily: webhookEventFamily } : {}),
+      ...(webhookEventSearch.trim() ? { search: webhookEventSearch.trim() } : {}),
+    })
       .then((result) => { if (active) setWebhookEvents(result) })
       .catch(() => { if (active) setWebhookEventsError(true) })
-      .finally(() => { if (active) setWebhookEventsLoading(false) })
-    return () => { active = false }
-  }, [eventsChannel, webhookEventsLimit, webhookEventsOffset])
+      .finally(() => { if (active) setWebhookEventsLoading(false) }), 250)
+    return () => { active = false; window.clearTimeout(debounce) }
+  }, [eventsChannel, webhookEventsLimit, webhookEventsOffset, webhookEventStatus, webhookEventFamily, webhookEventSearch, webhookEventsRefresh])
 
   const rows = useMemo(() => {
     const search = query.trim().toLocaleLowerCase()
@@ -364,6 +374,20 @@ export function ChannelsWorkspace() {
     }
   }
 
+  const retryWebhookEvent = async (eventId: string) => {
+    if (!eventsChannel || retryingWebhookEventId) return
+    setRetryingWebhookEventId(eventId)
+    try {
+      await api.channels.retryWebhookEvent(eventsChannel.id, eventId)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('channels.eventRetryQueued'))
+      setWebhookEventsRefresh((version) => version + 1)
+    } catch {
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, t('channels.eventRetryFailed'))
+    } finally {
+      setRetryingWebhookEventId(null)
+    }
+  }
+
   const requestEvolutionConnection = async (channel: ChannelDto) => {
     const requestId = pairingRequestId.current + 1
     pairingRequestId.current = requestId
@@ -490,6 +514,7 @@ export function ChannelsWorkspace() {
             {checkDate && <small>{t('channels.monitoringCheckedAt', { date: checkDate })}</small>}
             {healthNeedsAttention && <small className="is-stale" role="alert">{t(`channels.health.${healthStatus}`)}</small>}
             {channelCheckFailed && <small className="is-stale" role="alert">{t('channels.monitoringCheckFailed')}</small>}
+            {liveCheck && <small className={liveCheck.webhookConfigurationStatus === EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.confirmed ? '' : 'is-stale'} role={liveCheck.webhookConfigurationStatus === EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.drifted ? 'alert' : undefined}>{t(`channels.monitoringWebhook.${liveCheck.webhookConfigurationStatus}`)}</small>}
             {liveCheck && liveCheck.failedDeliveries > 0 && <small className="is-stale" role="alert">{t('channels.monitoringDeliveryFailures', { count: liveCheck.failedDeliveries })}</small>}
           </div>
           <Button type="button" disabled={monitoringChecking || !channel.isActive || !channel.isConfigured} onClick={() => void refreshMonitoring()}><RefreshCw size={14} />{monitoringChecking ? t('channels.monitoringChecking') : t('channels.checkProvider')}</Button>
@@ -540,7 +565,12 @@ export function ChannelsWorkspace() {
         }) : <WorkspaceState kind="empty" compact message={t('channels.discoveryEmpty')} />}
       </div>}
     </Modal>
-    <Modal open={eventsChannel !== null} onOpenChange={(open) => { if (!open) { setEventsChannel(null); setWebhookEvents(null); setWebhookEventsOffset(0); setWebhookEventsLimit(25) } }} title={t('channels.eventsTitle', { name: eventsChannel?.displayName ?? '' })} description={t('channels.eventsDescription')} closeLabel={t('common.close')} className="channel-events-modal">
+    <Modal open={eventsChannel !== null} onOpenChange={(open) => { if (!open) { setEventsChannel(null); setWebhookEvents(null); setWebhookEventsOffset(0); setWebhookEventsLimit(25); setWebhookEventStatus(''); setWebhookEventFamily(''); setWebhookEventSearch('') } }} title={t('channels.eventsTitle', { name: eventsChannel?.displayName ?? '' })} description={t('channels.eventsDescription')} closeLabel={t('common.close')} className="channel-events-modal">
+      <div className="channel-events-filters">
+        <TextField value={webhookEventSearch} onChange={(event) => { setWebhookEventSearch(event.target.value); setWebhookEventsOffset(0) }} maxLength={120} placeholder={t('channels.eventsSearch')} aria-label={t('channels.eventsSearch')} />
+        <SelectField value={webhookEventStatus} onChange={(event) => { setWebhookEventStatus(Object.values(CHANNEL_WEBHOOK_EVENT_STATUS).find((status) => status === event.target.value) ?? ''); setWebhookEventsOffset(0) }} aria-label={t('channels.eventsStatusFilter')}><option value="">{t('channels.eventsAllStatuses')}</option>{Object.values(CHANNEL_WEBHOOK_EVENT_STATUS).map((status) => <option key={status} value={status}>{t(`channels.eventStatus.${status}`)}</option>)}</SelectField>
+        <SelectField value={webhookEventFamily} onChange={(event) => { setWebhookEventFamily(CHANNEL_WEBHOOK_EVENT_FAMILIES.find((family) => family === event.target.value) ?? ''); setWebhookEventsOffset(0) }} aria-label={t('channels.eventsFamilyFilter')}><option value="">{t('channels.eventsAllFamilies')}</option>{CHANNEL_WEBHOOK_EVENT_FAMILIES.map((family) => <option key={family} value={family}>{t(`channels.eventFamily.${family}`)}</option>)}</SelectField>
+      </div>
       {webhookEventsLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
       {webhookEventsError && <WorkspaceState kind="error" compact message={t('channels.eventsFailed')} />}
       {!webhookEventsLoading && !webhookEventsError && webhookEvents?.data.length === 0 && <WorkspaceState kind="empty" compact message={t('channels.eventsEmpty')} />}
@@ -549,6 +579,8 @@ export function ChannelsWorkspace() {
         <div className="channel-event-meta"><span>{t(`channels.providers.${event.provider}`)} · {t(`channels.eventFamily.${event.eventFamily}`)}</span><time dateTime={event.receivedAt}>{new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(event.receivedAt))}</time></div>
         <small>{t('channels.eventAttempts', { count: event.attempts })}{event.processedAt ? ` · ${t('channels.eventProcessedAt', { date: new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(event.processedAt)) })}` : ''}</small>
         {event.lastErrorCode && <code>{event.lastErrorCode}</code>}
+        {event.correlationId && <small>{t('channels.eventCorrelationId')}: <code>{event.correlationId}</code></small>}
+        {event.provider === CHANNEL_PROVIDER.evolution && event.eventType === CHANNEL_WEBHOOK_EVENT.unmatchedMessageStatus && event.status === CHANNEL_WEBHOOK_EVENT_STATUS.failed && event.lastErrorCode === CHANNEL_WEBHOOK_EVENT_RETRY_ERROR.unmatchedStatus && <IconButton label={t('channels.eventRetry')} disabled={retryingWebhookEventId !== null} onClick={() => void retryWebhookEvent(event.id)}><RotateCcw size={15} aria-hidden="true" /></IconButton>}
       </article>)}</div> : null}
       {webhookEvents && webhookEvents.pagination.total > 0 && <div className="channel-events-pagination"><span>{t('table.range', { from: webhookEvents.pagination.offset + 1, to: webhookEvents.pagination.offset + webhookEvents.data.length, total: webhookEvents.pagination.total })}</span><label>{t('table.rowsPerPage')}<SelectField value={webhookEventsLimit} disabled={webhookEventsLoading} onChange={(event) => { setWebhookEventsLimit(Number(event.target.value)); setWebhookEventsOffset(0) }} aria-label={t('table.rowsPerPage')}>{[10, 25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}</SelectField></label><div><Button type="button" aria-label={t('table.previous')} disabled={webhookEventsLoading || webhookEventsOffset === 0} onClick={() => setWebhookEventsOffset((value) => Math.max(0, value - webhookEventsLimit))}><ChevronLeft size={16} aria-hidden="true" /></Button><Button type="button" aria-label={t('table.next')} disabled={webhookEventsLoading || !webhookEvents.pagination.hasNextPage} onClick={() => setWebhookEventsOffset((value) => value + webhookEventsLimit)}><ChevronRight size={16} aria-hidden="true" /></Button></div></div>}
     </Modal>

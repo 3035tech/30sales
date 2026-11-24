@@ -1,5 +1,24 @@
 # Contexto de continuidade — 30Sales
 
+## Evolução das seis frentes Evolution/Meta — 24/11/2026
+
+- Reconciliação durável Evolution implementada sobre o ledger `inbox_events`: recibos fora de ordem ficam pendentes e um worker periódico, tenant/channel-scoped, tenta associá-los à mensagem outbound. Após tentativas limitadas sem correspondência, ficam como falha revisável com código estável. Quando o retorno do envio traz o ID externo atrasado, o caminho de confirmação também reabre o evento pendente ou dead-letter e o conclui, preservando correlation ID. Nenhum reenvio automático e nenhuma migration.
+- A tela Canais oferece reprocessamento manual apenas para recibo Evolution que esgotou tentativas por falta de mensagem correspondente. A command exige permissão de gestão, revalida tenant/linha/canal em transação, registra auditoria e zera a contagem de tentativas; payload inválido não pode ser repetido. O reprocessamento trata somente o recibo, nunca reenvia a mensagem.
+- Builds Nest/Vite e `git diff --check` passaram. Testes automatizados não executados nesta fatia. Sem provider real, migration, commit, push ou deploy.
+
+- Diretriz de escopo atualizada: priorizar a Evolution. Meta fica restrita aos contratos e assinaturas de adapter necessários para manter a arquitetura preparada; novas capacidades e comportamento específico da Cloud API ficam adiados.
+- O correlation ID do request agora é acrescentado aos payloads redigidos de todos os registros de evento criados/atualizados por `WebhooksRepository`, incluindo mensagens, recibos, contatos, chats e grupos. Não há inclusão do payload original nem dados pessoais adicionais.
+- Builds Nest/Vite e quatro suítes focadas (14 testes) passaram após a alteração anterior; `git diff --check` passou. Não houve conexão com provider real.
+- O monitoramento agora consulta o webhook remoto Evolution e compara callback, segredo, opções e lista de eventos com o esperado. A interface diferencia configuração confirmada, divergente, ausente e consulta indisponível. A verificação periódica ocorre enquanto a aba Monitoramento está aberta; ainda não há alerta proativo em background.
+- Após essa fatia: build Nest, build Vite e duas suítes focadas (7 testes) passaram. Sem migration ou chamada real à Evolution.
+
+- O ledger de webhooks da tela Canais ganhou filtros server-side por estado/família e busca por evento/erro/correlation ID. O ID de correlação sanitizado é incluído quando há contexto da requisição em eventos genéricos e nos caminhos específicos de mensagens, status, contatos, chats e grupos. O escopo continua tenant + canal + linha acessível; o payload bruto não é exposto.
+- Envelope adapters Evolution/Meta foram extraídos para `provider-webhook-envelope.adapters.ts`; normalizam lote/evento e validam segredo/assinatura. Fixtures sintéticas cobrem os envelopes e adapters.
+- Corrigido o contrato frontend para aceitar metadata Evolution opcional de reply/reação, evitando rejeitar respostas com metadados parciais durante o carregamento do histórico.
+- Verificações: build backend Nest, build frontend Vite, `drizzle-kit check`, `git diff --check` e 4 suítes focadas (14 testes) passaram. O teste e2e de PostgreSQL exige `BUSINESS_LINES_TEST_DATABASE_URL` apontando para banco de teste e ainda não foi executado.
+- Status honesto das seis frentes: conteúdo e sincronização Evolution têm cobertura parcial; recibos fora de ordem com retry/dead-letter/manual replay, filtros de ledger e verificação de deriva do webhook durante monitoramento estão implementados. Confirmação ponta a ponta de callbacks continua pendente. Capacidades Meta específicas estão adiadas por escopo. Ver [`sofia_produto/08_eventos_integracoes_evolution_meta.md`](sofia_produto/08_eventos_integracoes_evolution_meta.md).
+- Tudo segue local na branch `feature/lead-qualification-data`, sem commit, push, migration aplicada, chamada de provider real ou deploy. Próximo gate: validar callbacks Evolution com instância autorizada e confirmar a movimentação dos recibos no ledger.
+
 ## Reprodução e prévia de áudio no Inbox — 24/11/2026
 
 - O player de áudio do Inbox usa controles próprios de play/pause, tempo atual/duração e busca por teclado ou ponteiro. Calcula uma forma de onda real com Web Audio para clips até o limite configurado; gravações maiores continuam reproduzíveis com uma trilha de progresso leve, sem decodificar tudo na memória.

@@ -237,4 +237,5 @@ export class MetaCloudIncomingMessageWebhookAdapter implements IncomingMessageWe
     if (type === 'location') { const location = record(message.location); return string(location.name) ?? string(location.address); }
     return null;
   }
+
 }

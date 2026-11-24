@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, exists, gte, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
 import { assistantProfiles, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
-import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto } from './channels.dto';
-import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE } from './channels.constants';
+import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto, ChannelWebhookEventRetryDto } from './channels.dto';
+import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_WEBHOOK_EVENT_RETRY } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { EVOLUTION_STATUS_RECONCILIATION, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from '../webhooks/provider-webhook-events.constants';
 
 function channelMembershipCondition(organizationId: string, userId: string, canManageAllLines: boolean) {
   if (canManageAllLines) return undefined;
@@ -295,14 +296,40 @@ export class ChannelsRepository {
     const channelScope = and(sql`${inboxEvents.payloadRedacted}->>'channelId' = ${channelId}`, exists(database.select({ id: messagingChannels.id }).from(messagingChannels)
       .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
       .where(and(eq(messagingChannels.organizationId, organizationId), eq(messagingChannels.id, channelId), eq(businessLines.status, 'active'), channelMembershipCondition(organizationId, userId, canManageAllLines)))));
-    const where = and(eq(inboxEvents.organizationId, organizationId), channelScope);
+    const searchTerm = query.search ? `%${query.search.replace(/[\\%_]/g, '\\$&')}%` : undefined;
+    const where = and(eq(inboxEvents.organizationId, organizationId), channelScope,
+      query.status ? eq(inboxEvents.status, query.status) : undefined,
+      query.eventFamily ? sql`${inboxEvents.payloadRedacted}->>'eventFamily' = ${query.eventFamily}` : undefined,
+      searchTerm ? or(ilike(inboxEvents.eventType, searchTerm), ilike(inboxEvents.lastErrorCode, searchTerm), sql`${inboxEvents.payloadRedacted}->>'correlationId' ilike ${searchTerm}`) : undefined);
     const [rows, [count]] = await Promise.all([
-      database.select({ id: inboxEvents.id, provider: inboxEvents.provider, eventType: inboxEvents.eventType, eventFamily: sql<string>`${inboxEvents.payloadRedacted}->>'eventFamily'`, status: inboxEvents.status, attempts: inboxEvents.attempts, receivedAt: inboxEvents.receivedAt, processedAt: inboxEvents.processedAt, lastErrorCode: inboxEvents.lastErrorCode })
+      database.select({ id: inboxEvents.id, provider: inboxEvents.provider, eventType: inboxEvents.eventType, eventFamily: sql<string>`${inboxEvents.payloadRedacted}->>'eventFamily'`, status: inboxEvents.status, attempts: inboxEvents.attempts, receivedAt: inboxEvents.receivedAt, processedAt: inboxEvents.processedAt, lastErrorCode: inboxEvents.lastErrorCode, correlationId: sql<string | null>`${inboxEvents.payloadRedacted}->>'correlationId'` })
         .from(inboxEvents).where(where).orderBy(desc(inboxEvents.receivedAt), desc(inboxEvents.id)).limit(query.limit).offset(query.offset),
       database.select({ total: sql<number>`count(*)::int` }).from(inboxEvents).where(where),
     ]);
-    const data = rows.map((row) => new ChannelWebhookEventRecordDto(row.id, row.provider, row.eventType, row.eventFamily ?? 'other', row.status, Number(row.attempts), row.receivedAt.toISOString(), row.processedAt?.toISOString() ?? null, this.toSafeErrorCode(row.lastErrorCode)));
+    const data = rows.map((row) => new ChannelWebhookEventRecordDto(row.id, row.provider, row.eventType, row.eventFamily ?? 'other', row.status, Number(row.attempts), row.receivedAt.toISOString(), row.processedAt?.toISOString() ?? null, this.toSafeErrorCode(row.lastErrorCode), row.correlationId));
     return new ChannelWebhookEventsPageDto(data, { limit: query.limit, offset: query.offset, total: count.total, hasNextPage: query.offset + data.length < count.total });
+  }
+
+  async retryEvolutionWebhookEvent(input: ChannelWebhookEventRetryDto): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const channel = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
+      if (!channel || channel.channel.provider !== CHANNEL_PROVIDER.evolution) return false;
+      const [event] = await transaction.select({ id: inboxEvents.id }).from(inboxEvents).where(and(
+        eq(inboxEvents.id, input.eventId),
+        eq(inboxEvents.organizationId, input.organizationId),
+        eq(inboxEvents.provider, CHANNEL_PROVIDER.evolution),
+        eq(inboxEvents.eventType, PROVIDER_MESSAGE_STATUS_EVENT.unmatched),
+        eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.failed),
+        eq(inboxEvents.lastErrorCode, EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode),
+        sql`${inboxEvents.payloadRedacted}->>'channelId' = ${input.channelId}`,
+      )).for('update').limit(1);
+      if (!event) return false;
+      const [queued] = await transaction.update(inboxEvents).set({ status: WEBHOOK_EVENT_PROCESSING_STATE.pending, attempts: String(CHANNEL_WEBHOOK_EVENT_RETRY.attempts), processedAt: null, lastErrorCode: null })
+        .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.failed))).returning({ id: inboxEvents.id });
+      if (!queued) return false;
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: CHANNEL_AUDIT_ACTION.evolutionWebhookEventRequeued, entityType: 'inbox_event', entityId: event.id, correlationId: input.correlationId, afterState: { channelId: input.channelId, status: WEBHOOK_EVENT_PROCESSING_STATE.pending } });
+      return true;
+    });
   }
 
   private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = [], businessLineName: string | null = null, scheduleExceptions: ChannelRecordDto['scheduleExceptions'] = []): ChannelRecordDto {

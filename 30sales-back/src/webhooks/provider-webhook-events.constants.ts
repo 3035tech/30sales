@@ -84,3 +84,19 @@ export const PROVIDER_EVENT_FAMILY = {
   sync: 'sync',
   other: 'other',
 } as const;
+
+export const PROVIDER_MESSAGE_DELIVERY_STATE = { accepted: 'accepted', delivered: 'delivered', read: 'read', failed: 'failed' } as const;
+export const PROVIDER_MESSAGE_DELIVERY_STATES = Object.values(PROVIDER_MESSAGE_DELIVERY_STATE);
+export const PROVIDER_MESSAGE_STATUS_EVENT = { matched: 'messages.status', unmatched: 'messages.status.unmatched' } as const;
+export const WEBHOOK_EVENT_PROCESSING_STATE = { pending: 'pending', processed: 'processed', failed: 'failed' } as const;
+export const EVOLUTION_STATUS_RECONCILIATION = {
+  initialAttempts: 1,
+  attemptIncrement: 1,
+  pollIntervalMs: 30_000,
+  batchSize: 50,
+  initialRetryDelayMs: 60_000,
+  maximumAttempts: 10,
+  minimumResultCount: 0,
+  unmatchedErrorCode: 'EVOLUTION_MESSAGE_STATUS_UNMATCHED',
+  invalidPayloadErrorCode: 'EVOLUTION_MESSAGE_STATUS_PAYLOAD_INVALID',
+} as const;

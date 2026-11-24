@@ -1,20 +1,21 @@
 import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { and, count, eq } from 'drizzle-orm';
+import { and, count, eq, inArray } from 'drizzle-orm';
 import { member, organization, user } from '../src/db/auth-schema';
-import { accounts, activities, auditEvents, businessLineMembers, businessLines, campaignDrafts, conversations, leadStatusHistory, leads, messagingChannels, messages, opportunities, opportunityStageHistory, outboxEvents, people, pipelineStages, pipelines } from '../src/db/schema';
+import { accounts, activities, auditEvents, businessLineMembers, businessLines, campaignDrafts, conversations, leadStatusHistory, leads, messageAttachments, messagingChannels, messages, opportunities, opportunityStageHistory, outboxEvents, people, pipelineStages, pipelines } from '../src/db/schema';
 import { BusinessLineCreateCommandDto, BusinessLineMembersCommandDto, BusinessLineUpdateCommandDto, createBusinessLineSchema, updateBusinessLineSchema } from '../src/business-lines/business-lines.dto';
 import { OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryTransitionDto, transitionOpportunitySchema } from '../src/opportunities/opportunities.dto';
 import { FunnelReportRepositoryQueryDto, funnelReportQuerySchema } from '../src/reports/reports.dto';
 import { LeadRepositoryAccessDto, QualificationFactRepositoryDto, createQualificationFactSchema, listQualificationFactsSchema } from '../src/leads/leads.dto';
 import { LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE } from '../src/leads/constants';
-import { ConversationControlDto, ConversationReadDto } from '../src/inbox/inbox.dto';
+import { ConversationControlDto, ConversationMessagesQueryDto, ConversationReadDto } from '../src/inbox/inbox.dto';
 import { INBOX_COMMAND_RESULT } from '../src/inbox/inbox.constants';
 import { CampaignPerformanceRepositoryDto } from '../src/campaigns/campaigns.dto';
 import { CAMPAIGN_AUDIT, CAMPAIGN_ATTRIBUTABLE_DELIVERY_STATES, CAMPAIGN_DELIVERED_STATES, CAMPAIGN_MEETING_ACTIVITY_TYPE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_WON_OPPORTUNITY_STAGE } from '../src/campaigns/campaigns.constants';
 import { ASSISTANT_MANUAL_ACTION } from '../src/agents/agents.constants';
 import { platformAiUsageQuerySchema } from '../src/platform/platform.dto';
+import { IncomingWhatsappMessageDto, InboundMediaDto } from '../src/webhooks/webhooks.dto';
 
 const integrationDatabaseUrl = process.env.BUSINESS_LINES_TEST_DATABASE_URL;
 const allowedTestDatabase = (() => {
@@ -29,6 +30,10 @@ if (integrationDatabaseUrl && !allowedTestDatabase) {
 
 const integrationDescribe = allowedTestDatabase ? describe : describe.skip;
 const TEST_AUTH_SECRET = 'business-line-tests-only-secret-value-123456';
+const INBOX_HISTORY_FIXTURE_COUNT = 10_000;
+const INBOX_HISTORY_INSERT_BATCH_SIZE = 500;
+const INBOX_HISTORY_PAGE_SIZE = 100;
+const INBOX_HISTORY_MAX_QUERY_DURATION_MS = 3_000;
 
 integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let database: (typeof import('../src/db'))['database'];
@@ -40,6 +45,7 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
   let reportsRepository: InstanceType<typeof import('../src/reports/reports.repository').ReportsRepository>;
   let leadsRepository: InstanceType<typeof import('../src/leads/leads.repository').LeadsRepository>;
   let inboxRepository: InstanceType<typeof import('../src/inbox/inbox.repository').InboxRepository>;
+  let webhooksRepository: InstanceType<typeof import('../src/webhooks/webhooks.repository').WebhooksRepository>;
   let campaignsRepository: InstanceType<typeof import('../src/campaigns/campaigns.repository').CampaignsRepository>;
   let platformRepository: InstanceType<typeof import('../src/platform/platform.repository').PlatformRepository>;
   let organizationAId: string;
@@ -74,6 +80,8 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     leadsRepository = new leadsRepositoryModule.LeadsRepository();
     const inboxRepositoryModule = jest.requireActual<typeof import('../src/inbox/inbox.repository')>('../src/inbox/inbox.repository');
     inboxRepository = new inboxRepositoryModule.InboxRepository();
+    const webhooksRepositoryModule = jest.requireActual<typeof import('../src/webhooks/webhooks.repository')>('../src/webhooks/webhooks.repository');
+    webhooksRepository = new webhooksRepositoryModule.WebhooksRepository();
     const campaignsRepositoryModule = jest.requireActual<typeof import('../src/campaigns/campaigns.repository')>('../src/campaigns/campaigns.repository');
     campaignsRepository = new campaignsRepositoryModule.CampaignsRepository();
     const platformRepositoryModule = jest.requireActual<typeof import('../src/platform/platform.repository')>('../src/platform/platform.repository');
@@ -249,6 +257,87 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     expect(crossTenantPage.data).toHaveLength(0);
     expect(auditRows).toHaveLength(2);
   });
+
+  it('reconciles Evolution media echoes only within the matching tenant and deduplicates retries', async () => {
+    const channelRows = await database.select({ id: messagingChannels.id, organizationId: messagingChannels.organizationId })
+      .from(messagingChannels).where(eq(messagingChannels.provider, 'evolution'));
+    const channelA = channelRows.find(({ organizationId }) => organizationId === organizationAId);
+    const channelB = channelRows.find(({ organizationId }) => organizationId === organizationBId);
+    if (!channelA || !channelB) throw new Error('Evolution channels were not created for the integration fixtures.');
+
+    const occurredAt = new Date();
+    const conversationAId = randomUUID();
+    const conversationBId = randomUUID();
+    const messageAId = randomUUID();
+    const messageBId = randomUUID();
+    const sharedExternalConversationId = 'tenant-scoped-group-fixture';
+    const sharedBody = 'Group image fixture';
+    await database.insert(conversations).values([
+      { id: conversationAId, organizationId: organizationAId, provider: 'evolution', externalConversationId: sharedExternalConversationId, channelId: channelA.id, conversationType: 'group', status: 'open', automationMode: 'human', lastMessageAt: occurredAt },
+      { id: conversationBId, organizationId: organizationBId, provider: 'evolution', externalConversationId: sharedExternalConversationId, channelId: channelB.id, conversationType: 'group', status: 'open', automationMode: 'human', lastMessageAt: occurredAt },
+    ]);
+    await database.insert(messages).values([
+      { id: messageAId, organizationId: organizationAId, conversationId: conversationAId, direction: 'outbound', actorType: 'user', actorUserId: ownerAId, bodyText: sharedBody, deliveryState: 'requested', occurredAt },
+      { id: messageBId, organizationId: organizationBId, conversationId: conversationBId, direction: 'outbound', actorType: 'user', actorUserId: ownerBId, bodyText: sharedBody, deliveryState: 'requested', occurredAt },
+    ]);
+    await database.insert(messageAttachments).values([
+      { organizationId: organizationAId, messageId: messageAId, channelId: channelA.id, provider: 'evolution', mediaType: 'image', sourceCiphertext: 'fixture-ciphertext', sourceIv: 'fixture-iv', sourceAuthTag: 'fixture-tag', mimeType: 'image/jpeg', fileName: 'fixture.jpg' },
+      { organizationId: organizationBId, messageId: messageBId, channelId: channelB.id, provider: 'evolution', mediaType: 'image', sourceCiphertext: 'fixture-ciphertext', sourceIv: 'fixture-iv', sourceAuthTag: 'fixture-tag', mimeType: 'image/jpeg', fileName: 'fixture.jpg' },
+    ]);
+
+    const echo = new IncomingWhatsappMessageDto(
+      organizationAId, channelA.id, 'evolution', 'shared-external-message-fixture', sharedExternalConversationId,
+      null, null, null, 'image', null, sharedBody, occurredAt, 'fixture-payload-hash',
+      new InboundMediaDto('image', null, 'fixture-ciphertext', 'fixture-iv', 'fixture-tag', 'image/jpeg', 'fixture.jpg', null, null),
+      null, 'group', 'Fixture group', 'provider-group-fixture', true,
+    );
+
+    await expect(webhooksRepository.recordEvolutionOutgoingMessage(echo)).resolves.toBe('created');
+    await expect(webhooksRepository.recordEvolutionOutgoingMessage(echo)).resolves.toBe('duplicate');
+    const storedMessages = await database.select({ organizationId: messages.organizationId, externalMessageId: messages.externalMessageId, deliveryState: messages.deliveryState })
+      .from(messages).where(inArray(messages.id, [messageAId, messageBId]));
+
+    expect(storedMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ organizationId: organizationAId, externalMessageId: 'shared-external-message-fixture', deliveryState: 'accepted' }),
+      expect.objectContaining({ organizationId: organizationBId, externalMessageId: null, deliveryState: 'requested' }),
+    ]));
+  });
+
+  it('loads a stable 100-message history page from a 10,000-message conversation', async () => {
+    const [channel] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
+      .where(and(eq(messagingChannels.organizationId, organizationAId), eq(messagingChannels.businessLineId, lineA1Id))).limit(1);
+    if (!channel) throw new Error('The history fixture channel was not created.');
+    const conversationId = randomUUID();
+    const baseTime = new Date();
+    await database.insert(conversations).values({
+      id: conversationId, organizationId: organizationAId, provider: 'evolution',
+      externalConversationId: `${channel.id}:history-volume-fixture`, channelId: channel.id,
+      status: 'open', automationMode: 'human', lastMessageAt: baseTime,
+    });
+
+    for (let offset = 0; offset < INBOX_HISTORY_FIXTURE_COUNT; offset += INBOX_HISTORY_INSERT_BATCH_SIZE) {
+      const rows = Array.from({ length: Math.min(INBOX_HISTORY_INSERT_BATCH_SIZE, INBOX_HISTORY_FIXTURE_COUNT - offset) }, (_, index) => {
+        const sequence = offset + index;
+        return {
+          organizationId: organizationAId, conversationId, direction: 'inbound' as const, actorType: 'contact' as const,
+          bodyText: `History fixture ${sequence}`, deliveryState: 'received' as const,
+          occurredAt: new Date(baseTime.getTime() + sequence),
+        };
+      });
+      await database.insert(messages).values(rows);
+    }
+
+    const startedAt = performance.now();
+    const page = await inboxRepository.listMessages(new ConversationMessagesQueryDto(
+      organizationAId, conversationId, ownerAId, INBOX_HISTORY_PAGE_SIZE, 0, '', false,
+    ));
+    const elapsedMs = performance.now() - startedAt;
+
+    expect(page).toHaveLength(INBOX_HISTORY_PAGE_SIZE);
+    expect(page?.[0]?.bodyText).toBe(`History fixture ${INBOX_HISTORY_FIXTURE_COUNT - INBOX_HISTORY_PAGE_SIZE}`);
+    expect(page?.at(-1)?.bodyText).toBe(`History fixture ${INBOX_HISTORY_FIXTURE_COUNT - 1}`);
+    expect(elapsedMs).toBeLessThan(INBOX_HISTORY_MAX_QUERY_DURATION_MS);
+  }, INBOX_HISTORY_MAX_QUERY_DURATION_MS * 10);
 
   it('denies an Inbox command when line membership is revoked after its access check', async () => {
     const conversationId = randomUUID();

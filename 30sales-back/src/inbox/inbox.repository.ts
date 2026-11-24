@@ -12,6 +12,7 @@ import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER
 import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
+import { PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATE, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from '../webhooks/provider-webhook-events.constants';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
@@ -556,7 +557,7 @@ export class InboxRepository {
             .where(and(
               eq(inboxEvents.organizationId, input.organizationId),
               eq(inboxEvents.provider, conversation.provider),
-              eq(inboxEvents.eventType, 'messages.status.unmatched'),
+              eq(inboxEvents.eventType, PROVIDER_MESSAGE_STATUS_EVENT.unmatched),
               sql`${inboxEvents.payloadRedacted}->>'channelId' = ${conversation.channelId}`,
               sql`${inboxEvents.payloadRedacted}->>'externalMessageId' = ${input.externalMessageId}`,
             ))
@@ -566,11 +567,15 @@ export class InboxRepository {
             const payload = event.payloadRedacted;
             if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('deliveryState' in payload)) continue;
             const eventDeliveryState = payload.deliveryState;
-            if (eventDeliveryState !== 'accepted' && eventDeliveryState !== 'delivered' && eventDeliveryState !== 'read' && eventDeliveryState !== 'failed') continue;
+            if (eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.accepted && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.delivered && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.read && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.failed) continue;
             finalDeliveryState = this.nextDeliveryState(finalDeliveryState, eventDeliveryState) ?? finalDeliveryState;
+            const correlationId = 'correlationId' in payload && typeof payload.correlationId === 'string' ? payload.correlationId : null;
             await transaction.update(inboxEvents).set({
-              eventType: 'messages.status',
-              payloadRedacted: { channelId: conversation.channelId, eventFamily: 'message', messageId: row.id, deliveryState: eventDeliveryState },
+              eventType: PROVIDER_MESSAGE_STATUS_EVENT.matched,
+              status: WEBHOOK_EVENT_PROCESSING_STATE.processed,
+              processedAt: new Date(),
+              lastErrorCode: null,
+              payloadRedacted: { channelId: conversation.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: row.id, deliveryState: eventDeliveryState, ...(correlationId ? { correlationId } : {}) },
             }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
           }
         }

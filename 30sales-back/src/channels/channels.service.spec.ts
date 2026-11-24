@@ -13,6 +13,7 @@ import { EvolutionConnectionProvider } from './evolution-connection.provider';
 import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 import { ChannelHealthCheckTargetDto } from './channels.dto';
+import { EVOLUTION_WEBHOOK_CONFIGURATION_STATUS } from './channels.constants';
 
 jest.mock('../leads/tenant-access.service', () => ({ TenantAccessService: class TenantAccessService {} }));
 jest.mock('./channels.repository', () => ({ ChannelsRepository: class ChannelsRepository {} }));
@@ -44,15 +45,17 @@ describe('ChannelsService', () => {
             canAccessChannel: jest.fn(),
             update: jest.fn(),
             healthCheckTarget: jest.fn(),
+            evolutionMonitoringTargets: jest.fn(),
+            recentFailedDeliveryCounts: jest.fn(),
             platformEvolutionCredentials: jest.fn(),
             softDelete: jest.fn(),
           },
         },
         { provide: ChannelCredentialCryptoService, useValue: { decryptPayload: jest.fn() } },
-        { provide: ChannelCredentialResolverService, useValue: {} },
-        { provide: ChannelConnectionHealthProvider, useValue: {} },
+        { provide: ChannelCredentialResolverService, useValue: { resolve: jest.fn() } },
+        { provide: ChannelConnectionHealthProvider, useValue: { check: jest.fn() } },
         { provide: EvolutionInstanceDiscoveryProvider, useValue: {} },
-        { provide: EvolutionWebhookConfigurationProvider, useValue: {} },
+        { provide: EvolutionWebhookConfigurationProvider, useValue: { checkConfiguration: jest.fn() } },
         { provide: EvolutionConnectionProvider, useValue: { delete: jest.fn() } },
       ],
     }).compile();
@@ -83,5 +86,24 @@ describe('ChannelsService', () => {
     expect(evolutionConnection.delete).not.toHaveBeenCalled();
     expect(repository.softDelete).toHaveBeenCalled();
     expect(repository.softDelete.mock.calls[0]?.[0].remoteInstanceDeleted).toBe(false);
+  });
+
+  it('includes live webhook configuration status in tenant-scoped monitoring', async () => {
+    tenantAccess.require.mockResolvedValue(new TenantContextDto(userId, organizationId, ORGANIZATION_ROLE.owner));
+    repository.canAccessChannel.mockResolvedValue(true);
+    repository.evolutionMonitoringTargets.mockResolvedValue([new ChannelHealthCheckTargetDto(channelId, 'evolution', 'sales-instance', true, { ciphertext: 'ciphertext', iv: 'iv', authTag: 'tag' })]);
+    repository.recentFailedDeliveryCounts.mockResolvedValue(new Map());
+    const credentialResolver = service['credentialResolver'] as jest.Mocked<ChannelCredentialResolverService>;
+    const healthProvider = service['healthProvider'] as jest.Mocked<ChannelConnectionHealthProvider>;
+    const webhookConfiguration = service['evolutionWebhookConfiguration'] as jest.Mocked<EvolutionWebhookConfigurationProvider>;
+    credentialResolver.resolve.mockResolvedValue({ provider: 'evolution', baseUrl: 'https://8.8.8.8', apiKey: 'test-key', webhookSecret: 'test-secret' });
+    healthProvider.check.mockResolvedValue('connected');
+    webhookConfiguration.checkConfiguration.mockResolvedValue(EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.confirmed);
+
+    const result = await service.checkMonitoring(request, { channelIds: [channelId] });
+
+    expect(result.data[0]?.webhookConfigurationStatus).toBe(EVOLUTION_WEBHOOK_CONFIGURATION_STATUS.confirmed);
+    expect(repository.canAccessChannel).toHaveBeenCalledWith(organizationId, channelId, userId, true);
+    expect(webhookConfiguration.checkConfiguration).toHaveBeenCalledWith(expect.objectContaining({ provider: 'evolution' }), 'sales-instance', channelId);
   });
 });

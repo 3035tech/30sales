@@ -9,10 +9,13 @@ const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024;
 
 @Injectable()
 export class WhatsappTextProviderService {
-  async send(input: { provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto }): Promise<ProviderSendResult> {
+  async send(input: { provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto; targetMessage?: { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null } | null; mode?: 'reply' | 'reaction' }): Promise<ProviderSendResult> {
     const url = this.createUrl(input);
     const headers = new Headers({ 'content-type': 'application/json', accept: 'application/json' });
-    const body = this.createBody(input);
+    const body = input.mode === 'reaction'
+      ? input.targetMessage ? this.createReactionBody({ ...input, targetMessage: input.targetMessage }) : null
+      : this.createBody(input);
+    if (!body) return { deliveryState: 'failed', externalMessageId: null };
     if (input.credentials.provider === 'evolution') headers.set('apikey', input.credentials.apiKey);
     else headers.set('authorization', `Bearer ${input.credentials.accessToken}`);
     if (input.provider === 'evolution' && input.credentials.provider === 'evolution') {
@@ -31,15 +34,22 @@ export class WhatsappTextProviderService {
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
   }
 
-  private createUrl(input: { provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: ChannelCredentialsDto }): string {
+  private createUrl(input: { provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: ChannelCredentialsDto; mode?: 'reply' | 'reaction' }): string {
+    if (input.provider === 'evolution' && input.credentials.provider === 'evolution' && input.mode === 'reaction') return `${input.credentials.baseUrl.replace(/\/+$/, '')}/message/sendReaction/${encodeURIComponent(input.providerChannelId)}`;
     if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return `${input.credentials.baseUrl.replace(/\/+$/, '')}/message/sendText/${encodeURIComponent(input.providerChannelId)}`;
     if (input.provider === 'whatsapp_cloud_api' && input.credentials.provider === 'whatsapp_cloud_api') return `https://graph.facebook.com/${env.META_GRAPH_API_VERSION}/${encodeURIComponent(input.providerChannelId)}/messages`;
     throw new Error('Channel provider configuration does not match its credential type.');
   }
 
-  private createBody(input: { provider: 'evolution' | 'whatsapp_cloud_api'; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto }): unknown {
-    if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return { number: input.recipientPhone, text: input.bodyText };
-    if (input.provider === 'whatsapp_cloud_api' && input.credentials.provider === 'whatsapp_cloud_api') return { messaging_product: 'whatsapp', recipient_type: 'individual', to: input.recipientPhone, type: 'text', text: { body: input.bodyText, preview_url: false } };
+  private createBody(input: { provider: 'evolution' | 'whatsapp_cloud_api'; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto; targetMessage?: { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null } | null }): unknown {
+    if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return { number: input.recipientPhone, text: input.bodyText, ...(input.targetMessage ? { quoted: { key: { remoteJid: input.recipientPhone.includes('@') ? input.recipientPhone : `${input.recipientPhone}@s.whatsapp.net`, fromMe: input.targetMessage.fromMe, id: input.targetMessage.externalMessageId, participant: input.targetMessage.participant ?? '' }, message: { conversation: input.targetMessage.bodyText ?? '' } } } : {}) };
+    if (input.provider === 'whatsapp_cloud_api' && input.credentials.provider === 'whatsapp_cloud_api') return { messaging_product: 'whatsapp', recipient_type: 'individual', to: input.recipientPhone, type: 'text', text: { body: input.bodyText, preview_url: false }, ...(input.targetMessage ? { context: { message_id: input.targetMessage.externalMessageId } } : {}) };
+    throw new Error('Channel provider configuration does not match its credential type.');
+  }
+
+  private createReactionBody(input: { provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto; targetMessage: { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null } }): unknown {
+    if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return { key: { remoteJid: input.recipientPhone.includes('@') ? input.recipientPhone : `${input.recipientPhone}@s.whatsapp.net`, fromMe: input.targetMessage.fromMe, id: input.targetMessage.externalMessageId, participant: input.targetMessage.participant ?? '' }, reaction: input.bodyText };
+    if (input.provider === 'whatsapp_cloud_api' && input.credentials.provider === 'whatsapp_cloud_api') return { messaging_product: 'whatsapp', recipient_type: 'individual', to: input.recipientPhone, type: 'reaction', reaction: { message_id: input.targetMessage.externalMessageId, emoji: input.bodyText } };
     throw new Error('Channel provider configuration does not match its credential type.');
   }
 

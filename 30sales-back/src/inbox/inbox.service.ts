@@ -103,7 +103,8 @@ export class InboxService {
   }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, input.bodyText, input.idempotencyKey, request.correlationId, null, null, context.isPlatformOrganizationContext);
+    if (input.mode === 'reaction' && (!input.targetMessageId || [...new Intl.Segmenter().segment(input.bodyText)].length !== 1 || !/[\p{Extended_Pictographic}\p{Regional_Indicator}]/u.test(input.bodyText))) throw new BadRequestException({ code: 'INVALID_MESSAGE_REACTION', message: 'A reaction must be a single emoji and target a message.' });
+    return this.sendHumanMessage(context.organizationId, context.userId, conversationId, input.bodyText, input.idempotencyKey, request.correlationId, null, null, context.isPlatformOrganizationContext, input.targetMessageId ?? null, input.mode);
   }
   async sendMediaMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMediaDto, file: IncomingMediaFile | undefined): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
@@ -119,14 +120,15 @@ export class InboxService {
     const bodyText = [input.fullName, `+${phoneDigits}`, input.organization, input.email, input.url].filter(Boolean).join(' · ');
     return this.sendHumanMessage(context.organizationId, context.userId, conversationId, bodyText, input.idempotencyKey, request.correlationId, null, input, context.isPlatformOrganizationContext);
   }
-  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null, contact: SendConversationContactDto | null, isPlatformOrganizationContext: boolean): Promise<MessageRecordDto> {
-    const prepared = await this.repository.prepareMessageSend(new ConversationMessageSendDto(organizationId, conversationId, userId, bodyText, idempotencyKey, correlationId, media?.metadata ?? null, isPlatformOrganizationContext));
+  private async sendHumanMessage(organizationId: string, userId: string, conversationId: string, bodyText: string | null, idempotencyKey: string, correlationId: string | null, media: PreparedOutboundMedia | null, contact: SendConversationContactDto | null, isPlatformOrganizationContext: boolean, targetMessageId: string | null = null, mode: 'reply' | 'reaction' = 'reply'): Promise<MessageRecordDto> {
+    const prepared = await this.repository.prepareMessageSend(new ConversationMessageSendDto(organizationId, conversationId, userId, bodyText, idempotencyKey, correlationId, media?.metadata ?? null, isPlatformOrganizationContext, targetMessageId, mode));
     if (prepared === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (prepared === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can send a human reply.' });
     if (prepared === 'automation_not_human') throw new ConflictException({ code: 'CONVERSATION_NOT_IN_HUMAN_MODE', message: 'Assume the conversation before sending a human reply.' });
     if (prepared === 'channel_unavailable') throw new ConflictException({ code: 'CHANNEL_UNAVAILABLE', message: 'The conversation has no active WhatsApp channel.' });
     if (prepared === 'credentials_missing') throw new ConflictException({ code: 'CHANNEL_CREDENTIALS_MISSING', message: 'Configure credentials for the WhatsApp channel before replying.' });
     if (prepared === 'recipient_missing') throw new BadRequestException({ code: 'RECIPIENT_PHONE_MISSING', message: 'The contact needs a valid phone number before sending.' });
+    if (prepared === 'target_message_unavailable') throw new BadRequestException({ code: 'TARGET_MESSAGE_UNAVAILABLE', message: 'The selected message cannot be used as a reply or reaction.' });
     if (prepared === CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached) throw new ConflictException({ code: CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached, message: 'The daily message limit for this WhatsApp number has been reached.' });
     if (prepared === CHANNEL_CONNECTION_ERROR.unavailable) throw new ConflictException({ code: CHANNEL_CONNECTION_ERROR.unavailable, message: 'The Evolution API instance is not connected. Restore its connection before sending.' });
     if (prepared.kind === 'duplicate') return prepared.message;
@@ -151,7 +153,7 @@ export class InboxService {
         ? await this.contactProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, contact, credentials })
         : media
           ? await this.mediaProvider.send({ providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', mediaType: media.metadata.mediaType, mimeType: media.metadata.mimeType, fileName: media.metadata.fileName, content: media.content, credentials })
-          : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials });
+          : await this.textProvider.send({ provider: prepared.provider, providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, bodyText: bodyText ?? '', credentials, targetMessage: prepared.targetMessage, mode });
     } catch {
       delivery = { deliveryState: 'failed', externalMessageId: null };
     }

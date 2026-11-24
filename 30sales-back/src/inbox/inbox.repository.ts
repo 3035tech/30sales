@@ -16,8 +16,8 @@ import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 
-type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } };
-type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing' | typeof CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached | typeof CHANNEL_CONNECTION_ERROR.unavailable;
+type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; targetMessage: { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null } | null; credentials: { ciphertext: string; iv: string; authTag: string } };
+type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing' | 'target_message_unavailable' | typeof CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached | typeof CHANNEL_CONNECTION_ERROR.unavailable;
 
 @Injectable()
 export class InboxRepository {
@@ -358,7 +358,7 @@ export class InboxRepository {
       ? Boolean((await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1))[0])
       : await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId);
     if (!canReadConversation) return null;
-    const rows = await database.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, transcriptText: messages.transcriptText, isDeleted: messages.isDeleted, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
+    const rows = await database.select({ id: messages.id, externalMessageId: messages.externalMessageId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, transcriptText: messages.transcriptText, isDeleted: messages.isDeleted, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
       .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId)))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
     const attachmentRows = rows.length ? await database.select({ messageId: messageAttachments.messageId, id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status })
@@ -369,7 +369,7 @@ export class InboxRepository {
       if (messageAttachmentsForRow) messageAttachmentsForRow.push(new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status));
       else attachmentsByMessage.set(attachment.messageId, [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)]);
     }
-    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText, row.isDeleted, row.providerMetadata));
+    return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText, row.isDeleted, row.providerMetadata, row.externalMessageId));
   }
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
@@ -438,18 +438,32 @@ export class InboxRepository {
           .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, line.id), eq(authMember.userId, input.actorUserId))).limit(1);
         if (!lineMembership) return 'not_found';
       }
-      const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
+      const [duplicate] = await transaction.select({ id: messages.id, externalMessageId: messages.externalMessageId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
         .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);
       if (duplicate) {
         const [attachment] = await transaction.select({ id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status }).from(messageAttachments)
           .where(and(eq(messageAttachments.messageId, duplicate.id), eq(messageAttachments.organizationId, input.organizationId))).limit(1);
         const attachments = attachment ? [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)] : [];
-        return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName, attachments) };
+        return { kind: 'duplicate', message: new MessageRecordDto(duplicate.id, duplicate.direction, duplicate.actorType, duplicate.bodyText, duplicate.deliveryState, duplicate.occurredAt.toISOString(), duplicate.actorUserId, duplicate.actorName, attachments, null, false, duplicate.providerMetadata, duplicate.externalMessageId) };
       }
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       if (conversation.automationMode !== 'human') return 'automation_not_human';
       if (!conversation.channelId || (conversation.conversationType === 'direct' && !conversation.personId)) return 'channel_unavailable';
+      let targetMessage: PreparedMessageSend['targetMessage'] = null;
+      let providerMetadata: import('../db/schema').MessageProviderMetadata | null = null;
+      if (input.targetMessageId) {
+        const [target] = await transaction.select({ externalMessageId: messages.externalMessageId, direction: messages.direction, bodyText: messages.bodyText, isDeleted: messages.isDeleted, providerMetadata: messages.providerMetadata }).from(messages)
+          .where(and(eq(messages.id, input.targetMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId))).limit(1);
+        if (!target || !target.externalMessageId || target.isDeleted || (input.mode === 'reply' && !target.bodyText)) return 'target_message_unavailable';
+        const authorPhone = target.providerMetadata?.evolution?.author?.phone ?? null;
+        const participant = authorPhone && !authorPhone.includes('@') ? `${authorPhone}@s.whatsapp.net` : authorPhone;
+        targetMessage = { externalMessageId: target.externalMessageId, fromMe: target.direction === 'outbound', participant, bodyText: target.bodyText };
+        providerMetadata = input.mode === 'reaction'
+          ? { evolution: { reaction: { targetExternalMessageId: target.externalMessageId, emoji: input.bodyText ?? '' } } }
+          : { evolution: { quotedMessage: { externalMessageId: target.externalMessageId, bodyText: target.bodyText } } };
+      }
+      if (input.mode === 'reaction' && !targetMessage) return 'target_message_unavailable';
       const [channel] = await transaction.select({ provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, lineStatus: businessLines.status, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
         .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('update', { of: messagingChannels }).limit(1);
@@ -468,12 +482,12 @@ export class InboxRepository {
       const [quota] = await transaction.select({ used: count() }).from(messages).innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
         .where(and(eq(messages.organizationId, input.organizationId), eq(conversations.channelId, conversation.channelId), eq(messages.direction, CHANNEL_QUOTA_COUNTED_DIRECTION), sql`${messages.deliveryState} <> ${CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE}`, sql`(${messages.occurredAt} at time zone ${channel.dailyLimitTimeZone})::date = (now() at time zone ${channel.dailyLimitTimeZone})::date`));
       if ((quota?.used ?? 0) >= channel.dailyMessageLimit) return CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached;
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: input.conversationId, direction: 'outbound', actorType: 'user', actorUserId: input.actorUserId, bodyText: input.bodyText, providerMetadata, deliveryState: 'requested', idempotencyKey: input.idempotencyKey, occurredAt: new Date() }).returning({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       const attachments = input.attachment ? [input.attachment] : [];
       if (input.attachment) await transaction.insert(messageAttachments).values({ id: input.attachment.id, organizationId: input.organizationId, messageId: message.id, channelId: conversation.channelId, provider: channelProvider.data, mediaType: input.attachment.mediaType, mimeType: input.attachment.mimeType, fileName: input.attachment.fileName, sizeBytes: input.attachment.sizeBytes, sha256: input.attachment.sha256, status: OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.message_requested', entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, afterState: { messageId: message.id, channelProvider: channel.provider, deliveryState: 'requested', mediaType: input.attachment?.mediaType ?? null, fileName: input.attachment?.fileName ?? null, sizeBytes: input.attachment?.sizeBytes ?? null } });
       return {
-        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId, null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending))), channelId: conversation.channelId, recipientPhone,
+        kind: 'prepared', message: new MessageRecordDto(message.id, message.direction, message.actorType, message.bodyText, message.deliveryState, message.occurredAt.toISOString(), message.actorUserId, null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, OUTBOUND_MEDIA_ATTACHMENT_STATUS.pending)), null, false, providerMetadata), channelId: conversation.channelId, recipientPhone, targetMessage,
         provider: channelProvider.data, providerChannelId: channel.providerChannelId,
         credentials: { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag },
       };
@@ -483,7 +497,7 @@ export class InboxRepository {
   async updateMessageDelivery(input: ConversationMessageDeliveryDto): Promise<MessageRecordDto | null> {
     return database.transaction(async (transaction) => {
       const [row] = await transaction.update(messages).set({ deliveryState: input.deliveryState, externalMessageId: input.externalMessageId })
-        .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
+        .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId))).returning({ id: messages.id, conversationId: messages.conversationId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, externalMessageId: messages.externalMessageId, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt });
       if (!row) return null;
       let finalDeliveryState = row.deliveryState;
       if (row.direction === 'outbound' && input.externalMessageId) {
@@ -537,7 +551,7 @@ export class InboxRepository {
         }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
       }
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: row.occurredAt.toISOString() })})`);
-      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, finalDeliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)));
+      return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, finalDeliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)), null, false, row.providerMetadata, row.externalMessageId);
     });
   }
 

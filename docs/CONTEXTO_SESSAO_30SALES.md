@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Respostas citadas e reações no Inbox — 24/11/2026
+
+- O compositor oferece atalhos de emoji para enviar como texto. Mensagens com ID externo permitem resposta citada e reação por emoji; a API valida o alvo no mesmo tenant/conversa, rejeita mensagem apagada ou sem ID externo e exige uma única sequência de emoji para reação.
+- Evolution envia replies com `quoted` e reações por `sendReaction`; WhatsApp Cloud usa `context.message_id` e o tipo `reaction`. O registro do Inbox mantém metadata da citação/reação e o retorno da mensagem inclui o ID externo para ações posteriores. Não há migration.
+- Builds Nest e Vite passaram; `git diff --check` passou. Testes automatizados e envio real não foram executados. Rollout não iniciado.
+
 ## Fixtures de webhooks Evolution — 24/11/2026
 
 - Adicionados testes com payloads sintéticos redigidos: `PRESENCE_UPDATE` de grupo mantém tenant/canal/JID/participante no roteamento; `MESSAGES_SET` com `isLatest`/`progress` enfileira mensagens diretas e de grupo com identificadores externos consistentes.

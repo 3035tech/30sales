@@ -28,6 +28,18 @@
 .inbox-message.internal { align-self: center; background: #fff7e8; }
 .inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
 .inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
+.inbox-message-actions { display:flex; align-items:center; gap:6px; margin:6px -4px -4px; opacity:.72; }
+.inbox-message-actions>button,.inbox-message-actions summary { display:inline-flex; align-items:center; gap:4px; min-height:28px; padding:3px 7px; border:1px solid var(--line,#dbe2ea); border-radius:7px; background:#fff; color:#475569; font-size:var(--font-size-xs); cursor:pointer; }
+.inbox-message-actions details { position:relative; }
+.inbox-message-actions summary { list-style:none; font-size:17px; line-height:1; }
+.inbox-message-actions summary::-webkit-details-marker { display:none; }
+.inbox-message-actions details>div { position:absolute; z-index:4; bottom:34px; left:0; display:flex; gap:3px; padding:5px; border:1px solid var(--line,#dbe2ea); border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.14); }
+.inbox-message-actions details button,.inbox-emoji-picker button { display:grid; place-items:center; width:34px; height:34px; border:0; border-radius:7px; background:transparent; font-size:20px; cursor:pointer; }
+.inbox-message-actions details button:hover,.inbox-emoji-picker button:hover { background:#eef2f7; }
+.inbox-message-actions button:disabled,.inbox-emoji-picker button:disabled { opacity:.5; cursor:wait; }
+.inbox-reply-target { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; border-left:3px solid var(--primary,#245b9a); border-radius:6px; background:#eef5ff; color:#475569; }
+.inbox-reply-target>span { display:grid; gap:2px; min-width:0; max-width:calc(100% - 40px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.inbox-emoji-picker { display:flex; gap:2px; }
 .inbox-message .inbox-group-author { color: var(--color-primary, #245a9a); font-weight: 700; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-message-quote { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--primary, #245b9a); color: var(--muted, #6f7785); background: rgba(36,91,154,.06); font-size: var(--font-size-sm); white-space: pre-wrap; overflow-wrap: anywhere; }

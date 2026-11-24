@@ -6,6 +6,13 @@
 - A busca sempre inclui organização, canal e identificador externo; JIDs `@lid` sem correspondência telefônica segura são ignorados. Não cria conversa nem persiste presença. Cada entrega SSE revalida membership e acesso à linha. Limitado a 20 participantes por evento de grupo.
 - Builds de produção Nest e Vite passaram; `git diff --check` passou. Não foram executados testes automatizados nem validado webhook real da Evolution. Sem migration ou deploy.
 
+## Verificação Evolution e Inbox — 24/11/2026
+
+- Inventário de integração atualizado: presença `composing`/`recording` e sincronização de nomes por `CONTACTS_SET` estavam descritas incorretamente como eventos sem handler. `MESSAGES_SET` já importa mensagens de conversas conhecidas, inclusive grupos; tipos já normalizados incluem texto, mídia, localização, contatos, botões/listas, enquetes, reações e citações.
+- Backend: 10 suítes/40 testes passaram usando variáveis fictícias de teste; o primeiro disparo sem `DATABASE_URL`/`BETTER_AUTH_SECRET` falhou na validação de ambiente antes dos testes. `drizzle-kit check` passou. Frontend build passou.
+- GitHub Actions do commit `d0c0f07`: frontend publicado com sucesso ([run 45441291258](https://github.com/3035tech/30sales/actions/runs/45441291258)); backend ainda em andamento na última consulta ([run 45441291271](https://github.com/3035tech/30sales/actions/runs/45441291271)). Esses workflows publicam imagens, não aplicam migrations nem fazem deploy.
+- Estado remoto das migrations `0079`–`0081` não foi consultável nesta sessão. O contexto anterior registra que foram geradas, sem confirmação de aplicação; confirmar no banco de teste depois do rollout autorizado. Nenhum webhook real/payload redigido da instância ficou disponível; smoke test permanece pendente. Não enviar mensagem nem fazer deploy sem autorização específica.
+
 ## Continuação — conversas de grupo e enquetes Evolution no Inbox — 24/11/2026
 
 - A timeline reconhece `pollCreationMessage`, V2 e V3, extraindo pergunta e até 20 opções para metadata estruturada já compatível com `messages.provider_metadata`. Não interpreta votos criptografados; renderiza opções na conversa.

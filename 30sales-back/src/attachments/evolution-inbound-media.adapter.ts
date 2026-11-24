@@ -23,17 +23,29 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     url.search = '';
     url.hash = '';
     await assertPublicEvolutionTarget(url.toString());
-    const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
-      body: JSON.stringify({ message: source.data, convertToMp4: false }), signal: AbortSignal.timeout(20_000), redirect: 'error' });
-    if (!response.ok) throw new Error('MEDIA_PROVIDER_UNAVAILABLE');
-    const raw = await this.readBytes(response, MAX_RESPONSE_BYTES);
-    const parsed = responseSchema.safeParse(JSON.parse(raw.toString('utf8')) as unknown);
-    if (!parsed.success) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
-    const encoded = parsed.data.base64.replace(/^data:[^;,]+;base64,/i, '');
+    const payloads = [{ message: source.data, convertToMp4: false }, { message: { key: source.data.key }, convertToMp4: false }];
+    let parsedMedia: z.infer<typeof responseSchema> | null = null;
+    let providerResponded = false;
+    for (const payload of payloads) {
+      try {
+        const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
+          body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000), redirect: 'error' });
+        if (!response.ok) continue;
+        providerResponded = true;
+        const raw = await this.readBytes(response, MAX_RESPONSE_BYTES);
+        const parsed = responseSchema.safeParse(JSON.parse(raw.toString('utf8')) as unknown);
+        if (parsed.success) { parsedMedia = parsed.data; break; }
+      } catch (error) {
+        if (error instanceof Error && error.message === 'MEDIA_SIZE_LIMIT_EXCEEDED') throw error;
+        continue;
+      }
+    }
+    if (!parsedMedia) throw new Error(providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE');
+    const encoded = parsedMedia.base64.replace(/^data:[^;,]+;base64,/i, '');
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const content = Buffer.from(encoded, 'base64');
     if (!content.length || content.length > MAX_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
-    return { content, mimeType: parsed.data.mimetype ?? null, fileName: parsed.data.fileName ?? null, sha256: createHash('sha256').update(content).digest('hex') };
+    return { content, mimeType: parsedMedia.mimetype ?? null, fileName: parsedMedia.fileName ?? null, sha256: createHash('sha256').update(content).digest('hex') };
   }
 
   private credentials(credentials: ChannelCredentialsDto): Extract<ChannelCredentialsDto, { provider: 'evolution' }> {

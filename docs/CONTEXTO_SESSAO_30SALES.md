@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Recuperação de áudio recebido da Evolution — 24/11/2026
+
+- Captura real mostrou mensagem de áudio recebida na timeline, mas o attachment terminou como `failed`. A Evolution v2.3.7 tem relato upstream de falha em `getBase64FromMediaMessage` para alguns áudios recebidos de iOS; o fluxo atual buscava somente usando o objeto enviado pelo webhook.
+- O adapter agora faz uma segunda tentativa usando a chave da mensagem para a Evolution recuperar o objeto persistido na instância. Limite de resposta, timeout, validação base64, checksum e armazenamento tenant-scoped permanecem iguais.
+- Build Nest e `git diff --check` passaram. Não houve acesso à mensagem real no provider, testes automatizados ou envio real. Uma attachment que já chegou ao estado terminal `failed` não é reprocessada automaticamente; validar com novo áudio após o rollout ou criar uma ação autenticada de reprocessamento se a recuperação retroativa for necessária.
+
 ## Envio de áudio WebM pela Evolution — 24/11/2026
 
 - A captura de `MEDIA_TYPE_UNSUPPORTED` veio da API antes de qualquer chamada à Evolution. O código atual aceita `audio/webm`; o workflow do backend do commit `31d3a60` concluiu a publicação da imagem com sucesso (`45508650225`), incluindo esse suporte e o hotfix de DI. A publicação da imagem não comprova rollout no cluster.

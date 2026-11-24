@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
@@ -64,6 +64,96 @@ export class WebhooksRepository {
       if (input.media) await transaction.insert(messageAttachments).values({ organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: input.provider, mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext, sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType, fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256 });
       await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
         .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
+      return 'created';
+    });
+  }
+
+  async recordEvolutionOutgoingMessage(input: IncomingWhatsappMessageDto): Promise<'created' | 'duplicate'> {
+    if (input.provider !== 'evolution') return 'duplicate';
+    return database.transaction(async (transaction) => {
+      const eventId = `${input.channelId}:${input.externalConversationId}:${input.externalMessageId}`;
+      const [event] = await transaction.insert(inboxEvents).values({
+        organizationId: input.organizationId, provider: 'evolution', externalEventId: eventId,
+        eventType: 'evolution.messages.outgoing_echo', payloadHash: input.payloadHash,
+        payloadRedacted: { channelId: input.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageType: input.messageType, direction: 'outbound' },
+        status: 'processed', attempts: '1', processedAt: new Date(),
+      }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
+      if (!event) return 'duplicate';
+
+      const [channel] = await transaction.select({ id: messagingChannels.id }).from(messagingChannels)
+        .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.provider, 'evolution'), eq(messagingChannels.isActive, true))).limit(1);
+      if (!channel) return 'duplicate';
+      const lockKey = `${input.organizationId}:${input.channelId}:${input.externalConversationId}`;
+      await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
+      let [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+
+      if (!conversation && input.conversationType === 'group') {
+        [conversation] = await transaction.insert(conversations).values({
+          organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
+          channelId: input.channelId, conversationType: 'group', displayName: input.displayName,
+          providerRecipientId: input.providerRecipientId, status: 'open', automationMode: 'paused', lastMessageAt: input.occurredAt,
+        }).returning({ id: conversations.id });
+      }
+
+      if (!conversation && input.conversationType === 'direct' && input.senderPhone) {
+        const phoneDigits = input.senderPhone.replace(/\D/g, '');
+        const storedPhone = sql`regexp_replace(coalesce(${people.phone}, ''), '[^0-9]', '', 'g')`;
+        let [person] = await transaction.select({ id: people.id }).from(people)
+          .where(and(eq(people.organizationId, input.organizationId), sql`${storedPhone} = ${phoneDigits}`)).orderBy(people.createdAt, people.id).limit(1);
+        if (!person) {
+          [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.senderName?.trim().slice(0, 160) || `+${phoneDigits}`, phone: `+${phoneDigits}` }).returning({ id: people.id });
+        }
+        if (person) [conversation] = await transaction.insert(conversations).values({
+          organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
+          channelId: input.channelId, personId: person.id, status: 'open', automationMode: 'human', lastMessageAt: input.occurredAt,
+        }).onConflictDoNothing({ target: [conversations.organizationId, conversations.provider, conversations.externalConversationId] }).returning({ id: conversations.id });
+        if (!conversation) [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+      }
+      if (!conversation) return 'duplicate';
+
+      const [alreadyRecorded] = await transaction.select({ id: messages.id }).from(messages)
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, conversation.id), eq(messages.externalMessageId, input.externalMessageId))).limit(1);
+      if (alreadyRecorded) return 'duplicate';
+
+      const metadata = { ...(input.evolutionMetadata ?? {}), source: 'provider_echo' as const };
+      const pendingSends = input.bodyText ? await transaction.select({ id: messages.id }).from(messages)
+        .where(and(
+          eq(messages.organizationId, input.organizationId), eq(messages.conversationId, conversation.id),
+          eq(messages.direction, 'outbound'), eq(messages.actorType, 'user'), eq(messages.deliveryState, 'requested'),
+          isNull(messages.externalMessageId), eq(messages.bodyText, input.bodyText), gte(messages.occurredAt, new Date(input.occurredAt.getTime() - 120_000)),
+          lte(messages.occurredAt, new Date(input.occurredAt.getTime() + 120_000)),
+        )).limit(2) : [];
+      if (pendingSends.length === 1) {
+        const [reconciled] = await transaction.update(messages).set({
+          externalMessageId: input.externalMessageId, deliveryState: 'accepted',
+          providerMetadata: { evolution: metadata },
+        }).where(and(eq(messages.id, pendingSends[0].id), eq(messages.organizationId, input.organizationId), isNull(messages.externalMessageId)))
+          .returning({ id: messages.id });
+        if (reconciled) {
+          await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
+            .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+          await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
+          return 'created';
+        }
+      }
+      const [message] = await transaction.insert(messages).values({
+        organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId,
+        direction: 'outbound', actorType: 'user', bodyText: input.bodyText, providerMetadata: { evolution: metadata },
+        deliveryState: 'accepted', occurredAt: input.occurredAt,
+      }).onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
+      if (!message) return 'duplicate';
+      if (input.media) await transaction.insert(messageAttachments).values({
+        organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: 'evolution',
+        mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext,
+        sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType,
+        fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256,
+      });
+      await transaction.update(conversations).set({
+        lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date(),
+      }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
       return 'created';
     });

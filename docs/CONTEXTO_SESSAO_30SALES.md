@@ -1,5 +1,12 @@
 # Contexto de continuidade — 30Sales
 
+## Ecos de mensagens enviadas pelo WhatsApp móvel — 24/11/2026
+
+- A normalização Evolution preserva `key.fromMe` em `MESSAGES_UPSERT` e `MESSAGES_SET`. Ecos são gravados como mensagens outbound da equipe, com mídia cifrada, sem unread/notificação/automação de inbound; um contato novo em envio direto cria conversa em modo humano. O Inbox identifica a origem como “Equipe · WhatsApp”; a metadata registra somente `provider_echo`, pois a Evolution não informa qual dispositivo originou a mensagem.
+- Dedupe usa ID externo escopado por tenant/conversa. Se o eco chegar antes da confirmação do envio do Inbox, reconcilia a única mensagem outbound pendente de mesmo texto na mesma conversa e dentro de ±2 minutos; mensagens ambíguas não são associadas por heurística.
+- Após o polish, builds de produção backend Nest e frontend Vite passaram e `git diff --check` passou. Sem testes automatizados, webhook real, migration, commit, push ou deploy nesta fatia.
+- Limite: não se identifica qual dispositivo/usuário vinculado enviou a mensagem; a Evolution só informa que saiu da conta conectada. A importação de histórico Evolution continua limitada às conversas retornadas/normalizadas pelo provider e às regras de retenção da instância.
+
 ## Evolution e Inbox — mensagens, adapters, grupos e histórico — 24/11/2026
 
 - Exibição de mensagens: anexos disponíveis de imagem, áudio e vídeo são carregados sob demanda na timeline; imagens de cartões Evolution aparecem no cartão; documentos/PDF continuam abrindo ou baixando pelo fluxo autenticado. Mensagens de localização, contatos e respostas interativas preservam o conteúdo normalizado no texto visível.

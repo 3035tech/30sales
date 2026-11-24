@@ -43,6 +43,7 @@ export const businessLineStatus = pgEnum('business_line_status', BUSINESS_LINE_S
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type MessageProviderMetadata = {
   evolution?: {
+    source?: 'provider_echo';
     reaction?: { targetExternalMessageId: string; emoji: string } | null;
     quotedMessage?: { externalMessageId: string | null; bodyText: string | null } | null;
     richContent?: { kind: 'poll'; title: string; options: string[] } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;

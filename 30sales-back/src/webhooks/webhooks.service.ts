@@ -55,7 +55,9 @@ export class WebhooksService {
     for (const item of data) {
       if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpsert) {
         const message = this.evolutionMessageAdapter.normalize({ channelId: channel.id, organizationId: channel.organizationId, value: item, payloadHash, classifyCloserSignal: (bodyText) => this.classifyCloserSignal(bodyText) });
-        if (message && await this.repository.recordIncomingMessage(message) === 'created') processed += 1;
+        if (message && (message.isFromMe
+          ? await this.repository.recordEvolutionOutgoingMessage(message)
+          : await this.repository.recordIncomingMessage(message)) === 'created') processed += 1;
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesSet) {
         processed += await this.enqueueEvolutionHistorySnapshot(channel.id, channel.organizationId, item, payloadHash);
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpdate || eventName === EVOLUTION_WEBHOOK_EVENT.sendMessageUpdate) {
@@ -127,14 +129,18 @@ export class WebhooksService {
     for (const value of decoded) {
       const parsed = evolutionHistoryMessageSchema.safeParse(value);
       if (!parsed.success || parsed.data.organizationId !== batch.organizationId || parsed.data.channelId !== batch.channelId || parsed.data.provider !== 'evolution') continue;
-      const result = await this.repository.recordHistoricalIncomingMessage(new IncomingWhatsappMessageDto(
+      const message = new IncomingWhatsappMessageDto(
         parsed.data.organizationId, parsed.data.channelId, parsed.data.provider, parsed.data.externalMessageId,
         parsed.data.externalConversationId, parsed.data.senderPhone, parsed.data.senderExternalId, parsed.data.senderName,
         parsed.data.messageType, parsed.data.closerSignal, parsed.data.bodyText, parsed.data.occurredAt, parsed.data.payloadHash,
         parsed.data.media ? new InboundMediaDto(parsed.data.media.mediaType, parsed.data.media.sourceMediaId, parsed.data.media.sourceCiphertext, parsed.data.media.sourceIv, parsed.data.media.sourceAuthTag, parsed.data.media.mimeType, parsed.data.media.fileName, parsed.data.media.sizeBytes, parsed.data.media.sha256) : null,
         parsed.data.evolutionMetadata,
         parsed.data.conversationType, parsed.data.displayName, parsed.data.providerRecipientId,
-      ));
+        parsed.data.isFromMe,
+      );
+      const result = message.isFromMe
+        ? await this.repository.recordEvolutionOutgoingMessage(message)
+        : await this.repository.recordHistoricalIncomingMessage(message);
       if (result === 'created') processed += 1;
     }
     return processed;

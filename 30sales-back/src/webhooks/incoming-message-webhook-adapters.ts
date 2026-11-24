@@ -42,7 +42,7 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
   normalize(input: NormalizeInput): IncomingWhatsappMessageDto | null {
     const data = record(input.value);
     const key = record(data.key);
-    if (key.fromMe === true) return null;
+    const isFromMe = key.fromMe === true;
     const remoteJid = string(key.remoteJid) ?? string(data.remoteJid);
     if (!remoteJid || remoteJid === 'status@broadcast') return null;
     const isGroup = remoteJid.endsWith('@g.us');
@@ -76,7 +76,7 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
     const media = mediaType ? this.createMedia(input.channelId, input.organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), resolvedMediaContent) : null;
     const occurredAt = toDate(data.messageTimestamp);
     const groupName = string(data.groupName) ?? string(data.subject);
-    return new IncomingWhatsappMessageDto(input.organizationId, input.channelId, this.provider, externalMessageId, `${input.channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup ? null : input.classifyCloserSignal(bodyText), bodyText, occurredAt, input.payloadHash, media, evolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null);
+    return new IncomingWhatsappMessageDto(input.organizationId, input.channelId, this.provider, externalMessageId, `${input.channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup || isFromMe ? null : input.classifyCloserSignal(bodyText), bodyText, occurredAt, input.payloadHash, media, evolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null, isFromMe);
   }
 
   extractText(value: JsonRecord): string | null { return this.extractTextInternal(value); }

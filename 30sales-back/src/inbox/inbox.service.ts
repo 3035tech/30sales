@@ -51,7 +51,9 @@ export class InboxService {
     const target = await this.repository.getGroupParticipantsTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);
     if (!target) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
     if (target.provider !== 'evolution' && target.provider !== 'whatsapp_cloud_api') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
-    if (!target.providerChannelId || !target.groupJid || !target.groupJid.endsWith('@g.us') || !target.credentialsCiphertext || !target.credentialsIv || !target.credentialsAuthTag) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
+    // Provider recipient IDs are opaque in the Inbox domain. Each adapter validates
+    // its own identifier format (Evolution JIDs vs Meta group IDs).
+    if (!target.providerChannelId || !target.groupJid || target.groupJid.length > 300 || !target.credentialsCiphertext || !target.credentialsIv || !target.credentialsAuthTag) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Group conversation was not found in the active organization.' });
     const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, { ciphertext: target.credentialsCiphertext, iv: target.credentialsIv, authTag: target.credentialsAuthTag });
     if (credentials.provider !== target.provider) throw new BadRequestException({ code: 'CHANNEL_PROVIDER_MISMATCH', message: 'The channel provider configuration is invalid.' });
     let result: Awaited<ReturnType<ChannelMessagingAdapterRegistry['listGroupParticipants']>>;

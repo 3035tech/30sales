@@ -1,6 +1,6 @@
 import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, Clock3, Download, Mail, MessageSquareText, Mic, Paperclip, Phone, RefreshCw, Reply, SlidersHorizontal, SmilePlus, Sparkles, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, Clock3, Download, Mail, MessageSquareText, Mic, Paperclip, Pause, Phone, Play, RefreshCw, Reply, SlidersHorizontal, SmilePlus, Sparkles, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
@@ -8,7 +8,7 @@ import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'
 import { ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH, ASSISTANT_CONVERSATION_ASSIST_MODE } from '../lib/agentConstants'
-import { INBOX_AUDIO_MIME_PREFIX, INBOX_COMPOSER_MODE, INBOX_COMPOSER_MODES, INBOX_DELIVERY_STATE } from '../lib/inboxConstants'
+import { INBOX_AUDIO_MIME_PREFIX, INBOX_AUDIO_PLAYER, INBOX_COMPOSER_MODE, INBOX_COMPOSER_MODES, INBOX_DELIVERY_STATE } from '../lib/inboxConstants'
 import { z } from 'zod'
 import './InboxWorkspace.css'
 import './InboxAttachments.css'
@@ -38,6 +38,118 @@ function InboxMessageBody({ text }: { text: string }) {
   })}</p>
 }
 
+function formatAudioTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < INBOX_AUDIO_PLAYER.minimumSeconds) return INBOX_AUDIO_PLAYER.emptyTime
+  const totalSeconds = Math.floor(seconds)
+  const hours = Math.floor(totalSeconds / INBOX_AUDIO_PLAYER.secondsPerHour)
+  const minutes = Math.floor(totalSeconds / INBOX_AUDIO_PLAYER.secondsPerMinute) % INBOX_AUDIO_PLAYER.secondsPerMinute
+  const remainingSeconds = totalSeconds % INBOX_AUDIO_PLAYER.secondsPerMinute
+  const formattedMinutes = hours > INBOX_AUDIO_PLAYER.minimumSeconds ? minutes.toString().padStart(INBOX_AUDIO_PLAYER.timeDigits, '0') : minutes.toString()
+  const formattedSeconds = remainingSeconds.toString().padStart(INBOX_AUDIO_PLAYER.timeDigits, '0')
+  return hours > INBOX_AUDIO_PLAYER.minimumSeconds ? `${hours}:${formattedMinutes}:${formattedSeconds}` : `${formattedMinutes}:${formattedSeconds}`
+}
+
+function InboxAudioPlayer({ src, file, label }: {
+  src?: string
+  file?: Blob
+  label: string
+}) {
+  const { t } = useTranslation()
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const waveformRequestRef = useRef(0)
+  const [fileSrc, setFileSrc] = useState('')
+  const [playing, setPlaying] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [playbackBlocked, setPlaybackBlocked] = useState(false)
+  const [duration, setDuration] = useState(0)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [waveform, setWaveform] = useState<number[]>([])
+
+  useEffect(() => {
+    if (!file) { setFileSrc(''); return }
+    const url = URL.createObjectURL(file)
+    setFileSrc(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  const audioSrc = src ?? fileSrc
+  useEffect(() => {
+    waveformRequestRef.current += 1
+    setPlaying(false)
+    setFailed(false)
+    setPlaybackBlocked(false)
+    setDuration(0)
+    setCurrentTime(0)
+    setWaveform([])
+  }, [audioSrc])
+
+  const loadWaveform = async () => {
+    const audio = audioRef.current
+    if (!audio || !audioSrc || !Number.isFinite(audio.duration) || audio.duration <= 0) return
+    const requestId = waveformRequestRef.current
+    setDuration(audio.duration)
+    // Decoding long recordings can allocate hundreds of megabytes. Keep playback
+    // available for them and only build the detailed waveform for short clips.
+    if (audio.duration > INBOX_AUDIO_PLAYER.maxWaveformDurationSeconds) return
+    let context: AudioContext | null = null
+    try {
+      const response = await fetch(audioSrc)
+      if (!response.ok) return
+      const bytes = await response.arrayBuffer()
+      context = new AudioContext()
+      const decoded = await context.decodeAudioData(bytes)
+      const channel = decoded.getChannelData(0)
+      const samplesPerBar = Math.max(INBOX_AUDIO_PLAYER.minimumSampleCount, Math.floor(channel.length / INBOX_AUDIO_PLAYER.bars))
+      const levels = Array.from({ length: INBOX_AUDIO_PLAYER.bars }, (_, index) => {
+        const start = index * samplesPerBar
+        const end = Math.min(channel.length, start + samplesPerBar)
+        let peak = 0
+        for (let sample = start; sample < end; sample += 1) peak = Math.max(peak, Math.abs(channel[sample] ?? 0))
+        return Math.max(INBOX_AUDIO_PLAYER.minBarHeightPercent, Math.min(INBOX_AUDIO_PLAYER.maxBarHeightPercent, Math.round(peak * INBOX_AUDIO_PLAYER.maxBarHeightPercent)))
+      })
+      if (waveformRequestRef.current === requestId) setWaveform(levels)
+    } catch {
+      // The native audio element remains usable if waveform decoding is unsupported.
+    } finally {
+      if (context) void context.close()
+    }
+  }
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) {
+      try { await audio.play(); setPlaying(true); setPlaybackBlocked(false) } catch { setPlaybackBlocked(true) }
+    } else {
+      audio.pause()
+      setPlaying(false)
+    }
+  }
+
+  const seek = (value: string) => {
+    const nextTime = Number(value)
+    if (audioRef.current && Number.isFinite(nextTime)) {
+      try { audioRef.current.currentTime = nextTime } catch { return }
+    }
+    setCurrentTime(nextTime)
+  }
+
+  return <div className="inbox-audio-player" role="group" aria-label={label}>
+    <audio ref={audioRef} src={audioSrc || undefined} preload="metadata" onLoadedMetadata={() => void loadWaveform()} onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)} onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)} onError={() => setFailed(true)} />
+    <Button type="button" className="inbox-audio-play" onClick={() => void togglePlayback()} disabled={!audioSrc || failed} aria-label={playing ? t('inbox.audioPause') : t('inbox.audioPlay')}>
+      {playing ? <Pause size={17} aria-hidden="true" /> : <Play size={17} aria-hidden="true" />}
+    </Button>
+    <div className="inbox-audio-track">
+      <div className="inbox-audio-waveform" aria-hidden="true" style={{ '--audio-progress': `${duration ? (currentTime / duration) * 100 : 0}%` } as React.CSSProperties}>
+        {waveform.length ? waveform.map((height, index) => <span key={index} className={duration > 0 && index / INBOX_AUDIO_PLAYER.bars < currentTime / duration ? 'played' : ''} style={{ height: `${height}%` }} />) : <span className="inbox-audio-waveform-placeholder" />}
+      </div>
+      <input type="range" min={INBOX_AUDIO_PLAYER.minimumSeconds} max={duration || INBOX_AUDIO_PLAYER.fallbackSeekMaximumSeconds} step={INBOX_AUDIO_PLAYER.seekStepSeconds} value={Math.min(currentTime, duration || INBOX_AUDIO_PLAYER.minimumSeconds)} onChange={(event) => seek(event.currentTarget.value)} aria-label={t('inbox.audioSeek')} aria-valuetext={t('inbox.audioPosition', { current: formatAudioTime(currentTime), duration: formatAudioTime(duration) })} disabled={!audioSrc || failed || duration <= INBOX_AUDIO_PLAYER.minimumSeconds} style={{ '--audio-progress': `${duration ? (currentTime / duration) * 100 : 0}%` } as React.CSSProperties} />
+      <div className="inbox-audio-time"><span>{formatAudioTime(currentTime)}</span><span>{formatAudioTime(duration)}</span></div>
+    </div>
+    {(failed || playbackBlocked) && <small className="inbox-audio-error">{t('inbox.audioUnavailable')}</small>}
+  </div>
+}
+
 function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
   attachment: MessageAttachmentDto
   label: string
@@ -51,19 +163,22 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
   useEffect(() => {
     const node = containerRef.current
     if (!node || src || failed || attachment.status !== 'available') return
+    let cancelled = false
     const observer = new IntersectionObserver((entries) => {
       if (!entries.some((entry) => entry.isIntersecting)) return
       observer.disconnect()
-      void load(attachment).then((blob) => setSrc(URL.createObjectURL(blob))).catch(() => setFailed(true))
+      void load(attachment).then((blob) => {
+        if (!cancelled) setSrc(URL.createObjectURL(blob))
+      }).catch(() => { if (!cancelled) setFailed(true) })
     }, { rootMargin: '240px' })
     observer.observe(node)
-    return () => observer.disconnect()
+    return () => { cancelled = true; observer.disconnect() }
   }, [attachment, failed, load, src])
   useEffect(() => () => { if (src) URL.revokeObjectURL(src) }, [src])
   return <div className="inbox-inline-image" ref={containerRef}>
     {src && attachment.mediaType === 'image' ? <button type="button" className="inbox-inline-image-preview" onClick={() => onOpen(attachment)} aria-label={label}><img src={src} alt={attachment.fileName ?? label} loading="lazy" /></button>
       : src && attachment.mediaType === 'video' ? <video className="inbox-inline-video" src={src} controls preload="metadata" aria-label={attachment.fileName ?? label} />
-      : src && attachment.mediaType === 'audio' ? <audio className="inbox-inline-audio" src={src} controls preload="metadata" aria-label={attachment.fileName ?? label} />
+      : src && attachment.mediaType === 'audio' ? <InboxAudioPlayer src={src} label={attachment.fileName ?? label} />
       : <span className="inbox-inline-image-placeholder">{failed ? label : attachment.fileName ?? label}</span>}
     <div className="inbox-inline-image-tools"><span>{attachment.fileName ?? label}</span><IconButton label={label} onClick={() => onDownload(attachment)}><Download size={14} aria-hidden="true" /></IconButton></div>
   </div>
@@ -549,7 +664,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           <div ref={messagesContainerRef} className="inbox-messages" role="log" aria-label={t('inbox.thread')} aria-relevant="additions text" aria-atomic="false">
             {messagesLoading ? <div className="inbox-message-state"><WorkspaceState kind="loading" compact message={t('common.loading')} /></div> : messagesLoadError && messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="error" compact message={t('inbox.messagesFailed')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState></div> : <>{messagesLoadError && <WorkspaceState kind="error" compact message={t('inbox.messagesFailed')} detail={t('table.resultsRetained')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState>}{messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="empty" compact message={messageSearch ? t('inboxSearch.empty') : t('inbox.noMessagesYet')} detail={messageSearch ? undefined : t('inbox.emptyMessagesHint')} /></div> : <>{olderMessagesAvailable && <div className="inbox-load-older"><Button type="button" disabled={olderMessagesLoading} onClick={async () => { const beforeHeight = messagesContainerRef.current?.scrollHeight ?? 0; setOlderMessagesLoading(true); try { const older = await api.inbox.messages(selected.id, { limit: 100, offset: olderMessagesOffset, search: messageSearch }); setMessages((current) => [...new Map([...older, ...current].map((message) => [message.id, message])).values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))); setOlderMessagesAvailable(older.length === 100); setOlderMessagesOffset((current) => current + older.length); requestAnimationFrame(() => { const node = messagesContainerRef.current; if (node) node.scrollTop += node.scrollHeight - beforeHeight }) } catch { setMessagesLoadError(true) } finally { setOlderMessagesLoading(false) } }}>{olderMessagesLoading ? t('inbox.loadingOlderMessages') : t('inbox.loadOlderMessages')}</Button></div>}{messages.map((message) => <article key={message.id} className={`inbox-message ${message.direction}`}>
               <div className="inbox-message-meta"><span>{message.direction === 'internal' ? t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') }) : message.providerMetadata?.evolution?.source === 'provider_echo' ? t('inbox.actor.whatsappApp') : t(`inbox.actor.${message.actorType}`)}</span><time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
-              {message.isDeleted ? <p className="inbox-message-deleted">{t('inbox.messageDeleted')}</p> : <>{selected.conversationType === 'group' && message.direction === 'inbound' && message.providerMetadata?.evolution?.author?.name && <small className="inbox-group-author">{message.providerMetadata.evolution.author.name}</small>}{message.providerMetadata?.evolution?.quotedMessage?.bodyText && <blockquote className="inbox-message-quote">{message.providerMetadata.evolution.quotedMessage.bodyText}</blockquote>}{message.providerMetadata?.evolution?.reaction && <small>{t('inbox.reactionSent', { emoji: message.providerMetadata.evolution.reaction.emoji })}</small>}{message.providerMetadata?.evolution?.richContent?.kind === 'card' ? <div className="inbox-rich-card">{message.attachments.filter((attachment) => attachment.mediaType === 'image').map((attachment) => <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} />)}{message.providerMetadata.evolution.richContent.title && <strong>{message.providerMetadata.evolution.richContent.title}</strong>}{message.providerMetadata.evolution.richContent.body && <p>{message.providerMetadata.evolution.richContent.body}</p>}{message.providerMetadata.evolution.richContent.buttonLabel && message.providerMetadata.evolution.richContent.buttonUrl && /^https?:\/\//i.test(message.providerMetadata.evolution.richContent.buttonUrl) && <a className="inbox-rich-card-action" href={message.providerMetadata.evolution.richContent.buttonUrl} target="_blank" rel="noopener noreferrer">{message.providerMetadata.evolution.richContent.buttonLabel}</a>}</div> : message.bodyText ? <InboxMessageBody text={message.bodyText} /> : !message.transcriptText && message.attachments.length === 0 && message.providerMetadata?.evolution?.richContent?.kind !== 'poll' && <p>{t('inbox.nonTextMessage')}</p>}{message.providerMetadata?.evolution?.richContent?.kind === 'poll' && <div className="inbox-poll"><strong>{t('inbox.pollOptions')}</strong><ul>{message.providerMetadata.evolution.richContent.options.map((option, index) => <li key={`${index}:${option}`}>{option}</li>)}</ul></div>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => message.providerMetadata?.evolution?.richContent?.kind === 'card' && attachment.mediaType === 'image' ? null : attachment.status === 'available' && ['image', 'video', 'audio'].includes(attachment.mediaType) ? <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} /> : <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <IconButton label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void openAttachment(attachment)}><Download size={14} aria-hidden="true" /></IconButton>}</div>)}</>}{message.direction === 'inbound' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}{message.direction === 'outbound' && <div className={`inbox-outbound-status ${message.deliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${message.deliveryState}`)}>{message.deliveryState === 'requested' ? <Clock3 size={14} /> : message.deliveryState === 'delivered' || message.deliveryState === 'read' ? <CheckCheck size={15} /> : <Check size={15} />}</div>}
+              {message.isDeleted ? <p className="inbox-message-deleted">{t('inbox.messageDeleted')}</p> : <>{selected.conversationType === 'group' && message.direction === 'inbound' && message.providerMetadata?.evolution?.author?.name && <small className="inbox-group-author">{message.providerMetadata.evolution.author.name}</small>}{message.providerMetadata?.evolution?.quotedMessage?.bodyText && <blockquote className="inbox-message-quote">{message.providerMetadata.evolution.quotedMessage.bodyText}</blockquote>}{message.providerMetadata?.evolution?.reaction && <small>{t('inbox.reactionSent', { emoji: message.providerMetadata.evolution.reaction.emoji })}</small>}{message.providerMetadata?.evolution?.richContent?.kind === 'card' ? <div className="inbox-rich-card">{message.attachments.filter((attachment) => attachment.mediaType === 'image').map((attachment) => <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} />)}{message.providerMetadata.evolution.richContent.title && <strong>{message.providerMetadata.evolution.richContent.title}</strong>}{message.providerMetadata.evolution.richContent.body && <p>{message.providerMetadata.evolution.richContent.body}</p>}{message.providerMetadata.evolution.richContent.buttonUrl && /^https?:\/\//i.test(message.providerMetadata.evolution.richContent.buttonUrl) && <a className="inbox-rich-card-action" href={message.providerMetadata.evolution.richContent.buttonUrl} target="_blank" rel="noopener noreferrer">{message.providerMetadata.evolution.richContent.buttonLabel ?? t('inbox.openLink')}</a>}</div> : message.bodyText ? <InboxMessageBody text={message.bodyText} /> : !message.transcriptText && message.attachments.length === 0 && message.providerMetadata?.evolution?.richContent?.kind !== 'poll' && <p>{message.providerMetadata?.evolution?.unsupportedType ? t('inbox.unsupportedMessageType', { type: message.providerMetadata.evolution.unsupportedType }) : t('inbox.nonTextMessage')}</p>}{message.providerMetadata?.evolution?.richContent?.kind === 'poll' && <div className="inbox-poll"><strong>{t('inbox.pollOptions')}</strong><ul>{message.providerMetadata.evolution.richContent.options.map((option, index) => <li key={`${index}:${option}`}>{option}</li>)}</ul></div>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => message.providerMetadata?.evolution?.richContent?.kind === 'card' && attachment.mediaType === 'image' ? null : attachment.status === 'available' && ['image', 'video', 'audio'].includes(attachment.mediaType) ? <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} /> : <div className="inbox-attachment" key={attachment.id}><Paperclip size={14} /><span>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}<small>{attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small></span>{attachment.status === 'available' && <IconButton label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void openAttachment(attachment)}><Download size={14} aria-hidden="true" /></IconButton>}</div>)}</>}{message.direction === 'inbound' && <small>{t(`inbox.delivery.${message.deliveryState}`)}</small>}{message.direction === 'outbound' && <div className={`inbox-outbound-status ${message.deliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${message.deliveryState}`)}>{message.deliveryState === 'requested' ? <Clock3 size={14} /> : message.deliveryState === 'delivered' || message.deliveryState === 'read' ? <CheckCheck size={15} /> : <Check size={15} />}</div>}
               {canSend && message.externalMessageId && !message.isDeleted && message.direction !== 'internal' && <div className="inbox-message-actions">{message.bodyText && <Button type="button" onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.reply); setReplyTarget(message); setMessageSendError('') }}><Reply size={14} />{t('inbox.replyToMessage')}</Button>}<details><summary aria-label={t('inbox.reactToMessage')}><SmilePlus size={15} /></summary><div role="group" aria-label={t('inbox.reactionOptions')}>{INBOX_QUICK_EMOJIS.map((emoji) => <button type="button" key={emoji} disabled={reactionBusyMessageId === message.id} aria-label={t('inbox.sendReaction', { emoji })} onClick={() => void sendReaction(message, emoji)}>{emoji}</button>)}</div></details></div>}
             </article>)}</>}</>}
           </div>
@@ -560,6 +675,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {replyTarget && composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-reply-target"><span><strong>{t('inbox.replyingTo')}</strong>{replyTarget.bodyText ?? t('inbox.nonTextMessage')}</span><IconButton label={t('inbox.cancelReply')} onClick={() => setReplyTarget(null)}><X size={14} /></IconButton></div>}
             <TextareaField value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || contactMode} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
             {composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-composer-tools"><input ref={attachmentInputRef} type="file" accept={INBOX_FILE_ACCEPT} hidden onChange={selectMedia} /><input ref={audioInputRef} type="file" accept={INBOX_AUDIO_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || assistantConsultLoading || contactMode} onClick={() => { setAssistantConsultMode(ASSISTANT_CONVERSATION_ASSIST_MODE.summary); setAssistantQuestion(''); setAssistantQuestionValidationAttempted(false); setAssistantConsultResult(null); setAssistantConsultError(false); setAssistantConsultOpen(true) }}><MessageSquareText size={15} />{t('inboxComposer.aiConsult')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => attachmentInputRef.current?.click()}><Paperclip size={15} />{t('inboxComposer.attachFile')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => audioInputRef.current?.click()}><Mic size={15} />{t('inboxComposer.attachAudio')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || Boolean(mediaDraft)} onClick={() => { setContactMode((active) => !active); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageDraft(''); setMessageSendError('') }}><UserRound size={15} />{t(contactMode ? 'inboxComposer.cancelContact' : 'inboxComposer.attachContact')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith(INBOX_AUDIO_MIME_PREFIX) ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
+            {mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && <div className="inbox-audio-preview"><span>{t("inbox.audioPreview")}</span><InboxAudioPlayer file={mediaDraft} label={mediaDraft.name} /></div>}
             {contactMode && <div className="inbox-contact-draft"><label>{t('inboxComposer.contactName')}<TextField required maxLength={160} value={contactDraft.fullName} onChange={(event) => setContactDraft((current) => ({ ...current, fullName: event.target.value }))} /></label><label>{t('inboxComposer.contactPhone')}<TextField required type="tel" maxLength={40} value={contactDraft.phoneNumber} onChange={(event) => setContactDraft((current) => ({ ...current, phoneNumber: event.target.value }))} placeholder="+55 11 99999-0000" /></label><label>{t('inboxComposer.contactOrganization')}<TextField maxLength={160} value={contactDraft.organization} onChange={(event) => setContactDraft((current) => ({ ...current, organization: event.target.value }))} /></label><label>{t('inboxComposer.contactEmail')}<TextField type="email" maxLength={254} value={contactDraft.email} onChange={(event) => setContactDraft((current) => ({ ...current, email: event.target.value }))} /></label><label>{t('inboxComposer.contactUrl')}<TextField type="url" maxLength={2048} value={contactDraft.url} onChange={(event) => setContactDraft((current) => ({ ...current, url: event.target.value }))} placeholder="https://" /></label></div>}
             {messageSendError && <div className="inbox-send-error" role="status"><p>{messageSendError}</p>{unknownDeliveryPending && <Button type="button" disabled={sendingMessage} onClick={() => { setMessageKey(crypto.randomUUID()); setUnknownDeliveryPending(false); setMessageSendError('') }}>{t('inboxRetry.prepareResend')}</Button>}</div>}
             <div><small>{contactMode ? '' : `${messageDraft.length}/4096`}</small><Button type="submit" disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || unknownDeliveryPending || (!contactMode && !messageDraft.trim() && !mediaDraft) || (contactMode && (!contactDraft.fullName.trim() || !contactDraft.phoneNumber.trim())) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && Boolean(messageDraft.trim()))}>{sendingMessage ? t('inbox.sending') : t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.addNote' : 'inbox.send')}</Button></div>
@@ -629,7 +745,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       {attachmentPreview?.mimeType.startsWith('image/') && <img src={attachmentPreview.url} alt={attachmentPreview.name} />}
       {attachmentPreview?.mimeType === 'application/pdf' && <iframe src={attachmentPreview.url} title={attachmentPreview.name} />}
       {attachmentPreview?.mimeType.startsWith('video/') && <video src={attachmentPreview.url} controls />}
-      {attachmentPreview?.mimeType.startsWith('audio/') && <audio src={attachmentPreview.url} controls />}
+      {attachmentPreview?.mimeType.startsWith('audio/') && <InboxAudioPlayer src={attachmentPreview.url} label={attachmentPreview.name} />}
       {attachmentPreview && <a href={attachmentPreview.url} download={attachmentPreview.name}>{t('inbox.download')}</a>}
     </Modal>
   </section>

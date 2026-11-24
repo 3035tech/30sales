@@ -14,6 +14,8 @@ describe('WebhooksService Evolution events', () => {
     publishEvolutionPresence: jest.fn(),
     recordProviderEvent: jest.fn(),
     enqueueEvolutionHistoryBatch: jest.fn(),
+    recordIncomingMessage: jest.fn(),
+    recordEvolutionOutgoingMessage: jest.fn(),
   };
   const credentialCrypto = { encryptPayload: jest.fn() };
   const credentialResolver = { resolve: jest.fn() };
@@ -41,6 +43,8 @@ describe('WebhooksService Evolution events', () => {
     credentialCrypto.encryptPayload.mockReturnValue({ ciphertext: 'ciphertext', iv: 'iv', authTag: 'tag' });
     repository.recordProviderEvent.mockResolvedValue('created');
     repository.enqueueEvolutionHistoryBatch.mockResolvedValue(true);
+    repository.recordIncomingMessage.mockResolvedValue('created');
+    repository.recordEvolutionOutgoingMessage.mockResolvedValue('created');
   });
 
   async function ingest(data: unknown, event: string): Promise<{ accepted: true; processed: number }> {
@@ -95,5 +99,33 @@ describe('WebhooksService Evolution events', () => {
       expect.objectContaining({ organizationId, channelId, externalConversationId: `${channelId}:120363000000000000@g.us`, conversationType: 'group' }),
     ]));
     expect(repository.enqueueEvolutionHistoryBatch).toHaveBeenCalledWith(expect.objectContaining({ organizationId, channelId }));
+  });
+
+  it('routes a fromMe MESSAGES_UPSERT echo to the outbound path', async () => {
+    const result = await ingest({
+      key: { remoteJid: '5511999999999@s.whatsapp.net', id: 'message-outbound-live', fromMe: true },
+      pushName: 'Thomas', message: { conversation: 'Enviado pelo celular' }, messageTimestamp: 1_795_541_400,
+    }, 'MESSAGES_UPSERT');
+
+    expect(result).toEqual({ accepted: true, processed: 1 });
+    expect(repository.recordEvolutionOutgoingMessage).toHaveBeenCalledWith(expect.objectContaining({
+      externalMessageId: 'message-outbound-live', bodyText: 'Enviado pelo celular', isFromMe: true,
+    }));
+    expect(repository.recordIncomingMessage).not.toHaveBeenCalled();
+  });
+
+  it('preserves fromMe messages in encrypted MESSAGES_SET history batches', async () => {
+    const result = await ingest({
+      messages: [{
+        key: { remoteJid: '5511999999999@s.whatsapp.net', id: 'message-outbound-history', fromMe: true },
+        pushName: 'Thomas', message: { conversation: 'Histórico enviado pelo celular' }, messageTimestamp: 1_795_541_400,
+      }], isLatest: true, progress: 100,
+    }, 'MESSAGES_SET');
+
+    expect(result).toEqual({ accepted: true, processed: 1 });
+    const serializedBatch = credentialCrypto.encryptPayload.mock.calls[0]?.[2];
+    expect(JSON.parse(serializedBatch as string)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ externalMessageId: 'message-outbound-history', isFromMe: true }),
+    ]));
   });
 });

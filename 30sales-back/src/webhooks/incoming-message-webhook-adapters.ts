@@ -19,6 +19,16 @@ function record(value: unknown): JsonRecord {
 }
 
 function string(value: unknown): string | null { return typeof value === 'string' && value.length > 0 ? value : null; }
+function safeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 function toDate(value: unknown): Date {
   const timestamp = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN;
   return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp) : new Date();
@@ -74,9 +84,14 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
     const mediaContent = mediaType ? record(messageContent[`${mediaType}Message`]) : {};
     const resolvedMediaContent = Object.keys(mediaContent).length ? mediaContent : cardImage;
     const media = mediaType ? this.createMedia(input.channelId, input.organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), resolvedMediaContent) : null;
+    const unsupportedType = !bodyText && !media && !richContent && !reaction ? messageType.replace(/[^a-z0-9_-]/gi, '').slice(0, 80) || 'unknown' : null;
     const occurredAt = toDate(data.messageTimestamp);
     const groupName = string(data.groupName) ?? string(data.subject);
-    return new IncomingWhatsappMessageDto(input.organizationId, input.channelId, this.provider, externalMessageId, `${input.channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup || isFromMe ? null : input.classifyCloserSignal(bodyText), bodyText, occurredAt, input.payloadHash, media, evolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null, isFromMe);
+    const hasEvolutionMetadata = reaction || quotedMessage || richContent || isGroup || unsupportedType;
+    const normalizedEvolutionMetadata: EvolutionMessageMetadata | null = hasEvolutionMetadata
+      ? { ...(evolutionMetadata ?? { reaction: null, quotedMessage: null }), ...(unsupportedType ? { unsupportedType } : {}) }
+      : null;
+    return new IncomingWhatsappMessageDto(input.organizationId, input.channelId, this.provider, externalMessageId, `${input.channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup || isFromMe ? null : input.classifyCloserSignal(bodyText), bodyText, occurredAt, input.payloadHash, media, normalizedEvolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null, isFromMe);
   }
 
   extractText(value: JsonRecord): string | null { return this.extractTextInternal(value); }
@@ -152,6 +167,15 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
       const poll = record(message[key]); const title = string(poll.name)?.trim().slice(0, 4096); if (!title) continue;
       const options = Array.isArray(poll.options) ? poll.options.slice(0, 20).map((option) => string(record(option).optionName)?.trim().slice(0, 200) ?? '').filter(Boolean) : [];
       return { kind: 'poll', title, options };
+    }
+    const extendedText = record(message.extendedTextMessage);
+    const contextInfo = record(extendedText.contextInfo);
+    const externalAdReply = record(contextInfo.externalAdReply);
+    if (Object.keys(externalAdReply).length > 0) {
+      const title = string(externalAdReply.title)?.trim().slice(0, 500) || null;
+      const body = string(externalAdReply.body)?.trim().slice(0, 4096) || null;
+      const safeUrl = safeHttpUrl(externalAdReply.sourceUrl);
+      if (title || body || safeUrl) return { kind: 'card', title, body, buttonLabel: null, buttonUrl: safeUrl };
     }
     const template = this.templateContent(message);
     if (Object.keys(template).length) {

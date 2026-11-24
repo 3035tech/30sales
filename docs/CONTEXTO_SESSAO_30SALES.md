@@ -1,5 +1,21 @@
 # Contexto de continuidade — 30Sales
 
+## Reprodução e prévia de áudio no Inbox — 24/11/2026
+
+- O player de áudio do Inbox usa controles próprios de play/pause, tempo atual/duração e busca por teclado ou ponteiro. Calcula uma forma de onda real com Web Audio para clips até o limite configurado; gravações maiores continuam reproduzíveis com uma trilha de progresso leve, sem decodificar tudo na memória.
+- O mesmo player é usado para a prévia do arquivo escolhido antes do envio, mensagens de áudio no histórico e a janela de prévia do anexo. O blob segue vindo do endpoint autenticado/tenant-scoped; URLs temporárias são revogadas ao descartar o arquivo ou desmontar o player. Os textos de controles estão nos catálogos pt-BR/en; limites e parâmetros ficam em `inboxConstants`.
+- Build Vite passou após a implementação. Não foi acrescentada gravação pelo microfone nem transcodificação de codecs: o envio continua pelo fluxo de arquivo de áudio suportado pelos adapters e a reprodução depende do codec suportado pelo navegador.
+
+## Evolução das seis frentes do Inbox/WhatsApp — 24/11/2026
+
+- **Sincronização e dedupe:** fixtures cobrem ecos `fromMe` tanto em `MESSAGES_UPSERT` quanto em `MESSAGES_SET`. Reconciliação agora também considera envios com anexo: só associa quando há exatamente um candidato pendente com texto, janela de ±2 minutos e conjunto de anexos compatível; candidatos ambíguos continuam sem associação heurística. A confirmação com payload redigido da instância Evolution segue pendente.
+- **Conteúdo de mensagem:** cartão `externalAdReply` agora preserva título, corpo e link HTTP(S) para o Inbox; tipos desconhecidos preservam o nome técnico sanitizado e exibem uma mensagem localizada, em vez de parecerem uma mensagem vazia. Link malformado, fora de HTTP(S), com credenciais embutidas ou acima do limite é descartado. URL de thumbnail remota não é buscada diretamente, evitando SSRF e exposição de credenciais; a prévia dependerá de mídia recebida pelo adapter.
+- **Adapters Evolution/Meta:** normalização de mensagens e status e operações de envio/mídia já passam por adapters. A consulta comum de participantes deixou de exigir JID `@g.us`; cada adapter valida seu ID externo. O serviço de webhook ainda faz autenticação e roteamento de envelopes por provider, e envio para grupo Meta permanece bloqueado.
+- **Grupos:** participantes são consultados pelo adapter e snapshots são tenant-scoped. IDs Meta podem ser opacos e participantes sem telefone permanecem suportados. Ainda faltam callbacks reais de ciclo de vida e validação de grupo Meta elegível antes de ativar ingestão completa.
+- **Escala do histórico:** busca no servidor, paginação de mensagens em blocos de 100 e lista de conversas paginada já estão implementadas. Carregamento progressivo mantém o scroll; os testes atuais desta fatia não medem latência/volume em dados representativos.
+- **Entrega/rollout:** migrations `0082`–`0083` permanecem geradas, sem aplicação confirmada. Builds Nest/Vite, `drizzle-kit check`, `git diff --check` e duas suítes focadas (9 testes) passaram com variáveis fictícias. Nenhum payload/envio real, migration compartilhada, commit, push ou deploy nesta fatia.
+- Próximos gates objetivos: validar mídia e `externalAdReply` com amostra redigida da Evolution; adicionar testes de integração do dedupe com anexos e tenant; extrair verificação/parse de envelope para adapters; confirmar capacidades e callbacks Meta no ambiente elegível; medir histórico com volume representativo; executar migrations e smoke test pelo rollout normal autorizado. Não afirmar paridade ou rollout concluído antes desses gates.
+
 ## Ecos de mensagens enviadas pelo WhatsApp móvel — 24/11/2026
 
 - A normalização Evolution preserva `key.fromMe` em `MESSAGES_UPSERT` e `MESSAGES_SET`. Ecos são gravados como mensagens outbound da equipe, com mídia cifrada, sem unread/notificação/automação de inbound; um contato novo em envio direto cria conversa em modo humano. O Inbox identifica a origem como “Equipe · WhatsApp”; a metadata registra somente `provider_echo`, pois a Evolution não informa qual dispositivo originou a mensagem.

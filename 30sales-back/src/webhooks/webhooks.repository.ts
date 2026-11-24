@@ -119,13 +119,24 @@ export class WebhooksRepository {
       if (alreadyRecorded) return 'duplicate';
 
       const metadata = { ...(input.evolutionMetadata ?? {}), source: 'provider_echo' as const };
-      const pendingSends = input.bodyText ? await transaction.select({ id: messages.id }).from(messages)
+      const candidateSends = await transaction.select({ id: messages.id }).from(messages)
         .where(and(
           eq(messages.organizationId, input.organizationId), eq(messages.conversationId, conversation.id),
           eq(messages.direction, 'outbound'), eq(messages.actorType, 'user'), eq(messages.deliveryState, 'requested'),
-          isNull(messages.externalMessageId), eq(messages.bodyText, input.bodyText), gte(messages.occurredAt, new Date(input.occurredAt.getTime() - 120_000)),
+          isNull(messages.externalMessageId), input.bodyText ? eq(messages.bodyText, input.bodyText) : isNull(messages.bodyText),
+          gte(messages.occurredAt, new Date(input.occurredAt.getTime() - 120_000)),
           lte(messages.occurredAt, new Date(input.occurredAt.getTime() + 120_000)),
-        )).limit(2) : [];
+        )).limit(10).for('update');
+      const pendingSends: typeof candidateSends = [];
+      for (const candidate of candidateSends) {
+        const candidateAttachments = await transaction.select({ mediaType: messageAttachments.mediaType }).from(messageAttachments)
+          .where(and(eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.messageId, candidate.id)));
+        const attachmentsMatch = input.media
+          ? candidateAttachments.length === 1 && candidateAttachments[0].mediaType === input.media.mediaType
+          : candidateAttachments.length === 0;
+        if (attachmentsMatch) pendingSends.push(candidate);
+        if (pendingSends.length > 1) break;
+      }
       if (pendingSends.length === 1) {
         const [reconciled] = await transaction.update(messages).set({
           externalMessageId: input.externalMessageId, deliveryState: 'accepted',

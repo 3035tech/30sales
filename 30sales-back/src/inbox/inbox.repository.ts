@@ -88,7 +88,7 @@ export class InboxRepository {
         .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return INBOX_CONTACT_RECONCILIATION_RESULT.notFound;
       if (conversation.ownerUserId !== input.actorUserId) return INBOX_CONTACT_RECONCILIATION_RESULT.notOwner;
       const [actor] = await transaction.select({ id: authMember.id, role: authMember.role }).from(authMember)
         .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.actorUserId))).limit(1);
@@ -230,7 +230,7 @@ export class InboxRepository {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       const name = input.name.trim().replace(/\s+/g, ' ');
       const normalizedName = name.toLocaleLowerCase('en-US');
@@ -249,7 +249,7 @@ export class InboxRepository {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       const [removed] = await transaction.delete(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, input.conversationId), eq(conversationTagLinks.tagId, input.tagId))).returning({ tagId: conversationTagLinks.tagId });
       if (removed) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.tag_removed', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { tagId: input.tagId } });
@@ -278,7 +278,7 @@ export class InboxRepository {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       if (!current.ownerUserId && current.automationMode === 'paused') return new ConversationControlResultDto(current.id, null, 'paused');
       const [updated] = await transaction.update(conversations).set({ ownerUserId: null, automationMode: 'paused', updatedAt: new Date() })
@@ -294,7 +294,7 @@ export class InboxRepository {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (!await this.canAssignToLineInTransaction(transaction, input.organizationId, input.conversationId, input.ownerUserId)) return 'invalid_assignee';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       const [membership] = await transaction.select({ id: authMember.id }).from(authMember)
@@ -315,7 +315,7 @@ export class InboxRepository {
       const [current] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (current.ownerUserId && current.ownerUserId !== input.actorUserId) return 'owned';
       const ownerUserId = input.mode === 'assistant' ? null : input.mode === 'human' ? input.actorUserId : current.ownerUserId;
       if (current.ownerUserId === ownerUserId && current.automationMode === input.mode) return new ConversationControlResultDto(current.id, current.ownerUserId, input.mode);
@@ -332,7 +332,7 @@ export class InboxRepository {
       const [current] = await transaction.select({ id: conversations.id, status: conversations.status, ownerUserId: conversations.ownerUserId })
         .from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!current) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (current.ownerUserId !== input.actorUserId) return 'not_owner';
       if (current.status === input.status) return { id: current.id, status: input.status };
       const [updated] = await transaction.update(conversations).set({ status: input.status, updatedAt: new Date() })
@@ -374,7 +374,7 @@ export class InboxRepository {
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
     return database.transaction(async (transaction) => {
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.userId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.userId, input.isPlatformOrganizationContext)) return 'not_found';
       if (!input.lastInboundMessageId) {
         const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
           .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
@@ -402,7 +402,7 @@ export class InboxRepository {
       const [conversation] = await transaction.select({ id: conversations.id, ownerUserId: conversations.ownerUserId }).from(conversations)
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation) return 'not_found';
-      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId)) return 'not_found';
+      if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       const [duplicate] = await transaction.select({ id: messages.id, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt }).from(messages)
         .leftJoin(authUser, eq(authUser.id, messages.actorUserId))
         .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.idempotencyKey, input.idempotencyKey))).limit(1);
@@ -455,7 +455,7 @@ export class InboxRepository {
       if (recipientPhone.length < 8 || recipientPhone.length > 15 || recipientPhone[0] === '0') return 'recipient_missing';
       const [channel] = await transaction.select({ provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId, isActive: messagingChannels.isActive, lineStatus: businessLines.status, connectionStatus: messagingChannels.connectionStatus, dailyMessageLimit: messagingChannels.dailyMessageLimit, dailyLimitTimeZone: messagingChannels.dailyLimitTimeZone, credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag }).from(messagingChannels)
         .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
-        .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('update').limit(1);
+        .where(and(eq(messagingChannels.id, conversation.channelId), eq(messagingChannels.organizationId, input.organizationId))).for('update', { of: messagingChannels }).limit(1);
       if (!channel?.isActive || (channel.lineStatus && channel.lineStatus !== 'active')) return 'channel_unavailable';
       if (!channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) return 'credentials_missing';
       const channelProvider = channelProviderSchema.safeParse(channel.provider);

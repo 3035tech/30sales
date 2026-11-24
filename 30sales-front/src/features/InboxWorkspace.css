@@ -183,6 +183,9 @@
 .inbox-conversation-copy strong { font-size: var(--font-size-sm); }
 .inbox-conversation-copy small { color: var(--muted,#6f7785); font-size: var(--font-size-xs); }
 .inbox-unread-indicator { flex: 0 0 8px; width: 8px; height: 8px; margin: 0 2px; border-radius: 50%; background: #2563eb; }
+.inbox-send-error { display: grid; gap: 8px; }
+.inbox-send-error p { margin: 0; }
+.inbox-composer .inbox-send-error button { justify-self: start; min-height: 30px; background: #fff; color: #8b5600; border: 1px solid #d8a44a; }
 @media (max-width: 760px) {
   .inbox-thread-heading { align-items: flex-start; }
   .inbox-control-actions { max-width: none; }

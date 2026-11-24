@@ -49,7 +49,7 @@ export class InboxService {
   }
   async markRead(request: ApiRequestDto, conversationId: string, input: MarkConversationReadInputDto) {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
-    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, input.lastInboundMessageId, request.correlationId));
+    const result = await this.repository.markRead(new ConversationReadDto(context.organizationId, conversationId, context.userId, input.lastInboundMessageId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'invalid_message') throw new BadRequestException({ code: 'INVALID_READ_CURSOR', message: 'The read cursor must reference an inbound message in this conversation.' });
     return result;
@@ -63,14 +63,14 @@ export class InboxService {
   }
   async release(request: ApiRequestDto, conversationId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.release(new ConversationControlDto(context.organizationId, conversationId, context.userId, request.correlationId));
+    const result = await this.repository.release(new ConversationControlDto(context.organizationId, conversationId, context.userId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can release this conversation.' });
     return result;
   }
   async assign(request: ApiRequestDto, conversationId: string, input: AssignConversationDto) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.assign(new ConversationAssignDto(context.organizationId, conversationId, context.userId, input.ownerUserId, request.correlationId));
+    const result = await this.repository.assign(new ConversationAssignDto(context.organizationId, conversationId, context.userId, input.ownerUserId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can transfer this conversation.' });
     if (result === 'invalid_assignee') throw new BadRequestException({ code: 'INVALID_CONVERSATION_ASSIGNEE', message: 'The assignee must be an active member of the current organization.' });
@@ -79,21 +79,21 @@ export class InboxService {
   async setAutomationMode(request: ApiRequestDto, conversationId: string, mode: ConversationAutomationMode) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
     if (mode === 'assistant' && !await this.repository.isAssistantEnabled(context.organizationId, conversationId)) throw new ConflictException({ code: 'ASSISTANT_AGENT_DISABLED', message: 'Enable Assistant for this business line before returning the conversation to automated handling.' });
-    const result = await this.repository.setAutomationMode(new ConversationAutomationUpdateDto(context.organizationId, conversationId, context.userId, mode, request.correlationId));
+    const result = await this.repository.setAutomationMode(new ConversationAutomationUpdateDto(context.organizationId, conversationId, context.userId, mode, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'owned') throw new ConflictException({ code: 'CONVERSATION_OWNED_BY_ANOTHER_USER', message: 'Only the current owner can change this conversation automation mode.' });
     return result;
   }
   async setStatus(request: ApiRequestDto, conversationId: string, input: ConversationStatusUpdateInputDto) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.setStatus(new ConversationStatusUpdateDto(context.organizationId, conversationId, context.userId, input.status, request.correlationId));
+    const result = await this.repository.setStatus(new ConversationStatusUpdateDto(context.organizationId, conversationId, context.userId, input.status, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the current conversation owner can change its status.' });
     return result;
   }
   async reconcileContact(request: ApiRequestDto, conversationId: string, input: ReconcileConversationContactInputDto) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.reconcileContact(new ConversationContactReconcileDto(context.organizationId, conversationId, context.userId, input.leadId, input.name, input.phone, input.isPrimary, input.isInterested, request.correlationId));
+    const result = await this.repository.reconcileContact(new ConversationContactReconcileDto(context.organizationId, conversationId, context.userId, input.leadId, input.name, input.phone, input.isPrimary, input.isInterested, request.correlationId, context.isPlatformOrganizationContext));
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notFound) throw new NotFoundException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.notFound, message: 'Conversation or lead was not found in the active organization.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.missingContact) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.missingContact, message: 'This conversation has no contact to associate.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone) throw new BadRequestException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.invalidPhone, message: 'Enter a valid international phone number.' });
@@ -161,21 +161,21 @@ export class InboxService {
   }
   async addNote(request: ApiRequestDto, conversationId: string, input: CreateConversationNoteDto): Promise<MessageRecordDto> {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.addNote(new ConversationNoteCreateDto(context.organizationId, conversationId, context.userId, input.bodyText, input.idempotencyKey, request.correlationId));
+    const result = await this.repository.addNote(new ConversationNoteCreateDto(context.organizationId, conversationId, context.userId, input.bodyText, input.idempotencyKey, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add an internal note.' });
     return result;
   }
   async addTag(request: ApiRequestDto, conversationId: string, input: CreateConversationTagDto) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, request.correlationId));
+    const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add tags.' });
     return result;
   }
   async removeTag(request: ApiRequestDto, conversationId: string, tagId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.removeTag(new ConversationTagRemoveDto(context.organizationId, conversationId, tagId, context.userId, request.correlationId));
+    const result = await this.repository.removeTag(new ConversationTagRemoveDto(context.organizationId, conversationId, tagId, context.userId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can remove tags.' });
     return { success: true };

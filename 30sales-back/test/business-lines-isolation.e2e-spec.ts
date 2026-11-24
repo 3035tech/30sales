@@ -9,7 +9,7 @@ import { OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryTransitionDto
 import { FunnelReportRepositoryQueryDto, funnelReportQuerySchema } from '../src/reports/reports.dto';
 import { LeadRepositoryAccessDto, QualificationFactRepositoryDto, createQualificationFactSchema, listQualificationFactsSchema } from '../src/leads/leads.dto';
 import { LEAD_QUALIFICATION_FACT_AUDIT_ACTION, LEAD_QUALIFICATION_FACT_KEY, LEAD_QUALIFICATION_FACT_RESULT, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_STATE } from '../src/leads/constants';
-import { ConversationControlDto } from '../src/inbox/inbox.dto';
+import { ConversationControlDto, ConversationReadDto } from '../src/inbox/inbox.dto';
 import { INBOX_COMMAND_RESULT } from '../src/inbox/inbox.constants';
 import { CampaignPerformanceRepositoryDto } from '../src/campaigns/campaigns.dto';
 import { CAMPAIGN_AUDIT, CAMPAIGN_ATTRIBUTABLE_DELIVERY_STATES, CAMPAIGN_DELIVERED_STATES, CAMPAIGN_MEETING_ACTIVITY_TYPE, CAMPAIGN_OUTBOX_STATUS, CAMPAIGN_OUTREACH_EVENT, CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX, CAMPAIGN_WON_OPPORTUNITY_STAGE } from '../src/campaigns/campaigns.constants';
@@ -278,6 +278,38 @@ integrationDescribe('BusinessLinesRepository isolation (PostgreSQL)', () => {
     const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationAId))).limit(1);
     expect(conversation?.ownerUserId).toBeNull();
+  });
+
+  it('allows a validated platform context to claim and mark read only inside the selected organization', async () => {
+    const conversationId = randomUUID();
+    const messageId = randomUUID();
+    const [channel] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
+      .where(and(eq(messagingChannels.organizationId, organizationAId), eq(messagingChannels.businessLineId, lineA1Id))).limit(1);
+    if (!channel) throw new Error('The active line channel fixture is missing.');
+    await database.insert(conversations).values({
+      id: conversationId,
+      organizationId: organizationAId,
+      provider: 'evolution',
+      externalConversationId: `platform-context-${conversationId}`,
+      channelId: channel.id,
+    });
+    await database.insert(messages).values({
+      id: messageId,
+      organizationId: organizationAId,
+      conversationId,
+      direction: 'inbound',
+      actorType: 'contact',
+      bodyText: 'Can you help?',
+      occurredAt: new Date(),
+    });
+
+    const claim = await inboxRepository.claim(new ConversationControlDto(organizationAId, conversationId, ownerBId, randomUUID(), true));
+    const read = await inboxRepository.markRead(new ConversationReadDto(organizationAId, conversationId, ownerBId, messageId, randomUUID(), true));
+    const crossOrganizationClaim = await inboxRepository.claim(new ConversationControlDto(organizationBId, conversationId, ownerBId, randomUUID(), true));
+
+    expect(claim).toMatchObject({ id: conversationId, ownerUserId: ownerBId, automationMode: 'human' });
+    expect(read).toMatchObject({ conversationId, lastReadAt: expect.any(String) });
+    expect(crossOrganizationClaim).toBe(INBOX_COMMAND_RESULT.notFound);
   });
 
   it('does not attribute a meeting on a pre-existing opportunity to an outbound campaign', async () => {

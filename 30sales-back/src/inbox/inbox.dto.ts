@@ -13,15 +13,15 @@ export const assignConversationSchema = z.object({ ownerUserId: z.string().uuid(
 export type AssignConversationDto = z.infer<typeof assignConversationSchema>;
 export const reconcileConversationContactSchema = z.object({ leadId: z.string().uuid(), name: z.string().trim().min(2).max(160).optional(), phone: z.string().trim().min(8).max(40).optional(), isPrimary: z.boolean().default(false), isInterested: z.boolean().default(false) }).strict();
 export type ReconcileConversationContactInputDto = z.infer<typeof reconcileConversationContactSchema>;
-export class ConversationContactReconcileDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly leadId: string, readonly name: string | undefined, readonly phone: string | undefined, readonly isPrimary: boolean, readonly isInterested: boolean, readonly correlationId: string | null = null) {} }
+export class ConversationContactReconcileDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly leadId: string, readonly name: string | undefined, readonly phone: string | undefined, readonly isPrimary: boolean, readonly isInterested: boolean, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationContactReconcileResultDto { constructor(readonly conversationId: string, readonly leadId: string, readonly accountName: string, readonly contactName: string, readonly phone: string | null) {} }
 export const markConversationReadSchema = z.object({ lastInboundMessageId: z.string().uuid().nullable() }).strict();
 export type MarkConversationReadInputDto = z.infer<typeof markConversationReadSchema>;
 export class ConversationRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListConversationsQueryDto) {} }
 export const createConversationTagSchema = z.object({ name: z.string().trim().min(2).max(32) }).strict();
 export type CreateConversationTagDto = z.infer<typeof createConversationTagSchema>;
-export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null = null) {} }
-export class ConversationTagRemoveDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly tagId: string, readonly actorUserId: string, readonly correlationId: string | null = null) {} }
+export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
+export class ConversationTagRemoveDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly tagId: string, readonly actorUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationTagDto { constructor(readonly id: string, readonly name: string) {} }
 export class AssistantQualificationDto { constructor(readonly intent: string, readonly summary: string, readonly confirmedFacts: string[], readonly unknowns: string[], readonly nextStep: string, readonly updatedAt: string) {} }
 export class ConversationLeadSummaryDto { constructor(readonly status: string, readonly source: string, readonly nextActionAt: string | null) {} }
@@ -30,10 +30,10 @@ export class ConversationListItemDto {
 }
 export class ConversationPageDto { constructor(readonly data: ConversationListItemDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {} }
 export class ConversationControlDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
-export class ConversationAutomationUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly mode: ConversationAutomationMode, readonly correlationId: string | null = null) {} }
-export class ConversationStatusUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly status: 'open' | 'resolved', readonly correlationId: string | null = null) {} }
+export class ConversationAutomationUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly mode: ConversationAutomationMode, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
+export class ConversationStatusUpdateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly status: 'open' | 'resolved', readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationControlResultDto { constructor(readonly id: string, readonly ownerUserId: string | null, readonly automationMode: ConversationAutomationMode) {} }
-export class ConversationAssignDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly ownerUserId: string, readonly correlationId: string | null = null) {} }
+export class ConversationAssignDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly ownerUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }
 export const sendConversationMessageSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type SendConversationMessageDto = z.infer<typeof sendConversationMessageSchema>;
@@ -51,12 +51,12 @@ export type SendConversationContactDto = z.infer<typeof sendConversationContactS
 export type OutboundMediaInputDto = { readonly id: string; readonly mediaType: typeof OUTBOUND_MEDIA_TYPE[keyof typeof OUTBOUND_MEDIA_TYPE]; readonly mimeType: string; readonly fileName: string; readonly sizeBytes: number; readonly sha256: string };
 export const createConversationNoteSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid() }).strict();
 export type CreateConversationNoteDto = z.infer<typeof createConversationNoteSchema>;
-export class ConversationNoteCreateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null) {} }
+export class ConversationNoteCreateDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string, readonly idempotencyKey: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationMessageSendDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly bodyText: string | null, readonly idempotencyKey: string, readonly correlationId: string | null = null, readonly attachment: OutboundMediaInputDto | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationMessageDeliveryDto { constructor(readonly organizationId: string, readonly messageId: string, readonly actorUserId: string, readonly deliveryState: 'accepted' | 'failed' | 'unknown', readonly externalMessageId: string | null, readonly correlationId: string | null = null) {} }
 export class MessageRecordDto {
   constructor(readonly id: string, readonly direction: (typeof messageDirection.enumValues)[number], readonly actorType: (typeof messageActorType.enumValues)[number], readonly bodyText: string | null, readonly deliveryState: (typeof messageDeliveryState.enumValues)[number], readonly occurredAt: string, readonly actorUserId: string | null = null, readonly actorName: string | null = null, readonly attachments: MessageAttachmentDto[] = [], readonly transcriptText: string | null = null, readonly isDeleted = false) {}
 }
 export class ConversationMessagesQueryDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly limit: number, readonly offset: number, readonly isPlatformOrganizationContext = false) {} }
-export class ConversationReadDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly lastInboundMessageId: string | null, readonly correlationId: string | null = null) {} }
+export class ConversationReadDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly lastInboundMessageId: string | null, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationReadResultDto { constructor(readonly conversationId: string, readonly lastReadAt: string | null) {} }

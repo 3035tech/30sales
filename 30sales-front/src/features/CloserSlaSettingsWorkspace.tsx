@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Save } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { api, type CloserEventSlaSettingsDto } from '../lib/api'
 import './CloserSlaSettingsWorkspace.css'
 
@@ -12,7 +13,6 @@ export function CloserSlaSettingsWorkspace() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -23,23 +23,21 @@ export function CloserSlaSettingsWorkspace() {
   }, [t])
 
   const updateTarget = (eventType: CloserEventSlaSettingsDto['policies'][number]['eventType'], targetMinutes: number | null) => {
-    setSaved(false)
     setSettings((current) => current ? { ...current, policies: current.policies.map((policy) => policy.eventType === eventType ? { ...policy, targetMinutes, escalateToManagers: targetMinutes === null ? false : policy.escalateToManagers } : policy) } : current)
   }
 
   const updateEscalation = (eventType: CloserEventSlaSettingsDto['policies'][number]['eventType'], escalateToManagers: boolean) => {
-    setSaved(false)
     setSettings((current) => current ? { ...current, policies: current.policies.map((policy) => policy.eventType === eventType ? { ...policy, escalateToManagers } : policy) } : current)
   }
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!settings) return
-    setSaving(true); setError(''); setSaved(false)
+    setSaving(true); setError('')
     try {
       const result = await api.closerEvents.saveSlaSettings({ policies: settings.policies })
-      setSettings(result); setSaved(true)
-    } catch { setError(t('closerSlaSettings.saveFailed')) }
+      setSettings(result); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('closerSlaSettings.saved'))
+    } catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('closerSlaSettings.saveFailed')) }
     finally { setSaving(false) }
   }
 
@@ -52,7 +50,7 @@ export function CloserSlaSettingsWorkspace() {
       </div>)}
       {!settings.canManage && <p className="notice">{t('closerSlaSettings.managerOnly')}</p>}
       {settings.canManage && <div className="closer-sla-footer"><Button className="primary" type="submit" disabled={saving}>{saving ? t('closerSlaSettings.saving') : <><Save size={15} />{t('closerSlaSettings.save')}</>}</Button></div>}
-      {error && <WorkspaceState kind="error" compact message={error} />}{saved && <p className="success-message" role="status">{t('closerSlaSettings.saved')}</p>}
+      {error && <WorkspaceState kind="error" compact message={error} />}
     </form> : <WorkspaceState kind="error" message={error || t('closerSlaSettings.loadFailed')} />}
   </section>
 }

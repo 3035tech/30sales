@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { ArrowRight, Mail, RefreshCw, Users } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { api, type TeamMemberDto } from '../lib/api'
 import { roleNames, type OrganizationRole } from '../lib/permissions'
 import { ORGANIZATION_ROLE } from '../lib/authorizationConstants'
@@ -14,7 +15,6 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
   const [role, setRole] = useState<OrganizationRole>(ORGANIZATION_ROLE.sdr)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState(false)
 
@@ -33,13 +33,12 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
     event.preventDefault()
     setBusy(true)
     setError('')
-    setMessage('')
     const result = await api.team.invite({ email, role, organizationId })
     setBusy(false)
-    if (result.error) { setError(t('team.inviteFailed')); return }
-    if (!result.emailSent) { setEmail(''); setError(t('team.inviteFailed')); void refresh(); return }
+    if (result.error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.inviteFailed')); return }
+    if (!result.emailSent) { setEmail(''); notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.inviteFailed')); void refresh(); return }
     setEmail('')
-    setMessage(t('team.invited', { email }))
+    notifySystemAlert(SYSTEM_ALERT_KIND.success, t('team.invited', { email }))
     void refresh()
   }
 
@@ -61,7 +60,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
           <label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== ORGANIZATION_ROLE.owner).map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label>
           <Button className="primary" disabled={busy}>{busy ? t('team.sending') : t('team.sendInvite')}<ArrowRight size={16} /></Button>
         </form>
-        {message && <p className="success-message">{message}</p>}{error && !loadError && <WorkspaceState kind="error" compact message={error} />}
+        {error && !loadError && <WorkspaceState kind="error" compact message={error} />}
       </section>
     </div>
     <p className="footer-note"><span className="dot" />{t('team.verifyNote')}</p>

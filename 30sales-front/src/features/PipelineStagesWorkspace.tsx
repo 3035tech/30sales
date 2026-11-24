@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, Archive, Save, Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { api, type BusinessLineDto, type PipelineStagesDto, type PipelinesDto } from '../lib/api'
 import './PipelineStagesWorkspace.css'
 
@@ -22,7 +23,6 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('pipelines')
   const refresh = useCallback(async (requestedPipelineId?: string) => {
     try {
@@ -48,19 +48,19 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
     document.getElementById(`pipeline-settings-tab-${nextTab}`)?.focus()
   }
   const mutate = async (operation: () => Promise<PipelineStagesDto>) => {
-    setBusy(true); setError(''); setSaved(false)
-    try { setData(await operation()); setSaved(true) }
+    setBusy(true); setError('')
+    try { setData(await operation()); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('pipelineStageSettings.saved')) }
     catch (reason) {
       const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''
-      setError(code === 'PIPELINE_STAGE_IN_USE' ? t('pipelineStageSettings.inUse') : code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_STAGE_IN_USE' ? t('pipelineStageSettings.inUse') : code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed'))
     } finally { setBusy(false) }
   }
   const manage = async (operation: () => Promise<PipelinesDto>, nextPipelineId?: string) => {
-    setBusy(true); setError(''); setSaved(false)
-    try { const result = await operation(); setPipelines(result); await refresh(nextPipelineId ?? pipelineId); setSaved(true) }
+    setBusy(true); setError('')
+    try { const result = await operation(); setPipelines(result); await refresh(nextPipelineId ?? pipelineId); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('pipelineStageSettings.saved')) }
     catch (reason) {
       const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''
-      setError(code === 'PIPELINE_IN_USE' ? t('pipelineStageSettings.pipelineInUse') : code === 'DEFAULT_PIPELINE_LOCKED' ? t('pipelineStageSettings.defaultLocked') : code === 'PIPELINE_NAME_EXISTS' ? t('pipelineStageSettings.pipelineDuplicate') : t('pipelineStageSettings.saveFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_IN_USE' ? t('pipelineStageSettings.pipelineInUse') : code === 'DEFAULT_PIPELINE_LOCKED' ? t('pipelineStageSettings.defaultLocked') : code === 'PIPELINE_NAME_EXISTS' ? t('pipelineStageSettings.pipelineDuplicate') : t('pipelineStageSettings.saveFailed'))
     } finally { setBusy(false) }
   }
   const createPipeline = async (event: React.FormEvent) => {
@@ -69,17 +69,17 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
     try {
       const result = await api.opportunities.pipelines.create(newPipelineName.trim(), newPipelineBusinessLineId)
       const created = result.pipelines.find((item) => item.name === newPipelineName.trim() && item.businessLineId === newPipelineBusinessLineId)
-      setNewPipelineName(''); setPipelines(result); await refresh(created?.id); setSettingsTab('stages'); setSaved(true)
+      setNewPipelineName(''); setPipelines(result); await refresh(created?.id); setSettingsTab('stages'); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('pipelineStageSettings.saved'))
     } catch (reason) {
       const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''
-      setError(code === 'PIPELINE_NAME_EXISTS' ? t('pipelineStageSettings.pipelineDuplicate') : t('pipelineStageSettings.saveFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_NAME_EXISTS' ? t('pipelineStageSettings.pipelineDuplicate') : t('pipelineStageSettings.saveFailed'))
     } finally { setBusy(false) }
   }
   const create = async (event: React.FormEvent) => {
     event.preventDefault(); if (!name.trim() || !pipelineId || !afterStageKey) return
-    setBusy(true); setError(''); setSaved(false)
-    try { setData(await api.opportunities.pipelineStages.create({ pipelineId, name: name.trim(), afterStageKey })); setName(''); setSaved(true) }
-    catch (reason) { const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''; setError(code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed')) }
+    setBusy(true); setError('')
+    try { setData(await api.opportunities.pipelineStages.create({ pipelineId, name: name.trim(), afterStageKey })); setName(''); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('pipelineStageSettings.saved')) }
+    catch (reason) { const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''; notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed')) }
     finally { setBusy(false) }
   }
   const move = (key: string, offset: -1 | 1) => {
@@ -92,7 +92,7 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
 
   return <section className="pipeline-settings-page">
     <header className="pipeline-settings-heading"><Button type="button" onClick={onBack} aria-label={t('pipelineStageSettings.back')}><ArrowLeft size={16} /></Button><div><p className="eyebrow">{t('pipelineStageSettings.eyebrow')}</p><h2>{t('pipelineStageSettings.title')}</h2><p>{t('pipelineStageSettings.description')}</p></div></header>
-    {error && <WorkspaceState kind="error" compact message={error} />}{saved && <p className="pipeline-settings-success" role="status">{t('pipelineStageSettings.saved')}</p>}
+    {error && <WorkspaceState kind="error" compact message={error} />}
     {!pipelines && !error ? <WorkspaceState kind="loading" message={t('common.loading')} /> : !pipelines ? null : !pipelines.canManage ? <WorkspaceState kind="empty" message={t('pipelineStageSettings.managerOnly')} /> : <>
       <div className="pipeline-settings-tabs" role="tablist" aria-label={t('pipelineStageSettings.tabs')}>
         <Button type="button" role="tab" id="pipeline-settings-tab-pipelines" tabIndex={settingsTab === 'pipelines' ? 0 : -1} aria-controls="pipeline-settings-panel-pipelines" aria-selected={settingsTab === 'pipelines'} className={settingsTab === 'pipelines' ? 'selected' : ''} onKeyDown={handleTabKeyDown} onClick={() => setSettingsTab('pipelines')}>{t('pipelineStageSettings.pipelinesTab')}</Button>

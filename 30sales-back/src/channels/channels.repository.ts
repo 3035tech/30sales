@@ -178,7 +178,7 @@ export class ChannelsRepository {
       const deletedAt = new Date();
       await transaction.update(messagingChannels).set({ isActive: false, deletedAt, updatedAt: deletedAt })
         .where(and(eq(messagingChannels.id, input.channelId), eq(messagingChannels.organizationId, input.organizationId), isNull(messagingChannels.deletedAt)));
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { provider: locked.channel.provider, displayName: locked.channel.displayName, phoneNumber: locked.channel.phoneNumber, providerChannelId: locked.channel.providerChannelId, isActive: locked.channel.isActive }, afterState: { deletedAt: deletedAt.toISOString(), remoteInstanceDeleted: true } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { provider: locked.channel.provider, displayName: locked.channel.displayName, phoneNumber: locked.channel.phoneNumber, providerChannelId: locked.channel.providerChannelId, isActive: locked.channel.isActive }, afterState: { deletedAt: deletedAt.toISOString(), remoteInstanceDeleted: input.remoteInstanceDeleted } });
       return true;
     });
   }

@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { ApiError, api, CHANNEL_CONNECTION_STATUS, CHANNEL_WEBHOOK_EVENT_STATUS, type ChannelDto, type ChannelHealthCheckDto, type ChannelMonitoringCheckDto, type ChannelWebhookEventsPageDto, type CreateChannelInput, type EvolutionInstanceListDto } from '../lib/api'
@@ -92,8 +93,6 @@ export function ChannelsWorkspace() {
   const monitoringCheckInFlight = useRef(false)
   const [checkingChannelIds, setCheckingChannelIds] = useState<string[]>([])
   const [configuringWebhookIds, setConfiguringWebhookIds] = useState<string[]>([])
-  const [webhookConfiguredAt, setWebhookConfiguredAt] = useState<Record<string, string>>({})
-  const [webhookConfigurationErrors, setWebhookConfigurationErrors] = useState<Record<string, boolean>>({})
   const [eventsChannel, setEventsChannel] = useState<ChannelDto | null>(null)
   const [webhookEvents, setWebhookEvents] = useState<ChannelWebhookEventsPageDto | null>(null)
   const [webhookEventsLoading, setWebhookEventsLoading] = useState(false)
@@ -228,8 +227,13 @@ export function ChannelsWorkspace() {
     if (!channel) return
     setChannelToDelete(null)
     setDeletingId(channel.id); setError('')
-    try { await api.channels.delete(channel.id); setChannels((current) => current.filter((item) => item.id !== channel.id)); if (offset > 0 && rows.length - 1 <= offset) setOffset((current) => Math.max(0, current - limit)) }
-    catch { setError(t('channels.deleteFailed')) }
+    try {
+      const result = await api.channels.delete(channel.id)
+      setChannels((current) => current.filter((item) => item.id !== channel.id))
+      if (offset > 0 && rows.length - 1 <= offset) setOffset((current) => Math.max(0, current - limit))
+      notifySystemAlert(result.remoteInstanceDeleted ? SYSTEM_ALERT_KIND.success : SYSTEM_ALERT_KIND.info, t(result.remoteInstanceDeleted ? 'channels.deleteSucceeded' : 'channels.deleteSucceededRemotePending'))
+    }
+    catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('channels.deleteFailed')) }
     finally { setDeletingId('') }
   }
   const saveQuota = async (event: React.FormEvent) => {
@@ -338,12 +342,11 @@ export function ChannelsWorkspace() {
 
   const configureEvolutionWebhook = async (channelId: string) => {
     setConfiguringWebhookIds((current) => [...current, channelId])
-    setWebhookConfigurationErrors((current) => ({ ...current, [channelId]: false }))
     try {
-      const result = await api.channels.configureEvolutionWebhook(channelId)
-      setWebhookConfiguredAt((current) => ({ ...current, [channelId]: result.configuredAt }))
+      await api.channels.configureEvolutionWebhook(channelId)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('channels.webhookConfigured'))
     } catch {
-      setWebhookConfigurationErrors((current) => ({ ...current, [channelId]: true }))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, t('channels.webhookConfigurationFailed'))
     } finally {
       setConfiguringWebhookIds((current) => current.filter((id) => id !== channelId))
     }
@@ -390,11 +393,10 @@ export function ChannelsWorkspace() {
       const checkedAt = health ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(health.checkedAt)) : ''
       const checking = checkingChannelIds.includes(channel.id)
       const configuringWebhook = configuringWebhookIds.includes(channel.id)
-      const webhookDate = webhookConfiguredAt[channel.id] ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(webhookConfiguredAt[channel.id])) : ''
       const connectionDate = channel.connectionUpdatedAt ? new Intl.DateTimeFormat(i18n.language === 'pt-BR' ? 'pt-BR' : 'en', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(channel.connectionUpdatedAt)) : ''
       const policyWindow = channel.businessHours.length === 0 ? t('channels.policy24Hours') : t('channels.policyDaysConfigured', { count: channel.businessHours.length })
       const hasAssistantHours = channel.assistantScheduleMode === 'business_hours' || channel.assistantScheduleMode === 'after_hours'
-      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div>{renderAssistantProfileAssignments(channel)}<IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.operationMode !== 'outbound' && <IconButton label={t('channels.scheduleExceptionsManage', { name: channel.displayName, count: channel.scheduleExceptions.length })} onClick={() => openScheduleExceptions(channel)}><CalendarClock size={16} /></IconButton>}{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}{channel.provider === 'evolution' && webhookDate && <small className="channel-health-result" role="status">{t('channels.webhookConfiguredAt', { date: webhookDate })}</small>}{webhookConfigurationErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.webhookConfigurationFailed')}</small>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{channel.provider === 'evolution' && <IconButton label={deletingId === channel.id ? t('channels.deleting') : t('channels.delete')} disabled={deletingId === channel.id || updatingId === channel.id} onClick={() => setChannelToDelete(channel)}><Trash2 size={16} /></IconButton>}{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
+      return <div className="channel-status-cell"><span className={`channel-status ${channel.isActive ? 'active' : ''}`}>{t(channel.isActive ? 'channels.active' : 'channels.disabled')}</span><span className={`channel-status ${channel.isConfigured ? 'active' : ''}`}>{t(channel.isConfigured ? 'channels.configured' : 'channels.notConfigured')}</span><div className="channel-policy-summary"><strong>{t(`channels.operationModes.${channel.operationMode}`)}</strong>{channel.operationMode !== 'outbound' && <span>{t(`channels.assistantScheduleModes.${channel.assistantScheduleMode}`)}</span>}{(channel.operationMode !== 'inbound' || hasAssistantHours) && <span>{policyWindow}</span>}</div>{renderAssistantProfileAssignments(channel)}<IconButton label={t('channels.policyConfigure', { name: channel.displayName })} onClick={() => openPolicy(channel)}><Settings2 size={16} /></IconButton>{channel.operationMode !== 'outbound' && <IconButton label={t('channels.scheduleExceptionsManage', { name: channel.displayName, count: channel.scheduleExceptions.length })} onClick={() => openScheduleExceptions(channel)}><CalendarClock size={16} /></IconButton>}{channel.provider === 'evolution' && channel.connectionStatus && <small className={`channel-health-result ${channel.connectionStatus === CHANNEL_CONNECTION_STATUS.connected ? '' : 'error'}`} role="status">{t(`channels.connection.${channel.connectionStatus}`)}{connectionDate ? ` · ${t('channels.connectionUpdatedAt', { date: connectionDate })}` : ''}</small>}<IconButton label={t('channels.viewEvents', { name: channel.displayName })} onClick={() => { setWebhookEvents(null); setWebhookEventsOffset(0); setEventsChannel(channel) }}><Activity size={16} /></IconButton>{channel.provider === 'evolution' && channel.isConfigured && <><IconButton label={t('channels.discoverInstances', { name: channel.displayName })} onClick={() => void discoverInstances(channel)}><Search size={16} /></IconButton><IconButton label={t('channels.configurePairing', { name: channel.displayName })} disabled={!channel.isActive} onClick={() => void requestEvolutionConnection(channel)}><QrCode size={16} /></IconButton><IconButton label={configuringWebhook ? t('channels.configuringWebhook') : t('channels.configureWebhook')} disabled={!channel.isActive || configuringWebhook} onClick={() => void configureEvolutionWebhook(channel.id)}><Link2 size={16} /></IconButton></>}<IconButton label={t('channels.configureCredentials')} onClick={() => openCredentialForm(channel.id)}><Settings2 size={16} /></IconButton><IconButton label={updatingId === channel.id ? t('common.saving') : channel.isActive ? t('channels.disable') : t('channels.enable')} disabled={updatingId === channel.id} onClick={() => void toggleChannel(channel)}><Power size={16} /></IconButton><IconButton label={checking ? t('channels.checkingConnection') : t('channels.checkProvider')} disabled={checking} onClick={() => void checkConnection(channel.id)}><RefreshCw size={16} /></IconButton>{channel.provider === 'evolution' && <IconButton label={deletingId === channel.id ? t('channels.deleting') : t('channels.delete')} disabled={deletingId === channel.id || updatingId === channel.id} onClick={() => setChannelToDelete(channel)}><Trash2 size={16} /></IconButton>}{health && <small className="channel-health-result" role="status">{t(`channels.health.${health.status}`)} · {t('channels.healthCheckedAt', { date: checkedAt })}</small>}{healthCheckErrors[channel.id] && <small className="channel-health-result error" role="status">{t('channels.healthCheckFailed')}</small>}</div>
     } },
   ]
   return <section className="channels-page">

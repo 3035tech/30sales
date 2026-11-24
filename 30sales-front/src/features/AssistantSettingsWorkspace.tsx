@@ -4,6 +4,7 @@ import { Bot, Pencil, Plus, RotateCcw, Save, Trash2, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
+import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAlert'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { ApiError, api, type AssistantProfileDto, type AssistantSettingsDto } from '../lib/api'
 import type { BusinessLineDto } from '../lib/api'
@@ -22,13 +23,11 @@ export function AssistantSettingsWorkspace() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [saved, setSaved] = useState(false)
   const [profiles, setProfiles] = useState<AssistantProfileDto[]>([])
   const [profileDraft, setProfileDraft] = useState<Omit<AssistantProfileDto, 'id' | 'availableModels' | 'updatedAt'> | null>(null)
   const [profileEditingId, setProfileEditingId] = useState<string | null>(null)
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState('')
-  const [profileSaved, setProfileSaved] = useState(false)
   const [profileToDelete, setProfileToDelete] = useState<AssistantProfileDto | null>(null)
 
   useEffect(() => { setBusinessLineId(searchParams.get('businessLineId')) }, [searchParams])
@@ -68,7 +67,6 @@ export function AssistantSettingsWorkspace() {
     setProfileEditingId(profile?.id ?? null)
     setProfileDraft(profile ? { businessLineId: profile.businessLineId, direction: profile.direction, name: profile.name, enabled: profile.enabled, model: profile.model, transcribeAudio: profile.transcribeAudio, systemPrompt: profile.systemPrompt } : { businessLineId: businessLineId ?? '', direction: 'inbound', name: '', enabled: false, model: settings?.model ?? 'claude-haiku-5-5', transcribeAudio: false, systemPrompt: '' })
     setProfileError('')
-    setProfileSaved(false)
   }
 
   const saveProfile = async (event: React.FormEvent) => {
@@ -76,7 +74,6 @@ export function AssistantSettingsWorkspace() {
     if (!profileDraft) return
     setProfileSaving(true)
     setProfileError('')
-    setProfileSaved(false)
     try {
       const result = profileEditingId
         ? await api.agents.updateAssistantProfile(profileEditingId, profileDraft)
@@ -84,9 +81,9 @@ export function AssistantSettingsWorkspace() {
       setProfiles((current) => [...current.filter((profile) => profile.id !== result.id), result].sort((left, right) => left.direction.localeCompare(right.direction) || left.name.localeCompare(right.name)))
       setProfileDraft(null)
       setProfileEditingId(null)
-      setProfileSaved(true)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('assistantSettings.profileSaved'))
     } catch (requestError) {
-      setProfileError(requestError instanceof ApiError && requestError.code === 'ASSISTANT_RUNTIME_NOT_CONFIGURED' ? t('assistantSettings.runtimeMissing') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_TRANSCRIPTION_NOT_CONFIGURED' ? t('assistantSettings.transcriptionMissing') : requestError instanceof ApiError && requestError.status === 409 ? t('assistantSettings.profileNameConflict') : profileDraft.enabled && profileDraft.systemPrompt.trim().length < 100 ? t('assistantSettings.promptRequired') : t('assistantSettings.profileSaveFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, requestError instanceof ApiError && requestError.code === 'ASSISTANT_RUNTIME_NOT_CONFIGURED' ? t('assistantSettings.runtimeMissing') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_TRANSCRIPTION_NOT_CONFIGURED' ? t('assistantSettings.transcriptionMissing') : requestError instanceof ApiError && requestError.status === 409 ? t('assistantSettings.profileNameConflict') : profileDraft.enabled && profileDraft.systemPrompt.trim().length < 100 ? t('assistantSettings.promptRequired') : t('assistantSettings.profileSaveFailed'))
     } finally { setProfileSaving(false) }
   }
 
@@ -99,8 +96,9 @@ export function AssistantSettingsWorkspace() {
       await api.agents.deleteAssistantProfile(profile.id)
       setProfiles((current) => current.filter((item) => item.id !== profile.id))
       if (profileEditingId === profile.id) { setProfileDraft(null); setProfileEditingId(null) }
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('assistantSettings.profileDeleted'))
     } catch (requestError) {
-      setProfileError(requestError instanceof ApiError && requestError.status === 409 ? t('assistantSettings.profileInUse') : t('assistantSettings.profileDeleteFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, requestError instanceof ApiError && requestError.status === 409 ? t('assistantSettings.profileInUse') : t('assistantSettings.profileDeleteFailed'))
     }
   }
 
@@ -108,13 +106,12 @@ export function AssistantSettingsWorkspace() {
     event.preventDefault()
     setSaving(true)
     setError('')
-    setSaved(false)
     try {
       const result = await api.agents.saveAssistantSettings({ businessLineId, enabled, model, transcribeAudio, systemPrompt })
       setSettings(result)
-      setSaved(true)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('assistantSettings.saved'))
     } catch (requestError) {
-      setError(enabled && systemPrompt.trim().length < 100 ? t('assistantSettings.promptRequired') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_TRANSCRIPTION_NOT_CONFIGURED' ? t('assistantSettings.transcriptionMissing') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_RUNTIME_NOT_CONFIGURED' ? t('assistantSettings.runtimeMissing') : t('assistantSettings.saveFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, enabled && systemPrompt.trim().length < 100 ? t('assistantSettings.promptRequired') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_TRANSCRIPTION_NOT_CONFIGURED' ? t('assistantSettings.transcriptionMissing') : requestError instanceof ApiError && requestError.code === 'ASSISTANT_RUNTIME_NOT_CONFIGURED' ? t('assistantSettings.runtimeMissing') : t('assistantSettings.saveFailed'))
     } finally { setSaving(false) }
   }
 
@@ -122,7 +119,6 @@ export function AssistantSettingsWorkspace() {
     if (!businessLineId) return
     setSaving(true)
     setError('')
-    setSaved(false)
     try {
       const result = await api.agents.resetBusinessLineSettings(businessLineId)
       setSettings(result)
@@ -130,9 +126,9 @@ export function AssistantSettingsWorkspace() {
       setModel(result.model)
       setTranscribeAudio(result.transcribeAudio)
       setSystemPrompt(result.systemPrompt)
-      setSaved(true)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('assistantSettings.saved'))
     } catch {
-      setError(t('assistantSettings.resetFailed'))
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, t('assistantSettings.resetFailed'))
     } finally {
       setSaving(false)
     }
@@ -141,20 +137,19 @@ export function AssistantSettingsWorkspace() {
   return <section className="assistant-settings-page">
     <header className="assistant-settings-heading"><div><p className="eyebrow">{t('assistantSettings.eyebrow')}</p><h2>{t('assistantSettings.title')}</h2><p className="muted">{t('assistantSettings.description')}</p></div></header>
     {loading ? <WorkspaceState kind="loading" message={t('common.loading')} /> : !settings ? <WorkspaceState kind="error" message={error || t('assistantSettings.loadFailed')} /> : <form className="assistant-settings-panel" onSubmit={save}>
-      <label className="assistant-settings-model"><span><strong>{t('assistantSettings.scope')}</strong><SelectField value={businessLineId ?? ''} onChange={(event) => { const nextLineId = event.target.value; setBusinessLineId(nextLineId || null); setSaved(false); setSearchParams((current) => { const next = new URLSearchParams(current); if (nextLineId) next.set('businessLineId', nextLineId); else next.delete('businessLineId'); return next }) }}><option value="">{t('assistantSettings.organizationDefault')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField><small>{settings.inherited ? t('assistantSettings.inherited') : t('assistantSettings.scopeHint')}</small></span></label>
-      <label className="assistant-settings-model"><Bot size={20} /><span><strong>{t('assistantSettings.model')}</strong><SelectField value={model} onChange={(event) => { setModel(event.target.value); setSaved(false) }}>{settings.availableModels.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.provider}</option>)}</SelectField><small>{t('assistantSettings.modelHint')}</small></span></label>
-      <label className="assistant-settings-toggle"><CheckboxField checked={enabled} onChange={(event) => { setEnabled(event.target.checked); setSaved(false) }} /><span><strong>{t('assistantSettings.enabled')}</strong><small>{t('assistantSettings.enabledHint')}</small></span></label>
-      <label className="assistant-settings-toggle"><CheckboxField checked={transcribeAudio} onChange={(event) => { setTranscribeAudio(event.target.checked); setSaved(false) }} /><span><strong>{t('assistantSettings.transcribeAudio')}</strong><small>{t('assistantSettings.transcribeAudioHint')}</small></span></label>
-      <label className="assistant-settings-prompt"><span><strong>{t('assistantSettings.prompt')}</strong><small>{t('assistantSettings.promptHint')}</small></span><TextareaField value={systemPrompt} onChange={(event) => { setSystemPrompt(event.target.value); setSaved(false) }} maxLength={30000} rows={16} /></label>
+      <label className="assistant-settings-model"><span><strong>{t('assistantSettings.scope')}</strong><SelectField value={businessLineId ?? ''} onChange={(event) => { const nextLineId = event.target.value; setBusinessLineId(nextLineId || null); setSearchParams((current) => { const next = new URLSearchParams(current); if (nextLineId) next.set('businessLineId', nextLineId); else next.delete('businessLineId'); return next }) }}><option value="">{t('assistantSettings.organizationDefault')}</option>{businessLines.map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField><small>{settings.inherited ? t('assistantSettings.inherited') : t('assistantSettings.scopeHint')}</small></span></label>
+      <label className="assistant-settings-model"><Bot size={20} /><span><strong>{t('assistantSettings.model')}</strong><SelectField value={model} onChange={(event) => setModel(event.target.value)}>{settings.availableModels.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.provider}</option>)}</SelectField><small>{t('assistantSettings.modelHint')}</small></span></label>
+      <label className="assistant-settings-toggle"><CheckboxField checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span><strong>{t('assistantSettings.enabled')}</strong><small>{t('assistantSettings.enabledHint')}</small></span></label>
+      <label className="assistant-settings-toggle"><CheckboxField checked={transcribeAudio} onChange={(event) => setTranscribeAudio(event.target.checked)} /><span><strong>{t('assistantSettings.transcribeAudio')}</strong><small>{t('assistantSettings.transcribeAudioHint')}</small></span></label>
+      <label className="assistant-settings-prompt"><span><strong>{t('assistantSettings.prompt')}</strong><small>{t('assistantSettings.promptHint')}</small></span><TextareaField value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} maxLength={30000} rows={16} /></label>
       <div className="assistant-settings-footer"><span>{t('assistantSettings.characters', { count: systemPrompt.length })}</span><div className="assistant-settings-actions">{businessLineId && !settings.inherited && <Button type="button" disabled={saving} onClick={resetToOrganizationDefault}><RotateCcw size={15} />{t('assistantSettings.resetToDefault')}</Button>}<Button className="primary" type="submit" disabled={saving}>{saving ? t('assistantSettings.saving') : <><Save size={15} />{t('assistantSettings.save')}</>}</Button></div></div>
-      {error && <WorkspaceState kind="error" compact message={error} />}{saved && <p className="success-message" role="status">{t('assistantSettings.saved')}</p>}
+      {error && <WorkspaceState kind="error" compact message={error} />}
       <p className="assistant-settings-runtime">{t(settings?.runtimeAvailable ? 'assistantSettings.runtimeReady' : 'assistantSettings.runtimeMissing')}</p>
       {transcribeAudio && <p className="assistant-settings-runtime">{t(settings.transcriptionAvailable ? 'assistantSettings.transcriptionReady' : 'assistantSettings.transcriptionMissing')}</p>}
     </form>}
     {businessLineId && <section className="assistant-profile-panel">
       <header><div><h3>{t('assistantSettings.profilesTitle')}</h3><p>{t('assistantSettings.profilesDescription')}</p></div><Button type="button" className="primary" onClick={() => startProfile()}><Plus size={16} />{t('assistantSettings.newProfile')}</Button></header>
       {profileError && <WorkspaceState kind="error" compact message={profileError} />}
-      {profileSaved && <p className="success-message" role="status">{t('assistantSettings.profileSaved')}</p>}
       {profiles.length === 0 && !profileDraft && <p className="assistant-profile-empty">{t('assistantSettings.profilesEmpty')}</p>}
       <div className="assistant-profile-list">{profiles.map((profile) => <article className="assistant-profile-card" key={profile.id}><div><strong>{profile.name}</strong><span>{t(`assistantSettings.${profile.direction}`)} · {profile.enabled ? t('assistantSettings.enabled') : t('assistantSettings.disabled')}</span></div><div className="assistant-profile-actions"><IconButton label={t('assistantSettings.editProfile', { name: profile.name })} onClick={() => startProfile(profile)}><Pencil size={15} /></IconButton><IconButton label={t('assistantSettings.deleteProfile', { name: profile.name })} onClick={() => setProfileToDelete(profile)}><Trash2 size={15} /></IconButton></div></article>)}</div>
       {profileDraft && <form className="assistant-profile-editor" onSubmit={(event) => void saveProfile(event)}>

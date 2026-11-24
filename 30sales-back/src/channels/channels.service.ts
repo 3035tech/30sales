@@ -46,26 +46,30 @@ export class ChannelsService {
     if (result === 'profile_mismatch') throw new BadRequestException({ code: 'ASSISTANT_PROFILE_CHANNEL_MISMATCH', message: 'Assistant profiles must match the channel business line and direction.' });
     return result;
   }
-  async delete(request: ApiRequestDto, channelId: string): Promise<{ deleted: true; historyPreserved: true }> {
+  async delete(request: ApiRequestDto, channelId: string): Promise<{ deleted: true; historyPreserved: true; remoteInstanceDeleted: boolean }> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');
     const canManageAllLines = hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES);
     await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
     const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (target.provider !== CHANNEL_PROVIDER.evolution) throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can currently be removed from the provider through this action.' });
-    const configuration = await this.repository.platformEvolutionCredentials();
-    if (!configuration) throw new ConflictException({ code: 'PLATFORM_EVOLUTION_NOT_CONFIGURED', message: 'Evolution access is unavailable. The channel remains registered in 30Sales.' });
-    let credentials: { baseUrl: string; apiKey: string };
+    let remoteInstanceDeleted = false;
     try {
-      const secrets = platformEvolutionSecretsSchema.parse(JSON.parse(this.credentialCrypto.decryptPayload('platform', 'evolution', configuration)) as unknown);
-      credentials = { baseUrl: configuration.baseUrl, apiKey: secrets.apiKey };
-    } catch { throw new ConflictException({ code: 'PLATFORM_EVOLUTION_CONFIGURATION_INVALID', message: 'Evolution access could not be confirmed. The channel remains registered in 30Sales.' }); }
-    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
-    await this.evolutionConnection.delete(target.providerChannelId, credentials);
-    const deleted = await this.repository.softDelete(new ChannelRepositoryDeleteDto(context.organizationId, channelId, context.userId, canManageAllLines, request.correlationId));
+      const configuration = await this.repository.platformEvolutionCredentials();
+      if (configuration) {
+        const secrets = platformEvolutionSecretsSchema.parse(JSON.parse(this.credentialCrypto.decryptPayload('platform', 'evolution', configuration)) as unknown);
+        const credentials = { baseUrl: configuration.baseUrl, apiKey: secrets.apiKey };
+        await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+        await this.evolutionConnection.delete(target.providerChannelId, credentials);
+        remoteInstanceDeleted = true;
+      }
+    } catch {
+      // A provider failure must not trap an invalid or unpaired local channel.
+    }
+    const deleted = await this.repository.softDelete(new ChannelRepositoryDeleteDto(context.organizationId, channelId, context.userId, canManageAllLines, remoteInstanceDeleted, request.correlationId));
     if (deleted === false) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel could not be archived after provider removal.' });
     if (deleted === 'provider_mismatch') throw new BadRequestException({ code: 'CHANNEL_DELETE_PROVIDER_UNSUPPORTED', message: 'Only Evolution channels can be removed through this action.' });
-    return { deleted: true, historyPreserved: true };
+    return { deleted: true, historyPreserved: true, remoteInstanceDeleted };
   }
   async saveScheduleException(request: ApiRequestDto, channelId: string, input: ChannelScheduleExceptionInputDto): Promise<ChannelScheduleExceptionDto[]> {
     const context = await this.tenantAccess.require(request, 'manage', 'integrations');

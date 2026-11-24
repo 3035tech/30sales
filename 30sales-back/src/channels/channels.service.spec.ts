@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ORGANIZATION_ROLE } from '../auth/authorization.constants';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -12,6 +12,7 @@ import { ChannelsService } from './channels.service';
 import { EvolutionConnectionProvider } from './evolution-connection.provider';
 import { EvolutionInstanceDiscoveryProvider } from './evolution-instance-discovery.provider';
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
+import { ChannelHealthCheckTargetDto } from './channels.dto';
 
 jest.mock('../leads/tenant-access.service', () => ({ TenantAccessService: class TenantAccessService {} }));
 jest.mock('./channels.repository', () => ({ ChannelsRepository: class ChannelsRepository {} }));
@@ -42,14 +43,17 @@ describe('ChannelsService', () => {
           useValue: {
             canAccessChannel: jest.fn(),
             update: jest.fn(),
+            healthCheckTarget: jest.fn(),
+            platformEvolutionCredentials: jest.fn(),
+            softDelete: jest.fn(),
           },
         },
-        { provide: ChannelCredentialCryptoService, useValue: {} },
+        { provide: ChannelCredentialCryptoService, useValue: { decryptPayload: jest.fn() } },
         { provide: ChannelCredentialResolverService, useValue: {} },
         { provide: ChannelConnectionHealthProvider, useValue: {} },
         { provide: EvolutionInstanceDiscoveryProvider, useValue: {} },
         { provide: EvolutionWebhookConfigurationProvider, useValue: {} },
-        { provide: EvolutionConnectionProvider, useValue: {} },
+        { provide: EvolutionConnectionProvider, useValue: { delete: jest.fn() } },
       ],
     }).compile();
 
@@ -66,5 +70,22 @@ describe('ChannelsService', () => {
 
     expect(repository.canAccessChannel).toHaveBeenCalledWith(organizationId, channelId, userId, false);
     expect(repository.update).not.toHaveBeenCalled();
+  });
+
+  it('archives the local channel when Evolution rejects provider deletion', async () => {
+    tenantAccess.require.mockResolvedValue(new TenantContextDto(userId, organizationId, ORGANIZATION_ROLE.owner));
+    repository.canAccessChannel.mockResolvedValue(true);
+    repository.healthCheckTarget.mockResolvedValue(new ChannelHealthCheckTargetDto(channelId, 'evolution', 'unpaired-instance', true, null));
+    repository.platformEvolutionCredentials.mockResolvedValue({ baseUrl: 'https://evolution.example.com', ciphertext: 'encrypted', iv: 'iv', authTag: 'tag' });
+    const crypto = service['credentialCrypto'] as jest.Mocked<ChannelCredentialCryptoService>;
+    crypto.decryptPayload.mockReturnValue(JSON.stringify({ apiKey: 'invalid-key' }));
+    const evolutionConnection = service['evolutionConnection'] as jest.Mocked<EvolutionConnectionProvider>;
+    evolutionConnection.delete.mockRejectedValue(new ServiceUnavailableException());
+    repository.softDelete.mockResolvedValue(true);
+
+    await expect(service.delete(request, channelId)).resolves.toEqual({ deleted: true, historyPreserved: true, remoteInstanceDeleted: false });
+    expect(evolutionConnection.delete).toHaveBeenCalled();
+    expect(repository.softDelete).toHaveBeenCalled();
+    expect(repository.softDelete.mock.calls[0]?.[0].remoteInstanceDeleted).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { ChannelsService } from '../channels/channels.service';
@@ -21,7 +21,16 @@ export class WebhooksService {
   private readonly evolutionEnvelopeAdapter = new EvolutionWebhookEnvelopeAdapter();
   private readonly metaEnvelopeAdapter = new MetaCloudWebhookEnvelopeAdapter();
 
-  constructor(private readonly repository: WebhooksRepository, private readonly credentialCrypto: ChannelCredentialCryptoService, private readonly credentialResolver: ChannelCredentialResolverService, private readonly channelsService: ChannelsService, private readonly evolutionStatusAdapter = new EvolutionMessageStatusWebhookAdapter(), private readonly metaStatusAdapter = new MetaCloudMessageStatusWebhookAdapter(), private readonly evolutionMessageAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto), private readonly metaMessageAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto)) {}
+  constructor(
+    private readonly repository: WebhooksRepository,
+    private readonly credentialCrypto: ChannelCredentialCryptoService,
+    private readonly credentialResolver: ChannelCredentialResolverService,
+    private readonly channelsService: ChannelsService,
+    @Inject(EvolutionMessageStatusWebhookAdapter) private readonly evolutionStatusAdapter: EvolutionMessageStatusWebhookAdapter = new EvolutionMessageStatusWebhookAdapter(),
+    @Inject(MetaCloudMessageStatusWebhookAdapter) private readonly metaStatusAdapter: MetaCloudMessageStatusWebhookAdapter = new MetaCloudMessageStatusWebhookAdapter(),
+    @Inject(EvolutionIncomingMessageWebhookAdapter) private readonly evolutionMessageAdapter: EvolutionIncomingMessageWebhookAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto),
+    @Inject(MetaCloudIncomingMessageWebhookAdapter) private readonly metaMessageAdapter: MetaCloudIncomingMessageWebhookAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto),
+  ) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
     return this.metaEnvelopeAdapter.verifyChallenge(mode, token, challenge, env.META_WEBHOOK_VERIFY_TOKEN);

@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "provider_metadata" jsonb;

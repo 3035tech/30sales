@@ -29,6 +29,7 @@
 .inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
 .inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.inbox-message-quote { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--primary, #245b9a); color: var(--muted, #6f7785); background: rgba(36,91,154,.06); font-size: var(--font-size-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-message a { color:#245b9a; text-decoration:underline; overflow-wrap:anywhere; }
 .inbox-tag-manager { display:grid; gap:7px; padding:10px 18px; border-bottom:1px solid var(--line,#e7e9ed); color:#475569; font-size:var(--font-size-sm); }
 .inbox-tag-manager>div:last-child { display:flex; gap:7px; }

@@ -50,7 +50,7 @@ export class WebhooksRepository {
       const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, input.provider), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
       if (!conversation) return 'unmatched';
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, deliveryState: 'received', occurredAt: input.occurredAt })
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId: conversation.id, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (!message) return 'duplicate';
       if (input.media) await transaction.insert(messageAttachments).values({ organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: input.provider, mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext, sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType, fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256 });
@@ -289,7 +289,7 @@ export class WebhooksRepository {
         opportunityId = lead?.opportunityId ?? null;
       }
 
-      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, deliveryState: 'received', occurredAt: input.occurredAt })
+      const [message] = await transaction.insert(messages).values({ organizationId: input.organizationId, conversationId, externalMessageId: input.externalMessageId, direction: 'inbound', actorType: 'contact', bodyText: input.bodyText, providerMetadata: input.evolutionMetadata ? { evolution: input.evolutionMetadata } : undefined, deliveryState: 'received', occurredAt: input.occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (message) {
         if (input.media) await transaction.insert(messageAttachments).values({

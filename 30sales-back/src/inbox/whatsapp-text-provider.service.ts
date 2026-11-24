@@ -38,7 +38,7 @@ export class WhatsappTextProviderService {
   }
 
   private createBody(input: { provider: 'evolution' | 'whatsapp_cloud_api'; recipientPhone: string; bodyText: string; credentials: ChannelCredentialsDto }): unknown {
-    if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return { number: input.recipientPhone, textMessage: { text: input.bodyText } };
+    if (input.provider === 'evolution' && input.credentials.provider === 'evolution') return { number: input.recipientPhone, text: input.bodyText };
     if (input.provider === 'whatsapp_cloud_api' && input.credentials.provider === 'whatsapp_cloud_api') return { messaging_product: 'whatsapp', recipient_type: 'individual', to: input.recipientPhone, type: 'text', text: { body: input.bodyText, preview_url: false } };
     throw new Error('Channel provider configuration does not match its credential type.');
   }

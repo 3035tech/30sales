@@ -41,6 +41,12 @@ export const assistantRunOperation = pgEnum('assistant_run_operation', ASSISTANT
 export const assistantDeliveryOutcome = pgEnum('assistant_delivery_outcome', ASSISTANT_DELIVERY_OUTCOME_VALUES);
 export const businessLineStatus = pgEnum('business_line_status', BUSINESS_LINE_STATUSES);
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+export type MessageProviderMetadata = {
+  evolution?: {
+    reaction?: { targetExternalMessageId: string; emoji: string } | null;
+    quotedMessage?: { externalMessageId: string | null; bodyText: string | null } | null;
+  } | null;
+};
 
 export const accountSegments = pgTable('account_segments', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
@@ -677,6 +683,7 @@ export const messages = pgTable('messages', {
   actorType: messageActorType('actor_type').notNull(),
   actorUserId: uuid('actor_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   bodyText: text('body_text'),
+  providerMetadata: jsonb('provider_metadata').$type<MessageProviderMetadata>(),
   transcriptText: text('transcript_text'),
   isDeleted: boolean('is_deleted').default(false).notNull(),
   deliveryState: messageDeliveryState('delivery_state').default('unknown').notNull(),

@@ -1,5 +1,13 @@
 # Contexto de continuidade — 30Sales
 
+## Continuação — envio de texto e metadata Evolution — 24/11/2026
+
+- Captura do Inbox mostrou recusa do provider após a preparação local do envio. O adapter Evolution enviava `textMessage: { text }`; o DTO oficial de `sendText` espera `number` e `text`. Corrigido o payload para `{ number, text }`, sem envio real para validar.
+- Nova fatia local: mensagens Evolution inbound agora extraem metadata tipada para reação (ID da mensagem alvo + emoji) e resposta citada (ID + trecho textual limitado a 2.000 caracteres). Metadata é persistida em `messages.provider_metadata`, incluída no contrato/API e apresentada na timeline com texto citado localizado em pt-BR/en. Sem guardar o payload bruto do provider.
+- Migration aditiva `0080_evolution_message_metadata.sql` gerada; não aplicada. Rollback seguro removendo a coluna nova; rollback de código deixa coluna nula sem afetar leitores antigos. Payloads `MESSAGES_SET` previamente enfileirados seguem válidos via metadata opcional/default nulo.
+- Builds Nest e Vite e `drizzle-kit check` passaram; `git diff --check` passou. Testes automatizados não executados. Mudanças locais, sem commit, push, migration compartilhada ou deploy.
+- Próximo: suporte a grupos/JID e presença; ampliar tipos ricos do Inbox; validar payload `MESSAGES_SET` com evento redigido/seguro da instância 2.3.7. Aplicar migrations `0079` e `0080` somente pelo rollout autorizado.
+
 ## Continuação — estado de chats Evolution — 24/11/2026
 
 - Conversas diretas já existentes sincronizam `archived`, `pinned`, `unreadCount` e remoção via `CHATS_SET/UPSERT/UPDATE/DELETE`. O estado técnico do provider não substitui status comercial nem leitura por usuário; a exclusão remota preserva conversa/mensagens. Chats sem conversa correspondente e grupos permanecem no ledger. A versão Evolution 2.3.7 usada pelo ambiente tem issue upstream que descarta `archived`/`unreadCount` antes do webhook; o receptor é best-effort e não consegue recuperar campos que o provider não envia.

@@ -6,7 +6,7 @@ import { ChannelsService } from '../channels/channels.service';
 import { CHANNEL_CONNECTION_STATUS } from '../channels/channels.constants';
 import type { ChannelConnectionStatus } from '../channels/channels.dto';
 import { env } from '../config/env';
-import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
+import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type InterpretationFailureSignalInputDto, type InboundMediaType, type MessageDeliveryState, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
 import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_EXTERNAL_RECORD_TYPE, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
@@ -102,6 +102,7 @@ export class WebhooksService {
         parsed.data.externalConversationId, parsed.data.senderPhone, parsed.data.senderExternalId, parsed.data.senderName,
         parsed.data.messageType, parsed.data.closerSignal, parsed.data.bodyText, parsed.data.occurredAt, parsed.data.payloadHash,
         parsed.data.media ? new InboundMediaDto(parsed.data.media.mediaType, parsed.data.media.sourceMediaId, parsed.data.media.sourceCiphertext, parsed.data.media.sourceIv, parsed.data.media.sourceAuthTag, parsed.data.media.mimeType, parsed.data.media.fileName, parsed.data.media.sizeBytes, parsed.data.media.sha256) : null,
+        parsed.data.evolutionMetadata,
       ));
       if (result === 'created') processed += 1;
     }
@@ -378,12 +379,15 @@ export class WebhooksService {
     const messageContent = this.unwrapEvolutionMessage(this.record(data.message));
     const rawMessageType = this.string(data.messageType) ?? this.inferEvolutionMessageType(messageContent);
     const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
-    const bodyText = this.extractEvolutionText(messageContent)?.slice(0, 16000) ?? null;
+    const reaction = this.extractEvolutionReaction(messageContent);
+    const quotedMessage = this.extractEvolutionQuotedMessage(messageContent);
+    const bodyText = (reaction?.emoji ?? this.extractEvolutionText(messageContent))?.slice(0, 16000) ?? null;
+    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || quotedMessage ? { reaction, quotedMessage } : null;
     const mediaType = this.asMediaType(rawMessageType);
     const mediaContent = mediaType ? this.record(messageContent[`${mediaType}Message`]) : {};
     const media = mediaType ? this.createMedia(channelId, organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), mediaContent) : null;
     const occurredAt = this.toDate(data.messageTimestamp);
-    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, null, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media);
+    return new IncomingWhatsappMessageDto(organizationId, channelId, 'evolution', externalMessageId, `${channelId}:${senderPhone}`, senderPhone, null, this.string(data.pushName), messageType, this.classifyCloserSignal(bodyText), bodyText, occurredAt, payloadHash, media, evolutionMetadata);
   }
 
   private normalizeCloudMessage(channelId: string, organizationId: string, value: unknown, contacts: JsonRecord[], payloadHash: string): IncomingWhatsappMessageDto | null {
@@ -480,6 +484,27 @@ export class WebhooksService {
     }
     const listReply = this.record(this.record(message.listResponseMessage).singleSelectReply);
     return this.string(listReply.title) ?? this.string(this.record(message.listResponseMessage).title);
+  }
+
+  private extractEvolutionReaction(message: JsonRecord): { targetExternalMessageId: string; emoji: string } | null {
+    const reaction = this.record(message.reactionMessage);
+    const targetExternalMessageId = this.string(this.record(reaction.key).id);
+    const emoji = this.string(reaction.text)?.trim();
+    return targetExternalMessageId && targetExternalMessageId.length <= 250 && emoji && [...emoji].length <= 32
+      ? { targetExternalMessageId, emoji }
+      : null;
+  }
+
+  private extractEvolutionQuotedMessage(message: JsonRecord): { externalMessageId: string | null; bodyText: string | null } | null {
+    const contentKeys = ['extendedTextMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage', 'buttonsResponseMessage', 'listResponseMessage', 'templateButtonReplyMessage'];
+    const messageContext = contentKeys.map((key) => this.record(this.record(message[key]).contextInfo)).find((context) => Object.keys(this.record(context.quotedMessage)).length > 0)
+      ?? this.record(message.contextInfo);
+    const quoted = this.record(messageContext.quotedMessage);
+    if (!Object.keys(quoted).length) return null;
+    const externalMessageId = this.string(messageContext.stanzaId);
+    const bodyText = this.extractEvolutionText(quoted)?.trim().slice(0, 2000) ?? null;
+    if (!externalMessageId && !bodyText) return null;
+    return { externalMessageId: externalMessageId && externalMessageId.length <= 250 ? externalMessageId : null, bodyText };
   }
 
   private extractCloudText(message: JsonRecord, type: string): string | null {

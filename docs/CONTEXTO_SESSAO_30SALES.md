@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Continuação — presença Evolution no Inbox — 24/11/2026
+
+- Eventos `PRESENCE_UPDATE` reconhecem `composing` e `recording` para conversas Evolution existentes. O backend publica um evento SSE efêmero; a interface mostra “Digitando…”/“Gravando áudio…” e limpa após 10 segundos ou ao trocar de conversa.
+- A busca sempre inclui organização, canal e identificador externo; JIDs `@lid` sem correspondência telefônica segura são ignorados. Não cria conversa nem persiste presença. Cada entrega SSE revalida membership e acesso à linha. Limitado a 20 participantes por evento de grupo.
+- Builds de produção Nest e Vite passaram; `git diff --check` passou. Não foram executados testes automatizados nem validado webhook real da Evolution. Sem migration ou deploy.
+
 ## Continuação — conversas de grupo e enquetes Evolution no Inbox — 24/11/2026
 
 - A timeline reconhece `pollCreationMessage`, V2 e V3, extraindo pergunta e até 20 opções para metadata estruturada já compatível com `messages.provider_metadata`. Não interpreta votos criptografados; renderiza opções na conversa.

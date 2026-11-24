@@ -17,6 +17,7 @@ const INBOX_MEDIA_LIMIT_BYTES = 16 * 1024 * 1024
 const INBOX_FILE_ACCEPT = 'image/jpeg,image/png,image/webp,video/mp4,video/3gpp,application/pdf'
 const INBOX_AUDIO_ACCEPT = 'audio/mpeg,audio/aac,audio/ogg,audio/amr,audio/mp4,audio/wav'
 const inboxStreamUpdateSchema = z.object({ conversationId: z.string().uuid() }).passthrough()
+const inboxPresenceEventSchema = z.object({ conversationId: z.string().uuid(), state: z.enum(['composing', 'recording', 'paused', 'available', 'unavailable']) }).passthrough()
 const messageUrlPattern = /(https?:\/\/[^\s<>"']+)/gi
 
 function InboxMessageBody({ text }: { text: string }) {
@@ -42,6 +43,13 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
+  const [presenceState, setPresenceState] = useState<'composing' | 'recording' | null>(null)
+  const presenceTimerRef = useRef<number | null>(null)
+  useEffect(() => {
+    setPresenceState(null)
+    if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current)
+    presenceTimerRef.current = null
+  }, [selectedId])
   const [messages, setMessages] = useState<MessageDto[]>([])
   const [messagesConversationId, setMessagesConversationId] = useState('')
   const [messageDraft, setMessageDraft] = useState('')
@@ -228,12 +236,25 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         refreshOnConnect()
       })
       stream.addEventListener('conversation.updated', refreshOnConversationUpdate)
+      stream.addEventListener('conversation.presence', (event) => {
+        try {
+          if (!(event instanceof MessageEvent) || typeof event.data !== 'string') return
+          const parsed: unknown = JSON.parse(event.data)
+          const presence = inboxPresenceEventSchema.safeParse(parsed)
+          if (!presence.success || presence.data.conversationId !== selectedIdRef.current) return
+          if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current)
+          const nextState = presence.data.state === 'composing' || presence.data.state === 'recording' ? presence.data.state : null
+          setPresenceState(nextState)
+          if (nextState) presenceTimerRef.current = window.setTimeout(() => setPresenceState(null), 10000)
+        } catch { /* Ignore malformed transient presence data. */ }
+      })
       stream.addEventListener('error', startFallbackRefresh)
     }).catch(startFallbackRefresh)
     return () => {
       active = false
       stream?.close()
       stopFallbackRefresh()
+      if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current)
       document.removeEventListener('visibilitychange', refreshOnReturn)
     }
   }, [])
@@ -406,7 +427,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     <div className="inbox-layout">
       <aside id="inbox-contact-context" className="inbox-contact-panel" aria-label={t('inbox.leadDetails')}>
         {!selected ? <WorkspaceState kind="empty" compact message={t('inbox.selectConversation')} /> : <>
-          <div className="inbox-contact-identity"><span><UserRound size={21} /></span><div><h3>{selected.conversationType === 'group' ? selected.displayName ?? t('inbox.groupConversation') : selected.personName ?? t('inbox.unknownContact')}</h3><p>{selected.conversationType === 'group' ? t('inbox.groupConversation') : selected.accountName ?? t('inbox.noCompany')}</p></div></div>
+          <div className="inbox-contact-identity"><span><UserRound size={21} /></span><div><h3>{selected.conversationType === 'group' ? selected.displayName ?? t('inbox.groupConversation') : selected.personName ?? t('inbox.unknownContact')}</h3><p>{presenceState === 'composing' ? t('inbox.presenceTyping') : presenceState === 'recording' ? t('inbox.presenceRecording') : selected.conversationType === 'group' ? t('inbox.groupConversation') : selected.accountName ?? t('inbox.noCompany')}</p></div></div>
           <section className="inbox-contact-section"><h4>{t('inbox.contactDetails')}</h4><dl>
             <div><dt><Mail size={14} />{t('inbox.email')}</dt><dd>{selected.personEmail ?? '—'}</dd></div>
             <div><dt><Phone size={14} />{t('inbox.phone')}</dt><dd>{selected.personPhone ?? '—'}</dd></div>

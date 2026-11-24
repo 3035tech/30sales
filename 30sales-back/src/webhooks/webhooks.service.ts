@@ -80,6 +80,8 @@ export class WebhooksService {
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpsert || eventName === EVOLUTION_WEBHOOK_EVENT.groupsUpdate || eventName === EVOLUTION_WEBHOOK_EVENT.groupUpdate) {
         const group = this.normalizeEvolutionGroupMetadata(channel.id, channel.organizationId, eventName, item, payloadHash);
         if (group && await this.repository.recordEvolutionGroupMetadata(group) === 'updated') processed += 1;
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.presenceUpdate) {
+        processed += await this.publishEvolutionPresence(channel.id, channel.organizationId, item);
       } else {
         const safeEventName = eventName.replace(/[^a-z0-9._-]/g, '_').slice(0, 120);
         const normalizedEventName = this.isKnownEvolutionEvent(safeEventName) ? safeEventName : `unknown.${safeEventName || 'event'}`;
@@ -90,6 +92,26 @@ export class WebhooksService {
       }
     }
     return { accepted: true, processed };
+  }
+
+  private async publishEvolutionPresence(channelId: string, organizationId: string, value: unknown): Promise<number> {
+    const data = this.record(value);
+    const rawId = this.string(data.id);
+    if (!rawId || rawId.length > 250 || rawId === 'status@broadcast') return 0;
+    const isGroup = rawId.endsWith('@g.us');
+    const digits = this.phoneDigits(rawId.split('@')[0].split(':')[0]);
+    const externalConversationId = `${channelId}:${isGroup ? rawId : digits}`;
+    if (!isGroup && !this.isValidPhone(digits)) return 0;
+    const presences = this.record(data.presences);
+    let processed = 0;
+    for (const [participant, rawPresence] of Object.entries(presences).slice(0, 20)) {
+      if (participant.length > 250) continue;
+      const state = this.string(this.record(rawPresence).lastKnownPresence)?.toLowerCase();
+      if (state !== 'composing' && state !== 'recording' && state !== 'paused' && state !== 'available' && state !== 'unavailable') continue;
+      const participantId = isGroup ? participant.slice(0, 250) : null;
+      if (await this.repository.publishEvolutionPresence({ organizationId, channelId, externalConversationId, state, participantId })) processed += 1;
+    }
+    return processed;
   }
 
   async processEvolutionHistoryBatch(batch: EvolutionHistoryBatchDto): Promise<number> {

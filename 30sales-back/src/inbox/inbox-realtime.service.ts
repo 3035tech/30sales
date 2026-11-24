@@ -9,6 +9,7 @@ import { z } from 'zod';
 const channelName = 'sales_inbox_updates';
 const listenerHeartbeatIntervalMs = 60_000;
 const inboxUpdateSchema = z.object({ organizationId: z.string().uuid(), conversationId: z.string().uuid(), occurredAt: z.string().datetime() }).strict();
+const inboxPresenceSchema = z.object({ type: z.literal('presence'), organizationId: z.string().uuid(), conversationId: z.string().uuid(), state: z.enum(['composing', 'recording', 'paused', 'available', 'unavailable']), participantId: z.string().max(250).nullable(), occurredAt: z.string().datetime() }).strict();
 type InboxUpdate = z.infer<typeof inboxUpdateSchema>;
 type InboxSubscriber = { readonly subject: Subject<MessageEvent>; readonly userId: string };
 
@@ -116,10 +117,27 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
     if (channel !== channelName || !payload) return;
     try {
       const parsed: unknown = JSON.parse(payload);
+      const presence = inboxPresenceSchema.safeParse(parsed);
+      if (presence.success) {
+        void this.broadcastPresence(presence.data);
+        return;
+      }
       const result = inboxUpdateSchema.safeParse(parsed);
       if (!result.success) return;
       void this.broadcastUpdate(result.data);
     } catch { return }
+  }
+
+  private async broadcastPresence(update: z.infer<typeof inboxPresenceSchema>): Promise<void> {
+    try {
+      const subscribers = this.subscribers.get(update.organizationId) ?? [];
+      await Promise.all([...subscribers].map(async (subscriber) => {
+        if (!await this.repository.canAccessConversationLine(update.organizationId, update.conversationId, subscriber.userId)) return;
+        subscriber.subject.next({ type: 'conversation.presence', data: update });
+      }));
+    } catch (error) {
+      this.logger.warn(`Could not route inbox presence: ${error instanceof Error ? error.message : 'unknown error'}`);
+    }
   }
 
   private async broadcastUpdate(update: InboxUpdate): Promise<void> {

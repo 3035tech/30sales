@@ -15,6 +15,14 @@ type OutboundMessageStatusTarget = { id: string; conversationId: string; deliver
 
 @Injectable()
 export class WebhooksRepository {
+  async publishEvolutionPresence(input: { organizationId: string; channelId: string; externalConversationId: string; state: 'composing' | 'recording' | 'paused' | 'available' | 'unavailable'; participantId: string | null }): Promise<boolean> {
+    const [conversation] = await database.select({ id: conversations.id }).from(conversations)
+      .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).limit(1);
+    if (!conversation) return false;
+    await database.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ type: 'presence', organizationId: input.organizationId, conversationId: conversation.id, state: input.state, participantId: input.participantId, occurredAt: new Date().toISOString() })})`);
+    return true;
+  }
+
   async enqueueEvolutionHistoryBatch(input: { organizationId: string; channelId: string; externalEventId: string; payloadCiphertext: string; payloadIv: string; payloadAuthTag: string }): Promise<boolean> {
     const [batch] = await database.insert(evolutionHistoryBatches).values(input).onConflictDoNothing({ target: [evolutionHistoryBatches.organizationId, evolutionHistoryBatches.externalEventId] }).returning({ id: evolutionHistoryBatches.id });
     return Boolean(batch);

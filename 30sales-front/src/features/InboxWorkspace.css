@@ -254,6 +254,16 @@
 .inbox-conversation.unread .inbox-conversation-topline strong { font-weight:750; }
 .inbox-conversation.unread .inbox-conversation-preview { color:#334155; font-weight:600; }
 
+.inbox-page,.inbox-layout,.inbox-thread,.inbox-thread-heading { min-width:0; }
+.inbox-layout { max-width:100%; }
+@media (max-width:1400px) {
+  .inbox-page:not(.inbox-context-collapsed) .inbox-layout { height:auto; grid-template-columns:minmax(230px,.8fr) minmax(0,1.2fr); grid-template-rows:minmax(560px,auto) auto; grid-template-areas:"conversations thread" "contact contact"; }
+  .inbox-page:not(.inbox-context-collapsed) .inbox-contact-panel { position:static; grid-area:contact; width:auto; height:auto; max-height:460px; box-shadow:none; border:0; border-top:1px solid var(--line,#e7e9ed); }
+}
+@media (max-width:760px) {
+  .inbox-page:not(.inbox-context-collapsed) .inbox-layout { grid-template-columns:minmax(0,1fr); grid-template-rows:360px minmax(620px,auto) auto; grid-template-areas:"conversations" "thread" "contact"; }
+}
+
 .inbox-rich-card { display:grid; gap:0; min-width:min(300px,100%); max-width:440px; overflow:hidden; border:1px solid rgba(15,23,42,.12); border-radius:12px; background:#fff; }
 .inbox-rich-card>strong { padding:12px 14px 0; }
 .inbox-rich-card>p { margin:0; padding:12px 14px 16px; white-space:pre-wrap; }
@@ -287,3 +297,4 @@
 .inbox-inline-image-tools>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-rich-card-action { display:flex; align-items:center; justify-content:center; min-height:44px; padding:8px 12px; border-top:1px solid var(--line,#e7e9ed); color:#16834f; font-weight:600; text-decoration:none !important; }
 .inbox-rich-card-action:hover { background:#f2fbf6; }
+.inbox-audio-recording{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:12px;padding:9px 12px;border:1px solid #fecaca;border-radius:9px;background:#fff7f7;color:#475569}.inbox-audio-recording-live{display:inline-flex;align-items:center;gap:7px;color:#b42318;font-size:var(--font-size-sm);font-weight:650;white-space:nowrap}.inbox-audio-recording-live i{width:8px;height:8px;border-radius:50%;background:#dc2626;animation:inbox-audio-recording-pulse 1.2s ease-in-out infinite}.inbox-audio-recording .inbox-audio-waveform{gap:3px}.inbox-audio-recording .inbox-audio-waveform span{background:#d85d5d;transition:height .1s linear}.inbox-audio-recording time{color:#475569;font-size:var(--font-size-sm);font-variant-numeric:tabular-nums}.inbox-composer .inbox-composer-tools .inbox-media-action.is-recording{border-color:#f0b7b7;background:#fff4f4;color:#b42318}@keyframes inbox-audio-recording-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.inbox-audio-recording-live i{animation:none}}

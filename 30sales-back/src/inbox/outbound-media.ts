@@ -6,6 +6,7 @@ import { OUTBOUND_MEDIA_ERROR, OUTBOUND_MEDIA_LIMIT_BYTES, OUTBOUND_MEDIA_MIME_T
 export type IncomingMediaFile = { readonly originalname: string; readonly mimetype: string; readonly size: number; readonly buffer: Buffer };
 export type PreparedOutboundMedia = { readonly metadata: OutboundMediaInputDto; readonly content: Buffer };
 type MediaType = typeof OUTBOUND_MEDIA_TYPE[keyof typeof OUTBOUND_MEDIA_TYPE];
+const WEBM_AUDIO_CONTAINER_SIGNATURE = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
 
 const mediaTypeByMime: Readonly<Record<string, MediaType>> = {
   [OUTBOUND_MEDIA_MIME_TYPE.jpeg]: OUTBOUND_MEDIA_TYPE.image,
@@ -20,6 +21,7 @@ const mediaTypeByMime: Readonly<Record<string, MediaType>> = {
   [OUTBOUND_MEDIA_MIME_TYPE.amrAudio]: OUTBOUND_MEDIA_TYPE.audio,
   [OUTBOUND_MEDIA_MIME_TYPE.mp4Audio]: OUTBOUND_MEDIA_TYPE.audio,
   [OUTBOUND_MEDIA_MIME_TYPE.wavAudio]: OUTBOUND_MEDIA_TYPE.audio,
+  [OUTBOUND_MEDIA_MIME_TYPE.webmAudio]: OUTBOUND_MEDIA_TYPE.audio,
 };
 
 export function prepareOutboundMedia(file: IncomingMediaFile | undefined): PreparedOutboundMedia {
@@ -42,6 +44,7 @@ function hasExpectedSignature(mimeType: string, content: Buffer): boolean {
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.pdf) return prefix.toString('ascii', 0, 5) === '%PDF-';
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.oggAudio) return prefix.toString('ascii', 0, 4) === 'OggS' && content.includes(Buffer.from('OpusHead'));
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.wavAudio) return prefix.toString('ascii', 0, 4) === 'RIFF' && prefix.toString('ascii', 8, 12) === 'WAVE';
+  if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.webmAudio) return prefix.subarray(0, WEBM_AUDIO_CONTAINER_SIGNATURE.byteLength).equals(WEBM_AUDIO_CONTAINER_SIGNATURE);
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.amrAudio) return prefix.toString('ascii', 0, 6) === '#!AMR\n';
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.mpegAudio) return prefix.toString('ascii', 0, 3) === 'ID3' || (prefix[0] === 0xff && ((prefix[1] ?? 0) & 0xe0) === 0xe0);
   if (mimeType === OUTBOUND_MEDIA_MIME_TYPE.aacAudio) return prefix[0] === 0xff && (((prefix[1] ?? 0) & 0xf6) === 0xf0);

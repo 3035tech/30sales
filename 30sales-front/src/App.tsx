@@ -517,9 +517,8 @@ export default function App() {
           <span className="avatar small">{current?.user.name.slice(0, 1) ?? 'S'}</span>
         </div>
       </header>
-      {current.platformOrganizationContext && activeOrganization && <div className="platform-context-banner" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{t('platform.contextBanner', { company: activeOrganization.name })}</span><Button type="button" onClick={returnToPlatformConsole}>{t('platform.returnToCompanies')}<ArrowRight size={14} aria-hidden="true" /></Button></div>}
       <div className="content" key={current?.activeOrganizationId ?? 'no-organization'}>
-        <Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />
+        <div className="content-context-row"><Breadcrumbs items={breadcrumbItems} label={t('common.breadcrumbLabel')} />{current.platformOrganizationContext && activeOrganization && <div className="platform-context-banner" role="status" aria-label={t('platform.contextBanner', { company: activeOrganization.name })}><ShieldCheck size={15} aria-hidden="true" /><span>{activeOrganization.name}</span><Button type="button" onClick={returnToPlatformConsole} aria-label={t('platform.returnToCompanies')} title={t('platform.returnToCompanies')}><ArrowRight size={16} aria-hidden="true" /></Button></div>}</div>
         {page === 'home' && canViewPage('businessLines') && businessLinesLoaded && !businessLinesLoadFailed && businessLines.length === 0 && <section className="business-line-first-run" aria-labelledby="business-line-first-run-title">
           <span className="business-line-first-run-icon"><Briefcase size={20} aria-hidden="true" /></span>
           <div><h2 id="business-line-first-run-title">{t(allBusinessLines.length === 0 ? 'businessLines.homeSetupTitle' : 'businessLines.homeInactiveTitle')}</h2><p>{t(allBusinessLines.length === 0 ? 'businessLines.homeSetupDescription' : 'businessLines.homeInactiveDescription')}</p></div>

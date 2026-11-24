@@ -4,7 +4,7 @@ import type { PreparedOutboundMedia } from './outbound-media';
 
 export type ChannelMessagingProvider = 'evolution' | 'whatsapp_cloud_api';
 export type ProviderSendResult = { deliveryState: 'accepted' | 'failed' | 'unknown'; externalMessageId: string | null };
-export type QuotedMessage = { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null };
+export type QuotedMessage = { externalMessageId: string; remoteJid: string | null; fromMe: boolean; participant: string | null; bodyText: string | null };
 export type ContactMessageFields = Omit<SendConversationContactDto, 'idempotencyKey'>;
 export type MessagingAdapterContext = { providerChannelId: string; recipientPhone: string; credentials: ChannelCredentialsDto };
 export type GroupParticipant = { readonly id: string; readonly phone: string | null; readonly name: string | null; readonly isAdmin: boolean };

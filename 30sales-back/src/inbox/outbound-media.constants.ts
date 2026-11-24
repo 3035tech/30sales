@@ -26,6 +26,7 @@ export const OUTBOUND_MEDIA_MIME_TYPE = {
   amrAudio: 'audio/amr',
   mp4Audio: 'audio/mp4',
   wavAudio: 'audio/wav',
+  webmAudio: 'audio/webm',
 } as const;
 
 export const OUTBOUND_MEDIA_ALLOWED_MIME_TYPES = Object.values(OUTBOUND_MEDIA_MIME_TYPE);

@@ -16,7 +16,7 @@ import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 
-type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; targetMessage: { externalMessageId: string; fromMe: boolean; participant: string | null; bodyText: string | null } | null; credentials: { ciphertext: string; iv: string; authTag: string } };
+type PreparedMessageSend = { kind: 'prepared'; message: MessageRecordDto; channelId: string; recipientPhone: string; provider: 'evolution' | 'whatsapp_cloud_api'; providerChannelId: string; targetMessage: { externalMessageId: string; remoteJid: string | null; fromMe: boolean; participant: string | null; bodyText: string | null } | null; credentials: { ciphertext: string; iv: string; authTag: string } };
 type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: MessageRecordDto } | 'not_found' | 'not_owner' | 'automation_not_human' | 'channel_unavailable' | 'credentials_missing' | 'recipient_missing' | 'target_message_unavailable' | typeof CHANNEL_MESSAGE_QUOTA_ERROR.dailyLimitReached | typeof CHANNEL_CONNECTION_ERROR.unavailable;
 
 @Injectable()
@@ -427,10 +427,13 @@ export class InboxRepository {
       const [message] = await transaction.select({ createdAt: messages.createdAt }).from(messages)
         .where(and(eq(messages.id, input.lastInboundMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound'))).limit(1);
       if (!message) return 'invalid_message';
+      const [latestInbound] = await transaction.select({ createdAt: messages.createdAt }).from(messages)
+        .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound')))
+        .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
       const [current] = await transaction.select({ id: conversationReads.id, lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
         .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).for('update').limit(1);
-      if (current?.lastReadAt && current.lastReadAt >= message.createdAt) return new ConversationReadResultDto(input.conversationId, current.lastReadAt.toISOString());
-      const lastReadAt = message.createdAt;
+      const lastReadAt = latestInbound?.createdAt ?? message.createdAt;
+      if (current?.lastReadAt && current.lastReadAt >= lastReadAt) return new ConversationReadResultDto(input.conversationId, current.lastReadAt.toISOString());
       if (current) {
         await transaction.update(conversationReads).set({ lastReadAt, updatedAt: new Date() }).where(and(eq(conversationReads.id, current.id), eq(conversationReads.organizationId, input.organizationId)));
       } else {
@@ -502,7 +505,7 @@ export class InboxRepository {
         if (!target || !target.externalMessageId || target.isDeleted || (input.mode === 'reply' && !target.bodyText)) return 'target_message_unavailable';
         const authorPhone = target.providerMetadata?.evolution?.author?.phone ?? null;
         const participant = authorPhone && !authorPhone.includes('@') ? `${authorPhone}@s.whatsapp.net` : authorPhone;
-        targetMessage = { externalMessageId: target.externalMessageId, fromMe: target.direction === 'outbound', participant, bodyText: target.bodyText };
+        targetMessage = { externalMessageId: target.externalMessageId, remoteJid: conversation.providerRecipientId, fromMe: target.direction === 'outbound', participant, bodyText: target.bodyText };
         providerMetadata = input.mode === 'reaction'
           ? { evolution: { reaction: { targetExternalMessageId: target.externalMessageId, emoji: input.bodyText ?? '' } } }
           : { evolution: { quotedMessage: { externalMessageId: target.externalMessageId, bodyText: target.bodyText } } };

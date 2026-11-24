@@ -74,7 +74,8 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
   }
 
   private messageKey(recipient: string, target: QuotedMessage) {
-    return { remoteJid: recipient.includes('@') ? recipient : `${recipient}@s.whatsapp.net`, fromMe: target.fromMe, id: target.externalMessageId, participant: target.participant ?? '' };
+    const remoteJid = target.remoteJid ?? recipient;
+    return { remoteJid: remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`, fromMe: target.fromMe, id: target.externalMessageId, participant: target.participant ?? '' };
   }
 
   private async post(url: string, body: unknown, headers: Record<string, string>, timeout = 15_000): Promise<ProviderSendResult> {

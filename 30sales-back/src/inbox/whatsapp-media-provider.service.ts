@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { env } from '../config/env';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
+import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { CHANNEL_PROVIDER } from '../channels/channels.constants';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import { OUTBOUND_MEDIA_MIME_TYPE, OUTBOUND_MEDIA_TYPE } from './outbound-media.constants';
@@ -9,6 +10,7 @@ import type { ProviderSendResult } from './whatsapp-text-provider.service';
 type MediaType = typeof OUTBOUND_MEDIA_TYPE[keyof typeof OUTBOUND_MEDIA_TYPE];
 type MediaSendFields = { providerChannelId: string; recipientPhone: string; bodyText: string; mediaType: MediaType; mimeType: string; fileName: string; content: Buffer };
 type MediaSendInput = MediaSendFields & { credentials: ChannelCredentialsDto };
+const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024;
 
 @Injectable()
 export class WhatsappMediaProviderService {
@@ -33,7 +35,8 @@ export class WhatsappMediaProviderService {
     try { response = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', apikey: credentials.apiKey }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000), redirect: 'error' }) }
     catch { return { deliveryState: 'unknown', externalMessageId: null } }
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
-    const externalMessageId = await this.readMessageId(response, CHANNEL_PROVIDER.evolution);
+    const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    const externalMessageId = result.ok ? this.readMessageId(CHANNEL_PROVIDER.evolution, result.payload) : null;
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
   }
 
@@ -48,7 +51,8 @@ export class WhatsappMediaProviderService {
       mediaResponse = await fetch(`${baseUrl}/media`, { method: 'POST', headers: { authorization: `Bearer ${credentials.accessToken}` }, body: form, signal: AbortSignal.timeout(30_000), redirect: 'error' });
     } catch { return { deliveryState: 'unknown', externalMessageId: null } }
     if (!mediaResponse.ok) return { deliveryState: mediaResponse.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
-    const mediaId = await this.readMediaId(mediaResponse);
+    const mediaResult = await readLimitedJsonResponse(mediaResponse, MAX_PROVIDER_RESPONSE_BYTES);
+    const mediaId = mediaResult.ok ? this.readMediaId(mediaResult.payload) : null;
     if (!mediaId) return { deliveryState: 'unknown', externalMessageId: null };
     const mediaPayload = input.mediaType === OUTBOUND_MEDIA_TYPE.document
       ? { id: mediaId, filename: input.fileName, caption: input.bodyText }
@@ -60,18 +64,17 @@ export class WhatsappMediaProviderService {
     try { response = await fetch(`${baseUrl}/messages`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${credentials.accessToken}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(30_000), redirect: 'error' }) }
     catch { return { deliveryState: 'unknown', externalMessageId: null } }
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
-    const externalMessageId = await this.readMessageId(response, CHANNEL_PROVIDER.whatsappCloudApi);
+    const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    const externalMessageId = result.ok ? this.readMessageId(CHANNEL_PROVIDER.whatsappCloudApi, result.payload) : null;
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
   }
 
-  private async readMediaId(response: Response): Promise<string | null> {
-    const payload: unknown = await response.json().catch(() => null);
+  private readMediaId(payload: unknown): string | null {
     if (typeof payload !== 'object' || payload === null || !('id' in payload) || typeof payload.id !== 'string') return null;
     return payload.id;
   }
 
-  private async readMessageId(response: Response, provider: typeof CHANNEL_PROVIDER[keyof typeof CHANNEL_PROVIDER]): Promise<string | null> {
-    const payload: unknown = await response.json().catch(() => null);
+  private readMessageId(provider: typeof CHANNEL_PROVIDER[keyof typeof CHANNEL_PROVIDER], payload: unknown): string | null {
     if (typeof payload !== 'object' || payload === null) return null;
     if (provider === CHANNEL_PROVIDER.evolution && 'key' in payload && typeof payload.key === 'object' && payload.key !== null && 'id' in payload.key && typeof payload.key.id === 'string') return payload.key.id;
     if (provider === CHANNEL_PROVIDER.whatsappCloudApi && 'messages' in payload && Array.isArray(payload.messages)) {

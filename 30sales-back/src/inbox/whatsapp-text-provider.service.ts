@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { env } from '../config/env';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
+import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 
 export type ProviderSendResult = { deliveryState: 'accepted' | 'failed' | 'unknown'; externalMessageId: string | null };
+const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024;
 
 @Injectable()
 export class WhatsappTextProviderService {
@@ -23,9 +25,9 @@ export class WhatsappTextProviderService {
     } catch {
       return { deliveryState: 'unknown', externalMessageId: null };
     }
-    const payload: unknown = await response.json().catch(() => null);
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
-    const externalMessageId = this.readMessageId(input.provider, payload);
+    const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    const externalMessageId = result.ok ? this.readMessageId(input.provider, result.payload) : null;
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
   }
 
@@ -44,13 +46,11 @@ export class WhatsappTextProviderService {
   private readMessageId(provider: 'evolution' | 'whatsapp_cloud_api', payload: unknown): string | null {
     if (!payload || typeof payload !== 'object') return null;
     if (provider === 'evolution') {
-      const key = (payload as { key?: unknown }).key;
-      if (key && typeof key === 'object' && 'id' in key && typeof key.id === 'string') return key.id;
-      return null;
+      if (!('key' in payload) || typeof payload.key !== 'object' || payload.key === null || !('id' in payload.key) || typeof payload.key.id !== 'string') return null;
+      return payload.key.id;
     }
-    const messages = (payload as { messages?: unknown }).messages;
-    if (!Array.isArray(messages)) return null;
-    const [message] = messages;
+    if (!('messages' in payload) || !Array.isArray(payload.messages)) return null;
+    const [message] = payload.messages;
     return message && typeof message === 'object' && 'id' in message && typeof message.id === 'string' ? message.id : null;
   }
 }

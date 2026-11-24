@@ -9,8 +9,8 @@
 
 ## Continuação — nomes de grupos via eventos Evolution — 24/11/2026
 
-- Em andamento: `GROUPS_UPSERT` e `GROUP_UPDATE` atualizam o título e JID de grupos já conhecidos na mesma organização/canal. Eventos são deduplicados no ledger e atualizam a timeline via SSE; não criam conversas sem mensagens nem importam agenda de grupos. `GROUP_PARTICIPANTS_UPDATE` continua somente no ledger.
-- Sem migration. Builds e revisão ainda pendentes. Nenhum evento real foi enviado/testado.
+- `GROUPS_UPSERT`/`GROUP_UPDATE` atualizam título e JID de grupos já conhecidos na mesma organização/canal. Eventos são deduplicados no ledger e atualizam a timeline via SSE; não criam conversas sem mensagens nem importam agenda de grupos. `GROUP_PARTICIPANTS_UPDATE` continua somente no ledger.
+- Histórico `MESSAGES_SET` pode reconciliar mensagens de grupo quando a conversa já existe; conversas desconhecidas continuam sem criação retroativa. Sem migration nova. Builds Nest/Vite, `drizzle-kit check` e `git diff --check` passaram. Nenhum evento real foi enviado/testado.
 
 ## Continuação — envio de texto e metadata Evolution — 24/11/2026
 

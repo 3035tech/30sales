@@ -1,5 +1,10 @@
 # Contexto de continuidade — 30Sales
 
+## Status visual das mensagens no Inbox — 24/11/2026
+
+- Removido o rótulo redundante “Recebida” das mensagens inbound. Mensagens outbound continuam mostrando relógio enquanto solicitadas, um check após aceite, dois checks após entrega e dois checks azuis após leitura.
+- Build de produção Vite e `git diff --check` passaram; sem validação visual em navegador.
+
 ## Painel de dados do lead no Inbox — 24/11/2026
 
 - Painel lateral de dados do lead fixado à área visível da janela em desktop, com altura própria e rolagem; impede que o painel fique parcialmente fora do Inbox quando aberto. Em telas menores continua no fluxo responsivo abaixo do histórico.

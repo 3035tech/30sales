@@ -1,3 +1,5 @@
+import { agentsApi } from './domains/agents'
+
 type LazyDomain<T extends object> = T
 
 function lazyDomain<T extends object>(load: () => Promise<T>): LazyDomain<T> {
@@ -41,7 +43,7 @@ export const api = {
   notifications: lazyDomain(() => import('./domains/notifications').then((module) => module.notificationsApi)),
   closerEvents: lazyDomain(() => import('./domains/closerEvents').then((module) => module.closerEventsApi)),
   inbox: lazyDomain(() => import('./domains/inbox').then((module) => module.inboxApi)),
-  agents: lazyDomain(() => import('./domains/agents').then((module) => module.agentsApi)),
+  agents: agentsApi,
   channels: lazyDomain(() => import('./domains/channels').then((module) => module.channelsApi)),
   audit: lazyDomain(() => import('./domains/audit').then((module) => module.auditApi)),
   imports: lazyDomain(() => import('./domains/imports').then((module) => module.importsApi)),

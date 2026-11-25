@@ -8,6 +8,18 @@ import { AcceptInvitationRoute, ResetPasswordRoute, RouteLoading } from './Route
 import { AppLoadErrorBoundary } from './components/ui/AppLoadErrorBoundary'
 import { SystemAlertViewport } from './components/ui/SystemAlert'
 
+const failedChunkReloadKey = '30sales:failed-chunk-reload-at'
+
+window.addEventListener('vite:preloadError', (event) => {
+  const retryWindowMs = 30_000
+  const failedChunkReloadAt = Number(sessionStorage.getItem(failedChunkReloadKey) ?? 0)
+  if (Date.now() - failedChunkReloadAt < retryWindowMs) return
+
+  sessionStorage.setItem(failedChunkReloadKey, String(Date.now()))
+  event.preventDefault()
+  window.location.reload()
+})
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AppLoadErrorBoundary>

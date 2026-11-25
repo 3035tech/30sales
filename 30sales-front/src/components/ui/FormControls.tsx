@@ -122,7 +122,7 @@ export const SelectField = forwardRef<HTMLButtonElement, SelectFieldProps>(funct
         <RadixSelect.Value placeholder={emptyOption?.label} />
         <RadixSelect.Icon className="ui-select-icon"><ChevronDown size={16} aria-hidden="true" /></RadixSelect.Icon>
       </RadixSelect.Trigger>
-      <RadixSelect.Portal><RadixSelect.Content className="ui-select-content" position="popper" side="bottom" sideOffset={4} avoidCollisions={false} align="start">
+      <RadixSelect.Portal><RadixSelect.Content className="ui-select-content" position="popper" side="bottom" sideOffset={4} avoidCollisions collisionPadding={8} align="start">
         <RadixSelect.Viewport className="ui-select-viewport">{options.map((option, index) => {
           const itemValue = option.value === '' ? EMPTY_SELECT_VALUE : option.value
           return <RadixSelect.Item key={`${itemValue}-${index}`} className="ui-select-item" value={itemValue} disabled={option.disabled}>

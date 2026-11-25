@@ -8,7 +8,7 @@ import { MAX_EVOLUTION_INBOUND_MEDIA_BYTES, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES }
 import { MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR } from './media-attachment.constants';
 
 const sourceSchema = z.object({ key: z.record(z.string(), z.unknown()), message: z.record(z.string(), z.unknown()) });
-const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i).optional(), fileName: z.string().max(255).optional() });
+const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+(?:\s*;\s*codecs=[a-z0-9._,-]+)?$/i).optional(), fileName: z.string().max(255).optional() });
 type EvolutionResponseVariant = 'full_message' | 'message_key';
 type EvolutionResponseOutcome = 'accepted' | 'invalid' | 'rejected' | 'transport_error';
 
@@ -57,8 +57,12 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
         const parsed = responseSchema.safeParse(decoded);
         if (!parsed.success) {
           const shape = this.responseShape(decoded);
+          const invalidFields = parsed.error.issues.map((issue) => issue.path[0]).filter((field): field is string =>
+            field === 'base64' || field === 'mimetype' || field === 'fileName');
           this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength,
-            failureReason: shape.base64Type === 'missing' ? 'base64_missing' : shape.base64Type !== 'string' ? 'base64_not_string' : 'response_schema_invalid', ...shape });
+            failureReason: shape.base64Type === 'missing' ? 'base64_missing' : shape.base64Type !== 'string' ? 'base64_not_string'
+              : invalidFields.includes('mimetype') ? 'mimetype_invalid' : invalidFields.includes('fileName') ? 'file_name_invalid' : 'response_schema_invalid',
+            invalidFields, ...shape });
           continue;
         }
         const encoded = parsed.data.base64.replace(/^data:[^;,]+;base64,/i, '');

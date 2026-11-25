@@ -29,6 +29,7 @@
 
 - Logs de produção mostram anexos de áudio falhando cinco vezes em `evolution_response` com `MEDIA_PROVIDER_RESPONSE_INVALID`; não há evidência de chegada à etapa S3. A consulta AWS Logs nesta sessão não encontrou grupos acessíveis.
 - Adapter Evolution agora registra, por variante (`full_message`/`message_key`), status HTTP, content type validado, tamanho do corpo, chaves de topo, tipo/tamanho do campo base64 e categoria segura de erro. Nenhum corpo, credencial ou URL é registrado. O correlation ID do attachment atravessa o provider.
+- Novos logs mostram HTTP 201 e base64 válido, mas o schema rejeitava `mimetype` com parâmetro `codecs=opus`. O validador agora aceita esse parâmetro seguro; logs também identificam campos de resposta inválidos sem revelar valores.
 - Build Nest executado após a alteração; sem teste automatizado, chamada real à Evolution, migration, commit, push ou deploy.
 
 ## Estado visível de falha ao enviar mídia — 24/11/2026

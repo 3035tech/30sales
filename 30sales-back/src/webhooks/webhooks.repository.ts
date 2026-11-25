@@ -11,6 +11,7 @@ import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { EVOLUTION_STATUS_RECONCILIATION, META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from './provider-webhook-events.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { CHANNEL_PROVIDER } from '../channels/channels.constants';
+import { applyPendingEvolutionMessageStatuses } from './pending-message-statuses';
 
 type WebhooksTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 type OutboundMessageStatusTarget = { id: string; conversationId: string; deliveryState: string; ownerUserId: string | null; businessLineId: string | null };
@@ -151,6 +152,12 @@ export class WebhooksRepository {
         }).where(and(eq(messages.id, pendingSends[0].id), eq(messages.organizationId, input.organizationId), isNull(messages.externalMessageId)))
           .returning({ id: messages.id });
         if (reconciled) {
+          await this.applyPendingStatusesToOutgoingMessage(transaction, {
+            organizationId: input.organizationId,
+            channelId: input.channelId,
+            messageId: reconciled.id,
+            externalMessageId: input.externalMessageId,
+          });
           await transaction.update(conversations).set({ lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
             .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
           await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
@@ -163,6 +170,12 @@ export class WebhooksRepository {
         deliveryState: 'accepted', occurredAt: input.occurredAt,
       }).onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.externalMessageId] }).returning({ id: messages.id });
       if (!message) return 'duplicate';
+      await this.applyPendingStatusesToOutgoingMessage(transaction, {
+        organizationId: input.organizationId,
+        channelId: input.channelId,
+        messageId: message.id,
+        externalMessageId: input.externalMessageId,
+      });
       if (input.media) await transaction.insert(messageAttachments).values({
         organizationId: input.organizationId, messageId: message.id, channelId: input.channelId, provider: 'evolution',
         mediaType: input.media.mediaType, sourceMediaId: input.media.sourceMediaId, sourceCiphertext: input.media.sourceCiphertext,
@@ -175,6 +188,19 @@ export class WebhooksRepository {
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: input.occurredAt.toISOString() })})`);
       return 'created';
     });
+  }
+
+  private async applyPendingStatusesToOutgoingMessage(
+    transaction: WebhooksTransaction,
+    input: { organizationId: string; channelId: string; messageId: string; externalMessageId: string },
+  ): Promise<void> {
+    const deliveryState = await applyPendingEvolutionMessageStatuses(transaction, {
+      ...input,
+      currentState: 'accepted',
+    });
+    if (deliveryState === 'accepted') return;
+    await transaction.update(messages).set({ deliveryState })
+      .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId)));
   }
 
   async recordEvolutionChatState(input: EvolutionChatStateDto): Promise<'updated' | 'unmatched' | 'duplicate'> {

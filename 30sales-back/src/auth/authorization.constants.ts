@@ -46,10 +46,12 @@ export const PLATFORM_ERROR_CODE = {
   organizationSlugAlreadyExists: 'ORGANIZATION_SLUG_ALREADY_EXISTS',
   organizationNotFound: 'PLATFORM_ORGANIZATION_NOT_FOUND',
   invitationAlreadyPending: 'PLATFORM_INVITATION_ALREADY_PENDING',
+  invitationNotPending: 'PLATFORM_INVITATION_NOT_PENDING',
 } as const;
 export const PLATFORM_AUDIT_ACTION = {
   organizationCreated: 'organization.created',
   invitationCreated: 'invitation.created',
+  invitationResent: 'invitation.resent',
   organizationAccessed: 'organization.accessed',
   evolutionConfigurationUpdated: 'integration.evolution.configuration_updated',
 } as const;

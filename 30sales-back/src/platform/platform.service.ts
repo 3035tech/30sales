@@ -122,6 +122,21 @@ export class PlatformService {
     return new PlatformOrganizationInvitationResultDto(result.email, emailSent);
   }
 
+  async resendOrganizationInvitation(request: ApiRequestDto, organizationId: string, invitationId: string): Promise<PlatformOrganizationInvitationResultDto> {
+    const actor = await this.requireSuperAdmin(request);
+    const result = await this.repository.renewOrganizationInvitation(organizationId, invitationId, actor.userId, request.correlationId);
+    if (result === 'not_found') throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
+    if (result === 'not_pending') throw new ConflictException({ code: PLATFORM_ERROR_CODE.invitationNotPending });
+    let emailSent = false;
+    try {
+      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { name: result.organizationName } });
+      emailSent = true;
+    } catch {
+      emailSent = false;
+    }
+    return new PlatformOrganizationInvitationResultDto(result.email, emailSent);
+  }
+
   async createOrganization(request: ApiRequestDto, input: CreatePlatformOrganizationDto): Promise<PlatformOrganizationCreateResultDto> {
     const actor = await this.requireSuperAdmin(request);
     const result = await this.repository.createOrganization(input, actor, request.correlationId);

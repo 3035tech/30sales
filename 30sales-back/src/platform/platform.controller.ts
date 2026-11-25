@@ -3,7 +3,7 @@ import { PLATFORM_API_PATH, PLATFORM_ORGANIZATION_API_PATH } from '../auth/autho
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { checkPlatformEvolutionConnectionSchema, createPlatformOrganizationInvitationSchema, createPlatformOrganizationSchema, listPlatformOrganizationsSchema, platformAiUsageQuerySchema, platformAuditQuerySchema, platformOrganizationIdSchema, savePlatformEvolutionConfigurationSchema, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
+import { checkPlatformEvolutionConnectionSchema, createPlatformOrganizationInvitationSchema, createPlatformOrganizationSchema, listPlatformOrganizationsSchema, platformAiUsageQuerySchema, platformAuditQuerySchema, platformOrganizationIdSchema, platformOrganizationInvitationIdSchema, savePlatformEvolutionConfigurationSchema, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 import { PlatformService } from './platform.service';
 
 @Controller(PLATFORM_ORGANIZATION_API_PATH)
@@ -28,6 +28,10 @@ export class PlatformController {
   @Post(':organizationId/invitations')
   inviteOrganizationMember(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Body(new ZodValidationPipe(createPlatformOrganizationInvitationSchema)) input: CreatePlatformOrganizationInvitationDto) {
     return this.platformService.inviteOrganizationMember(request, organizationId, input);
+  }
+  @Post(':organizationId/invitations/:invitationId/resend')
+  resendOrganizationInvitation(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Param('invitationId', new ZodValidationPipe(platformOrganizationInvitationIdSchema)) invitationId: string) {
+    return this.platformService.resendOrganizationInvitation(request, organizationId, invitationId);
   }
   @Get('integrations/evolution')
   getEvolutionConfiguration(@ApiRequest() request: ApiRequestDto) { return this.platformService.getEvolutionConfiguration(request); }

@@ -58,7 +58,7 @@ export class MediaAttachmentWorker implements OnModuleInit, OnModuleDestroy {
       });
       stage = MEDIA_ATTACHMENT_ERROR_STAGE.evolutionDownload;
       const media = await this.provider.download({ provider: attachment.provider, providerChannelId: attachment.providerChannelId,
-        mediaId: attachment.sourceMediaId, sourcePayload, credentials });
+        mediaId: attachment.sourceMediaId, sourcePayload, credentials, correlationId: attachment.id });
       this.logAttachment('completed', attachment, stage);
       stage = MEDIA_ATTACHMENT_ERROR_STAGE.s3Upload;
       const storageKey = await this.storage.put(attachment.organizationId, attachment.id, media.content, media.mimeType);

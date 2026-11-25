@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
@@ -9,10 +9,13 @@ import { MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR } from './media-attachment.con
 
 const sourceSchema = z.object({ key: z.record(z.string(), z.unknown()), message: z.record(z.string(), z.unknown()) });
 const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i).optional(), fileName: z.string().max(255).optional() });
+type EvolutionResponseVariant = 'full_message' | 'message_key';
+type EvolutionResponseOutcome = 'accepted' | 'invalid' | 'rejected' | 'transport_error';
 
 @Injectable()
 export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
   readonly provider = 'evolution' as const;
+  private readonly logger = new Logger(EvolutionInboundMediaAdapter.name);
 
   async download(input: InboundMediaAdapterInput): Promise<MediaDownloadResult> {
     const credentials = this.credentials(input.credentials);
@@ -27,17 +30,49 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     let parsedMedia: z.infer<typeof responseSchema> | null = null;
     let providerResponded = false;
     let providerRejected = false;
-    for (const payload of payloads) {
+    for (const [index, payload] of payloads.entries()) {
+      const requestVariant: EvolutionResponseVariant = index === 0 ? 'full_message' : 'message_key';
       try {
         const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
           body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000), redirect: 'error' });
         providerResponded = true;
-        if (!response.ok) { providerRejected = true; continue; }
+        const contentType = this.safeContentType(response.headers.get('content-type'));
+        if (!response.ok) {
+          providerRejected = true;
+          this.logResponse(input.correlationId, requestVariant, 'rejected', { statusCode: response.status, contentType });
+          continue;
+        }
+        if (!response.body) {
+          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, failureReason: 'body_missing' });
+          continue;
+        }
         const raw = await this.readBytes(response, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES);
-        const parsed = responseSchema.safeParse(JSON.parse(raw.toString('utf8')) as unknown);
-        if (parsed.success) { parsedMedia = parsed.data; break; }
+        let decoded: unknown;
+        try {
+          decoded = JSON.parse(raw.toString('utf8')) as unknown;
+        } catch {
+          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength, failureReason: 'invalid_json' });
+          continue;
+        }
+        const parsed = responseSchema.safeParse(decoded);
+        if (!parsed.success) {
+          const shape = this.responseShape(decoded);
+          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength,
+            failureReason: shape.base64Type === 'missing' ? 'base64_missing' : shape.base64Type !== 'string' ? 'base64_not_string' : 'response_schema_invalid', ...shape });
+          continue;
+        }
+        const encoded = parsed.data.base64.replace(/^data:[^;,]+;base64,/i, '');
+        if (!encoded.length || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength,
+            failureReason: encoded.length ? 'base64_invalid' : 'base64_empty', base64Length: encoded.length });
+          continue;
+        }
+        parsedMedia = parsed.data;
+        this.logResponse(input.correlationId, requestVariant, 'accepted', { statusCode: response.status, contentType, responseBytes: raw.byteLength, base64Length: encoded.length });
+        break;
       } catch (error) {
         if (error instanceof Error && error.message === 'MEDIA_SIZE_LIMIT_EXCEEDED') throw error;
+        this.logResponse(input.correlationId, requestVariant, 'transport_error', { failureReason: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network_or_read_error' });
         continue;
       }
     }
@@ -47,6 +82,26 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     const content = Buffer.from(encoded, 'base64');
     if (!content.length || content.length > MAX_EVOLUTION_INBOUND_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
     return { content, mimeType: parsedMedia.mimetype ?? null, fileName: parsedMedia.fileName ?? null, sha256: createHash('sha256').update(content).digest('hex') };
+  }
+
+  private logResponse(correlationId: string | undefined, requestVariant: EvolutionResponseVariant, outcome: EvolutionResponseOutcome,
+    details: Record<string, unknown>): void {
+    this.logger.log(JSON.stringify({ event: 'evolution_media_response', outcome, stage: 'evolution_response', correlationId: correlationId ?? null,
+      requestVariant, ...details }));
+  }
+
+  private safeContentType(value: string | null): string | null {
+    if (!value) return null;
+    return /^[a-z0-9.+-]+\/[a-z0-9.+-]+(?:\s*;\s*charset=[a-z0-9-]+)?$/i.test(value) ? value.slice(0, 100) : 'other';
+  }
+
+  private responseShape(value: unknown): { topLevelKeys: string[]; base64Type: string; base64Length?: number } {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return { topLevelKeys: [], base64Type: 'missing' };
+    const record = value as Record<string, unknown>;
+    const topLevelKeys = Object.keys(record).filter((key) => /^[a-zA-Z0-9_-]{1,40}$/.test(key)).slice(0, 20);
+    const base64 = record.base64;
+    return { topLevelKeys, base64Type: typeof base64 === 'string' ? 'string' : base64 === undefined ? 'missing' : typeof base64,
+      ...(typeof base64 === 'string' ? { base64Length: base64.length } : {}) };
   }
 
   private credentials(credentials: ChannelCredentialsDto): Extract<ChannelCredentialsDto, { provider: 'evolution' }> {

@@ -1,6 +1,6 @@
 ## Download de áudio e espaço vertical do Inbox — 25/11/2026
 
-- O código espera um bucket S3 privado definido por `MEDIA_S3_BUCKET`, na região `AWS_REGION`, com chave `{organizationId}/{attachmentId}`; PostgreSQL guarda metadados/status e referências. Nenhum bucket é provisionado pelo código, e o nome configurado no deploy não está versionado. Downloads autorizados verificam o tenant e auditam acesso.
+- O código usa o bucket S3 privado `30sales`, na região `eu-west-1`, com chave `{organizationId}/{attachmentId}`; PostgreSQL guarda metadados/status e referências. As credenciais AWS continuam vindo da cadeia padrão do SDK e precisam ser fornecidas pela infraestrutura. Downloads autorizados verificam o tenant e auditam acesso.
 - O endpoint de conteúdo agora retorna o MIME salvo no anexo, em vez de sempre `application/octet-stream`, para que o player de áudio receba o tipo correto. MIME é validado antes de ir ao header. Isso corrige reprodução de blobs disponíveis; não recupera anexos que falharam no worker ou cujo objeto não existe.
 - Cabeçalho e breadcrumb do Inbox ficaram mais compactos, e o limite de altura da conversa foi aumentado para reaproveitar o espaço vertical.
 
@@ -1071,3 +1071,9 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - Polish: validação local do intervalo, identificação dos valores da lista, custo com até dez casas decimais, última atualização e layout responsivo.
 - Builds front/back e oxlint focado no painel passaram; testes unitários (8 suítes/30 testes) e `drizzle-kit check` passaram na validação anterior. O teste de integração PostgreSQL foi incluído, mas não executado nesta retomada: o servidor local e o Docker não estavam disponíveis. `git diff --check` será confirmado ao fechar.
 - Alterações permanecem locais na branch `feature/lead-qualification-data`, sem commit, push, migration ou deploy. Próximo: revisão final do diff e decisão do usuário sobre commit/push; o push publica imagens, mas não faz rollout.
+# Configuração de e-mail pelo SES — 25/11/2026
+
+- O mailer transacional usa SES v2 (`us-west-2`) e remetente fixo `info@3035tech.com`.
+- SES e S3 compartilham as credenciais AWS do backend. A política IAM foi atualizada para permitir `ses:SendEmail` somente com esse remetente; a simulação retornou `allowed`.
+- O chart GitOps local referencia o Secret `30sales-aws-runtime` para `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`, removendo as variáveis SMTP antigas. O Secret foi criado no namespace `apps` do cluster de Dublin e validado via `kubectl describe` (somente nomes e tamanhos das chaves).
+- A aplicação ainda não foi publicada/sincronizada com estas alterações; falta reconciliar e publicar o commit GitOps e o commit do backend. Não enviar valores das credenciais a logs, Git ou chat.

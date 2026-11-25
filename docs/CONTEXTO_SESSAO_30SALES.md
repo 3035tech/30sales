@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Atualização resiliente da conversa aberta — 24/11/2026
+
+- O Inbox recebe atualizações imediatas por SSE; antes desta correção, a consulta periódica de 30 s só existia quando o stream reportava erro. Uma atualização recebida enquanto a busca de mensagens estava em andamento era descartada pela guarda de request em voo.
+- A recarga agora enfileira uma consulta adicional quando há concorrência e mantém reconciliação de segurança a cada 30 s enquanto o Inbox está aberto/visível. O SSE segue como caminho imediato; a consulta de segurança também atualiza a lista e as mensagens abertas.
+- Build de produção Vite e `git diff --check` passaram; sem teste automatizado ou validação em navegador.
+
 ## Status visual das mensagens no Inbox — 24/11/2026
 
 - Removido o rótulo redundante “Recebida” das mensagens inbound. Mensagens outbound continuam mostrando relógio enquanto solicitadas, um check após aceite, dois checks após entrega e dois checks azuis após leitura.

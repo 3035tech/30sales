@@ -8,7 +8,7 @@ import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
 import i18n from '../lib/i18n'
 import { ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH, ASSISTANT_CONVERSATION_ASSIST_MODE } from '../lib/agentConstants'
-import { INBOX_ATTACHMENT_ACCEPT, INBOX_AUDIO_MIME_PREFIX, INBOX_AUDIO_PLAYER, INBOX_AUDIO_RECORDING, INBOX_COMPOSER_MODE, INBOX_COMPOSER_MODES, INBOX_DELIVERY_STATE } from '../lib/inboxConstants'
+import { INBOX_ATTACHMENT_ACCEPT, INBOX_AUDIO_MIME_PREFIX, INBOX_AUDIO_PLAYER, INBOX_AUDIO_RECORDING, INBOX_COMPOSER_MODE, INBOX_COMPOSER_MODES, INBOX_DELIVERY_STATE, INBOX_REALTIME_REFRESH_INTERVAL_MS } from '../lib/inboxConstants'
 import { z } from 'zod'
 import './InboxWorkspace.css'
 import './InboxAttachments.css'
@@ -351,6 +351,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
     let requestInFlight = false
+    let refreshQueued = false
     setMessages([])
     setMessagesConversationId('')
     setOlderMessagesAvailable(false)
@@ -358,7 +359,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     setMessagesLoadError(false)
     setMessagesLoading(true)
     const loadMessages = async (initial = false) => {
-      if (requestInFlight) return
+      if (requestInFlight) { refreshQueued = true; return }
       requestInFlight = true
       try {
         const result = await api.inbox.messages(selectedId, { limit: 100, search: messageSearch })
@@ -376,6 +377,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       } finally {
         requestInFlight = false
         if (active && initial) setMessagesLoading(false)
+        if (active && refreshQueued) {
+          refreshQueued = false
+          void loadMessages()
+        }
       }
     }
     const reloadMessages = () => { void loadMessages() }
@@ -389,19 +394,12 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   useEffect(() => {
     let active = true
     let stream: EventSource | null = null
-    let fallbackRefresh: number | null = null
     const refreshOnConnect = () => {
       if (document.visibilityState !== 'visible') return
       void refreshRef.current(true)
       refreshMessagesRef.current()
     }
-    const startFallbackRefresh = () => {
-      if (fallbackRefresh === null) fallbackRefresh = window.setInterval(refreshOnConnect, 30000)
-    }
-    const stopFallbackRefresh = () => {
-      if (fallbackRefresh !== null) window.clearInterval(fallbackRefresh)
-      fallbackRefresh = null
-    }
+    const safetyRefresh = window.setInterval(refreshOnConnect, INBOX_REALTIME_REFRESH_INTERVAL_MS)
     const refreshOnConversationUpdate = (event: Event) => {
       if (document.visibilityState !== 'visible') return
       void refreshRef.current(true)
@@ -422,10 +420,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         return
       }
       stream = connection
-      stream.addEventListener('ready', () => {
-        stopFallbackRefresh()
-        refreshOnConnect()
-      })
+      stream.addEventListener('ready', refreshOnConnect)
       stream.addEventListener('conversation.updated', refreshOnConversationUpdate)
       stream.addEventListener('conversation.presence', (event) => {
         try {
@@ -439,12 +434,11 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
           if (nextState) presenceTimerRef.current = window.setTimeout(() => setPresenceState(null), 10000)
         } catch { /* Ignore malformed transient presence data. */ }
       })
-      stream.addEventListener('error', startFallbackRefresh)
-    }).catch(startFallbackRefresh)
+    }).catch(refreshOnConnect)
     return () => {
       active = false
       stream?.close()
-      stopFallbackRefresh()
+      window.clearInterval(safetyRefresh)
       if (presenceTimerRef.current !== null) window.clearTimeout(presenceTimerRef.current)
       document.removeEventListener('visibilitychange', refreshOnReturn)
     }

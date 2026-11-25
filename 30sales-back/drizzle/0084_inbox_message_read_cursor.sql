@@ -1,0 +1,2 @@
+ALTER TABLE "conversation_reads" ADD COLUMN "last_read_message_id" uuid;--> statement-breakpoint
+ALTER TABLE "conversation_reads" ADD CONSTRAINT "conversation_reads_message_tenant_fk" FOREIGN KEY ("last_read_message_id","organization_id") REFERENCES "public"."messages"("id","organization_id") ON DELETE no action ON UPDATE no action;

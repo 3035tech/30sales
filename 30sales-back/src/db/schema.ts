@@ -658,20 +658,6 @@ export const opportunityConversationContexts = pgTable('opportunity_conversation
   index('opportunity_conversation_contexts_org_opportunity_captured_idx').on(table.organizationId, table.opportunityId, table.capturedAt),
 ]);
 
-export const conversationReads = pgTable('conversation_reads', {
-  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
-  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
-  conversationId: uuid('conversation_id').notNull(),
-  userId: uuid('user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
-  lastReadAt: timestamp('last_read_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => [
-  foreignKey({ name: 'conversation_reads_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
-  unique('conversation_reads_org_conversation_user_unique').on(table.organizationId, table.conversationId, table.userId),
-  index('conversation_reads_org_user_read_idx').on(table.organizationId, table.userId, table.lastReadAt),
-]);
-
 export const conversationTags = pgTable('conversation_tags', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
@@ -722,6 +708,22 @@ export const messages = pgTable('messages', {
   unique('messages_conversation_idempotency_unique').on(table.organizationId, table.conversationId, table.idempotencyKey),
   index('messages_org_conversation_occurred_idx').on(table.organizationId, table.conversationId, table.occurredAt, table.id),
   index('messages_org_conversation_direction_created_idx').on(table.organizationId, table.conversationId, table.direction, table.createdAt),
+]);
+
+export const conversationReads = pgTable('conversation_reads', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  conversationId: uuid('conversation_id').notNull(),
+  userId: uuid('user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
+  lastReadAt: timestamp('last_read_at', { withTimezone: true }),
+  lastReadMessageId: uuid('last_read_message_id'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'conversation_reads_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
+  foreignKey({ name: 'conversation_reads_message_tenant_fk', columns: [table.lastReadMessageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }),
+  unique('conversation_reads_org_conversation_user_unique').on(table.organizationId, table.conversationId, table.userId),
+  index('conversation_reads_org_user_read_idx').on(table.organizationId, table.userId, table.lastReadAt),
 ]);
 
 export const leadQualificationFacts = pgTable('lead_qualification_facts', {

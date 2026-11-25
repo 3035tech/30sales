@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Leitura progressiva no Inbox — 24/11/2026
+
+- O cursor de leitura segue por usuário e conversa, agora com o ID da última mensagem inbound efetivamente visível; o backend valida tenant/conversa e só avança o cursor, inclusive quando mensagens compartilham o mesmo timestamp.
+- A lista retorna o ID da primeira mensagem não lida. Ao abrir a conversa, a timeline posiciona nesse ponto e mostra um divisor localizado. Conforme a pessoa percorre mensagens inbound visíveis, o cursor avança; mensagens que chegam abaixo da área lida continuam não lidas.
+- Migration aditiva `0084_inbox_message_read_cursor.sql`, ainda não aplicada. Builds Nest/Vite, `drizzle-kit check` e `git diff --check` passaram. Sem teste automatizado ou inspeção visual em navegador.
+
 ## Altura da busca no histórico do Inbox — 24/11/2026
 
 - Corrigida a grade da conversa: o template tinha quatro faixas para cinco filhos, então o espaço flexível estava sendo atribuído à busca e comprimindo a timeline. A busca agora ocupa apenas sua altura natural; o espaço disponível vai para as mensagens.

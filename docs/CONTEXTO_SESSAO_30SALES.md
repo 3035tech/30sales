@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Estado visível de falha ao enviar mídia — 24/11/2026
+
+- O Inbox usava o mesmo check para mensagens aceitas e com falha. Falhas agora exibem X vermelho e rótulo localizado; resultado incerto usa ícone/estado âmbar. O check discreto continua indicando aceite/entrega/leitura.
+- A ação de recuperação de anexo fica restrita a mídia recebida; não é oferecida para arquivos outbound sem fonte recuperável.
+- Build Vite e `git diff --check` passaram. Sem inspeção visual em navegador nem envio de áudio real.
+
 ## Leitura progressiva no Inbox — 24/11/2026
 
 - O cursor de leitura segue por usuário e conversa, agora com o ID da última mensagem inbound efetivamente visível; o backend valida tenant/conversa e só avança o cursor, inclusive quando mensagens compartilham o mesmo timestamp.

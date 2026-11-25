@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { env } from '../config/env';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import type { InboundMediaAdapter, InboundMediaAdapterInput, MediaDownloadResult } from './inbound-media-adapter';
+import { MAX_META_CLOUD_INBOUND_MEDIA_BYTES } from './media-limits.constants';
 
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 const metadataSchema = z.object({ url: z.string().url(), mime_type: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i).optional(), sha256: z.string().max(128).optional(), file_size: z.union([z.number(), z.string()]).optional() });
 
 @Injectable()
@@ -22,7 +22,7 @@ export class MetaCloudInboundMediaAdapter implements InboundMediaAdapter {
     const metadata = metadataSchema.safeParse(JSON.parse((await this.readBytes(metadataResponse, 32_000)).toString('utf8')) as unknown);
     if (!metadata.success) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const parsedSize = typeof metadata.data.file_size === 'string' ? Number(metadata.data.file_size) : metadata.data.file_size;
-    if (parsedSize !== undefined && (!Number.isSafeInteger(parsedSize) || parsedSize < 0 || parsedSize > MAX_MEDIA_BYTES)) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
+    if (parsedSize !== undefined && (!Number.isSafeInteger(parsedSize) || parsedSize < 0 || parsedSize > MAX_META_CLOUD_INBOUND_MEDIA_BYTES)) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
 
     let downloadUrl = this.validMetaMediaUrl(metadata.data.url);
     let response: Response | null = null;
@@ -34,7 +34,7 @@ export class MetaCloudInboundMediaAdapter implements InboundMediaAdapter {
       downloadUrl = this.validMetaMediaUrl(new URL(location, downloadUrl).toString());
     }
     if (!response?.ok) throw new Error('MEDIA_PROVIDER_UNAVAILABLE');
-    const content = await this.readBytes(response, MAX_MEDIA_BYTES);
+    const content = await this.readBytes(response, MAX_META_CLOUD_INBOUND_MEDIA_BYTES);
     if (!content.length) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const sha256 = createHash('sha256').update(content).digest('hex');
     if (metadata.data.sha256 && /^[a-f0-9]{64}$/i.test(metadata.data.sha256) && sha256.toLowerCase() !== metadata.data.sha256.toLowerCase()) throw new Error('MEDIA_CHECKSUM_MISMATCH');

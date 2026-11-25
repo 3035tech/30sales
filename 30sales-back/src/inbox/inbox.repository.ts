@@ -246,14 +246,14 @@ export class InboxRepository {
       .orderBy(desc(leads.updatedAt), desc(leads.id)) : [];
     const leadByContact = new Map<string, typeof leadRows[number]>();
     for (const lead of leadRows) { const key = `${lead.accountId}:${lead.personId}`; if (!leadByContact.has(key)) leadByContact.set(key, lead); }
-    const tagRows = rows.length ? await database.select({ conversationId: conversationTagLinks.conversationId, id: conversationTags.id, name: conversationTags.name }).from(conversationTagLinks)
+    const tagRows = rows.length ? await database.select({ conversationId: conversationTagLinks.conversationId, id: conversationTags.id, name: conversationTags.name, color: conversationTags.color }).from(conversationTagLinks)
       .innerJoin(conversationTags, and(eq(conversationTags.id, conversationTagLinks.tagId), eq(conversationTags.organizationId, conversationTagLinks.organizationId)))
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
     for (const tag of tagRows) {
       const conversationTagsForRow = tagsByConversation.get(tag.conversationId);
-      if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name));
-      else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name)]);
+      if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name, tag.color));
+      else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name, tag.color)]);
     }
     const data = rows.map((row) => { const lead = row.personId ? leadByContact.get(`${row.accountId}:${row.personId}`) : undefined; const canReply = row.conversationType === 'group' ? row.provider === 'evolution' : Boolean(row.personPhone); const latestMessage = latestMessageByConversation.get(row.id); const encryptedReaction = Boolean(latestMessage?.providerMetadata?.evolution?.encryptedReaction); const latestPreview = latestMessage?.bodyText ?? (encryptedReaction ? null : latestMessage ? latestAttachmentByMessage.get(latestMessage.id) ?? latestMessage.providerMetadata?.evolution?.reaction?.emoji ?? null : null); const previewKind = encryptedReaction ? 'encrypted_reaction' : latestPreview ? 'text' : latestMessage ? 'non_text' : null; return new ConversationListItemDto(row.id, row.provider, row.status, row.accountName, row.personName, row.personEmail, row.personPhone, lead ? new ConversationLeadSummaryDto(lead.status, lead.source, lead.nextActionAt?.toISOString() ?? null) : null, row.lastMessageAt?.toISOString() ?? null, row.createdAt.toISOString(), row.channelId, row.channelName, row.channelPhoneNumber, row.channelProvider, row.ownerUserId, row.ownerName, conversationAutomationModeSchema.parse(row.automationMode), Boolean(canReply && row.channelActive && row.channelConfigured), row.unread, tagsByConversation.get(row.id) ?? [], row.qualificationIntent && row.qualificationSummary && row.qualificationUpdatedAt ? new AssistantQualificationDto(row.qualificationIntent, row.qualificationSummary, row.confirmedFacts, row.unknowns, row.nextStep ?? '', row.qualificationUpdatedAt.toISOString()) : null, row.businessLineId, row.businessLineName, row.providerArchived, row.providerPinned, row.providerUnreadCount, row.providerDeleted, row.conversationType === 'group' ? 'group' : 'direct', row.displayName, latestPreview, latestMessage?.direction ?? null, latestMessage?.deliveryState ?? null, row.firstUnreadMessageId, previewKind); });
     return new ConversationPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
@@ -268,9 +268,9 @@ export class InboxRepository {
   }
 
   async listTags(organizationId: string): Promise<ConversationTagDto[]> {
-    const rows = await database.select({ id: conversationTags.id, name: conversationTags.name }).from(conversationTags)
+    const rows = await database.select({ id: conversationTags.id, name: conversationTags.name, color: conversationTags.color }).from(conversationTags)
       .where(eq(conversationTags.organizationId, organizationId)).orderBy(asc(conversationTags.name));
-    return rows.map((row) => new ConversationTagDto(row.id, row.name));
+    return rows.map((row) => new ConversationTagDto(row.id, row.name, row.color));
   }
 
   async addTag(input: ConversationTagMutationDto): Promise<ConversationTagDto | 'not_found' | 'not_owner'> {
@@ -282,13 +282,13 @@ export class InboxRepository {
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       const name = input.name.trim().replace(/\s+/g, ' ');
       const normalizedName = name.toLocaleLowerCase('en-US');
-      const [tag] = await transaction.insert(conversationTags).values({ organizationId: input.organizationId, name, normalizedName, createdByUserId: input.actorUserId })
+      const [tag] = await transaction.insert(conversationTags).values({ organizationId: input.organizationId, name, normalizedName, color: input.color, createdByUserId: input.actorUserId })
         .onConflictDoUpdate({ target: [conversationTags.organizationId, conversationTags.normalizedName], set: { name } })
-        .returning({ id: conversationTags.id, name: conversationTags.name });
+        .returning({ id: conversationTags.id, name: conversationTags.name, color: conversationTags.color });
       const [link] = await transaction.insert(conversationTagLinks).values({ organizationId: input.organizationId, conversationId: input.conversationId, tagId: tag.id, createdByUserId: input.actorUserId })
         .onConflictDoNothing({ target: [conversationTagLinks.organizationId, conversationTagLinks.conversationId, conversationTagLinks.tagId] }).returning({ id: conversationTagLinks.id });
       if (link) await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'conversation.tag_added', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { tagId: tag.id, tagName: tag.name } });
-      return new ConversationTagDto(tag.id, tag.name);
+      return new ConversationTagDto(tag.id, tag.name, tag.color);
     });
   }
 

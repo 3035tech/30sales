@@ -50,6 +50,6 @@ export const inboxApi = {
     },
     sendContactMessage: (conversationId: string, input: { fullName: string; phoneNumber: string; organization?: string; email?: string; url?: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/contact`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
-    addTag: (conversationId: string, name: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name }) }),
+    addTag: (conversationId: string, name: string, color: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name, color }) }),
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),
   };

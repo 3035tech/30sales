@@ -4,9 +4,8 @@ import { z } from 'zod';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import type { InboundMediaAdapter, InboundMediaAdapterInput, MediaDownloadResult } from './inbound-media-adapter';
+import { MAX_EVOLUTION_INBOUND_MEDIA_BYTES, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES } from './media-limits.constants';
 
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
-const MAX_RESPONSE_BYTES = 36 * 1024 * 1024;
 const sourceSchema = z.object({ key: z.record(z.string(), z.unknown()), message: z.record(z.string(), z.unknown()) });
 const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i).optional(), fileName: z.string().max(255).optional() });
 
@@ -32,7 +31,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
           body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000), redirect: 'error' });
         if (!response.ok) continue;
         providerResponded = true;
-        const raw = await this.readBytes(response, MAX_RESPONSE_BYTES);
+        const raw = await this.readBytes(response, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES);
         const parsed = responseSchema.safeParse(JSON.parse(raw.toString('utf8')) as unknown);
         if (parsed.success) { parsedMedia = parsed.data; break; }
       } catch (error) {
@@ -44,7 +43,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     const encoded = parsedMedia.base64.replace(/^data:[^;,]+;base64,/i, '');
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const content = Buffer.from(encoded, 'base64');
-    if (!content.length || content.length > MAX_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
+    if (!content.length || content.length > MAX_EVOLUTION_INBOUND_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
     return { content, mimeType: parsedMedia.mimetype ?? null, fileName: parsedMedia.fileName ?? null, sha256: createHash('sha256').update(content).digest('hex') };
   }
 

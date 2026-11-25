@@ -192,7 +192,7 @@ export class InboxService {
   }
   async addTag(request: ApiRequestDto, conversationId: string, input: CreateConversationTagDto) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
-    const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, request.correlationId, context.isPlatformOrganizationContext));
+    const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, input.color, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add tags.' });
     return result;

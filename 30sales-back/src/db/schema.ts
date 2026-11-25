@@ -663,6 +663,7 @@ export const conversationTags = pgTable('conversation_tags', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   normalizedName: text('normalized_name').notNull(),
+  color: text('color').notNull().default('#dbeafe'),
   createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

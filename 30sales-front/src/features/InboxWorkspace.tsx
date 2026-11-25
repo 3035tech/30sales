@@ -247,7 +247,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [composerMode, setComposerMode] = useState<(typeof INBOX_COMPOSER_MODES)[number]>(INBOX_COMPOSER_MODE.reply)
   const [tagFilter, setTagFilter] = useState('')
   const [tagDraft, setTagDraft] = useState('')
-  const [tags, setTags] = useState<Array<{ id: string; name: string }>>([])
+  const [tagColor, setTagColor] = useState('#dbeafe')
+  const [tags, setTags] = useState<Array<{ id: string; name: string; color: string }>>([])
   const [tagBusy, setTagBusy] = useState(false)
   const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
   const [sendingMessage, setSendingMessage] = useState(false)
@@ -673,8 +674,9 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     if (!selected || !canEditTags || !tagDraft.trim()) return
     setTagBusy(true); setError('')
     try {
-      await api.inbox.addTag(selected.id, tagDraft.trim())
+      await api.inbox.addTag(selected.id, tagDraft.trim(), tagColor)
       setTagDraft('')
+      setTagColor('#dbeafe')
       const nextTags = await api.inbox.tags()
       setTags(nextTags)
       await refresh()
@@ -767,7 +769,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             <div><dt>{t('inbox.statusLabel')}</dt><dd>{t(`inbox.status.${selected.status}`)}</dd></div>
           </dl></section>
           {selected.assistantQualification && <section className="inbox-qualification" aria-label={t('assistantQualification.title')}><header><ClipboardList size={17} /><strong>{t('assistantQualification.title')}</strong><span>{t(`assistantQualification.intents.${selected.assistantQualification.intent}`)}</span></header><p>{selected.assistantQualification.summary}</p><div className="inbox-qualification-columns"><div><strong>{t('assistantQualification.confirmed')}</strong>{selected.assistantQualification.confirmedFacts.length ? <ul>{selected.assistantQualification.confirmedFacts.map((fact, index) => <li key={`${index}-${fact}`}>{fact}</li>)}</ul> : <p>{t('assistantQualification.none')}</p>}</div><div><strong>{t('assistantQualification.unknowns')}</strong>{selected.assistantQualification.unknowns.length ? <ul>{selected.assistantQualification.unknowns.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul> : <p>{t('assistantQualification.none')}</p>}</div></div><div className="inbox-qualification-next"><strong>{t('assistantQualification.nextStep')}</strong><p>{selected.assistantQualification.nextStep}</p></div><small>{t('assistantQualification.updated', { date: new Date(selected.assistantQualification.updatedAt).toLocaleString(i18n.language) })}</small></section>}
-          <div className="inbox-tag-manager"><strong>{t('inboxComposer.tagsLabel')}</strong><div className="inbox-tag-list">{selected.tags.map((tag) => <span key={tag.id}>{tag.name}{canEditTags && <IconButton label={t('inboxComposer.removeTag', { name: tag.name })} disabled={tagBusy} onClick={() => void removeTag(tag.id)}><X size={12} aria-hidden="true" /></IconButton>}</span>)}</div>{canEditTags && <div><TextField value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} maxLength={32} placeholder={t('inboxComposer.tagPlaceholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addTag() } }} /><Button type="button" disabled={tagBusy || tagDraft.trim().length < 2} onClick={() => void addTag()}>{tagBusy ? t('common.saving') : t('inboxComposer.addTag')}</Button></div>}</div>
+          <div className="inbox-tag-manager"><strong>{t('inboxComposer.tagsLabel')}</strong><div className="inbox-tag-list">{selected.tags.map((tag) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}{canEditTags && <IconButton label={t('inboxComposer.removeTag', { name: tag.name })} disabled={tagBusy} onClick={() => void removeTag(tag.id)}><X size={12} aria-hidden="true" /></IconButton>}</span>)}</div>{canEditTags && <div className="inbox-tag-create"><TextField value={tagDraft} onChange={(event) => setTagDraft(event.target.value)} maxLength={32} placeholder={t('inboxComposer.tagPlaceholder')} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void addTag() } }} /><label className="inbox-tag-color"><span>{t('inboxComposer.tagColor')}</span><input type="color" value={tagColor} onChange={(event) => setTagColor(event.target.value)} aria-label={t('inboxComposer.tagColor')} /></label><Button type="button" disabled={tagBusy || tagDraft.trim().length < 2} onClick={() => void addTag()}>{tagBusy ? t('common.saving') : t('inboxComposer.addTag')}</Button></div>}</div>
         </>}
       </aside>
       <section ref={conversationThreadRef} className="inbox-thread" aria-label={t('inbox.thread')}>

@@ -4,8 +4,8 @@ import { ChannelCredentialResolverService } from '../channels/channel-credential
 import { AttachmentsRepository } from './attachments.repository';
 import { MediaDownloadProvider } from './media-download.provider';
 import { MEDIA_STORAGE, type MediaStorage } from './media-storage';
+import { MAX_EVOLUTION_INBOUND_MEDIA_BYTES, MAX_META_CLOUD_INBOUND_MEDIA_BYTES } from './media-limits.constants';
 
-const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
 const SAFE_ERROR_CODES = new Set(['MEDIA_SOURCE_INVALID', 'MEDIA_PROVIDER_UNAVAILABLE', 'MEDIA_PROVIDER_RESPONSE_INVALID', 'MEDIA_SIZE_LIMIT_EXCEEDED', 'MEDIA_CHECKSUM_MISMATCH', 'MEDIA_PROVIDER_REDIRECT_INVALID', 'MEDIA_PROVIDER_URL_INVALID']);
 
 @Injectable()
@@ -43,7 +43,8 @@ export class MediaAttachmentWorker implements OnModuleInit, OnModuleDestroy {
 
   private async processOne(attachment: Awaited<ReturnType<AttachmentsRepository['claimPending']>>[number]): Promise<void> {
     try {
-      if (attachment.sizeBytes !== null && attachment.sizeBytes > MAX_MEDIA_BYTES) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
+      const maximumMediaBytes = attachment.provider === 'evolution' ? MAX_EVOLUTION_INBOUND_MEDIA_BYTES : MAX_META_CLOUD_INBOUND_MEDIA_BYTES;
+      if (attachment.sizeBytes !== null && attachment.sizeBytes > maximumMediaBytes) throw new Error('MEDIA_SIZE_LIMIT_EXCEEDED');
       const credentials = await this.credentialResolver.resolve(attachment.organizationId, attachment.channelId, {
         ciphertext: attachment.credentialsCiphertext, iv: attachment.credentialsIv, authTag: attachment.credentialsAuthTag,
       });

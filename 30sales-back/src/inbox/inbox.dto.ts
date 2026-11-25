@@ -19,11 +19,11 @@ export class ConversationContactReconcileResultDto { constructor(readonly conver
 export const markConversationReadSchema = z.object({ lastInboundMessageId: z.string().uuid().nullable() }).strict();
 export type MarkConversationReadInputDto = z.infer<typeof markConversationReadSchema>;
 export class ConversationRepositoryListDto { constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly query: ListConversationsQueryDto) {} }
-export const createConversationTagSchema = z.object({ name: z.string().trim().min(2).max(32) }).strict();
+export const createConversationTagSchema = z.object({ name: z.string().trim().min(2).max(32), color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default('#dbeafe') }).strict();
 export type CreateConversationTagDto = z.infer<typeof createConversationTagSchema>;
-export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
+export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly color: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationTagRemoveDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly tagId: string, readonly actorUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
-export class ConversationTagDto { constructor(readonly id: string, readonly name: string) {} }
+export class ConversationTagDto { constructor(readonly id: string, readonly name: string, readonly color = '#dbeafe') {} }
 export class AssistantQualificationDto { constructor(readonly intent: string, readonly summary: string, readonly confirmedFacts: string[], readonly unknowns: string[], readonly nextStep: string, readonly updatedAt: string) {} }
 export class ConversationLeadSummaryDto { constructor(readonly status: string, readonly source: string, readonly nextActionAt: string | null) {} }
 export class ConversationListItemDto {

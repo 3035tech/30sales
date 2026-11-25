@@ -1,0 +1,1 @@
+ALTER TABLE "conversation_tags" ADD COLUMN "color" text DEFAULT '#dbeafe' NOT NULL;

@@ -6,11 +6,17 @@
 - Reduzido também o padding vertical da faixa de busca.
 - Build de produção Vite e `git diff --check` passaram; sem teste visual em navegador.
 
+## Reações cifradas no Inbox — 24/11/2026
+
+- `encReactionMessage` contém a chave da mensagem-alvo, além do payload e IV cifrados. A normalização agora persiste o ID externo do alvo em metadata tipado e deixa de classificar o evento com alvo válido como mensagem não suportada.
+- A timeline mostra um marcador localizado de reação; o emoji permanece explicitamente indisponível enquanto a Evolution não fornecer a descriptografia.
+- Builds de produção Nest e Vite e `git diff --check` passaram; sem webhook real nem teste automatizado nesta fatia.
+
 ## Polimento visual do histórico do Inbox — 24/11/2026
 
 - Removidos os rótulos redundantes “Equipe” e “Contato” dos cabeçalhos de mensagens. O horário permanece; notas internas mantêm a identificação do autor e mensagens de grupo continuam mostrando o participante quando disponível.
 - Tiques de entrega reduzidos para 12 px e aproximados do balão, mantendo o rótulo acessível por leitor de tela.
-- Eventos Evolution `encReactionMessage` passam a usar texto localizado (“Reação não disponível neste histórico”) em vez de expor o nome técnico. A Evolution encaminha o payload criptografado, então este ajuste não revela o emoji da reação.
+- Eventos Evolution `encReactionMessage` deixam de expor o nome técnico; o fluxo atual preserva o alvo e mostra um marcador localizado.
 - Build de produção Vite e `git diff --check` passaram; não houve teste visual em navegador nem validação com webhook real.
 
 ## Atualização resiliente da conversa aberta — 24/11/2026

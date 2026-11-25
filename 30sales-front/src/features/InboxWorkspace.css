@@ -42,6 +42,7 @@
 .inbox-reply-target>span { display:grid; gap:2px; min-width:0; max-width:calc(100% - 40px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .inbox-emoji-picker { display:flex; gap:2px; }
 .inbox-message .inbox-group-author { color: var(--color-primary, #245a9a); font-weight: 700; }
+.inbox-encrypted-reaction { display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:1px solid #dce7dc; border-radius:12px; background:#f5faf5; color:#526b56 !important; }
 .inbox-message p { margin: 9px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-message-quote { margin: 8px 0; padding: 6px 10px; border-left: 3px solid var(--primary, #245b9a); color: var(--muted, #6f7785); background: rgba(36,91,154,.06); font-size: var(--font-size-sm); white-space: pre-wrap; overflow-wrap: anywhere; }
 .inbox-poll { margin: 8px 0; }

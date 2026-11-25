@@ -70,12 +70,13 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
     const rawMessageType = string(data.messageType) ?? this.inferType(messageContent);
     const messageType = (['conversation', 'extendedtextmessage', 'textmessage'].includes(rawMessageType.toLowerCase()) ? 'text' : rawMessageType).slice(0, 80);
     const reaction = this.extractReaction(messageContent);
+    const encryptedReaction = this.extractEncryptedReaction(messageContent);
     const quotedMessage = this.extractQuotedMessage(messageContent);
     const richContent = this.extractRichContent(messageContent);
     const bodyText = (reaction?.emoji ?? (richContent?.kind === 'poll' ? richContent.title : richContent?.kind === 'card' ? [richContent.title, richContent.body].filter(Boolean).join('\n') : null) ?? this.extractText(messageContent))?.slice(0, 16000) ?? null;
     const authorName = string(data.pushName)?.trim().slice(0, 160) || null;
-    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || quotedMessage || richContent || isGroup
-      ? { reaction, quotedMessage, richContent, ...(isGroup ? { author: { name: authorName, phone: isValidPhone(senderPhone) ? senderPhone : null } } : {}) }
+    const evolutionMetadata: EvolutionMessageMetadata | null = reaction || encryptedReaction || quotedMessage || richContent || isGroup
+      ? { reaction, encryptedReaction, quotedMessage, richContent, ...(isGroup ? { author: { name: authorName, phone: isValidPhone(senderPhone) ? senderPhone : null } } : {}) }
       : null;
     const directMediaType = asMediaType(rawMessageType);
     const cardTemplate = this.templateContent(messageContent);
@@ -84,10 +85,10 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
     const mediaContent = mediaType ? record(messageContent[`${mediaType}Message`]) : {};
     const resolvedMediaContent = Object.keys(mediaContent).length ? mediaContent : cardImage;
     const media = mediaType ? this.createMedia(input.channelId, input.organizationId, mediaType, null, JSON.stringify({ key, message: data.message }), resolvedMediaContent) : null;
-    const unsupportedType = !bodyText && !media && !richContent && !reaction ? messageType.replace(/[^a-z0-9_-]/gi, '').slice(0, 80) || 'unknown' : null;
+    const unsupportedType = !bodyText && !media && !richContent && !reaction && !encryptedReaction ? messageType.replace(/[^a-z0-9_-]/gi, '').slice(0, 80) || 'unknown' : null;
     const occurredAt = toDate(data.messageTimestamp);
     const groupName = string(data.groupName) ?? string(data.subject);
-    const hasEvolutionMetadata = reaction || quotedMessage || richContent || isGroup || unsupportedType;
+    const hasEvolutionMetadata = reaction || encryptedReaction || quotedMessage || richContent || isGroup || unsupportedType;
     const normalizedEvolutionMetadata: EvolutionMessageMetadata | null = hasEvolutionMetadata
       ? { ...(evolutionMetadata ?? { reaction: null, quotedMessage: null }), ...(unsupportedType ? { unsupportedType } : {}) }
       : null;
@@ -153,6 +154,11 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
   private extractReaction(message: JsonRecord): { targetExternalMessageId: string; emoji: string } | null {
     const reaction = record(message.reactionMessage); const targetExternalMessageId = string(record(reaction.key).id); const emoji = string(reaction.text)?.trim();
     return targetExternalMessageId && targetExternalMessageId.length <= 250 && emoji && [...emoji].length <= 32 ? { targetExternalMessageId, emoji } : null;
+  }
+  private extractEncryptedReaction(message: JsonRecord): { targetExternalMessageId: string } | null {
+    const encryptedReaction = record(message.encReactionMessage);
+    const targetExternalMessageId = normalizeExternalIdentity(string(record(encryptedReaction.targetMessageKey).id));
+    return targetExternalMessageId && targetExternalMessageId.length <= 250 ? { targetExternalMessageId } : null;
   }
   private extractQuotedMessage(message: JsonRecord): EvolutionMessageMetadata['quotedMessage'] {
     const contentKeys = ['extendedTextMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'audioMessage', 'stickerMessage', 'buttonsResponseMessage', 'listResponseMessage', 'templateButtonReplyMessage'];

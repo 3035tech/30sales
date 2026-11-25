@@ -4,6 +4,16 @@ import { PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES } from './provi
 export type WebhookProvider = 'evolution' | 'whatsapp_cloud_api';
 export type ProviderEventFamily = (typeof PROVIDER_EVENT_FAMILY)[keyof typeof PROVIDER_EVENT_FAMILY];
 
+export class EvolutionMessageStatusReviewEventDto {
+  constructor(
+    readonly eventId: string,
+    readonly organizationId: string,
+    readonly attempts: number,
+    readonly errorCode: string,
+    readonly ageSeconds: number,
+  ) {}
+}
+
 export class ProviderWebhookEventDto {
   constructor(
     readonly organizationId: string,

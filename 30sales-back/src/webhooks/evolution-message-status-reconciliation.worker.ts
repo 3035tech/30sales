@@ -25,7 +25,13 @@ export class EvolutionMessageStatusReconciliationWorker implements OnModuleInit,
     this.processing = true;
     try {
       const result = await this.repository.reconcilePendingEvolutionMessageStatuses();
-      if (result.deadLettered > EVOLUTION_STATUS_RECONCILIATION.minimumResultCount) this.logger.warn(`Evolution message status reconciliation moved ${result.deadLettered} event(s) to the webhook ledger review state.`);
+      if (result.reviewEvents.length > EVOLUTION_STATUS_RECONCILIATION.minimumResultCount) this.logger.warn(JSON.stringify({
+        event: 'evolution_message_status_reconciliation',
+        outcome: 'review_required',
+        reconciledCount: result.reconciled,
+        reviewEventCount: result.reviewEvents.length,
+        reviewEvents: result.reviewEvents,
+      }));
     } catch {
       this.logger.error('Evolution message status reconciliation polling failed.');
     } finally {

@@ -5,7 +5,7 @@ import { requestContext } from '../common/request-context';
 import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, EvolutionMessageStatusReviewEventDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { EVOLUTION_STATUS_RECONCILIATION, META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from './provider-webhook-events.constants';
@@ -342,7 +342,7 @@ export class WebhooksRepository {
     });
   }
 
-  async reconcilePendingEvolutionMessageStatuses(): Promise<{ readonly reconciled: number; readonly deadLettered: number }> {
+  async reconcilePendingEvolutionMessageStatuses(): Promise<{ readonly reconciled: number; readonly reviewEvents: EvolutionMessageStatusReviewEventDto[] }> {
     return database.transaction(async (transaction) => {
       const retryBefore = new Date(Date.now() - EVOLUTION_STATUS_RECONCILIATION.initialRetryDelayMs);
       const pendingEvents = await transaction.select({
@@ -361,7 +361,7 @@ export class WebhooksRepository {
       )).orderBy(inboxEvents.receivedAt).for('update', { skipLocked: true }).limit(EVOLUTION_STATUS_RECONCILIATION.batchSize);
 
       let reconciled = 0;
-      let deadLettered = 0;
+      const reviewEvents: EvolutionMessageStatusReviewEventDto[] = [];
       for (const event of pendingEvents) {
         const payload = this.asJsonRecord(event.payloadRedacted);
         const channelId = typeof payload?.channelId === 'string' ? payload.channelId : null;
@@ -373,7 +373,7 @@ export class WebhooksRepository {
         if (invalidPayload) {
           await transaction.update(inboxEvents).set({ status: WEBHOOK_EVENT_PROCESSING_STATE.failed, attempts: String(attempts), processedAt: new Date(), lastErrorCode: EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode })
             .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
-          deadLettered += 1;
+          reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000))));
           continue;
         }
 
@@ -406,9 +406,9 @@ export class WebhooksRepository {
           processedAt: exhausted ? new Date() : null,
           lastErrorCode: exhausted ? EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode : null,
         }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
-        if (exhausted) deadLettered += 1;
+        if (exhausted) reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000))));
       }
-      return { reconciled, deadLettered };
+      return { reconciled, reviewEvents };
     });
   }
 

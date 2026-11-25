@@ -73,6 +73,13 @@
 .inbox-tag-filter-label>span { width:9px; height:9px; border-radius:50%; background:#cbd5e1; }
 .inbox-composer { display:grid; gap:7px; padding:12px 18px; border-top:1px solid var(--line,#e7e9ed); background:#fff; }
 .inbox-composer .inbox-composer-tools { display:flex; flex-wrap:wrap; justify-content:flex-start; gap:8px; }
+.inbox-composer-emoji-picker { position:relative; flex:none; }
+.inbox-composer-emoji-picker summary { display:grid; place-items:center; width:36px; height:36px; border:1px solid var(--line,#dce4ec); border-radius:7px; background:#fff; color:#475569; cursor:pointer; list-style:none; }
+.inbox-composer-emoji-picker summary::-webkit-details-marker { display:none; }
+.inbox-composer-emoji-picker summary:hover,.inbox-composer-emoji-picker summary:focus-visible { border-color:#9bb5d3; background:#f4f8fc; color:#1e4169; outline:none; }
+.inbox-composer-emoji-grid { position:absolute; z-index:45; bottom:calc(100% + 8px); left:0; display:grid; grid-template-columns:repeat(8, 1fr); gap:2px; width:min(296px, calc(100vw - 40px)); padding:8px; border:1px solid var(--line,#dce4ec); border-radius:10px; background:#fff; box-shadow:0 12px 28px #0f172a1c; }
+.inbox-composer .inbox-composer-emoji-grid button { display:grid; place-items:center; width:32px; height:32px; padding:0; border:0; border-radius:6px; background:transparent; font-size:20px; line-height:1; cursor:pointer; }
+.inbox-composer .inbox-composer-emoji-grid button:hover,.inbox-composer .inbox-composer-emoji-grid button:focus-visible { background:#eef2f7; outline:2px solid #9bb5d3; outline-offset:1px; }
 .inbox-composer .inbox-composer-tools .inbox-media-action { display:inline-flex; align-items:center; gap:7px; min-height:34px; border:1px solid var(--line,#dce4ec); border-radius:7px; padding:6px 10px; background:#fff; color:#334155; font-weight:600; }
 .inbox-composer .inbox-composer-tools .inbox-media-action:hover:not(:disabled) { border-color:#9bb5d3; background:#f4f8fc; color:#1e4169; }
 .inbox-composer .inbox-composer-tools .inbox-media-selection { display:flex; flex:1 1 240px; align-items:center; gap:8px; min-width:0; padding:5px 8px; border:1px solid #c9dbef; border-radius:7px; background:#f4f8fc; color:#334155; }

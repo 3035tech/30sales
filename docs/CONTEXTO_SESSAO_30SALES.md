@@ -1,5 +1,11 @@
 # Contexto de continuidade — 30Sales
 
+## Altura da busca no histórico do Inbox — 24/11/2026
+
+- Corrigida a grade da conversa: o template tinha quatro faixas para cinco filhos, então o espaço flexível estava sendo atribuído à busca e comprimindo a timeline. A busca agora ocupa apenas sua altura natural; o espaço disponível vai para as mensagens.
+- Reduzido também o padding vertical da faixa de busca.
+- Build de produção Vite e `git diff --check` passaram; sem teste visual em navegador.
+
 ## Polimento visual do histórico do Inbox — 24/11/2026
 
 - Removidos os rótulos redundantes “Equipe” e “Contato” dos cabeçalhos de mensagens. O horário permanece; notas internas mantêm a identificação do autor e mensagens de grupo continuam mostrando o participante quando disponível.

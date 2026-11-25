@@ -1,3 +1,9 @@
+## Preview e leitura de conversas no Inbox — 24/11/2026
+
+- A lista agora preserva previews de texto/emoji e exibe nome de arquivo em mídia; reação cifrada ganha rótulo localizado em vez de parecer conversa sem mensagens. O emoji de uma reação cifrada não pode ser mostrado porque não vem descriptografado pela Evolution.
+- O cursor de leitura considera mensagens que cruzam a área visível, inclusive quando o topo está parcialmente cortado; a API atualiza o ponto lido por usuário. Builds Nest/Vite e `git diff --check` passaram.
+- O workflow da imagem backend com a migration `0084` concluiu com sucesso; build de imagem não confirma aplicação da migration nem rollout do serviço.
+
 # Contexto de continuidade — 30Sales
 
 ## Estado visível de falha ao enviar mídia — 24/11/2026

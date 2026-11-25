@@ -1,6 +1,6 @@
 import { request } from '../request';
 import { z } from 'zod';
-import { type ChannelWebhookEventFamily, type ChannelWebhookEventStatus, type CreateChannelInput, channelHealthCheckSchema, channelMonitoringCheckSchema, channelScheduleExceptionSchema, channelSchema, channelWebhookEventRetrySchema, channelWebhookEventsPageSchema, evolutionConnectionSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
+import { type ChannelWebhookEventFamily, type ChannelWebhookEventStatus, type CreateChannelInput, channelHealthCheckSchema, channelMediaHealthSchema, channelMonitoringCheckSchema, channelScheduleExceptionSchema, channelSchema, channelWebhookEventRetrySchema, channelWebhookEventsPageSchema, evolutionConnectionSchema, evolutionInstanceListSchema, evolutionWebhookConfigurationSchema } from '../contracts';
 
 
 export const channelsApi = {
@@ -17,5 +17,6 @@ export const channelsApi = {
     configureEvolutionWebhook: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution-webhook/configure`, evolutionWebhookConfigurationSchema, { method: 'POST' }),
     connectEvolution: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/evolution/connect`, evolutionConnectionSchema, { method: 'POST' }),
     webhookEvents: (id: string, limit = 25, offset = 0, filters: { status?: ChannelWebhookEventStatus; eventFamily?: ChannelWebhookEventFamily; search?: string } = {}) => request(`/api/v1/channels/${encodeURIComponent(id)}/events?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`, channelWebhookEventsPageSchema),
+    mediaHealth: (id: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/media-health`, channelMediaHealthSchema),
     retryWebhookEvent: (id: string, eventId: string) => request(`/api/v1/channels/${encodeURIComponent(id)}/events/${encodeURIComponent(eventId)}/retry`, channelWebhookEventRetrySchema, { method: 'POST' }),
   };

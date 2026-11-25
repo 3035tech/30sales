@@ -37,17 +37,17 @@ export class AttachmentsRepository {
   async markAvailable(input: MediaAttachmentWorkDto, storageKey: string, mimeType: string | null, fileName: string | null, sizeBytes: number, sha256: string): Promise<void> {
     await database.transaction(async (transaction) => {
       await transaction.update(messageAttachments).set({ status: 'available', storageKey, mimeType: mimeType ?? input.mimeType, fileName: fileName ?? input.fileName, sizeBytes, sha256,
-        sourceCiphertext: null, sourceIv: null, sourceAuthTag: null, lockedUntil: null, lastErrorCode: null, updatedAt: new Date() })
+        sourceCiphertext: null, sourceIv: null, sourceAuthTag: null, lockedUntil: null, lastErrorCode: null, lastErrorStage: null, updatedAt: new Date() })
         .where(and(eq(messageAttachments.id, input.id), eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.status, 'processing')));
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId, occurredAt: new Date().toISOString() })})`);
     });
   }
 
-  async markFailed(input: MediaAttachmentWorkDto, errorCode: string): Promise<void> {
+  async markFailed(input: MediaAttachmentWorkDto, errorCode: string, errorStage: string): Promise<void> {
     const terminal = input.attemptCount >= 5 || ['MEDIA_SIZE_LIMIT_EXCEEDED', 'MEDIA_CHECKSUM_MISMATCH', 'MEDIA_SOURCE_INVALID'].includes(errorCode);
     const retryDelaySeconds = Math.min(300, 5 * 2 ** (input.attemptCount - 1));
     await database.transaction(async (transaction) => {
-      await transaction.update(messageAttachments).set({ status: terminal ? 'failed' : 'pending', availableAt: new Date(Date.now() + retryDelaySeconds * 1000), lockedUntil: null, lastErrorCode: errorCode, updatedAt: new Date() })
+      await transaction.update(messageAttachments).set({ status: terminal ? 'failed' : 'pending', availableAt: new Date(Date.now() + retryDelaySeconds * 1000), lockedUntil: null, lastErrorCode: errorCode, lastErrorStage: errorStage, updatedAt: new Date() })
         .where(and(eq(messageAttachments.id, input.id), eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.status, 'processing')));
       if (terminal) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId, occurredAt: new Date().toISOString() })})`);
     });
@@ -73,7 +73,7 @@ export class AttachmentsRepository {
           isNotNull(messageAttachments.sourceCiphertext), isNotNull(messageAttachments.sourceIv), isNotNull(messageAttachments.sourceAuthTag)))
         .limit(1).for('update', { of: messageAttachments });
       if (!attachment) return null;
-      await transaction.update(messageAttachments).set({ status: 'pending', attemptCount: 0, availableAt: new Date(), lockedUntil: null, lastErrorCode: null, updatedAt: new Date() })
+      await transaction.update(messageAttachments).set({ status: 'pending', attemptCount: 0, availableAt: new Date(), lockedUntil: null, lastErrorCode: null, lastErrorStage: null, updatedAt: new Date() })
         .where(and(eq(messageAttachments.id, attachmentId), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.status, 'failed')));
       await transaction.insert(auditEvents).values({ organizationId, actorUserId: userId, actorType: 'user', action: 'message_attachment.retry_requested', entityType: 'message_attachment', entityId: attachmentId, correlationId });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId, conversationId: attachment.conversationId, occurredAt: new Date().toISOString() })})`);

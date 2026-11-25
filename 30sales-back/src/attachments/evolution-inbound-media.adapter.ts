@@ -5,6 +5,7 @@ import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-t
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import type { InboundMediaAdapter, InboundMediaAdapterInput, MediaDownloadResult } from './inbound-media-adapter';
 import { MAX_EVOLUTION_INBOUND_MEDIA_BYTES, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES } from './media-limits.constants';
+import { MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR } from './media-attachment.constants';
 
 const sourceSchema = z.object({ key: z.record(z.string(), z.unknown()), message: z.record(z.string(), z.unknown()) });
 const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(120).regex(/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i).optional(), fileName: z.string().max(255).optional() });
@@ -25,12 +26,13 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     const payloads = [{ message: source.data, convertToMp4: false }, { message: { key: source.data.key }, convertToMp4: false }];
     let parsedMedia: z.infer<typeof responseSchema> | null = null;
     let providerResponded = false;
+    let providerRejected = false;
     for (const payload of payloads) {
       try {
         const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
           body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000), redirect: 'error' });
-        if (!response.ok) continue;
         providerResponded = true;
+        if (!response.ok) { providerRejected = true; continue; }
         const raw = await this.readBytes(response, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES);
         const parsed = responseSchema.safeParse(JSON.parse(raw.toString('utf8')) as unknown);
         if (parsed.success) { parsedMedia = parsed.data; break; }
@@ -39,7 +41,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
         continue;
       }
     }
-    if (!parsedMedia) throw new Error(providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE');
+    if (!parsedMedia) throw new Error(providerRejected ? MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR : providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE');
     const encoded = parsedMedia.base64.replace(/^data:[^;,]+;base64,/i, '');
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const content = Buffer.from(encoded, 'base64');

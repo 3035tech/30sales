@@ -1,14 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
-import { assistantProfiles, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
+import { assistantProfiles, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messageAttachments, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
 import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto, ChannelWebhookEventRetryDto } from './channels.dto';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_WEBHOOK_EVENT_RETRY } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { EVOLUTION_STATUS_RECONCILIATION, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from '../webhooks/provider-webhook-events.constants';
+import { MEDIA_ATTACHMENT_STALE_AFTER_MS } from '../attachments/media-attachment.constants';
 
 function channelMembershipCondition(organizationId: string, userId: string, canManageAllLines: boolean) {
   if (canManageAllLines) return undefined;
@@ -19,6 +20,19 @@ function channelMembershipCondition(organizationId: string, userId: string, canM
 
 @Injectable()
 export class ChannelsRepository {
+  async mediaAttachmentHealth(organizationId: string, channelId: string): Promise<{ mediaType: string; status: string; stage: string | null; errorCode: string | null; count: number; oldestUpdatedAt: string }[]> {
+    const staleBefore = new Date(Date.now() - MEDIA_ATTACHMENT_STALE_AFTER_MS);
+    const rows = await database.select({ mediaType: messageAttachments.mediaType, status: messageAttachments.status,
+      stage: messageAttachments.lastErrorStage, errorCode: messageAttachments.lastErrorCode, count: sql<number>`count(*)::int`,
+      oldestUpdatedAt: sql<string>`min(${messageAttachments.updatedAt})::text` }).from(messageAttachments)
+      .innerJoin(messages, and(eq(messages.id, messageAttachments.messageId), eq(messages.organizationId, messageAttachments.organizationId)))
+      .where(and(eq(messages.direction, 'inbound'), eq(messages.isDeleted, false), eq(messageAttachments.organizationId, organizationId), eq(messageAttachments.channelId, channelId),
+        or(eq(messageAttachments.status, 'failed'), and(or(eq(messageAttachments.status, 'pending'), eq(messageAttachments.status, 'processing')), lte(messageAttachments.updatedAt, staleBefore)))))
+      .groupBy(messageAttachments.mediaType, messageAttachments.status, messageAttachments.lastErrorStage, messageAttachments.lastErrorCode)
+      .orderBy(asc(messageAttachments.status), asc(messageAttachments.mediaType), asc(messageAttachments.lastErrorCode));
+    return rows;
+  }
+
   async canAccessChannel(organizationId: string, channelId: string, userId: string, canManageAllLines: boolean): Promise<boolean> {
     const [row] = await database.select({ id: messagingChannels.id }).from(messagingChannels)
       .innerJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))

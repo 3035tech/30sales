@@ -3,7 +3,7 @@ import type { mediaAttachmentStatus } from '../db/schema';
 
 export type MediaAttachmentStatus = typeof mediaAttachmentStatus.enumValues[number];
 export class MessageAttachmentDto {
-  constructor(readonly id: string, readonly mediaType: string, readonly mimeType: string | null, readonly fileName: string | null, readonly sizeBytes: number | null, readonly status: MediaAttachmentStatus) {}
+  constructor(readonly id: string, readonly mediaType: string, readonly mimeType: string | null, readonly fileName: string | null, readonly sizeBytes: number | null, readonly status: MediaAttachmentStatus, readonly attemptCount = 0, readonly lastErrorCode: string | null = null, readonly lastErrorStage: string | null = null) {}
 }
 export class MediaAttachmentWorkDto {
   constructor(

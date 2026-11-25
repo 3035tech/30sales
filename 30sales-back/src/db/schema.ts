@@ -773,6 +773,7 @@ export const messageAttachments = pgTable('message_attachments', {
   availableAt: timestamp('available_at', { withTimezone: true }).defaultNow().notNull(),
   lockedUntil: timestamp('locked_until', { withTimezone: true }),
   lastErrorCode: text('last_error_code'),
+  lastErrorStage: text('last_error_stage'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [

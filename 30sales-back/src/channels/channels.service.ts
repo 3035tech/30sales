@@ -14,6 +14,7 @@ import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-confi
 import { EvolutionConnectionProvider, EvolutionConnectionResultDto } from './evolution-connection.provider';
 import { ChannelCredentialResolverService } from './channel-credential-resolver.service';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { MEDIA_ATTACHMENT_STALE_AFTER_MINUTES } from '../attachments/media-attachment.constants';
 
 @Injectable()
 export class ChannelsService {
@@ -229,6 +230,13 @@ export class ChannelsService {
     const target = await this.repository.healthCheckTarget(context.organizationId, channelId, context.userId, canManageAllLines);
     if (!target) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     return this.repository.listWebhookEvents(context.organizationId, channelId, context.userId, canManageAllLines, query);
+  }
+
+  async mediaAttachmentHealth(request: ApiRequestDto, channelId: string) {
+    const context = await this.tenantAccess.require(request, 'read', 'integrations');
+    await this.requireChannelAccess(context.organizationId, channelId, context.userId, context.role);
+    const rows = await this.repository.mediaAttachmentHealth(context.organizationId, channelId);
+    return { data: rows, staleAfterMinutes: MEDIA_ATTACHMENT_STALE_AFTER_MINUTES, generatedAt: new Date().toISOString() };
   }
 
   async retryWebhookEvent(request: ApiRequestDto, channelId: string, eventId: string): Promise<ChannelWebhookEventRetryResultDto> {

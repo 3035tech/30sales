@@ -1,3 +1,16 @@
+## Polish da observabilidade de mídia — 25/11/2026
+
+- Painel de saúde de mídia em Canais agora distingue carregamento, erro, fila limpa e resultados; mantém a última informação visível se a atualização falhar, separa tipo/estado, contagem e detalhes, e se adapta a telas estreitas.
+- Anexos com falha no Inbox têm estado e diagnóstico em linhas separadas, com destaque visual discreto para a falha.
+- Build de produção Vite e `git diff --check` passaram. Sem captura visual em navegador ou testes automatizados.
+
+## Observabilidade do processamento de mídia — 25/11/2026
+
+- Worker de anexos agora emite logs estruturados por attachment com início, etapa e resultado, tentativa, canal, tenant, tipo de mídia e correlation ID determinístico (ID do attachment). Não registra conteúdo, URL assinada, credencial ou chave S3.
+- Falhas persistem código seguro e etapa (validação, credenciais, descriptografia, requisição/resposta Evolution, S3 ou finalização no banco). O Inbox mostra tentativas e causa técnica localizada para anexos indisponíveis.
+- Em Canais → Eventos, painel de saúde resume falhas inbound e anexos pendentes/processando há mais de 15 min por tipo, incluindo etapa e horário mais antigo; atualiza automaticamente a cada minuto ou manualmente. Consultas limitadas a tenant, canal e linha acessível.
+- Migration aditiva `0086_misty_wolfsbane.sql` adiciona `last_error_stage`; ainda não aplicada. Builds Nest/Vite, `drizzle-kit check` e `git diff --check` passaram. Testes automatizados, webhook real e rollout não executados.
+
 ## Download de áudio e espaço vertical do Inbox — 25/11/2026
 
 - O código usa o bucket S3 privado `30sales`, na região `eu-west-1`, com chave `{organizationId}/{attachmentId}`; PostgreSQL guarda metadados/status e referências. As credenciais AWS continuam vindo da cadeia padrão do SDK e precisam ser fornecidas pela infraestrutura. Downloads autorizados verificam o tenant e auditam acesso.

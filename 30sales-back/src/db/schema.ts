@@ -482,12 +482,13 @@ export const channelAssistantScheduleExceptions = pgTable('channel_assistant_sch
   assistantEnabled: boolean('assistant_enabled').notNull(),
   startTime: text('start_time'),
   endTime: text('end_time'),
+  endDayOffset: integer('end_day_offset'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   unique('channel_assistant_schedule_exceptions_org_channel_date_unique').on(table.organizationId, table.channelId, table.localDate),
   foreignKey({ name: 'channel_assistant_schedule_exceptions_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
-  check('channel_assistant_schedule_exceptions_window_check', sql`(${table.assistantEnabled} and ((${table.startTime} is null and ${table.endTime} is null) or (${table.startTime} is not null and ${table.endTime} is not null and ${table.startTime} < ${table.endTime}))) or (not ${table.assistantEnabled} and ${table.startTime} is null and ${table.endTime} is null)`),
+  check('channel_assistant_schedule_exceptions_window_check', sql`(${table.assistantEnabled} and ((${table.startTime} is null and ${table.endTime} is null) or (${table.startTime} is not null and ${table.endTime} is not null and ((${table.endDayOffset} is null and ${table.startTime} < ${table.endTime}) or (${table.endDayOffset} between 0 and 6 and (${table.endDayOffset} > 0 or ${table.startTime} < ${table.endTime})))))) or (not ${table.assistantEnabled} and ${table.startTime} is null and ${table.endTime} is null and (${table.endDayOffset} is null or ${table.endDayOffset} between 0 and 6))`),
   check('channel_assistant_schedule_exceptions_time_format_check', sql`(${table.startTime} is null or ${table.startTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$') and (${table.endTime} is null or ${table.endTime} ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$')`),
 ]);
 

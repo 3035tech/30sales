@@ -94,7 +94,7 @@ export class ChannelsRepository {
       if (channelExceptions) channelExceptions.push(item);
       else exceptionsByChannel.set(item.channelId, [item]);
     }
-    return rows.map((row) => this.toDto(row.channel, row.dailyMessageCount, hoursByChannel.get(row.channel.id) ?? [], row.businessLineName, (exceptionsByChannel.get(row.channel.id) ?? []).map((item) => new ChannelScheduleExceptionDto(item.id, item.localDate, item.assistantEnabled, item.startTime, item.endTime))));
+    return rows.map((row) => this.toDto(row.channel, row.dailyMessageCount, hoursByChannel.get(row.channel.id) ?? [], row.businessLineName, (exceptionsByChannel.get(row.channel.id) ?? []).map((item) => new ChannelScheduleExceptionDto(item.id, item.localDate, item.assistantEnabled, item.startTime, item.endTime, item.endDayOffset))));
   }
 
   async saveScheduleException(input: ChannelRepositoryScheduleExceptionDto): Promise<ChannelScheduleExceptionDto[] | null> {
@@ -105,11 +105,17 @@ export class ChannelsRepository {
       const to = Date.parse(`${input.input.toDate}T00:00:00.000Z`);
       const dates = Array.from({ length: Math.floor((to - from) / 86_400_000) + 1 }, (_, index) => new Date(from + index * 86_400_000).toISOString().slice(0, 10));
       const before = await transaction.select().from(channelAssistantScheduleExceptions)
-        .where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), inArray(channelAssistantScheduleExceptions.localDate, dates)));
-      const rows = await transaction.insert(channelAssistantScheduleExceptions).values(dates.map((localDate) => ({ organizationId: input.organizationId, channelId: input.channelId, localDate, assistantEnabled: input.input.assistantEnabled, startTime: input.input.startTime, endTime: input.input.endTime })))
-        .onConflictDoUpdate({ target: [channelAssistantScheduleExceptions.organizationId, channelAssistantScheduleExceptions.channelId, channelAssistantScheduleExceptions.localDate], set: { assistantEnabled: input.input.assistantEnabled, startTime: input.input.startTime, endTime: input.input.endTime, updatedAt: new Date() } }).returning();
-      const exceptions = rows.map((row) => new ChannelScheduleExceptionDto(row.id, row.localDate, row.assistantEnabled, row.startTime, row.endTime));
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_range_saved', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: before.map(({ localDate, assistantEnabled, startTime, endTime }) => ({ localDate, assistantEnabled, startTime, endTime })), afterState: exceptions.map(({ localDate, assistantEnabled, startTime, endTime }) => ({ localDate, assistantEnabled, startTime, endTime })) });
+        .where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), gte(channelAssistantScheduleExceptions.localDate, input.input.fromDate), lte(channelAssistantScheduleExceptions.localDate, input.input.toDate)));
+      const schedules = input.input.weekdaySchedules ?? Array.from({ length: 7 }, (_, dayOfWeek) => ({ dayOfWeek, assistantEnabled: input.input.assistantEnabled ?? false, startTime: input.input.startTime ?? null, endTime: input.input.endTime ?? null, endDayOffset: 0 }));
+      const schedulesByDay = new Map(schedules.map((schedule) => [schedule.dayOfWeek, schedule]));
+      const entries = dates.flatMap((localDate) => {
+        const schedule = schedulesByDay.get(new Date(`${localDate}T00:00:00.000Z`).getUTCDay());
+        return schedule ? [{ organizationId: input.organizationId, channelId: input.channelId, localDate, assistantEnabled: schedule.assistantEnabled, startTime: schedule.startTime, endTime: schedule.endTime, endDayOffset: schedule.endDayOffset }] : [];
+      });
+      await transaction.delete(channelAssistantScheduleExceptions).where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), gte(channelAssistantScheduleExceptions.localDate, input.input.fromDate), lte(channelAssistantScheduleExceptions.localDate, input.input.toDate)));
+      const rows = entries.length ? await transaction.insert(channelAssistantScheduleExceptions).values(entries).returning() : [];
+      const exceptions = rows.map((row) => new ChannelScheduleExceptionDto(row.id, row.localDate, row.assistantEnabled, row.startTime, row.endTime, row.endDayOffset));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_range_saved', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: before.map(({ localDate, assistantEnabled, startTime, endTime, endDayOffset }) => ({ localDate, assistantEnabled, startTime, endTime, endDayOffset })), afterState: exceptions.map(({ localDate, assistantEnabled, startTime, endTime, endDayOffset }) => ({ localDate, assistantEnabled, startTime, endTime, endDayOffset })) });
       return exceptions;
     });
   }
@@ -120,7 +126,7 @@ export class ChannelsRepository {
       if (!locked) return null;
       const [row] = await transaction.delete(channelAssistantScheduleExceptions).where(and(eq(channelAssistantScheduleExceptions.organizationId, input.organizationId), eq(channelAssistantScheduleExceptions.channelId, input.channelId), eq(channelAssistantScheduleExceptions.id, input.exceptionId))).returning();
       if (!row) return false;
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { localDate: row.localDate, assistantEnabled: row.assistantEnabled, startTime: row.startTime, endTime: row.endTime } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.schedule_exception_deleted', entityType: 'messaging_channel', entityId: input.channelId, correlationId: input.correlationId, beforeState: { localDate: row.localDate, assistantEnabled: row.assistantEnabled, startTime: row.startTime, endTime: row.endTime, endDayOffset: row.endDayOffset } });
       return true;
     });
   }

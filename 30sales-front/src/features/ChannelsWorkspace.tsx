@@ -23,6 +23,17 @@ const MONITORING_SIGNAL_STALE_MS = 5 * 60_000
 const PAIRING_STATUS_POLL_INTERVAL_MS = 4_000
 const WEEKDAYS = [1, 2, 3, 4, 5, 6, 0] as const
 type EditableBusinessHour = { dayOfWeek: number; enabled: boolean; startTime: string; endTime: string }
+type EditableExceptionDay = { dayOfWeek: number; selected: boolean; assistantEnabled: boolean; allDay: boolean; startTime: string; endTime: string; endDayOfWeek: number; rangeTouched: boolean }
+const defaultExceptionDays = (): EditableExceptionDay[] => WEEKDAYS.map((dayOfWeek) => ({ dayOfWeek, selected: dayOfWeek >= 1 && dayOfWeek <= 5, assistantEnabled: true, allDay: false, startTime: '09:00', endTime: '18:00', endDayOfWeek: dayOfWeek, rangeTouched: false }))
+
+function formatExceptionEndDay(localDate: string, offset: number, locale: string): string {
+  const endDate = new Date(Date.parse(`${localDate}T00:00:00.000Z`) + offset * 86_400_000)
+  return new Intl.DateTimeFormat(locale, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }).format(endDate)
+}
+
+function hasInvalidExceptionWindow(day: EditableExceptionDay): boolean {
+  return day.selected && day.assistantEnabled && !day.allDay && day.endDayOfWeek === day.dayOfWeek && day.startTime >= day.endTime
+}
 const emptyForm: CreateChannelInput = { businessLineId: '', provider: 'evolution', displayName: '', phoneNumber: '', providerChannelId: '', providerAccountId: '' }
 
 function WhatsAppMark({ size = 18 }: { size?: number }) {
@@ -68,10 +79,7 @@ export function ChannelsWorkspace() {
   const [scheduleExceptionChannel, setScheduleExceptionChannel] = useState<ChannelDto | null>(null)
   const [exceptionFromDate, setExceptionFromDate] = useState('')
   const [exceptionToDate, setExceptionToDate] = useState('')
-  const [exceptionAssistantEnabled, setExceptionAssistantEnabled] = useState(true)
-  const [exceptionAllDay, setExceptionAllDay] = useState(true)
-  const [exceptionStartTime, setExceptionStartTime] = useState('09:00')
-  const [exceptionEndTime, setExceptionEndTime] = useState('18:00')
+  const [exceptionDays, setExceptionDays] = useState<EditableExceptionDay[]>(defaultExceptionDays)
   const [savingException, setSavingException] = useState(false)
   const [exceptionError, setExceptionError] = useState(false)
   const [discoveryChannel, setDiscoveryChannel] = useState<ChannelDto | null>(null)
@@ -285,16 +293,17 @@ export function ChannelsWorkspace() {
     setScheduleExceptionChannel(channel)
     const today = year && month && day ? `${year}-${month}-${day}` : ''
     setExceptionFromDate(today); setExceptionToDate(today)
-    setExceptionAssistantEnabled(true); setExceptionAllDay(true); setExceptionStartTime('09:00'); setExceptionEndTime('18:00'); setExceptionError(false)
+    setExceptionDays(defaultExceptionDays()); setExceptionError(false)
   }
   const saveScheduleException = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!scheduleExceptionChannel || !exceptionFromDate || !exceptionToDate) return
     setSavingException(true); setExceptionError(false)
     try {
-      const saved = await api.channels.saveScheduleException(scheduleExceptionChannel.id, { fromDate: exceptionFromDate, toDate: exceptionToDate, assistantEnabled: exceptionAssistantEnabled, startTime: exceptionAssistantEnabled && !exceptionAllDay ? exceptionStartTime : null, endTime: exceptionAssistantEnabled && !exceptionAllDay ? exceptionEndTime : null })
-      const savedDates = new Set(saved.map((item) => item.localDate))
-      setScheduleExceptionChannel((channel) => channel ? { ...channel, scheduleExceptions: [...channel.scheduleExceptions.filter((item) => !savedDates.has(item.localDate)), ...saved].sort((left, right) => left.localDate.localeCompare(right.localDate)) } : channel)
+      const weekdaySchedules = exceptionDays.filter((day) => day.selected).map((day) => ({ dayOfWeek: day.dayOfWeek, assistantEnabled: day.assistantEnabled, startTime: day.assistantEnabled && !day.allDay ? day.startTime : null, endTime: day.assistantEnabled && !day.allDay ? day.endTime : null, endDayOffset: day.assistantEnabled && !day.allDay ? (day.endDayOfWeek - day.dayOfWeek + 7) % 7 : 0 }))
+      if (weekdaySchedules.length === 0) { setExceptionError(true); return }
+      const saved = await api.channels.saveScheduleException(scheduleExceptionChannel.id, { fromDate: exceptionFromDate, toDate: exceptionToDate, weekdaySchedules })
+      setScheduleExceptionChannel((channel) => channel ? { ...channel, scheduleExceptions: [...channel.scheduleExceptions.filter((item) => item.localDate < exceptionFromDate || item.localDate > exceptionToDate), ...saved].sort((left, right) => left.localDate.localeCompare(right.localDate)) } : channel)
       setRefresh((version) => version + 1)
     } catch { setExceptionError(true) }
     finally { setSavingException(false) }
@@ -542,14 +551,13 @@ export function ChannelsWorkspace() {
         <Button type="submit" variant="primary" disabled={savingQuota || quotaLimit === null}>{savingQuota ? t('common.saving') : t('channels.saveQuota')}</Button>
       </form>
     </Modal>
-    <Modal open={scheduleExceptionChannel !== null} onOpenChange={(open) => { if (!open) setScheduleExceptionChannel(null) }} title={t('channels.scheduleExceptionsTitle', { name: scheduleExceptionChannel?.displayName ?? '' })} description={t('channels.scheduleExceptionsDescription', { timeZone: scheduleExceptionChannel?.dailyLimitTimeZone ?? '' })} closeLabel={t('common.close')} className="channel-quota-modal">
-      {scheduleExceptionChannel?.scheduleExceptions.length ? <ul className="channel-schedule-exception-list">{scheduleExceptionChannel.scheduleExceptions.map((exception) => <li key={exception.id}><div><strong>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${exception.localDate}T12:00:00Z`))}</strong><small>{exception.assistantEnabled ? exception.startTime && exception.endTime ? t('channels.scheduleExceptionHours', { start: exception.startTime, end: exception.endTime }) : t('channels.scheduleExceptionAllDay') : t('channels.scheduleExceptionDisabled')}</small></div><IconButton label={t('channels.scheduleExceptionRemove', { date: exception.localDate })} disabled={savingException} onClick={() => void deleteScheduleException(exception.id)}><Power size={15} /></IconButton></li>)}</ul> : <p className="channel-policy-hint">{t('channels.scheduleExceptionsEmpty')}</p>}
+    <Modal open={scheduleExceptionChannel !== null} onOpenChange={(open) => { if (!open) setScheduleExceptionChannel(null) }} title={t('channels.scheduleExceptionsTitle', { name: scheduleExceptionChannel?.displayName ?? '' })} description={t('channels.scheduleExceptionsDescription', { timeZone: scheduleExceptionChannel?.dailyLimitTimeZone ?? '' })} closeLabel={t('common.close')} className="channel-schedule-exception-modal">
+      {scheduleExceptionChannel?.scheduleExceptions.length ? <ul className="channel-schedule-exception-list">{scheduleExceptionChannel.scheduleExceptions.map((exception) => <li key={exception.id}><div><strong>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(`${exception.localDate}T12:00:00Z`))}</strong><small>{exception.assistantEnabled ? exception.startTime && exception.endTime ? `${t('channels.scheduleExceptionHours', { start: exception.startTime, end: exception.endTime })}${exception.endDayOffset ? ` · ${t('channels.scheduleExceptionEndsOn', { date: formatExceptionEndDay(exception.localDate, exception.endDayOffset, i18n.language) })}` : ''}` : t('channels.scheduleExceptionAllDay') : t('channels.scheduleExceptionDisabled')}</small></div><IconButton label={t('channels.scheduleExceptionRemove', { date: exception.localDate })} disabled={savingException} onClick={() => void deleteScheduleException(exception.id)}><Power size={15} /></IconButton></li>)}</ul> : <p className="channel-policy-hint">{t('channels.scheduleExceptionsEmpty')}</p>}
       <form className="channel-quota-form channel-schedule-exception-form" onSubmit={(event) => void saveScheduleException(event)}>
         <div className="channel-schedule-exception-times"><label>{t('channels.scheduleExceptionFromDate')}<TextField type="date" value={exceptionFromDate} onChange={(event) => { setExceptionFromDate(event.target.value); if (exceptionToDate < event.target.value) setExceptionToDate(event.target.value) }} required /></label><label>{t('channels.scheduleExceptionToDate')}<TextField type="date" min={exceptionFromDate} value={exceptionToDate} onChange={(event) => setExceptionToDate(event.target.value)} required /></label></div>
-        <label><CheckboxField checked={exceptionAssistantEnabled} onChange={(event) => setExceptionAssistantEnabled(event.target.checked)} />{t('channels.scheduleExceptionEnableAssistant')}</label>
-        {exceptionAssistantEnabled && <><label><CheckboxField checked={exceptionAllDay} onChange={(event) => setExceptionAllDay(event.target.checked)} />{t('channels.scheduleExceptionAllDayToggle')}</label>{!exceptionAllDay && <div className="channel-schedule-exception-times"><label>{t('channels.scheduleExceptionStart')}<TextField type="time" value={exceptionStartTime} onChange={(event) => setExceptionStartTime(event.target.value)} required /></label><label>{t('channels.scheduleExceptionEnd')}<TextField type="time" value={exceptionEndTime} onChange={(event) => setExceptionEndTime(event.target.value)} required /></label></div>}</>}
+        <fieldset className="channel-schedule-weekdays"><legend>{t('channels.scheduleExceptionWeekdayInstruction')}</legend>{exceptionDays.map((day) => <div className={`channel-schedule-weekday${day.selected ? ' selected' : ''}`} key={day.dayOfWeek}><label><CheckboxField checked={day.selected} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, selected: event.target.checked } : item))} />{t(`channels.weekdays.${day.dayOfWeek}`)}</label>{day.selected && <><label><CheckboxField checked={day.assistantEnabled} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, assistantEnabled: event.target.checked } : item))} />{t('channels.scheduleExceptionEnableAssistant')}</label>{day.assistantEnabled && <><label><CheckboxField checked={day.allDay} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, allDay: event.target.checked } : item))} />{t('channels.scheduleExceptionAllDayToggle')}</label>{!day.allDay && <div className="channel-schedule-weekday-times"><label>{t('channels.scheduleExceptionStart')}<TextField type="time" value={day.startTime} onBlur={() => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, rangeTouched: true } : item))} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, startTime: event.target.value } : item))} required /></label><label>{t('channels.scheduleExceptionEndDay')}<SelectField value={String(day.endDayOfWeek)} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, endDayOfWeek: Number(event.target.value), rangeTouched: true } : item))}>{WEEKDAYS.map((weekday) => <option key={weekday} value={weekday}>{t(`channels.weekdays.${weekday}`)}</option>)}</SelectField></label><label>{t('channels.scheduleExceptionEnd')}<TextField type="time" value={day.endTime} error={day.rangeTouched && hasInvalidExceptionWindow(day) ? t('channels.scheduleExceptionInvalidWindow') : undefined} onBlur={() => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, rangeTouched: true } : item))} onChange={(event) => setExceptionDays((current) => current.map((item) => item.dayOfWeek === day.dayOfWeek ? { ...item, endTime: event.target.value } : item))} required /></label></div>}</>}</>}</div>)}</fieldset>
         {exceptionError && <p role="alert" className="channel-health-result error">{t('channels.scheduleExceptionSaveFailed')}</p>}
-        <Button type="submit" variant="primary" disabled={savingException || !exceptionFromDate || !exceptionToDate || exceptionToDate < exceptionFromDate}>{savingException ? t('common.saving') : t('channels.scheduleExceptionSave')}</Button>
+        <Button type="submit" variant="primary" disabled={savingException || !exceptionFromDate || !exceptionToDate || exceptionToDate < exceptionFromDate || !exceptionDays.some((day) => day.selected) || exceptionDays.some(hasInvalidExceptionWindow)}>{savingException ? t('common.saving') : t('channels.scheduleExceptionSave')}</Button>
       </form>
     </Modal>
     <Modal open={policyChannel !== null} onOpenChange={(open) => { if (!open) setPolicyChannel(null) }} title={t('channels.policyTitle', { name: policyChannel?.displayName ?? '' })} description={t('channels.policyDescription')} closeLabel={t('common.close')} className="channel-quota-modal">

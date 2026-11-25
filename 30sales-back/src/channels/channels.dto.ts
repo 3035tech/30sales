@@ -18,16 +18,22 @@ const scheduleExceptionDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refi
 export const channelScheduleExceptionSchema = z.object({
   fromDate: scheduleExceptionDateSchema,
   toDate: scheduleExceptionDateSchema,
-  assistantEnabled: z.boolean(),
-  startTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(),
-  endTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(),
+  assistantEnabled: z.boolean().optional(),
+  startTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable().optional(),
+  endTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable().optional(),
+  weekdaySchedules: z.array(z.object({ dayOfWeek: z.number().int().min(0).max(6), assistantEnabled: z.boolean(), startTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(), endTime: z.string().regex(/^([01][0-9]|2[0-3]):[0-5][0-9]$/).nullable(), endDayOffset: z.number().int().min(0).max(6) }).strict()).max(7).optional(),
 }).strict().superRefine((exception, context) => {
   const days = (Date.parse(`${exception.toDate}T00:00:00.000Z`) - Date.parse(`${exception.fromDate}T00:00:00.000Z`)) / 86_400_000 + 1;
   if (days < 1 || days > 31) context.addIssue({ code: 'custom', path: ['toDate'], message: 'The exception date range must contain between one and 31 days.' });
-  const hasStart = exception.startTime !== null;
-  const hasEnd = exception.endTime !== null;
-  if (hasStart !== hasEnd || (!exception.assistantEnabled && (hasStart || hasEnd)) || (exception.startTime !== null && exception.endTime !== null && exception.startTime >= exception.endTime)) {
-    context.addIssue({ code: 'custom', path: ['startTime'], message: 'Provide a valid same-day interval only when the assistant is enabled.' });
+  if (exception.weekdaySchedules) {
+    if (exception.weekdaySchedules.length === 0 || new Set(exception.weekdaySchedules.map(({ dayOfWeek }) => dayOfWeek)).size !== exception.weekdaySchedules.length) context.addIssue({ code: 'custom', path: ['weekdaySchedules'], message: 'Choose at least one unique weekday.' });
+    for (const [index, schedule] of exception.weekdaySchedules.entries()) {
+      const hasStart = schedule.startTime !== null; const hasEnd = schedule.endTime !== null;
+      if (hasStart !== hasEnd || (!schedule.assistantEnabled && (hasStart || hasEnd)) || (!hasStart && schedule.endDayOffset !== 0) || (schedule.assistantEnabled && hasStart && schedule.endDayOffset === 0 && schedule.startTime! >= schedule.endTime!)) context.addIssue({ code: 'custom', path: ['weekdaySchedules', index, 'startTime'], message: 'Provide a valid time range for this weekday.' });
+    }
+  } else {
+    const hasStart = exception.startTime != null; const hasEnd = exception.endTime != null;
+    if (exception.assistantEnabled === undefined || hasStart !== hasEnd || (!exception.assistantEnabled && (hasStart || hasEnd)) || (exception.startTime != null && exception.endTime != null && exception.startTime >= exception.endTime)) context.addIssue({ code: 'custom', path: ['startTime'], message: 'Provide a valid same-day interval only when the assistant is enabled.' });
   }
 });
 export type ChannelScheduleExceptionInputDto = z.infer<typeof channelScheduleExceptionSchema>;
@@ -103,7 +109,7 @@ export class ChannelRecordDto {
   constructor(readonly id: string, readonly provider: ChannelProvider, readonly displayName: string, readonly phoneNumber: string, readonly providerChannelId: string, readonly providerAccountId: string | null, readonly isActive: boolean, readonly dailyMessageLimit: number, readonly dailyLimitTimeZone: string, readonly dailyMessageCount: number, readonly createdAt: string, readonly updatedAt: string, readonly isConfigured = false, readonly connectionStatus: ChannelConnectionStatus | null = null, readonly connectionUpdatedAt: string | null = null, readonly operationMode: ChannelOperationMode = 'hybrid', readonly assistantScheduleMode: ChannelAssistantScheduleMode = 'always', readonly businessHours: ChannelBusinessHourDto[] = [], readonly businessLineId: string | null = null, readonly businessLineName: string | null = null, readonly scheduleExceptions: ChannelScheduleExceptionDto[] = [], readonly inboundAssistantProfileId: string | null = null, readonly outboundAssistantProfileId: string | null = null, readonly hasEverConnected = false) {}
 }
 export class ChannelScheduleExceptionDto {
-  constructor(readonly id: string, readonly localDate: string, readonly assistantEnabled: boolean, readonly startTime: string | null, readonly endTime: string | null) {}
+  constructor(readonly id: string, readonly localDate: string, readonly assistantEnabled: boolean, readonly startTime: string | null, readonly endTime: string | null, readonly endDayOffset: number | null = null) {}
 }
 export class ChannelRepositoryScheduleExceptionDto { constructor(readonly organizationId: string, readonly channelId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly input: ChannelScheduleExceptionInputDto, readonly correlationId: string | null) {} }
 export class ChannelRepositoryDeleteScheduleExceptionDto { constructor(readonly organizationId: string, readonly channelId: string, readonly exceptionId: string, readonly actorUserId: string, readonly canManageAllLines: boolean, readonly correlationId: string | null) {} }

@@ -1,6 +1,6 @@
 import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, CircleX, ClipboardList, Clock3, Download, Ellipsis, Mail, MessageSquareText, Mic, Paperclip, Pause, Phone, Play, RefreshCw, Reply, Send, SlidersHorizontal, Smile, SmilePlus, Sparkles, Square, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, CircleX, ClipboardList, Clock3, Copy, Download, Ellipsis, Mail, MessageSquareText, Mic, Paperclip, Pause, Phone, Play, RefreshCw, Reply, Send, SlidersHorizontal, Smile, SmilePlus, Sparkles, Square, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
@@ -165,6 +165,7 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
 }) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
+  const audioMenuRef = useRef<HTMLDetailsElement>(null)
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
   useEffect(() => {
@@ -182,11 +183,28 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
     return () => { cancelled = true; observer.disconnect() }
   }, [attachment, failed, load, src])
   useEffect(() => () => { if (src) URL.revokeObjectURL(src) }, [src])
+  useEffect(() => {
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (event.target instanceof Node && !audioMenuRef.current?.contains(event.target)) audioMenuRef.current && (audioMenuRef.current.open = false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !audioMenuRef.current?.open) return
+      audioMenuRef.current.open = false
+      audioMenuRef.current.querySelector('summary')?.focus()
+      event.stopPropagation()
+    }
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [])
   const isAudio = attachment.mediaType === 'audio'
   return <div className={`inbox-inline-image${isAudio ? ' inbox-inline-audio' : ''}`} ref={containerRef}>
     {src && attachment.mediaType === 'image' ? <button type="button" className="inbox-inline-image-preview" onClick={() => onOpen(attachment)} aria-label={label}><img src={src} alt={attachment.fileName ?? label} loading="lazy" /></button>
       : src && attachment.mediaType === 'video' ? <video className="inbox-inline-video" src={src} controls preload="metadata" aria-label={attachment.fileName ?? label} />
-      : src && isAudio ? <div className="inbox-inline-audio-row"><InboxAudioPlayer src={src} label={t('inbox.mediaTypes.audio')} compact /><details className="inbox-audio-menu"><summary aria-label={t('inbox.downloadAttachment', { name: t('inbox.mediaTypes.audio') })}><Ellipsis size={17} aria-hidden="true" /></summary><div className="inbox-audio-menu-items"><a href={src} download={attachment.fileName ?? 'audio'} onClick={(event) => { const menu = event.currentTarget.closest('details'); if (menu instanceof HTMLDetailsElement) menu.open = false }}><Download size={14} aria-hidden="true" />{t('inbox.download')}</a></div></details></div>
+      : src && isAudio ? <div className="inbox-inline-audio-row"><InboxAudioPlayer src={src} label={t('inbox.mediaTypes.audio')} compact /><details ref={audioMenuRef} className="inbox-audio-menu"><summary aria-label={t('inbox.downloadAttachment', { name: t('inbox.mediaTypes.audio') })}><Ellipsis size={17} aria-hidden="true" /></summary><div className="inbox-audio-menu-items"><a href={src} download={attachment.fileName ?? 'audio'} onClick={(event) => { const menu = event.currentTarget.closest('details'); if (menu instanceof HTMLDetailsElement) menu.open = false }}><Download size={14} aria-hidden="true" />{t('inbox.download')}</a></div></details></div>
       : <span className="inbox-inline-image-placeholder">{isAudio ? failed ? t('inbox.attachmentDownloadFailed') : t('inbox.mediaTypes.audio') : failed ? label : attachment.fileName ?? label}</span>}
     {!isAudio && <div className="inbox-inline-image-tools"><span>{attachment.fileName ?? label}</span><IconButton label={label} onClick={() => onDownload(attachment)}><Download size={14} aria-hidden="true" /></IconButton></div>}
   </div>
@@ -227,6 +245,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [messageDraft, setMessageDraft] = useState('')
   const [replyTarget, setReplyTarget] = useState<MessageDto | null>(null)
   const [reactionBusyMessageId, setReactionBusyMessageId] = useState('')
+  const [copiedMessageId, setCopiedMessageId] = useState('')
   const [mediaDraft, setMediaDraft] = useState<File | null>(null)
   const [audioRecording, setAudioRecording] = useState(false)
   const [audioRecordingDuration, setAudioRecordingDuration] = useState(0)
@@ -519,8 +538,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
       else if (action === 'resolve' || action === 'reopen') await api.inbox.setStatus(selected.id, action === 'resolve' ? 'resolved' : 'open')
       else await api.inbox.setAutomationMode(selected.id, action === 'assistant' ? 'assistant' : 'paused')
       await refresh()
-    } catch {
-      setError(t('inbox.controlFailed'))
+    } catch (caught) {
+      setError(caught instanceof ApiError && caught.code === 'ASSISTANT_AGENT_DISABLED' ? t('inbox.assistantNotEnabled') : t('inbox.controlFailed'))
     } finally {
       setControlling(false)
     }
@@ -585,12 +604,23 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     }
   }
   const hideMessage = async (target: MessageDto) => {
-    if (!selected || !canSend || !window.confirm(t('inbox.hideMessageConfirm'))) return
+    if (!selected || !window.confirm(t('inbox.hideMessageConfirm'))) return
     try {
       await api.inbox.hideMessage(selected.id, target.id)
       setMessages((current) => current.filter((message) => message.id !== target.id))
     } catch {
       setMessageSendError(t('inbox.hideMessageFailed'))
+    }
+  }
+  const copyMessage = async (target: MessageDto) => {
+    const content = target.bodyText ?? target.transcriptText
+    if (!content) return
+    try {
+      await navigator.clipboard.writeText(content)
+      setCopiedMessageId(target.id)
+      window.setTimeout(() => setCopiedMessageId((current) => current === target.id ? '' : current), 1800)
+    } catch {
+      setMessageSendError(t('inbox.copyMessageFailed'))
     }
   }
   const draftReplyWithAssistant = async () => {
@@ -849,7 +879,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {(!selected.ownerUserId || selected.ownerUserId === currentUserId) && assignees.length > 0 && <><label className="inbox-assignee-select"><span>{t('inbox.assignTo')}</span><SelectField value={assigneeTarget} onChange={(event) => setAssigneeTarget(event.target.value)} disabled={controlling}><option value="" disabled>{t('inbox.selectAssignee')}</option>{assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}</SelectField></label><Button type="button" disabled={controlling || !assigneeTarget} onClick={() => void controlConversation('assign')}>{t('inbox.assign')}</Button></>}
             {!selected.ownerUserId && <Button type="button" disabled={controlling} onClick={() => void controlConversation('claim')}>{controlling ? t('inbox.claiming') : t('inbox.claim')}</Button>}
             {selected.ownerUserId === currentUserId && selected.automationMode === 'human' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('pause')}>{t('inbox.pauseAssistant')}</Button>}
-            {selected.automationMode === 'paused' && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <Button type="button" disabled={controlling} onClick={() => void controlConversation('assistant')}>{t('inbox.resumeAssistant')}</Button>}
+            {selected.automationMode === 'paused' && selected.assistantResumeAvailable && (!selected.ownerUserId || selected.ownerUserId === currentUserId) && <Button type="button" disabled={controlling} onClick={() => void controlConversation('assistant')}>{t('inbox.resumeAssistant')}</Button>}
             {selected.ownerUserId === currentUserId && <Button type="button" disabled={controlling} onClick={() => void controlConversation('release')}>{t('inbox.release')}</Button>}
             {selected.ownerUserId === currentUserId && selected.status !== 'resolved' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('resolve')}>{t('inbox.resolve')}</Button>}
             {selected.ownerUserId === currentUserId && selected.status === 'resolved' && <Button type="button" disabled={controlling} onClick={() => void controlConversation('reopen')}>{t('inbox.reopen')}</Button>}
@@ -859,7 +889,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {messagesLoading ? <div className="inbox-message-state"><WorkspaceState kind="loading" compact message={t('common.loading')} /></div> : messagesLoadError && messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="error" compact message={t('inbox.messagesFailed')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState></div> : <>{messagesLoadError && <WorkspaceState kind="error" compact message={t('inbox.messagesFailed')} detail={t('table.resultsRetained')}><Button type="button" onClick={() => refreshMessagesRef.current()}>{t('platform.retry')}</Button></WorkspaceState>}{messages.length === 0 ? <div className="inbox-message-state"><WorkspaceState kind="empty" compact message={messageSearch ? t('inboxSearch.empty') : t('inbox.noMessagesYet')} detail={messageSearch ? undefined : t('inbox.emptyMessagesHint')} /></div> : <>{olderMessagesAvailable && <div className="inbox-load-older"><Button type="button" disabled={olderMessagesLoading} onClick={async () => { const beforeHeight = messagesContainerRef.current?.scrollHeight ?? 0; setOlderMessagesLoading(true); try { const older = await api.inbox.messages(selected.id, { limit: 100, offset: olderMessagesOffset, search: messageSearch }); setMessages((current) => [...new Map([...older, ...current].map((message) => [message.id, message])).values()].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt) || a.id.localeCompare(b.id))); setOlderMessagesAvailable(older.length === 100); setOlderMessagesOffset((current) => current + older.length); requestAnimationFrame(() => { const node = messagesContainerRef.current; if (node) node.scrollTop += node.scrollHeight - beforeHeight }) } catch { setMessagesLoadError(true) } finally { setOlderMessagesLoading(false) } }}>{olderMessagesLoading ? t('inbox.loadingOlderMessages') : t('inbox.loadOlderMessages')}</Button></div>}{messages.map((message) => <article key={message.id} data-message-id={message.id} data-direction={message.direction} className={`inbox-message ${message.direction}`}>
               {message.id === selected.firstUnreadMessageId && <div className="inbox-unread-divider">{t("inbox.firstUnread")}</div>}<div className="inbox-message-meta">{message.direction === 'internal' && <span>{t('inboxComposer.internalNoteBy', { name: message.actorName ?? t('inbox.actor.user') })}</span>}<time dateTime={message.occurredAt}>{formatDate(message.occurredAt)}</time></div>
               {message.isDeleted ? <p className="inbox-message-deleted">{t('inbox.messageDeleted')}</p> : <>{selected.conversationType === 'group' && message.direction === 'inbound' && message.providerMetadata?.evolution?.author?.name && <small className="inbox-group-author">{message.providerMetadata.evolution.author.name}</small>}{message.providerMetadata?.evolution?.quotedMessage?.bodyText && <blockquote className="inbox-message-quote">{message.providerMetadata.evolution.quotedMessage.bodyText}</blockquote>}{message.providerMetadata?.evolution?.reaction && <small>{t('inbox.reactionSent', { emoji: message.providerMetadata.evolution.reaction.emoji })}</small>}{message.providerMetadata?.evolution?.encryptedReaction && <small className="inbox-encrypted-reaction"><SmilePlus size={14} aria-hidden="true" />{t('inbox.reactionUnavailable')}</small>}{message.providerMetadata?.evolution?.richContent?.kind === 'card' ? <div className="inbox-rich-card">{message.attachments.filter((attachment) => attachment.mediaType === 'image').map((attachment) => <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} />)}{message.providerMetadata.evolution.richContent.title && <strong>{message.providerMetadata.evolution.richContent.title}</strong>}{message.providerMetadata.evolution.richContent.body && <p>{message.providerMetadata.evolution.richContent.body}</p>}{message.providerMetadata.evolution.richContent.buttonUrl && /^https?:\/\//i.test(message.providerMetadata.evolution.richContent.buttonUrl) && <a className="inbox-rich-card-action" href={message.providerMetadata.evolution.richContent.buttonUrl} target="_blank" rel="noopener noreferrer">{message.providerMetadata.evolution.richContent.buttonLabel ?? t('inbox.openLink')}</a>}</div> : message.bodyText ? <InboxMessageBody text={message.bodyText} /> : !message.transcriptText && message.attachments.length === 0 && message.providerMetadata?.evolution?.richContent?.kind !== 'poll' && !message.providerMetadata?.evolution?.encryptedReaction && <p>{message.providerMetadata?.evolution?.unsupportedType?.toLowerCase().replace(/[^a-z]/g, '') === 'encreactionmessage' ? t('inbox.reactionUnavailable') : message.providerMetadata?.evolution?.unsupportedType ? t('inbox.unsupportedMessageType', { type: message.providerMetadata.evolution.unsupportedType }) : t('inbox.nonTextMessage')}</p>}{message.providerMetadata?.evolution?.richContent?.kind === 'poll' && <div className="inbox-poll"><strong>{t('inbox.pollOptions')}</strong><ul>{message.providerMetadata.evolution.richContent.options.map((option, index) => <li key={`${index}:${option}`}>{option}</li>)}</ul></div>}{message.transcriptText && <p className="inbox-transcript"><strong>{t('inbox.transcript')}</strong> {message.transcriptText}</p>}{message.attachments.map((attachment) => message.providerMetadata?.evolution?.richContent?.kind === 'card' && attachment.mediaType === 'image' ? null : attachment.status === 'available' && ['image', 'video', 'audio'].includes(attachment.mediaType) ? <InboxMediaAttachment key={attachment.id} attachment={attachment} label={t('inbox.attachmentPreview')} load={loadAttachment} onOpen={(item) => void openAttachment(item)} onDownload={(item) => void openAttachment(item)} /> : <div className={`inbox-attachment ${attachment.status === 'failed' ? 'is-failed' : ''}`} key={attachment.id}><Paperclip size={15} aria-hidden="true" /><span className="inbox-attachment-copy"><strong>{attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`)}</strong><small className={`inbox-attachment-status is-${attachment.status}`}>{attachmentRetryFailedId === attachment.id ? t('inbox.attachmentRetryFailed') : attachment.status === 'available' ? attachment.mimeType ?? t('inbox.attachmentReady') : t(`inbox.attachmentStatus.${attachment.status}`)}</small>{attachment.status === 'failed' && <small className="inbox-attachment-diagnostic">{t('inbox.attachmentFailureDetail', { stage: attachment.lastErrorStage ? t(`inbox.attachmentStage.${attachment.lastErrorStage}`, { defaultValue: attachment.lastErrorStage }) : t('inbox.attachmentUnknownStage'), code: attachment.lastErrorCode ?? 'MEDIA_DOWNLOAD_FAILED', attempts: attachment.attemptCount })}</small>}</span>{attachment.status === 'available' && <IconButton label={t('inbox.downloadAttachment', { name: attachment.fileName ?? t(`inbox.mediaTypes.${attachment.mediaType}`) })} onClick={() => void openAttachment(attachment)}><Download size={14} aria-hidden="true" /></IconButton>}{message.direction === 'inbound' && attachment.status === 'failed' && <IconButton className={retryingAttachmentId === attachment.id ? 'is-loading' : ''} label={retryingAttachmentId === attachment.id ? t('inbox.retryingAttachment') : t('inbox.retryAttachment')} disabled={retryingAttachmentId === attachment.id} onClick={() => void retryAttachment(attachment)}><RefreshCw size={14} aria-hidden="true" /></IconButton>}</div>)}</>}{message.direction === 'outbound' && <div className={`inbox-outbound-status ${message.deliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${message.deliveryState}`)} data-delivery-state={message.deliveryState}>{message.deliveryState === 'requested' ? <Clock3 size={14} /> : message.deliveryState === 'failed' ? <CircleX size={13} /> : message.deliveryState === 'unknown' ? <CircleHelp size={13} /> : message.deliveryState === 'delivered' || message.deliveryState === 'read' ? <CheckCheck size={12} /> : <Check size={12} />}{(message.deliveryState === 'failed' || message.deliveryState === 'unknown') && <span>{t(`inbox.delivery.${message.deliveryState}`)}</span>}</div>}
-              {!message.isDeleted && message.direction !== 'internal' && <div className="inbox-message-actions">{canSend && message.bodyText && <Button type="button" onClick={() => { setComposerMode(INBOX_COMPOSER_MODE.reply); setReplyTarget(message); setMessageSendError('') }}><Reply size={14} />{t('inbox.replyToMessage')}</Button>}{canSend && message.externalMessageId && <div role="group" aria-label={t('inbox.reactionOptions')} className="inbox-message-quick-reactions">{INBOX_QUICK_EMOJIS.map((emoji) => <button type="button" key={emoji} disabled={reactionBusyMessageId === message.id} aria-label={t('inbox.sendReaction', { emoji })} onClick={() => void sendReaction(message, emoji)}>{emoji}</button>)}</div>}<Button type="button" onClick={() => void hideMessage(message)}>{t('inbox.hideMessage')}</Button></div>}
+              {!message.isDeleted && message.direction !== 'internal' && <div className="inbox-message-actions">{canSend && message.externalMessageId && <div role="group" aria-label={t('inbox.reactionOptions')} className="inbox-message-quick-reactions">{INBOX_QUICK_EMOJIS.map((emoji) => <button type="button" key={emoji} disabled={reactionBusyMessageId === message.id} aria-label={t('inbox.sendReaction', { emoji })} onClick={() => void sendReaction(message, emoji)}>{emoji}</button>)}</div>}<details className="inbox-message-action-menu"><summary aria-label={t('inbox.messageActions')}><Ellipsis size={17} aria-hidden="true" /></summary><div className="inbox-message-action-menu-items">{canSend && message.externalMessageId && <details className="inbox-message-reaction-menu"><summary><SmilePlus size={15} aria-hidden="true" />{t('inbox.reactToMessage')}</summary><div role="group" aria-label={t('inbox.reactionOptions')}>{INBOX_COMPOSER_EMOJIS.map((emoji, index) => <button key={`${emoji}-${index}`} type="button" disabled={reactionBusyMessageId === message.id} aria-label={t('inbox.sendReaction', { emoji })} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void sendReaction(message, emoji) }}>{emoji}</button>)}</div></details>}{canSend && message.bodyText && <button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setComposerMode(INBOX_COMPOSER_MODE.reply); setReplyTarget(message); setMessageSendError('') }}><Reply size={15} aria-hidden="true" />{t('inbox.replyToMessage')}</button>}<button type="button" disabled={!message.bodyText && !message.transcriptText} onClick={() => void copyMessage(message)}>{copiedMessageId === message.id ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}{copiedMessageId === message.id ? t('inbox.messageCopied') : t('inbox.copyMessage')}</button><button type="button" onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void hideMessage(message) }}><X size={15} aria-hidden="true" />{t('inbox.hideMessage')}</button></div></details></div>}
             </article>)}</>}</>}
           </div>
           <form className="inbox-composer" onSubmit={sendMessage}>

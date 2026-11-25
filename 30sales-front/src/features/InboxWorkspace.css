@@ -37,6 +37,16 @@
 .inbox-message-actions summary { list-style:none; font-size:17px; line-height:1; }
 .inbox-message-actions summary::-webkit-details-marker { display:none; }
 .inbox-message-actions details>div { position:absolute; z-index:4; bottom:34px; left:0; display:flex; gap:3px; padding:5px; border:1px solid var(--line,#dbe2ea); border-radius:10px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.14); }
+.inbox-message-actions .inbox-message-action-menu>div { top:calc(100% + 8px); right:0; bottom:auto; left:auto; display:grid; min-width:176px; gap:2px; padding:6px; }
+.inbox-message-action-menu>summary { display:grid; width:32px; height:32px; place-items:center; border-radius:8px; cursor:pointer; }
+.inbox-message-action-menu>summary:hover,.inbox-message-action-menu[open]>summary { background:#f1f5f9; }
+.inbox-message-actions .inbox-message-action-menu>div>button { display:flex; width:100%; height:34px; justify-content:flex-start; gap:9px; padding:0 9px; border-radius:6px; color:#344054; font-size:var(--font-size-sm); white-space:nowrap; }
+.inbox-message-actions .inbox-message-action-menu>div>button:hover { background:#f1f5f9; }
+.inbox-message-action-menu-items>.inbox-message-reaction-menu>summary { display:flex; width:100%; min-height:34px; justify-content:flex-start; gap:9px; padding:0 9px; border-radius:6px; color:#344054; font-size:var(--font-size-sm); cursor:pointer; }
+.inbox-message-action-menu-items>.inbox-message-reaction-menu>summary:hover,.inbox-message-action-menu-items>.inbox-message-reaction-menu[open]>summary { background:#f1f5f9; }
+.inbox-message-actions .inbox-message-action-menu .inbox-message-reaction-menu>div { top:0; right:calc(100% + 7px); bottom:auto; left:auto; display:grid; grid-template-columns:repeat(6,34px); gap:2px; max-height:238px; overflow-y:auto; }
+.inbox-message-actions .inbox-message-action-menu .inbox-message-reaction-menu>div>button { width:34px; height:34px; padding:0; font-size:20px; }
+.inbox-message-action-menu>summary:focus-visible,.inbox-message-actions .inbox-message-action-menu>div>button:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
 .inbox-message-actions details button,.inbox-emoji-picker button { display:grid; place-items:center; width:34px; height:34px; border:0; border-radius:7px; background:transparent; font-size:20px; cursor:pointer; }
 .inbox-message-actions details button:hover,.inbox-emoji-picker button:hover { background:#eef2f7; }
 .inbox-message-actions button:disabled,.inbox-emoji-picker button:disabled { opacity:.5; cursor:wait; }
@@ -177,7 +187,7 @@
   .inbox-contact-panel { max-height: 460px; border-top: 1px solid var(--line,#e7e9ed); }
 }
 
-.inbox-transcript{padding:8px 10px;border-left:2px solid var(--brand-primary,#287b51);background:rgba(40,123,81,.06);border-radius:0 6px 6px 0}.inbox-transcript strong{display:block;margin-bottom:3px;font-size:var(--font-size-xs)}
+.inbox-transcript{padding:8px 10px;border-left:2px solid var(--brand-primary,#287b51);background:rgba(40,123,81,.06);border-radius:0 6px 6px 0;white-space:pre-wrap;overflow-wrap:anywhere}.inbox-transcript strong{display:block;margin-bottom:3px;font-size:var(--font-size-xs)}
 
 /* Keep the conversation queue, active thread, and contact context in workflow order. */
 .inbox-layout{height:max(620px,min(1100px,calc(100vh - 420px)));max-height:none;grid-template-columns:minmax(260px,320px) minmax(0,1fr) minmax(260px,320px);grid-template-areas:"conversations thread contact"}

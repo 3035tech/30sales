@@ -8,6 +8,7 @@ import { notifySystemAlert, SYSTEM_ALERT_KIND } from '../components/ui/SystemAle
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import { Modal } from '../components/ui/Modal'
 import { ApiError, api, type AssistantProfileDto, type AssistantSettingsDto } from '../lib/api'
+import { ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH } from '../lib/agentConstants'
 import type { BusinessLineDto } from '../lib/api'
 import './AssistantSettingsWorkspace.css'
 
@@ -142,7 +143,7 @@ export function AssistantSettingsWorkspace() {
       <label className="assistant-settings-model"><Bot size={20} /><span><strong>{t('assistantSettings.model')}</strong><SelectField value={model} onChange={(event) => setModel(event.target.value)}>{settings.availableModels.map((option) => <option key={option.id} value={option.id}>{option.name} · {option.provider}</option>)}</SelectField><small>{t('assistantSettings.modelHint')}</small></span></label>
       <label className="assistant-settings-toggle"><CheckboxField checked={enabled} onChange={(event) => setEnabled(event.target.checked)} /><span><strong>{t('assistantSettings.enabled')}</strong><small>{t('assistantSettings.enabledHint')}</small></span></label>
       <label className="assistant-settings-toggle"><CheckboxField checked={transcribeAudio} onChange={(event) => setTranscribeAudio(event.target.checked)} /><span><strong>{t('assistantSettings.transcribeAudio')}</strong><small>{t('assistantSettings.transcribeAudioHint')}</small></span></label>
-      <label className="assistant-settings-prompt"><span><strong>{t('assistantSettings.prompt')}</strong><small>{t('assistantSettings.promptHint')}</small></span><TextareaField value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} maxLength={30000} rows={16} /></label>
+      <label className="assistant-settings-prompt"><span><strong>{t('assistantSettings.prompt')}</strong><small>{t('assistantSettings.promptHint')}</small></span><TextareaField value={systemPrompt} onChange={(event) => setSystemPrompt(event.target.value)} maxLength={ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH} rows={16} /></label>
       <div className="assistant-settings-footer"><span>{t('assistantSettings.characters', { count: systemPrompt.length })}</span><div className="assistant-settings-actions">{businessLineId && !settings.inherited && <Button type="button" disabled={saving} onClick={resetToOrganizationDefault}><RotateCcw size={15} />{t('assistantSettings.resetToDefault')}</Button>}<Button className="primary" type="submit" disabled={saving}>{saving ? t('assistantSettings.saving') : <><Save size={15} />{t('assistantSettings.save')}</>}</Button></div></div>
       {error && <WorkspaceState kind="error" compact message={error} />}
       <p className="assistant-settings-runtime">{t(settings?.runtimeAvailable ? 'assistantSettings.runtimeReady' : 'assistantSettings.runtimeMissing')}</p>
@@ -160,7 +161,7 @@ export function AssistantSettingsWorkspace() {
         <label><span>{t('assistantSettings.model')}</span><SelectField value={profileDraft.model} onChange={(event) => setProfileDraft({ ...profileDraft, model: event.target.value })}>{(settings?.availableModels ?? []).map((option) => <option key={option.id} value={option.id}>{option.name} · {option.provider}</option>)}</SelectField></label>
         <label className="assistant-profile-check"><CheckboxField checked={profileDraft.enabled} onChange={(event) => setProfileDraft({ ...profileDraft, enabled: event.target.checked })} />{t('assistantSettings.enabled')}</label>
         <label className="assistant-profile-check"><CheckboxField checked={profileDraft.transcribeAudio} onChange={(event) => setProfileDraft({ ...profileDraft, transcribeAudio: event.target.checked })} />{t('assistantSettings.transcribeAudio')}</label>
-        <label className="assistant-profile-prompt"><span>{t('assistantSettings.prompt')}</span><small>{t('assistantSettings.profilePromptHint')}</small><TextareaField required={profileDraft.enabled} minLength={profileDraft.enabled ? 100 : undefined} maxLength={30000} rows={12} value={profileDraft.systemPrompt} onChange={(event) => setProfileDraft({ ...profileDraft, systemPrompt: event.target.value })} /></label>
+        <label className="assistant-profile-prompt"><span>{t('assistantSettings.prompt')}</span><small>{t('assistantSettings.profilePromptHint')}</small><TextareaField required={profileDraft.enabled} minLength={profileDraft.enabled ? 100 : undefined} maxLength={ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH} rows={12} value={profileDraft.systemPrompt} onChange={(event) => setProfileDraft({ ...profileDraft, systemPrompt: event.target.value })} /></label>
         <footer><Button type="submit" className="primary" disabled={profileSaving}>{profileSaving ? t('assistantSettings.saving') : <><Save size={15} />{t('assistantSettings.saveProfile')}</>}</Button></footer>
       </form>}
       </Modal>

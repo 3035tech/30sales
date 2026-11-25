@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH, ASSISTANT_CONVERSATION_ASSIST_MODES, ASSISTANT_CONVERSATION_ASSIST_MODE } from './agents.constants';
+import { ASSISTANT_CONVERSATION_ASSIST_MAX_QUESTION_LENGTH, ASSISTANT_CONVERSATION_ASSIST_MODES, ASSISTANT_CONVERSATION_ASSIST_MODE, ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH } from './agents.constants';
 
 export const assistConversationSchema = z.object({
   mode: z.enum(ASSISTANT_CONVERSATION_ASSIST_MODES),
@@ -11,7 +11,7 @@ export type AssistConversationInputDto = z.infer<typeof assistConversationSchema
 
 export const assistantProfileDirectionSchema = z.enum(['inbound', 'outbound']);
 const assistantModelSchema = z.enum(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']);
-export const assistantProfileInputSchema = z.object({ businessLineId: z.string().uuid(), direction: assistantProfileDirectionSchema, name: z.string().trim().min(2).max(120), enabled: z.boolean(), model: assistantModelSchema, transcribeAudio: z.boolean(), systemPrompt: z.string().max(30000) }).strict().superRefine((input, context) => {
+export const assistantProfileInputSchema = z.object({ businessLineId: z.string().uuid(), direction: assistantProfileDirectionSchema, name: z.string().trim().min(2).max(120), enabled: z.boolean(), model: assistantModelSchema, transcribeAudio: z.boolean(), systemPrompt: z.string().max(ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH) }).strict().superRefine((input, context) => {
   if (input.enabled && input.systemPrompt.trim().length < 100) context.addIssue({ code: 'custom', path: ['systemPrompt'], message: 'Add at least 100 characters of instructions before enabling this profile.' });
 });
 export type AssistantProfileInputDto = z.infer<typeof assistantProfileInputSchema>;
@@ -30,7 +30,7 @@ export const assistantSettingsInputSchema = z.object({
   enabled: z.boolean(),
   model: z.enum(['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']),
   transcribeAudio: z.boolean(),
-  systemPrompt: z.string().max(30000),
+  systemPrompt: z.string().max(ASSISTANT_SYSTEM_PROMPT_MAX_LENGTH),
 }).strict().superRefine((input, context) => {
   if (input.enabled && input.systemPrompt.trim().length < 100) context.addIssue({ code: 'custom', path: ['systemPrompt'], message: 'Add at least 100 characters of instructions before enabling Assistant.' });
 });

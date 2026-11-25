@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, notExists, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messageHiddenForUsers, messages, messagingChannels, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messageHiddenForUsers, messages, messagingChannels, opportunityConversationContexts, opportunities, opportunityStageHistory, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactReconcileResultDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, conversationAutomationModeSchema, conversationStatusUpdateSchema, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactReconcileResultDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, conversationAutomationModeSchema, conversationStatusUpdateSchema, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
 import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
@@ -179,6 +179,43 @@ export class InboxRepository {
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, beforeState: { personId: person.id, hasPhone: Boolean(person.phone) }, afterState: { leadId: lead.id, personId: person.id, hasPhone: Boolean(updatedPhone), isPrimary: input.isPrimary, isInterested: input.isInterested } });
       const [account] = await transaction.select({ name: accounts.name }).from(accounts).where(and(eq(accounts.id, lead.accountId), eq(accounts.organizationId, input.organizationId))).limit(1);
       return new ConversationContactReconcileResultDto(conversation.id, lead.id, account?.name ?? '', updatedName, updatedPhone);
+    });
+  }
+  async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'conversation_linked_elsewhere'> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status })
+        .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!conversation || !await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
+      if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
+      if (!conversation.businessLineId || conversation.lineStatus !== 'active' || !conversation.personId) return 'not_found';
+      const [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
+        .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+        .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+        .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId))).for('update', { of: leads }).limit(1);
+      if (!lead || !lead.personId) return 'lead_unavailable';
+      if (conversation.opportunityId) {
+        const [linked] = await transaction.select({ leadId: opportunities.leadId }).from(opportunities).where(and(eq(opportunities.id, conversation.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
+        if (!linked || linked.leadId !== lead.id) return 'conversation_linked_elsewhere';
+      }
+      const [existing] = await transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, lead.id))).for('update').limit(1);
+      const now = new Date();
+      let opportunityId = conversation.opportunityId ?? existing?.id;
+      const created = !opportunityId;
+      if (!opportunityId) {
+        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, name: `${lead.accountName} — ${input.input.summary.slice(0, 120)}`, stage: 'qualification', nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
+        opportunityId = opportunity.id;
+        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from an Inbox conversation.' });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', source: 'inbox_conversation', conversationId: conversation.id, leadId: lead.id } });
+      }
+      await transaction.update(opportunities).set({ nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), updatedAt: now }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.update(conversations).set({ accountId: lead.accountId, opportunityId, updatedAt: now }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      await transaction.insert(opportunityConversationContexts).values({ organizationId: input.organizationId, opportunityId, conversationId: conversation.id, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now })
+        .onConflictDoUpdate({ target: [opportunityConversationContexts.organizationId, opportunityConversationContexts.conversationId], set: { opportunityId, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.conversation_context_added', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { conversationId: conversation.id, leadId: lead.id, summaryLength: input.input.summary.length, created } });
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: now.toISOString() })})`);
+      return { opportunityId, created };
     });
   }
   async isAssistantEnabled(organizationId: string, conversationId: string): Promise<boolean> {

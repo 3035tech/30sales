@@ -306,6 +306,15 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [markAsInterested, setMarkAsInterested] = useState(false)
   const [reconciling, setReconciling] = useState(false)
   const [reconcileError, setReconcileError] = useState('')
+  const [opportunityOpen, setOpportunityOpen] = useState(false)
+  const [opportunitySummary, setOpportunitySummary] = useState('')
+  const [opportunityFacts, setOpportunityFacts] = useState<string[]>([])
+  const [opportunityUnknowns, setOpportunityUnknowns] = useState<string[]>([])
+  const [opportunityNextAction, setOpportunityNextAction] = useState('')
+  const [opportunityDueAt, setOpportunityDueAt] = useState('')
+  const [opportunityGenerating, setOpportunityGenerating] = useState(false)
+  const [opportunitySaving, setOpportunitySaving] = useState(false)
+  const [opportunityError, setOpportunityError] = useState('')
   const refreshSequence = useRef(0)
   const readCursorKey = useRef('')
   const skipUnreadAutoSelect = useRef(false)
@@ -703,13 +712,37 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     if (!selected) return
     setLeadSearch(''); setLeadOptions([]); setReconcileLeadId(''); setReconcileLead(null); setLeadSearchFailed(false); setConfirmedName(selected.personName ?? ''); setConfirmedPhone(selected.personPhone ?? ''); setMarkAsPrimary(false); setMarkAsInterested(false); setReconcileError(''); setReconcileOpen(true)
   }
+  const openOpportunityCreation = () => {
+    if (!selected) return
+    setLeadSearch(''); setLeadOptions([]); setReconcileLeadId(''); setReconcileLead(null)
+    setOpportunitySummary(''); setOpportunityFacts([]); setOpportunityUnknowns([]); setOpportunityNextAction(''); setOpportunityDueAt(''); setOpportunityError(''); setOpportunityOpen(true)
+  }
   useEffect(() => {
-    if (!reconcileOpen || leadSearch.trim().length < 2) { setLeadOptions([]); setLeadSearchLoading(false); setLeadSearchFailed(false); return }
+    if ((!reconcileOpen && !opportunityOpen) || leadSearch.trim().length < 2) { setLeadOptions([]); setLeadSearchLoading(false); setLeadSearchFailed(false); return }
     let active = true
     setLeadSearchLoading(true); setLeadSearchFailed(false)
     const timer = window.setTimeout(() => { void api.leads.listPage({ businessLineId: selected?.businessLineId ?? undefined, search: leadSearch.trim(), limit: 10, offset: 0 }).then((result) => { if (active) setLeadOptions(result.data.map((lead) => ({ id: lead.id, accountName: lead.accountName, contactName: lead.contactName, phone: lead.phone }))) }).catch(() => { if (active) { setLeadOptions([]); setLeadSearchFailed(true) } }).finally(() => { if (active) setLeadSearchLoading(false) }) }, 250)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [reconcileOpen, leadSearch, selected?.businessLineId])
+  }, [reconcileOpen, opportunityOpen, leadSearch, selected?.businessLineId])
+  const generateOpportunityContext = async () => {
+    if (!selected) return
+    setOpportunityGenerating(true); setOpportunityError('')
+    try {
+      const result = await api.agents.assistConversation(selected.id, { mode: ASSISTANT_CONVERSATION_ASSIST_MODE.summary })
+      setOpportunitySummary(result.summary); setOpportunityFacts(result.confirmedFacts); setOpportunityUnknowns(result.unknowns); setOpportunityNextAction(result.nextStep)
+    } catch { setOpportunityError(t('inbox.opportunityCreation.aiFailed')) }
+    finally { setOpportunityGenerating(false) }
+  }
+  const saveOpportunityFromConversation = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || !reconcileLeadId || !opportunitySummary.trim() || !opportunityNextAction.trim() || !opportunityDueAt) return
+    setOpportunitySaving(true); setOpportunityError('')
+    try {
+      await api.inbox.createOpportunity(selected.id, { leadId: reconcileLeadId, summary: opportunitySummary.trim(), confirmedFacts: opportunityFacts, unknowns: opportunityUnknowns, nextAction: opportunityNextAction.trim(), nextActionAt: new Date(opportunityDueAt).toISOString() })
+      setOpportunityOpen(false); await refresh()
+    } catch (error) { setOpportunityError(error instanceof ApiError && error.code === 'CONVERSATION_OPPORTUNITY_CONFLICT' ? t('inbox.opportunityCreation.conflict') : t('inbox.opportunityCreation.failed')) }
+    finally { setOpportunitySaving(false) }
+  }
   const saveContactReconciliation = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!selected || !reconcileLeadId) return
@@ -778,6 +811,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             <div><dt><Building2 size={14} />{t('inbox.company')}</dt><dd>{selected.accountName ?? '—'}</dd></div>
           </dl></section>
           {selected.ownerUserId === currentUserId && <Button type="button" onClick={openContactReconciliation}>{t('inbox.contactReconciliation.action')}</Button>}
+          {selected.ownerUserId === currentUserId && <Button type="button" onClick={openOpportunityCreation}><Sparkles size={15} aria-hidden="true" />{t('inbox.opportunityCreation.action')}</Button>}
           <section className="inbox-contact-section"><h4>{t('inbox.leadContext')}</h4><dl>
             <div><dt>{t('inbox.leadStatus')}</dt><dd>{selected.lead ? t(`leadStatuses.${selected.lead.status}`, { defaultValue: selected.lead.status }) : t('inbox.noLead')}</dd></div>
             <div><dt>{t('inbox.leadSource')}</dt><dd>{selected.lead ? t(`leads.sources.${selected.lead.source}`, { defaultValue: selected.lead.source }) : '—'}</dd></div>
@@ -869,6 +903,24 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         <div className="inbox-contact-reconcile-flags"><label><CheckboxField checked={markAsPrimary} onChange={(event) => setMarkAsPrimary(event.target.checked)} />{t('inbox.contactReconciliation.markPrimary')}</label><label><CheckboxField checked={markAsInterested} onChange={(event) => setMarkAsInterested(event.target.checked)} />{t('inbox.contactReconciliation.markInterested')}</label></div>
         {reconcileError && <WorkspaceState kind="error" compact message={reconcileError} />}
         <Button type="submit" disabled={reconciling || !reconcileLeadId || confirmedName.trim().length < 2}>{reconciling ? t('common.saving') : t('inbox.contactReconciliation.save')}</Button>
+      </form>
+    </Modal>
+    <Modal open={opportunityOpen} onOpenChange={setOpportunityOpen} title={t('inbox.opportunityCreation.title')} description={t('inbox.opportunityCreation.description')} closeLabel={t('common.close')}>
+      <form className="inbox-contact-reconcile-form" onSubmit={saveOpportunityFromConversation}>
+        <label>{t('inbox.contactReconciliation.lead')}<TextField value={leadSearch} onChange={(event) => { setLeadSearch(event.target.value); setReconcileLeadId(''); setReconcileLead(null) }} maxLength={120} placeholder={t('inbox.contactReconciliation.search')} /></label>
+        {leadSearchLoading && <small role="status">{t('inbox.contactReconciliation.searching')}</small>}
+        {leadSearchFailed && <WorkspaceState kind="error" compact message={t('inbox.contactReconciliation.searchFailed')} />}
+        {!leadSearchLoading && !leadSearchFailed && leadSearch.trim().length >= 2 && leadOptions.length === 0 && <WorkspaceState kind="empty" compact message={t('inbox.contactReconciliation.noResults')} />}
+        {leadOptions.length > 0 && <div className="inbox-contact-reconcile-options" role="group" aria-label={t('inbox.contactReconciliation.results')}>{leadOptions.map((lead) => <Button key={lead.id} type="button" className={reconcileLeadId === lead.id ? 'active' : ''} aria-pressed={reconcileLeadId === lead.id} onClick={() => { setReconcileLeadId(lead.id); setReconcileLead(lead); setOpportunityError('') }}>{lead.accountName} · {lead.contactName ?? t('inbox.unknownContact')}</Button>)}</div>}
+        {reconcileLead && <p className="inbox-contact-reconcile-selected"><strong>{t('inbox.contactReconciliation.selectedLead')}:</strong> {reconcileLead.accountName} · {reconcileLead.contactName ?? t('inbox.unknownContact')}</p>}
+        <Button type="button" disabled={!reconcileLeadId || opportunityGenerating} onClick={() => void generateOpportunityContext()}><Sparkles size={15} />{opportunityGenerating ? t('inbox.opportunityCreation.generating') : t('inbox.opportunityCreation.generate')}</Button>
+        <label>{t('inbox.opportunityCreation.summary')}<TextareaField value={opportunitySummary} onChange={(event) => setOpportunitySummary(event.target.value)} maxLength={8000} /></label>
+        {opportunityFacts.length > 0 && <div><strong>{t('inbox.opportunityCreation.facts')}</strong><ul>{opportunityFacts.map((fact, index) => <li key={`${index}-${fact}`}>{fact}</li>)}</ul></div>}
+        {opportunityUnknowns.length > 0 && <div><strong>{t('inbox.opportunityCreation.unknowns')}</strong><ul>{opportunityUnknowns.map((fact, index) => <li key={`${index}-${fact}`}>{fact}</li>)}</ul></div>}
+        <label>{t('inbox.opportunityCreation.nextAction')}<TextField value={opportunityNextAction} onChange={(event) => setOpportunityNextAction(event.target.value)} maxLength={500} /></label>
+        <label>{t('inbox.opportunityCreation.dueAt')}<input className="inbox-opportunity-due" type="datetime-local" value={opportunityDueAt} onChange={(event) => setOpportunityDueAt(event.target.value)} required /></label>
+        {opportunityError && <WorkspaceState kind="error" compact message={opportunityError} />}
+        <Button type="submit" disabled={opportunitySaving || !reconcileLeadId || opportunitySummary.trim().length < 10 || opportunityNextAction.trim().length < 3 || !opportunityDueAt}>{opportunitySaving ? t('common.saving') : t('inbox.opportunityCreation.save')}</Button>
       </form>
     </Modal>
     <Modal open={assistantConsultOpen} onOpenChange={setAssistantConsultOpen} title={t('inboxComposer.assistantConsult.title')} description={t('inboxComposer.assistantConsult.description')} closeLabel={t('common.close')} className="inbox-assistant-consult-modal">

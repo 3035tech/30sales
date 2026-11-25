@@ -3,7 +3,7 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto } from './inbox.dto';
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelMessagingAdapterRegistry } from './channel-messaging-adapter.registry';
@@ -126,6 +126,15 @@ export class InboxService {
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone) throw new BadRequestException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.invalidPhone, message: 'Enter a valid international phone number.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notOwner) throw new ForbiddenException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.ownerRequired, message: 'Take ownership of the conversation before updating its contact.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.contactSharedAcrossLines) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.contactSharedAcrossLines, message: 'This contact is linked to another business line. Update the shared contact from an organization management workflow.' });
+    return result;
+  }
+  async createOpportunityFromConversation(request: ApiRequestDto, conversationId: string, input: CreateConversationOpportunityInputDto) {
+    const context = await this.tenantAccess.require(request, 'create', 'pipeline');
+    const result = await this.repository.createOpportunityFromConversation(new ConversationOpportunityCreateDto(context.organizationId, conversationId, context.userId, input, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), context.isPlatformOrganizationContext, request.correlationId));
+    if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can create an opportunity from it.' });
+    if (result === 'conversation_linked_elsewhere') throw new ConflictException({ code: 'CONVERSATION_OPPORTUNITY_CONFLICT', message: 'This conversation is already linked to a different opportunity.' });
+    if (result === 'lead_unavailable') throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Choose a lead in the same business line as this conversation.' });
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return result;
   }
   async sendMessage(request: ApiRequestDto, conversationId: string, input: SendConversationMessageDto): Promise<MessageRecordDto> {

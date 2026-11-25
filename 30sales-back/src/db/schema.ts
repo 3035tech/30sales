@@ -408,7 +408,7 @@ export const assistantProfiles = pgTable('assistant_profiles', {
   check('assistant_profiles_direction_check', sql`${table.direction} in ('inbound', 'outbound')`),
   check('assistant_profiles_name_check', sql`length(trim(${table.name})) between 2 and 120`),
   check('assistant_profiles_model_check', sql`${table.model} in ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5')`),
-  check('assistant_profiles_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
+  check('assistant_profiles_prompt_length_check', sql`length(${table.systemPrompt}) <= 100000`),
   check('assistant_profiles_enabled_prompt_check', sql`not ${table.enabled} or length(trim(${table.systemPrompt})) >= 100`),
   unique('assistant_profiles_id_tenant_line_unique').on(table.id, table.organizationId, table.businessLineId),
   foreignKey({ name: 'assistant_profiles_business_line_tenant_fk', columns: [table.organizationId, table.businessLineId], foreignColumns: [businessLines.organizationId, businessLines.id] }).onDelete('cascade'),
@@ -579,7 +579,7 @@ export const agentSettings = pgTable('agent_settings', {
   uniqueIndex('agent_settings_org_line_agent_unique').on(table.organizationId, table.businessLineId, table.agentKey).where(sql`${table.businessLineId} is not null`),
   check('agent_settings_agent_key_check', sql`${table.agentKey} in ('assistant')`),
   check('agent_settings_model_check', sql`${table.model} in ('claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5')`),
-  check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 30000`),
+  check('agent_settings_prompt_length_check', sql`length(${table.systemPrompt}) <= 100000`),
   index('agent_settings_org_enabled_idx').on(table.organizationId, table.enabled),
 ]);
 

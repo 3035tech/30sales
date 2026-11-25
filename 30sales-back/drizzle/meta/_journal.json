@@ -617,6 +617,13 @@
       "when": 1795633562983,
       "tag": "0087_talented_lorna_dane",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1795636326241,
+      "tag": "0088_agent_prompt_capacity",
+      "breakpoints": true
     }
   ]
 }

@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, conversationAutomationModeSchema, conversationStatusUpdateSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema } from './inbox.dto';
-import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto } from './inbox.dto';
+import { assignConversationSchema, conversationAutomationModeSchema, conversationStatusUpdateSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema, createConversationOpportunitySchema } from './inbox.dto';
+import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto, CreateConversationOpportunityInputDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 import { OUTBOUND_MEDIA_LIMIT_BYTES } from './outbound-media.constants';
 import type { IncomingMediaFile } from './outbound-media';
@@ -49,6 +49,8 @@ export class InboxController {
   setStatus(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationStatusUpdateSchema)) input: ConversationStatusUpdateInputDto) { return this.inboxService.setStatus(request, conversationId, input); }
   @Patch(':id/contact')
   reconcileContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(reconcileConversationContactSchema)) input: ReconcileConversationContactInputDto) { return this.inboxService.reconcileContact(request, conversationId, input); }
+  @Post(':id/opportunity')
+  createOpportunity(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(createConversationOpportunitySchema)) input: CreateConversationOpportunityInputDto) { return this.inboxService.createOpportunityFromConversation(request, conversationId, input); }
   @Post(':id/messages')
   sendMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMessageSchema)) input: SendConversationMessageDto) { return this.inboxService.sendMessage(request, conversationId, input); }
   @Delete(':id/messages/:messageId')

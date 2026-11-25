@@ -30,6 +30,8 @@
 .inbox-message.internal .inbox-message-meta { justify-content:space-between; }
 .inbox-message-meta { display: flex; justify-content: flex-end; gap: 18px; }
 .inbox-message-actions { display:flex; align-items:center; gap:6px; margin:6px -4px -4px; opacity:.72; }
+.inbox-message-quick-reactions { display:flex; align-items:center; gap:2px; }
+.inbox-message-quick-reactions button { display:grid; place-items:center; width:30px; height:28px; border:1px solid var(--line,#dbe2ea); border-radius:7px; background:#fff; cursor:pointer; font-size:16px; }
 .inbox-message-actions>button,.inbox-message-actions summary { display:inline-flex; align-items:center; gap:4px; min-height:28px; padding:3px 7px; border:1px solid var(--line,#dbe2ea); border-radius:7px; background:#fff; color:#475569; font-size:var(--font-size-xs); cursor:pointer; }
 .inbox-message-actions details { position:relative; }
 .inbox-message-actions summary { list-style:none; font-size:17px; line-height:1; }
@@ -140,13 +142,22 @@
 .inbox-contact-panel .inbox-tag-manager { display: grid; gap: 8px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 9px; background: #fff; }
 .inbox-contact-panel .inbox-tag-manager>strong { color: #526176; font-size: var(--font-size-xs); }
 .inbox-conversation-time { color: #315782 !important; font-weight: 650; }
-.inbox-conversation-filters { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line,#e7e9ed); }
-.inbox-conversation-filters>.inbox-channel-filter { grid-column: 1/-1; padding: 2px 3px 6px; border: 0; }
-.inbox-filter-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 32px; padding: 6px 8px; font-size: var(--font-size-xs); white-space: nowrap; }
-.inbox-conversation-filters>.inbox-unread-filter { grid-column: 1/-1; padding: 4px 2px; border: 0; }
-.inbox-advanced-filters { grid-column: 1/-1; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; }
-.inbox-advanced-filters>.inbox-channel-filter { min-width: 0; padding: 5px; border: 1px solid #e5eaf0; border-radius: 7px; }
+.inbox-conversation-filters { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--line,#e7e9ed); }
+.inbox-conversation-filters>.inbox-channel-filter { grid-column: 1/-1; padding: 0 0 2px; border: 0; }
+.inbox-filter-toggle { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 7px 10px; border: 1px solid #dbe4ee; border-radius: 8px; background: #fff; color: #475569; font: 500 var(--font-size-sm)/1.2 var(--brand-ui-font); white-space: nowrap; }
+.inbox-filter-toggle:hover,.inbox-filter-toggle.is-open { border-color:#b9c9d9; background:#f8fafc; color:#26384d; }
+.inbox-filter-count { display:grid; min-width:20px; height:20px; place-items:center; padding:0 5px; border-radius:999px; background:#e9f3ed; color:#226143; font-size:var(--font-size-xs); font-weight:650; }
+.inbox-advanced-filters { grid-column: 1/-1; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items:start; gap: 10px 12px; padding: 12px; border: 1px solid #e2e8f0; border-radius: 10px; background:#f8fafc; }
+.inbox-advanced-filters>.inbox-channel-filter { min-width: 0; gap:5px; padding:0; border:0; color:#526176; font-size:var(--font-size-sm); font-weight:550; }
 .inbox-advanced-filters>.inbox-channel-filter select { width: 100%; }
+.inbox-advanced-filters>.inbox-channel-filter .ui-select,.inbox-advanced-filters>.inbox-channel-filter select { min-height:38px; font-size:var(--font-size-sm); }
+.inbox-advanced-filters>.inbox-unread-filter { grid-column:1/-1; align-self:center; margin:0; padding:8px 0 0; border:0; border-top:1px solid #e2e8f0; font-size:var(--font-size-sm); }
+.inbox-advanced-filters .inbox-clear-all-filters { grid-column:1/-1; justify-self:start; min-height:32px; padding:6px 9px; font-size:var(--font-size-sm); }
+.inbox-channel-filter { font-size:var(--font-size-sm); }
+.inbox-channel-filter input { min-height:40px; padding:8px 36px 8px 11px; font-size:var(--font-size-base); }
+.inbox-channel-filter select { min-height:38px; padding:7px 34px 7px 10px; font-size:var(--font-size-sm); }
+.inbox-filter-toggle:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+@media(max-width:380px) { .inbox-advanced-filters { grid-template-columns:minmax(0,1fr); } .inbox-advanced-filters>.inbox-unread-filter,.inbox-advanced-filters .inbox-clear-all-filters { grid-column:1; } }
 @media(max-width:1100px) {
   .inbox-layout { grid-template-columns: minmax(260px,320px) minmax(0,1fr); grid-template-areas: "conversations thread" "contact contact"; max-height: none; }
   .inbox-contact-panel { max-height: 340px; border-top: 1px solid var(--line,#e7e9ed); border-left: 0; }
@@ -263,6 +274,11 @@
 .inbox-message-search { display:flex; align-items:center; gap:8px; padding:4px 12px; border-bottom:1px solid var(--line,#e7e9ed); background:#fff; }
 .inbox-message-search label { color:#64748b; font-size:var(--font-size-sm); font-weight:600; white-space:nowrap; }
 .inbox-message-search input { min-width:100px; }
+.inbox-search-input-wrap { position:relative; display:block; width:100%; min-width:0; }
+.inbox-search-input-wrap input { padding-right:36px; }
+.inbox-search-clear { position:absolute; top:50%; right:7px; display:grid; place-items:center; width:26px; height:26px; padding:0; border:0; border-radius:50%; background:transparent; color:#64748b; cursor:pointer; transform:translateY(-50%); }
+.inbox-search-clear:hover { background:#eef2f7; color:#263449; }
+.inbox-search-clear:focus-visible { outline:2px solid var(--focus,#2563eb); outline-offset:1px; }
 @media (max-width: 760px) { .inbox-message-search { flex-wrap:wrap; } .inbox-message-search label { width:100%; } }
 @media (max-width: 1400px) {
   .inbox-layout,.inbox-context-collapsed .inbox-layout { height:max(640px,calc(100dvh - 190px)); grid-template-columns:minmax(280px,340px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); grid-template-areas:"conversations thread"; }

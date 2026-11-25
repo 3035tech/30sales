@@ -69,6 +69,25 @@
 .rail .rail-bottom{padding:15px 5px 0}
 .rail>.mobile-nav-toggle.ui-button{display:none}
 @media(max-width:640px){.rail{padding:12px 17px}.rail .brand{padding:0}.rail .nav-group{margin-bottom:8px}}
+
+.rail-brand-row{display:flex;align-items:flex-start;justify-content:space-between;gap:6px}
+.desktop-nav-toggle{flex:none;width:34px;min-width:34px;height:34px;min-height:34px;display:grid;place-items:center;padding:7px;border:1px solid transparent;border-radius:7px;background:transparent;color:#64748b;box-shadow:none}
+.desktop-nav-toggle:hover:not(:disabled){border-color:#e2e8f0;background:#f8fafc;box-shadow:none;color:#334155}
+.desktop-nav-toggle:focus-visible{outline:2px solid #15803d;outline-offset:2px}
+.navigation-collapsed{grid-template-columns:76px minmax(0,1fr)}
+.navigation-collapsed .rail{padding-right:12px;padding-left:12px}
+.navigation-collapsed .rail-brand-row{justify-content:center}
+.navigation-collapsed .brand{display:none}
+.navigation-collapsed .nav-group-toggle{justify-content:center;padding:4px;font-size:0}
+.navigation-collapsed .nav-group-toggle::before{content:attr(data-compact-label);font-size:var(--font-size-sm);font-weight:700;line-height:1}
+.navigation-collapsed .nav-group-toggle svg{display:none}
+.navigation-collapsed .nav-group-links{padding:2px 0}
+.navigation-collapsed .nav-group-links .nav.ui-button{justify-content:center;gap:0;padding:10px 4px;font-size:0}
+.navigation-collapsed .nav-group-links .nav.ui-button svg{width:19px;height:19px}
+.navigation-collapsed .nav-group-links .nav-count{display:none}
+.navigation-collapsed .rail-bottom{justify-content:center;padding-right:0;padding-left:0}
+.navigation-collapsed .rail-bottom>div{display:none}
+@media(max-width:640px){.desktop-nav-toggle{display:none}.navigation-collapsed{grid-template-columns:1fr}.navigation-collapsed .rail{padding:12px 17px}.navigation-collapsed .brand{display:flex}.navigation-collapsed .brand-wordmark{width:164px}.navigation-collapsed .rail-brand-row{justify-content:flex-start}.navigation-collapsed .nav-group-toggle{justify-content:space-between;padding:7px 10px;font-size:var(--font-size-xs)}.navigation-collapsed .nav-group-toggle svg{display:block}.navigation-collapsed .nav-group-links .nav.ui-button{justify-content:flex-start;gap:10px;padding:9px 10px;font-size:var(--font-size-sm)}.navigation-collapsed .nav-group-links .nav-count{display:grid}.navigation-collapsed .rail-bottom>div{display:block}}
 @media(max-width:640px){.rail>.mobile-nav-toggle.ui-button{display:grid}}
 .lead-create-modal .lead-form,.task-create-modal .task-form,.handoff-create-modal .handoff-form{margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}.task-header-actions,.channel-header-actions{display:flex;align-items:center;gap:9px}.lead-create-modal .lead-fields,.task-create-modal .task-fields,.handoff-create-modal .handoff-fields{margin-bottom:0}
 .channel-create-modal .channel-form,.channel-credentials-modal .channel-form,.assistant-profile-modal .assistant-profile-editor,.ui-modal .pipeline-stage-create,.ui-modal .pipeline-management-create{margin:0;padding:0;border:0;border-radius:0;background:transparent;overflow:visible}

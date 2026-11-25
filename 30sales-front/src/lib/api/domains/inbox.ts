@@ -41,6 +41,7 @@ export const inboxApi = {
     setStatus: (conversationId: string, status: 'open' | 'resolved') => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/status`, z.object({ id: z.string().uuid(), status: z.enum(['open','resolved']) }), { method: 'PATCH', body: JSON.stringify({ status }) }),
     reconcileContact: (conversationId: string, input: { leadId: string; name?: string; phone?: string; isPrimary: boolean; isInterested: boolean }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/contact`, z.object({ conversationId: z.string().uuid(), leadId: z.string().uuid(), accountName: z.string(), contactName: z.string(), phone: z.string().nullable() }), { method: 'PATCH', body: JSON.stringify(input) }),
     sendMessage: (conversationId: string, input: { bodyText: string; idempotencyKey: string; targetMessageId?: string; mode?: 'reply' | 'reaction' }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
+    hideMessage: (conversationId: string, messageId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`, z.object({ hidden: z.boolean() }), { method: 'DELETE' }),
     sendMediaMessage: (conversationId: string, input: { bodyText: string; idempotencyKey: string; file: File }) => {
       const form = new FormData();
       form.set('file', input.file, input.file.name);

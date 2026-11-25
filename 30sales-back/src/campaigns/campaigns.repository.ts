@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
 
 const campaignDeliveryConfirmationPayloadSchema = z.object({ campaignDraftId: z.string().min(1), leadId: z.string().min(1) });
 const campaignOutreachPayloadSchema = z.object({ organizationId: z.string().min(1), actorUserId: z.string().min(1), campaignDraftId: z.string().min(1), channelId: z.string().min(1), leadId: z.string().min(1) });
@@ -529,7 +530,18 @@ export class CampaignsRepository {
         .where(and(eq(outboxEvents.organizationId, input.organizationId), eq(outboxEvents.idempotencyKey, `${CAMPAIGN_OUTREACH_IDEMPOTENCY_PREFIX}${input.campaignDraftId}:${input.leadId}`), eq(outboxEvents.eventType, CAMPAIGN_OUTREACH_EVENT), eq(outboxEvents.status, CAMPAIGN_OUTBOX_STATUS.processing)))
         .returning({ id: outboxEvents.id });
       if (!finishedEvent) return;
-      await transaction.update(messages).set({ deliveryState: delivered ? 'accepted' : input.deliveryState, externalMessageId: input.externalMessageId }).where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId)));
+      const initialDeliveryState = delivered ? 'accepted' : input.deliveryState;
+      const [message] = await transaction.update(messages).set({ deliveryState: initialDeliveryState, externalMessageId: input.externalMessageId })
+        .where(and(eq(messages.id, input.messageId), eq(messages.organizationId, input.organizationId)))
+        .returning({ id: messages.id, deliveryState: messages.deliveryState });
+      if (message && input.externalMessageId) {
+        const finalDeliveryState = await applyPendingEvolutionMessageStatuses(transaction, {
+          organizationId: input.organizationId, channelId: input.channelId, messageId: message.id,
+          externalMessageId: input.externalMessageId, currentState: message.deliveryState,
+        });
+        if (finalDeliveryState !== message.deliveryState) await transaction.update(messages).set({ deliveryState: finalDeliveryState })
+          .where(and(eq(messages.id, message.id), eq(messages.organizationId, input.organizationId)));
+      }
       if (delivered) {
         const [updatedLead] = await transaction.update(leads).set({ status: LEAD_STATUS.contacting, updatedAt: new Date() }).where(and(eq(leads.id, input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.status, LEAD_STATUS.ready))).returning({ id: leads.id });
         if (updatedLead) await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: input.leadId, fromStatus: LEAD_STATUS.ready, toStatus: LEAD_STATUS.contacting, changedByUserId: input.actorUserId });

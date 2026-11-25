@@ -727,6 +727,17 @@ export const conversationReads = pgTable('conversation_reads', {
   index('conversation_reads_org_user_read_idx').on(table.organizationId, table.userId, table.lastReadAt),
 ]);
 
+export const messageHiddenForUsers = pgTable('message_hidden_for_users', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  messageId: uuid('message_id').notNull(),
+  userId: uuid('user_id').notNull().references(() => authUser.id, { onDelete: 'cascade' }),
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  primaryKey({ name: 'message_hidden_for_users_pk', columns: [table.organizationId, table.messageId, table.userId] }),
+  foreignKey({ name: 'message_hidden_for_users_message_tenant_fk', columns: [table.messageId, table.organizationId], foreignColumns: [messages.id, messages.organizationId] }).onDelete('cascade'),
+  index('message_hidden_for_users_org_user_idx').on(table.organizationId, table.userId, table.messageId),
+]);
+
 export const leadQualificationFacts = pgTable('lead_qualification_facts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

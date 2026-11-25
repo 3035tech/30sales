@@ -51,6 +51,8 @@ export class InboxController {
   reconcileContact(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(reconcileConversationContactSchema)) input: ReconcileConversationContactInputDto) { return this.inboxService.reconcileContact(request, conversationId, input); }
   @Post(':id/messages')
   sendMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMessageSchema)) input: SendConversationMessageDto) { return this.inboxService.sendMessage(request, conversationId, input); }
+  @Delete(':id/messages/:messageId')
+  hideMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Param('messageId', new ZodValidationPipe(conversationIdSchema)) messageId: string) { return this.inboxService.hideMessage(request, conversationId, messageId); }
   @Post(':id/messages/media')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: OUTBOUND_MEDIA_LIMIT_BYTES, files: 1, fields: 2, parts: 3 } }))
   sendMedia(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMediaSchema)) input: SendConversationMediaDto, @UploadedFile() file: IncomingMediaFile | undefined) { return this.inboxService.sendMediaMessage(request, conversationId, input, file); }

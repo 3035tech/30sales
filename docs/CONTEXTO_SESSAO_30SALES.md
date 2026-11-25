@@ -1,3 +1,19 @@
+## Intervalo de segurança da sincronização do Inbox — 25/11/2026
+
+- Reduzido de 30 para 10 segundos o refresh de segurança da lista e conversa aberta enquanto o Inbox está visível. A entrega primária continua sendo por webhook/SSE.
+
+## Investigação da sincronização de mensagens enviadas pelo celular — 25/11/2026
+
+- Fluxo esperado: Evolution publica `MESSAGES_UPSERT`; o adapter distingue `key.fromMe`, registra mensagens recebidas pelo cliente como inbound e eco de mensagens enviadas pelo aparelho como outbound; transação grava a conversa/mensagem e emite `sales_inbox_updates`; o Inbox atualiza por SSE e mantém refresh periódico de segurança.
+- `MESSAGES_UPSERT` e `MESSAGES_SET` estão na configuração do webhook. O suporte a ecos outbound está no commit `3552fde` (24/11), incluído em `origin/main` local; `MESSAGES_SET` histórico também preserva `fromMe`.
+- Não foi possível confirmar o que aconteceu com a mensagem específica: CloudWatch não tem grupo identificável como `30sales` nesta conta/sessão e não há acesso à tela de eventos do canal neste contexto. Diagnóstico pelo sistema: em Canais → Eventos, filtre família Mensagem e confira próximo ao horário do teste por `evolution.messages.outgoing_echo` (outbound) ou `messages.upsert` (inbound), status e código de falha. Sem evento aponta para entrega/configuração/conexão do webhook; evento processado sem mensagem visível aponta para consulta/filtros/acesso do Inbox.
+- Consulta read-only de grupos CloudWatch não encontrou grupo 30Sales. Nenhum código alterado nesta investigação.
+
+## Menu lateral recolhível — 25/11/2026
+
+- Navegação lateral agora pode ser recolhida em telas largas para liberar espaço para o conteúdo. O modo compacto mantém os destinos por ícones, conserva nomes acessíveis e a preferência fica salva no navegador; em telas móveis segue o menu existente.
+- Build de produção frontend e `git diff --check` passaram. Sem inspeção visual em navegador ou testes automatizados.
+
 ## Polish da observabilidade de mídia — 25/11/2026
 
 - Painel de saúde de mídia em Canais agora distingue carregamento, erro, fila limpa e resultados; mantém a última informação visível se a atualização falhar, separa tipo/estado, contagem e detalhes, e se adapta a telas estreitas.
@@ -24,6 +40,24 @@
 - O workflow da imagem backend com a migration `0084` concluiu com sucesso; build de imagem não confirma aplicação da migration nem rollout do serviço.
 
 # Contexto de continuidade — 30Sales
+
+## Ações por mensagem no Inbox — 25/11/2026
+
+- Reações rápidas por mensagem agora aparecem diretamente abaixo da mensagem para quem pode responder, sem abrir o menu de emoji.
+- Adicionada ação “Apagar para mim”: oculta a mensagem apenas para o usuário atual, preservando visibilidade para a equipe/contato. Persistência isolada por tenant, usuário e mensagem, com migration aditiva `0087_talented_lorna_dane.sql`.
+- Exclusão para o lead ainda não foi exposta. A Evolution possui endpoint de exclusão para todos; Meta Cloud não oferece essa operação pelo adaptador atual. Antes de habilitar, precisa validar atributos da chave externa persistida (especialmente mensagens de grupo e mensagens enviadas pelo celular) e refletir confirmação/resultado incerto sem marcar falsamente como apagada.
+- Builds backend e frontend passaram; `git diff --check` passou. Não houve teste automatizado, chamada a provider, aplicação da migration nem deploy.
+
+## Foco do compositor de resposta/nota no Inbox — 25/11/2026
+
+- Alternar entre “Resposta” e “Nota interna” agora move o foco para a caixa de texto, posicionando o cursor pronto para digitação. Sem alteração no conteúdo digitado ou no fluxo de envio.
+- Build Vite e `git diff --check` passaram; não houve verificação visual em navegador.
+
+## Reconciliação de recibos Evolution — 25/11/2026
+
+- Investigação dos avisos do `EvolutionMessageStatusReconciliationWorker` identificou uma janela de corrida: campanhas e respostas do assistente gravavam o ID externo depois do envio sem consumir recibos de status que chegaram antes. Inbox já fazia essa associação.
+- A associação foi centralizada em `pending-message-statuses.ts` e aplicada aos três caminhos. Ela exige organização, canal, provider Evolution e ID externo exatos, preserva progressão monotônica do estado e atualiza o ledger redigido; worker continua como fallback.
+- `npm run build` do backend passou; `git diff --check` passou. Sem acesso aos eventos de produção ou execução de testes automatizados nesta sessão, então não é possível confirmar se todos os avisos anteriores foram causados por essa corrida. Após deploy, acompanhar novos avisos e revisar os eventos que já foram para análise.
 
 ## Diagnóstico de resposta de mídia da Evolution — 25/11/2026
 

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, notExists, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, people, userNotifications } from '../db/schema';
+import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messageHiddenForUsers, messages, messagingChannels, people, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
@@ -12,7 +12,7 @@ import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER
 import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
-import { PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATE, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from '../webhooks/provider-webhook-events.constants';
+import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
@@ -407,7 +407,7 @@ export class InboxRepository {
       : await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId);
     if (!canReadConversation) return null;
     const rows = await database.select({ id: messages.id, externalMessageId: messages.externalMessageId, direction: messages.direction, actorType: messages.actorType, actorUserId: messages.actorUserId, actorName: authUser.name, bodyText: messages.bodyText, providerMetadata: messages.providerMetadata, transcriptText: messages.transcriptText, isDeleted: messages.isDeleted, deliveryState: messages.deliveryState, occurredAt: messages.occurredAt })
-      .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId), input.search ? or(ilike(messages.bodyText, `%${input.search}%`), ilike(messages.transcriptText, `%${input.search}%`)) : undefined, input.search ? eq(messages.isDeleted, false) : undefined))
+      .from(messages).leftJoin(authUser, eq(authUser.id, messages.actorUserId)).where(and(eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId), notExists(database.select({ id: messageHiddenForUsers.messageId }).from(messageHiddenForUsers).where(and(eq(messageHiddenForUsers.messageId, messages.id), eq(messageHiddenForUsers.organizationId, input.organizationId), eq(messageHiddenForUsers.userId, input.userId)))), input.search ? or(ilike(messages.bodyText, `%${input.search}%`), ilike(messages.transcriptText, `%${input.search}%`)) : undefined, input.search ? eq(messages.isDeleted, false) : undefined))
       .orderBy(desc(messages.occurredAt), desc(messages.id)).limit(input.limit).offset(input.offset);
     const attachmentRows = rows.length ? await database.select({ messageId: messageAttachments.messageId, id: messageAttachments.id, mediaType: messageAttachments.mediaType, mimeType: messageAttachments.mimeType, fileName: messageAttachments.fileName, sizeBytes: messageAttachments.sizeBytes, status: messageAttachments.status, attemptCount: messageAttachments.attemptCount, lastErrorCode: messageAttachments.lastErrorCode, lastErrorStage: messageAttachments.lastErrorStage })
       .from(messageAttachments).where(and(eq(messageAttachments.organizationId, input.organizationId), inArray(messageAttachments.messageId, rows.map((row) => row.id)))) : [];
@@ -418,6 +418,14 @@ export class InboxRepository {
       else attachmentsByMessage.set(attachment.messageId, [new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status, attachment.attemptCount, attachment.lastErrorCode, attachment.lastErrorStage)]);
     }
     return rows.reverse().map((row) => new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, row.deliveryState, row.occurredAt.toISOString(), row.actorUserId, row.actorName, attachmentsByMessage.get(row.id) ?? [], row.transcriptText, row.isDeleted, row.providerMetadata, row.externalMessageId));
+  }
+
+  async hideMessageForUser(input: { organizationId: string; conversationId: string; messageId: string; userId: string }): Promise<boolean> {
+    if (!await this.canAccessConversationLine(input.organizationId, input.conversationId, input.userId)) return false;
+    const [message] = await database.select({ id: messages.id }).from(messages).where(and(eq(messages.id, input.messageId), eq(messages.conversationId, input.conversationId), eq(messages.organizationId, input.organizationId))).limit(1);
+    if (!message) return false;
+    await database.insert(messageHiddenForUsers).values({ ...input }).onConflictDoNothing();
+    return true;
   }
 
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
@@ -559,33 +567,11 @@ export class InboxRepository {
       if (row.direction === 'outbound' && input.externalMessageId) {
         const [conversation] = await transaction.select({ channelId: conversations.channelId, provider: conversations.provider }).from(conversations)
           .where(and(eq(conversations.id, row.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
-        if (conversation) {
-          const unmatchedEvents = await transaction.select({ id: inboxEvents.id, payloadRedacted: inboxEvents.payloadRedacted })
-            .from(inboxEvents)
-            .where(and(
-              eq(inboxEvents.organizationId, input.organizationId),
-              eq(inboxEvents.provider, conversation.provider),
-              eq(inboxEvents.eventType, PROVIDER_MESSAGE_STATUS_EVENT.unmatched),
-              sql`${inboxEvents.payloadRedacted}->>'channelId' = ${conversation.channelId}`,
-              sql`${inboxEvents.payloadRedacted}->>'externalMessageId' = ${input.externalMessageId}`,
-            ))
-            .orderBy(asc(inboxEvents.receivedAt))
-            .for('update');
-          for (const event of unmatchedEvents) {
-            const payload = event.payloadRedacted;
-            if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !('deliveryState' in payload)) continue;
-            const eventDeliveryState = payload.deliveryState;
-            if (eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.accepted && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.delivered && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.read && eventDeliveryState !== PROVIDER_MESSAGE_DELIVERY_STATE.failed) continue;
-            finalDeliveryState = this.nextDeliveryState(finalDeliveryState, eventDeliveryState) ?? finalDeliveryState;
-            const correlationId = 'correlationId' in payload && typeof payload.correlationId === 'string' ? payload.correlationId : null;
-            await transaction.update(inboxEvents).set({
-              eventType: PROVIDER_MESSAGE_STATUS_EVENT.matched,
-              status: WEBHOOK_EVENT_PROCESSING_STATE.processed,
-              processedAt: new Date(),
-              lastErrorCode: null,
-              payloadRedacted: { channelId: conversation.channelId, eventFamily: PROVIDER_EVENT_FAMILY.message, messageId: row.id, deliveryState: eventDeliveryState, ...(correlationId ? { correlationId } : {}) },
-            }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, input.organizationId)));
-          }
+        if (conversation?.provider === 'evolution' && conversation.channelId) {
+          finalDeliveryState = await applyPendingEvolutionMessageStatuses(transaction, {
+            organizationId: input.organizationId, channelId: conversation.channelId, messageId: row.id,
+            externalMessageId: input.externalMessageId, currentState: row.deliveryState,
+          });
         }
         if (finalDeliveryState !== row.deliveryState) {
           await transaction.update(messages).set({ deliveryState: finalDeliveryState })
@@ -613,13 +599,6 @@ export class InboxRepository {
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: row.occurredAt.toISOString() })})`);
       return new MessageRecordDto(row.id, row.direction, row.actorType, row.bodyText, finalDeliveryState, row.occurredAt.toISOString(), row.actorUserId, actor?.name ?? null, attachments.map((attachment) => new MessageAttachmentDto(attachment.id, attachment.mediaType, attachment.mimeType, attachment.fileName, attachment.sizeBytes, attachment.status)), null, false, row.providerMetadata, row.externalMessageId);
     });
-  }
-
-  private nextDeliveryState(current: string, incoming: 'accepted' | 'delivered' | 'read' | 'failed'): 'accepted' | 'delivered' | 'read' | 'failed' | null {
-    if (current === incoming || current === 'read' || current === 'failed') return null;
-    if (incoming === 'failed') return current === 'requested' || current === 'accepted' || current === 'unknown' ? 'failed' : null;
-    const rank: Record<string, number> = { requested: 0, unknown: 0, accepted: 1, delivered: 2, read: 3 };
-    return (rank[incoming] ?? -1) > (rank[current] ?? -1) ? incoming : null;
   }
 
   async markOutboundAttachmentAvailable(organizationId: string, messageId: string, attachmentId: string, storageKey: string): Promise<boolean> {

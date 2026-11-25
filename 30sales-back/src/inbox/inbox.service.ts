@@ -46,6 +46,12 @@ export class InboxService {
     if (!records) throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return records;
   }
+  async hideMessage(request: ApiRequestDto, conversationId: string, messageId: string) {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    const hidden = await this.repository.hideMessageForUser({ organizationId: context.organizationId, conversationId, messageId, userId: context.userId });
+    if (!hidden) throw new NotFoundException({ code: 'MESSAGE_NOT_FOUND', message: 'Message was not found in the active conversation.' });
+    return { hidden: true };
+  }
   async groupParticipants(request: ApiRequestDto, conversationId: string): Promise<ConversationGroupParticipantsResultDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     const target = await this.repository.getGroupParticipantsTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);

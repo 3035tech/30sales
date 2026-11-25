@@ -10,6 +10,7 @@ import { ASSISTANT_DELIVERY_OUTCOMES, ASSISTANT_PRICING_VERSION, ASSISTANT_PROVI
 import { CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
 import { isAssistantAllowedAt, isWithinBusinessHours, localDateAt } from '../channels/channel-assistant-schedule';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
+import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
@@ -188,6 +189,14 @@ export class AssistantRuntimeRepository {
       const idempotencyKey = `${ASSISTANT_REPLY_IDEMPOTENCY_PREFIX}${input.context.event.messageId}`;
       const [message] = await transaction.insert(messages).values({ organizationId: conversation.organizationId, conversationId: conversation.id, direction: 'outbound', actorType: 'assistant', bodyText: input.result.replyText, deliveryState: delivery.deliveryState, externalMessageId: delivery.externalMessageId, idempotencyKey, occurredAt })
         .onConflictDoNothing({ target: [messages.organizationId, messages.conversationId, messages.idempotencyKey] }).returning({ id: messages.id, deliveryState: messages.deliveryState });
+      if (message && delivery.externalMessageId) {
+        const finalDeliveryState = await applyPendingEvolutionMessageStatuses(transaction, {
+          organizationId: conversation.organizationId, channelId: conversation.channelId, messageId: message.id,
+          externalMessageId: delivery.externalMessageId, currentState: message.deliveryState,
+        });
+        if (finalDeliveryState !== message.deliveryState) await transaction.update(messages).set({ deliveryState: finalDeliveryState })
+          .where(and(eq(messages.id, message.id), eq(messages.organizationId, conversation.organizationId)));
+      }
       const outboundMessage = message ?? (await transaction.select({ id: messages.id, deliveryState: messages.deliveryState }).from(messages)
         .where(and(eq(messages.organizationId, conversation.organizationId), eq(messages.conversationId, conversation.id), eq(messages.idempotencyKey, idempotencyKey))).limit(1))[0];
       if (!outboundMessage) throw new Error('Assistant outbound message could not be recovered.');

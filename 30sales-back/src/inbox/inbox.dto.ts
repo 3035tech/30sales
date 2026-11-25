@@ -37,6 +37,7 @@ export class ConversationControlResultDto { constructor(readonly id: string, rea
 export class ConversationAssignDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly ownerUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationAssigneeDto { constructor(readonly id: string, readonly name: string, readonly role: string) {} }
 export const sendConversationMessageSchema = z.object({ bodyText: z.string().trim().min(1).max(4096), idempotencyKey: z.string().uuid(), targetMessageId: z.string().uuid().optional(), mode: z.enum(['reply', 'reaction']).default('reply') }).strict();
+export const hideConversationMessageSchema = z.object({}).strict();
 export type SendConversationMessageDto = z.infer<typeof sendConversationMessageSchema>;
 export const sendConversationMediaSchema = z.object({ bodyText: z.string().trim().max(4096).optional(), idempotencyKey: z.string().uuid() }).strict();
 export type SendConversationMediaDto = z.infer<typeof sendConversationMediaSchema>;

@@ -21,8 +21,8 @@
 .inbox-assignee-select { display:grid; gap:3px; color:var(--muted,#64748b); font-size:var(--font-size-xs); }
 .inbox-assignee-select select { min-height:32px; max-width:180px; border:1px solid var(--line,#dbe2ea); border-radius:7px; padding:5px 8px; background:#fff; color:#334155; font-size:var(--font-size-sm); }
 .inbox-thread-heading>div:first-child { display: grid; gap: 4px; }
-.inbox-messages { display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 20px; background: #f8f9fb; }
-.inbox-message { max-width: min(78%, 620px); padding: 12px 14px; border: 1px solid var(--line, #e7e9ed); border-radius: 14px; background: #fff; }
+.inbox-messages { display: flex; flex-direction: column; gap: 8px; overflow: auto; padding: 20px; background: #f8f9fb; }
+.inbox-message { max-width: min(78%, 620px); padding: 8px 10px 6px; border: 1px solid var(--line, #e7e9ed); border-radius: 14px; background: #fff; }
 .inbox-message.inbound { align-self: flex-start; }
 .inbox-message.outbound { align-self: flex-end; background: #eef5ff; }
 .inbox-message.internal { align-self: center; background: #fff7e8; }
@@ -214,7 +214,7 @@
 .inbox-layout { position:relative; height: max(680px, calc(100dvh - 200px)); grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
 .inbox-context-collapsed .inbox-layout { grid-template-columns: minmax(290px, 360px) minmax(0, 1fr); }
 .inbox-conversations { min-height: 0; }
-.inbox-contact-panel { position:fixed; z-index:30; inset:112px 16px 16px auto; width:min(350px, calc(100vw - 32px)); max-width:calc(100vw - 32px); box-shadow:-12px 0 28px rgba(15,23,42,.12); }
+.inbox-contact-panel { position:fixed; z-index:30; inset:112px 16px 16px auto; width:min(440px, calc(100vw - 32px)); max-width:calc(100vw - 32px); box-shadow:-12px 0 28px rgba(15,23,42,.12); display:flex; flex-direction:column; min-height:0; overflow:auto; }
 .inbox-conversation { min-height: 76px; }
 .inbox-conversation-topline { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
 .inbox-conversation-topline strong { min-width:0; }
@@ -224,7 +224,7 @@
 .inbox-list-ticks.is-read,.inbox-outbound-status.is-read { color:#36a9e7; }
 .inbox-unread-indicator { background:#25a865; }
 .inbox-messages { flex:1 1 0; min-height:0; padding:14px; }
-.inbox-message { position:relative; max-width:min(88%, 920px); padding:10px 13px 8px; border-radius:12px; box-shadow:0 1px 1px rgba(15,23,42,.06); }
+.inbox-message { position:relative; max-width:min(88%, 920px); padding:8px 10px 6px; border-radius:12px; box-shadow:0 1px 1px rgba(15,23,42,.06); }
 .inbox-message { content-visibility:auto; contain-intrinsic-size:auto 120px; }
 .inbox-unread-divider { margin: -2px 0 9px; padding-bottom: 7px; border-bottom: 1px solid #bfd3ef; color: #245a9a; font-size: 12px; font-weight: 700; }
 .inbox-message.inbound { border-top-left-radius:4px; }
@@ -278,6 +278,13 @@
 .inbox-inline-image { display:grid; gap:0; overflow:hidden; background:#f1f3f5; }
 .inbox-inline-image-preview { display:block; width:100%; padding:0; border:0; background:transparent; cursor:zoom-in; }
 .inbox-inline-image-preview img { display:block; width:100%; max-height:340px; object-fit:cover; }
+
+/* Keep the lead identity and close action visible while the details scroll. */
+.inbox-contact-panel-header { position:sticky; z-index:1; top:-16px; display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:-16px -16px 0; padding:16px; background:#fff; }
+.inbox-contact-identity { min-width:0; flex:1; }
+@media (max-width:1400px) {
+  .inbox-page:not(.inbox-context-collapsed) .inbox-contact-panel { width:auto; }
+}
 .inbox-inline-video { display:block; width:100%; max-height:360px; background:#0f172a; }
 .inbox-audio-player { display:flex; align-items:center; gap:10px; width:100%; min-width:0; padding:12px 14px; color:#1f2937; }
 .inbox-audio-player audio { display:none; }
@@ -319,6 +326,19 @@
 .inbox-inline-image-placeholder { display:grid; min-height:160px; place-items:center; padding:16px; color:#64748b; font-size:var(--font-size-sm); }
 .inbox-inline-image-tools { display:flex; align-items:center; justify-content:space-between; min-height:36px; padding:0 8px 0 14px; color:#64748b; font-size:var(--font-size-xs); }
 .inbox-inline-image-tools>span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.inbox-inline-audio { min-width:0; width:min(420px,100%); max-width:100%; overflow:visible; }
+.inbox-inline-audio-row { display:flex; align-items:center; gap:4px; padding:4px 6px; }
+.inbox-inline-audio-row .inbox-audio-player.is-compact { flex:1; width:auto; min-width:0; padding:0 4px; gap:8px; }
+.inbox-inline-audio-row .inbox-audio-player.is-compact .inbox-audio-track { min-width:0; }
+.inbox-inline-audio-row .inbox-audio-player.is-compact .inbox-audio-time span { white-space:nowrap; }
+.inbox-audio-menu { position:relative; flex:none; }
+.inbox-audio-menu summary { display:grid; width:30px; height:30px; place-items:center; border-radius:50%; color:#64748b; cursor:pointer; list-style:none; }
+.inbox-audio-menu summary::-webkit-details-marker { display:none; }
+.inbox-audio-menu summary:hover,.inbox-audio-menu[open] summary { background:#eef2f6; color:#334155; }
+.inbox-audio-menu summary:focus-visible { outline:2px solid #1769aa; outline-offset:2px; }
+.inbox-audio-menu-items { position:absolute; z-index:5; top:calc(100% + 4px); right:0; min-width:140px; padding:4px; border:1px solid #d9e0e7; border-radius:8px; background:#fff; box-shadow:0 8px 24px rgba(15,23,42,.14); }
+.inbox-audio-menu-items a { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:5px; color:#334155; font-size:var(--font-size-sm); text-decoration:none; white-space:nowrap; }
+.inbox-audio-menu-items a:hover { background:#f1f5f9; }
 .inbox-rich-card-action { display:flex; align-items:center; justify-content:center; min-height:44px; padding:8px 12px; border-top:1px solid var(--line,#e7e9ed); color:#16834f; font-weight:600; text-decoration:none !important; }
 .inbox-rich-card-action:hover { background:#f2fbf6; }
 .inbox-audio-recording{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:10px;padding:6px 10px;border:1px solid #eadfe0;border-radius:8px;background:#fbf8f8;color:#475569}.inbox-audio-recording-live{display:inline-flex;align-items:center;gap:7px;color:#9f4b4b;font-size:var(--font-size-xs);font-weight:600;white-space:nowrap}.inbox-audio-recording-live i{width:7px;height:7px;border-radius:50%;background:#c76b6b;animation:inbox-audio-recording-pulse 1.2s ease-in-out infinite}.inbox-audio-recording .inbox-audio-waveform{height:20px;gap:2px}.inbox-audio-recording .inbox-audio-waveform span{max-height:20px;background:#d4a0a0;transition:height .1s linear}.inbox-audio-recording time{color:#64748b;font-size:var(--font-size-xs);font-variant-numeric:tabular-nums}.inbox-composer .inbox-composer-tools .inbox-media-action.is-recording{border-color:#eadfe0;background:#fbf5f5;color:#9f4b4b}@keyframes inbox-audio-recording-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.inbox-audio-recording-live i{animation:none}}

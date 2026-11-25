@@ -1,5 +1,5 @@
 import { Button, CalendarField, CurrencyField, IconButton, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, MessageSquarePlus, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
@@ -351,10 +351,14 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
       <div className="activity-form-fields"><label>{t('pipeline.activityType')}<SelectField value={activityType} onChange={(event) => { if (isActivityType(event.target.value)) setActivityType(event.target.value) }}>{activityTypes.map((type) => <option key={type} value={type}>{t(`activityTypes.${type}`)}</option>)}</SelectField></label><label>{t('pipeline.activitySubject')}<TextField value={activitySubject} onChange={(event) => setActivitySubject(event.target.value)} minLength={2} maxLength={240} required /></label><label>{t('pipeline.occurredAt')}<CalendarField mode="datetime-local" value={activityOccurredAt} onValueChange={(value) => setActivityOccurredAt(value)} required /></label><label>{t('pipeline.activityResult')}<TextField value={activityResult} onChange={(event) => setActivityResult(event.target.value)} maxLength={1000} /></label><label className="activity-details-field">{t('pipeline.activityDetails')}<TextareaField value={activityDetails} onChange={(event) => setActivityDetails(event.target.value)} maxLength={5000} /></label></div>
         {error && <p className="error">{error}</p>}<Button className="primary" disabled={activitySaving}>{activitySaving ? t('common.saving') : t('pipeline.saveActivity')}</Button>
       </form>}
-      {timeline.length === 0 ? <p className="activity-empty">{t('pipeline.noTimeline')}</p> : <ol className="opportunity-history">{timeline.map((item) => {
+      {timeline.length === 0 ? <p className="activity-empty">{t('pipeline.noTimeline')}</p> : <ol className="opportunity-history">{timeline.map((item, index) => {
+        const itemDate = new Date(item.timestamp)
+        const itemDay = `${itemDate.getFullYear()}-${itemDate.getMonth()}-${itemDate.getDate()}`
+        const previousDate = index > 0 ? new Date(timeline[index - 1].timestamp) : null
+        const previousDay = previousDate ? `${previousDate.getFullYear()}-${previousDate.getMonth()}-${previousDate.getDate()}` : null
         const title = item.kind === 'stage' ? item.fromStage ? `${item.fromStage === 'custom' ? item.fromPipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${item.fromStage}`)} → ${item.toStage === 'custom' ? item.toPipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${item.toStage}`)}` : t('pipeline.opportunityCreated') : `${t(`activityTypes.${item.type}`)} · ${item.subject}`
         const details = item.kind === 'stage' ? item.reason : item.details
-        return <li key={`${item.kind}-${item.id}`}><span>{title}</span><small>{item.actorName} · {formatDate(item.timestamp)}</small>{details && <p>{details}</p>}{item.kind === 'activity' && item.result && <p><strong>{t('pipeline.activityResult')}:</strong> {item.result}</p>}</li>
+        return <Fragment key={`${item.kind}-${item.id}`}>{itemDay !== previousDay && <li className="opportunity-history-date" role="presentation"><span>{new Intl.DateTimeFormat(i18n.language, { dateStyle: 'full' }).format(itemDate)}</span></li>}<li><span>{title}</span><small>{item.actorName} · {formatDate(item.timestamp)}</small>{details && <p>{details}</p>}{item.kind === 'activity' && item.result && <p><strong>{t('pipeline.activityResult')}:</strong> {item.result}</p>}</li></Fragment>
       })}</ol>}
     </div>}
   </article>

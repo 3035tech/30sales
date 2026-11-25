@@ -1,6 +1,6 @@
 import { Button, CheckboxField, IconButton, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, CircleX, ClipboardList, Clock3, Download, Mail, MessageSquareText, Mic, Paperclip, Pause, Phone, Play, RefreshCw, Reply, SlidersHorizontal, SmilePlus, Sparkles, Square, UserRound, X } from 'lucide-react'
+import { ArrowLeft, Building2, CalendarClock, Check, CheckCheck, ChevronLeft, ChevronRight, CircleHelp, CircleX, ClipboardList, Clock3, Download, Ellipsis, Mail, MessageSquareText, Mic, Paperclip, Pause, Phone, Play, RefreshCw, Reply, SlidersHorizontal, SmilePlus, Sparkles, Square, UserRound, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, ApiError, INBOX_CONTACT_ERROR_CODE, INBOX_MEDIA_ERROR_CODE, INBOX_SEND_ERROR_CODE, type BusinessLineDto, type ChannelDto, type ConversationDto, type MessageAttachmentDto, type MessageDto } from '../lib/api'
@@ -157,6 +157,7 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
   onOpen: (attachment: MessageAttachmentDto) => void
   onDownload: (attachment: MessageAttachmentDto) => void
 }) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
@@ -175,12 +176,13 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
     return () => { cancelled = true; observer.disconnect() }
   }, [attachment, failed, load, src])
   useEffect(() => () => { if (src) URL.revokeObjectURL(src) }, [src])
-  return <div className="inbox-inline-image" ref={containerRef}>
+  const isAudio = attachment.mediaType === 'audio'
+  return <div className={`inbox-inline-image${isAudio ? ' inbox-inline-audio' : ''}`} ref={containerRef}>
     {src && attachment.mediaType === 'image' ? <button type="button" className="inbox-inline-image-preview" onClick={() => onOpen(attachment)} aria-label={label}><img src={src} alt={attachment.fileName ?? label} loading="lazy" /></button>
       : src && attachment.mediaType === 'video' ? <video className="inbox-inline-video" src={src} controls preload="metadata" aria-label={attachment.fileName ?? label} />
-      : src && attachment.mediaType === 'audio' ? <InboxAudioPlayer src={src} label={attachment.fileName ?? label} />
-      : <span className="inbox-inline-image-placeholder">{failed ? label : attachment.fileName ?? label}</span>}
-    <div className="inbox-inline-image-tools"><span>{attachment.fileName ?? label}</span><IconButton label={label} onClick={() => onDownload(attachment)}><Download size={14} aria-hidden="true" /></IconButton></div>
+      : src && isAudio ? <div className="inbox-inline-audio-row"><InboxAudioPlayer src={src} label={t('inbox.mediaTypes.audio')} compact /><details className="inbox-audio-menu"><summary aria-label={t('inbox.downloadAttachment', { name: t('inbox.mediaTypes.audio') })}><Ellipsis size={17} aria-hidden="true" /></summary><div className="inbox-audio-menu-items"><a href={src} download={attachment.fileName ?? 'audio'} onClick={(event) => { const menu = event.currentTarget.closest('details'); if (menu instanceof HTMLDetailsElement) menu.open = false }}><Download size={14} aria-hidden="true" />{t('inbox.download')}</a></div></details></div>
+      : <span className="inbox-inline-image-placeholder">{isAudio ? failed ? t('inbox.attachmentDownloadFailed') : t('inbox.mediaTypes.audio') : failed ? label : attachment.fileName ?? label}</span>}
+    {!isAudio && <div className="inbox-inline-image-tools"><span>{attachment.fileName ?? label}</span><IconButton label={label} onClick={() => onDownload(attachment)}><Download size={14} aria-hidden="true" /></IconButton></div>}
   </div>
 }
 
@@ -748,7 +750,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     <div className="inbox-layout">
       <aside id="inbox-contact-context" className="inbox-contact-panel" aria-label={t('inbox.leadDetails')}>
         {!selected ? <WorkspaceState kind="empty" compact message={t('inbox.selectConversation')} /> : <>
-          <div className="inbox-contact-identity"><span><UserRound size={21} /></span><div><h3>{selected.conversationType === 'group' ? selected.displayName ?? t('inbox.groupConversation') : selected.personName ?? t('inbox.unknownContact')}</h3><p>{presenceState === 'composing' ? t('inbox.presenceTyping') : presenceState === 'recording' ? t('inbox.presenceRecording') : selected.conversationType === 'group' ? t('inbox.groupConversation') : selected.accountName ?? t('inbox.noCompany')}</p></div></div>
+          <div className="inbox-contact-panel-header"><div className="inbox-contact-identity"><span><UserRound size={21} /></span><div><h3>{selected.conversationType === 'group' ? selected.displayName ?? t('inbox.groupConversation') : selected.personName ?? t('inbox.unknownContact')}</h3><p>{presenceState === 'composing' ? t('inbox.presenceTyping') : presenceState === 'recording' ? t('inbox.presenceRecording') : selected.conversationType === 'group' ? t('inbox.groupConversation') : selected.accountName ?? t('inbox.noCompany')}</p></div></div><IconButton label={t('common.close')} onClick={() => setContactContextOpen(false)}><X size={17} aria-hidden="true" /></IconButton></div>
           {selected.conversationType === 'group' && <section className="inbox-contact-section inbox-group-participants"><h4>{t('inbox.groupParticipants')}</h4>{groupParticipantsLoading ? <p>{t('inbox.groupParticipantsLoading')}</p> : groupParticipantsFailed ? <p role="status">{t('inbox.groupParticipantsFailed')}</p> : groupParticipants?.supported ? <>{groupParticipants.stale && <p role="status">{t('inbox.groupParticipantsCached')}</p>}<ul>{groupParticipants.participants.map((participant) => <li key={participant.id}><span>{participant.name ?? participant.phone ?? participant.id}</span>{participant.isAdmin && <small>{t('inbox.groupParticipantAdmin')}</small>}</li>)}</ul></> : groupParticipants && !groupParticipants.supported ? <p>{t('inbox.groupParticipantsUnsupported')}</p> : null}</section>}
           <section className="inbox-contact-section"><h4>{t('inbox.contactDetails')}</h4><dl>
             <div><dt><Mail size={14} />{t('inbox.email')}</dt><dd>{selected.personEmail ?? '—'}</dd></div>

@@ -8,13 +8,13 @@ import type { MediaStorage } from './media-storage';
 export class S3MediaStorageService implements MediaStorage {
   private readonly client = new S3Client({ region: env.AWS_REGION });
 
-  async put(organizationId: string, attachmentId: string, content: Buffer): Promise<string> {
+  async put(organizationId: string, attachmentId: string, content: Buffer, mimeType: string | null): Promise<string> {
     const key = this.createKey(organizationId, attachmentId);
     await this.client.send(new PutObjectCommand({
       Bucket: this.requireBucket(),
       Key: key,
       Body: content,
-      ContentType: 'application/octet-stream',
+      ContentType: this.safeMimeType(mimeType),
       ServerSideEncryption: 'AES256',
     }));
     return key;
@@ -55,6 +55,11 @@ export class S3MediaStorageService implements MediaStorage {
   private requireBucket(): string {
     if (!env.MEDIA_S3_BUCKET) throw new Error('MEDIA_S3_BUCKET is not configured.');
     return env.MEDIA_S3_BUCKET;
+  }
+
+  private safeMimeType(value: string | null): string {
+    const mimeType = value?.split(';', 1)[0]?.trim().toLowerCase();
+    return mimeType && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(mimeType) ? mimeType : 'application/octet-stream';
   }
 
   private isNotFound(error: unknown): boolean {

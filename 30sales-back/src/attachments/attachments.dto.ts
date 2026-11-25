@@ -29,7 +29,7 @@ export class MediaAttachmentWorkDto {
   ) {}
 }
 export class MediaAttachmentDownloadDto {
-  constructor(readonly storageKey: string, readonly fileName: string | null) {}
+  constructor(readonly storageKey: string, readonly fileName: string | null, readonly mimeType: string | null) {}
 }
 export class RetryMediaAttachmentDto {
   constructor(readonly id: string, readonly status: 'pending') {}

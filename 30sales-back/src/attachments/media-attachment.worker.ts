@@ -52,7 +52,7 @@ export class MediaAttachmentWorker implements OnModuleInit, OnModuleDestroy {
       });
       const media = await this.provider.download({ provider: attachment.provider, providerChannelId: attachment.providerChannelId,
         mediaId: attachment.sourceMediaId, sourcePayload, credentials });
-      const storageKey = await this.storage.put(attachment.organizationId, attachment.id, media.content);
+      const storageKey = await this.storage.put(attachment.organizationId, attachment.id, media.content, media.mimeType);
       const fileName = media.fileName?.replace(/[\\/\r\n\u0000-\u001f]/g, '_').slice(0, 255) ?? null;
       await this.repository.markAvailable(attachment, storageKey, media.mimeType, fileName, media.content.byteLength, media.sha256);
     } catch (error) {

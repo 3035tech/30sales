@@ -1,3 +1,9 @@
+## Download de áudio e espaço vertical do Inbox — 25/11/2026
+
+- O código espera um bucket S3 privado definido por `MEDIA_S3_BUCKET`, na região `AWS_REGION`, com chave `{organizationId}/{attachmentId}`; PostgreSQL guarda metadados/status e referências. Nenhum bucket é provisionado pelo código, e o nome configurado no deploy não está versionado. Downloads autorizados verificam o tenant e auditam acesso.
+- O endpoint de conteúdo agora retorna o MIME salvo no anexo, em vez de sempre `application/octet-stream`, para que o player de áudio receba o tipo correto. MIME é validado antes de ir ao header. Isso corrige reprodução de blobs disponíveis; não recupera anexos que falharam no worker ou cujo objeto não existe.
+- Cabeçalho e breadcrumb do Inbox ficaram mais compactos, e o limite de altura da conversa foi aumentado para reaproveitar o espaço vertical.
+
 ## Preview e leitura de conversas no Inbox — 24/11/2026
 
 - A lista agora preserva previews de texto/emoji e exibe nome de arquivo em mídia; reação cifrada ganha rótulo localizado em vez de parecer conversa sem mensagens. O emoji de uma reação cifrada não pode ser mostrado porque não vem descriptografado pela Evolution.

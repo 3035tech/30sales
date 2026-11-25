@@ -157,7 +157,7 @@ export class InboxService {
     if (media) {
       let storageKey: string | null = null;
       try {
-        storageKey = await this.storage.put(organizationId, media.metadata.id, media.content);
+        storageKey = await this.storage.put(organizationId, media.metadata.id, media.content, media.metadata.mimeType);
         if (!await this.repository.markOutboundAttachmentAvailable(organizationId, prepared.message.id, media.metadata.id, storageKey)) throw new Error('MEDIA_ATTACHMENT_RECORD_MISSING');
       } catch {
         if (storageKey) await this.storage.remove(storageKey).catch(() => undefined);

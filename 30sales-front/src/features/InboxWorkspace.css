@@ -27,7 +27,8 @@
 .inbox-message.outbound { align-self: flex-end; background: #eef5ff; }
 .inbox-message.internal { align-self: center; background: #fff7e8; }
 .inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
-.inbox-message-meta { display: flex; justify-content: space-between; gap: 18px; }
+.inbox-message.internal .inbox-message-meta { justify-content:space-between; }
+.inbox-message-meta { display: flex; justify-content: flex-end; gap: 18px; }
 .inbox-message-actions { display:flex; align-items:center; gap:6px; margin:6px -4px -4px; opacity:.72; }
 .inbox-message-actions>button,.inbox-message-actions summary { display:inline-flex; align-items:center; gap:4px; min-height:28px; padding:3px 7px; border:1px solid var(--line,#dbe2ea); border-radius:7px; background:#fff; color:#475569; font-size:var(--font-size-xs); cursor:pointer; }
 .inbox-message-actions details { position:relative; }
@@ -234,7 +235,7 @@
 .inbox-message-actions>button,.inbox-message-actions summary { min-width:32px; min-height:32px; justify-content:center; padding:5px; border:0; background:transparent; }
 .inbox-message-actions>button { font-size:0; }
 .inbox-message-actions>button svg { width:16px; height:16px; }
-.inbox-outbound-status { display:flex; justify-content:flex-end; margin-top:2px; color:#667781; }
+.inbox-outbound-status { display:flex; justify-content:flex-end; height:10px; margin-top:-2px; color:#667781; }
 .inbox-load-older { display:flex; justify-content:center; padding:2px 0 10px; }
 .inbox-load-older button { min-height:32px; font-size:var(--font-size-xs); }
 .inbox-message-search { display:flex; align-items:center; gap:8px; padding:8px 14px; border-bottom:1px solid var(--line,#e7e9ed); background:#fff; }

@@ -1,5 +1,12 @@
 # Contexto de continuidade — 30Sales
 
+## Polimento visual do histórico do Inbox — 24/11/2026
+
+- Removidos os rótulos redundantes “Equipe” e “Contato” dos cabeçalhos de mensagens. O horário permanece; notas internas mantêm a identificação do autor e mensagens de grupo continuam mostrando o participante quando disponível.
+- Tiques de entrega reduzidos para 12 px e aproximados do balão, mantendo o rótulo acessível por leitor de tela.
+- Eventos Evolution `encReactionMessage` passam a usar texto localizado (“Reação não disponível neste histórico”) em vez de expor o nome técnico. A Evolution encaminha o payload criptografado, então este ajuste não revela o emoji da reação.
+- Build de produção Vite e `git diff --check` passaram; não houve teste visual em navegador nem validação com webhook real.
+
 ## Atualização resiliente da conversa aberta — 24/11/2026
 
 - O Inbox recebe atualizações imediatas por SSE; antes desta correção, a consulta periódica de 30 s só existia quando o stream reportava erro. Uma atualização recebida enquanto a busca de mensagens estava em andamento era descartada pela guarda de request em voo.

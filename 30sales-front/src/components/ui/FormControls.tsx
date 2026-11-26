@@ -1,4 +1,5 @@
-import { Children, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { Children, forwardRef, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { createPortal } from 'react-dom'
 import * as RadixSelect from '@radix-ui/react-select'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight, FileUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -302,7 +303,9 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   const [month, setMonth] = useState(() => parseCalendarValue(value) ?? new Date())
   const [validationError, setValidationError] = useState('')
   const [submitAttempted, setSubmitAttempted] = useState(false)
+  const [popoverPosition, setPopoverPosition] = useState<{ left: number; top: number } | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const popoverRef = useRef<HTMLDivElement>(null)
   const hiddenInputRef = useRef<HTMLInputElement>(null)
   const selectedDate = parseCalendarValue(value)
   const selectedDateKey = selectedDate ? formatCalendarDate(selectedDate) : ''
@@ -318,16 +321,32 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   }, [dateIsOutsideBounds, required, submitAttempted, t, valueIsComplete])
   useEffect(() => {
     if (!open) return
-    const onPointerDown = (event: PointerEvent) => { const target = event.target; if (!(target instanceof Node && rootRef.current?.contains(target))) setOpen(false) }
+    const onPointerDown = (event: PointerEvent) => { const target = event.target; if (!(target instanceof Node && (rootRef.current?.contains(target) || popoverRef.current?.contains(target)))) setOpen(false) }
     const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') { setOpen(false); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() } }
     document.addEventListener('pointerdown', onPointerDown)
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('pointerdown', onPointerDown); document.removeEventListener('keydown', onKeyDown) }
   }, [open])
+  useLayoutEffect(() => {
+    if (!open) { setPopoverPosition(null); return }
+    const trigger = rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')
+    const dialog = rootRef.current?.closest<HTMLElement>('.ui-modal')
+    const popover = popoverRef.current
+    if (!trigger || !popover) return
+    const triggerRect = trigger.getBoundingClientRect()
+    const dialogRect = dialog?.getBoundingClientRect()
+    const popoverHeight = popover.offsetHeight
+    const placeBelow = window.innerHeight - triggerRect.bottom >= popoverHeight + 8 || triggerRect.top < popoverHeight + 8
+    const viewportTop = placeBelow
+      ? Math.max(8, Math.min(triggerRect.bottom + 6, window.innerHeight - popoverHeight - 8))
+      : Math.max(8, triggerRect.top - popoverHeight - 6)
+    const viewportLeft = Math.max(8, Math.min(triggerRect.left, window.innerWidth - popover.offsetWidth - 8))
+    setPopoverPosition({ left: dialogRect ? viewportLeft - dialogRect.left : viewportLeft, top: dialogRect ? viewportTop - dialogRect.top : viewportTop })
+  }, [open, month, mode, i18n.language])
   useEffect(() => {
     if (!open) return
     const key = selectedDateKey || formatCalendarDate(new Date())
-    window.requestAnimationFrame(() => rootRef.current?.querySelector<HTMLButtonElement>(`[data-date="${key}"]:not(:disabled)`)?.focus())
+    window.requestAnimationFrame(() => popoverRef.current?.querySelector<HTMLButtonElement>(`[data-date="${key}"]:not(:disabled)`)?.focus({ preventScroll: true }))
   }, [open, selectedDateKey])
   const monthLabel = new Intl.DateTimeFormat(i18n.language, { month: 'long', year: 'numeric' }).format(month)
   const dateLabel = selectedDate ? new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium' }).format(selectedDate) : t('formControls.chooseDate')
@@ -347,9 +366,10 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
     onValueChange(`${date}T${time}`)
     setValidationError('')
   }
+  const popoverHost = rootRef.current?.closest<HTMLElement>('.ui-modal')
   return <div className={`ui-calendar-field ${className}`.trim()} ref={rootRef}>
     <Button type="button" className="ui-field-control ui-calendar-trigger" aria-haspopup="dialog" aria-expanded={open} aria-required={required || undefined} aria-label={ariaLabel ?? t('formControls.chooseDate')} aria-invalid={visibleError ? true : undefined} aria-describedby={visibleError ? `${id}-error` : undefined} disabled={disabled} onClick={() => { setMonth(selectedDate ?? new Date()); setOpen((current) => !current) }}><CalendarDays size={16} aria-hidden="true" /><span>{mode === 'datetime-local' && timeValue ? `${dateLabel} · ${timeValue}` : dateLabel}</span></Button>
-    {open && <div className="ui-calendar-popover" role="dialog" aria-modal="false" aria-label={t('formControls.chooseDate')}>
+    {open && createPortal(<div ref={popoverRef} className={`ui-calendar-popover${popoverHost ? ' ui-calendar-popover-in-modal' : ' ui-calendar-popover-portal'}`} style={popoverPosition ?? { left: 0, top: 0 }} role="dialog" aria-modal="false" aria-label={t('formControls.chooseDate')}>
       <div className="ui-calendar-heading"><Button type="button" aria-label={t('formControls.previousMonth')} onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() - 1, 1))}><ChevronLeft size={17} /></Button><strong>{monthLabel}</strong><Button type="button" aria-label={t('formControls.nextMonth')} onClick={() => setMonth((current) => new Date(current.getFullYear(), current.getMonth() + 1, 1))}><ChevronRight size={17} /></Button></div>
       <div className="ui-calendar-grid" role="grid">{weekdayLabels(i18n.language).map((label, index) => <span key={`weekday-${index}`} className="ui-calendar-weekday" role="columnheader">{label}</span>)}{days.map((day) => {
         const dayKey = formatCalendarDate(day)
@@ -360,7 +380,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
       })}</div>
       {mode === 'datetime-local' && <label className="ui-calendar-time">{t('formControls.time')}<input className="ui-time-input" type="time" value={timeValue} onChange={(event) => updateTime(event.target.value)} /></label>}
       <div className="ui-calendar-actions"><Button type="button" onClick={() => { onValueChange(''); setValidationError(''); setOpen(false) }} disabled={required}>{t('formControls.clear')}</Button><Button type="button" onClick={() => { chooseDay(new Date()); if (mode === 'date') setOpen(false) }}>{t('formControls.today')}</Button></div>
-    </div>}
+    </div>, popoverHost ?? document.body)}
     <input ref={hiddenInputRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" type="text" value={valueIsComplete ? 'selected' : ''} required={required} onChange={() => undefined} onInvalid={(event) => { setSubmitAttempted(true); const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : t('formControls.required'); event.preventDefault(); event.currentTarget.setCustomValidity(message); setValidationError(message); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() }} />
     {visibleError && <small id={`${id}-error`} className="ui-field-error" role="alert">{visibleError}</small>}
   </div>

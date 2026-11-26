@@ -55,7 +55,9 @@
 .ui-calendar-trigger { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 11px; line-height: 1.4; justify-content: flex-start; text-align: left; cursor: pointer; }
 .ui-calendar-trigger svg { flex: 0 0 auto; color: var(--ui-control-muted); }
 .ui-calendar-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ui-calendar-popover { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: min(304px, calc(100vw - 32px)); padding: 12px; border: 1px solid var(--ui-control-border); border-radius: 10px; background: #fff; box-shadow: 0 12px 28px #0f172a1c; }
+.ui-calendar-popover { position: absolute; z-index: 40; top: calc(100% + 6px); left: 0; width: min(304px, calc(100vw - 32px)); max-height: calc(100dvh - 16px); overflow: auto; padding: 12px; border: 1px solid var(--ui-control-border); border-radius: 10px; background: #fff; box-shadow: 0 12px 28px #0f172a1c; }
+.ui-calendar-popover-in-modal { position: absolute; z-index: 1002; }
+.ui-calendar-popover-portal { position: fixed; z-index: 1002; }
 .ui-calendar-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .ui-calendar-heading strong { color: var(--ui-control-text); font-size: var(--font-size-base); font-weight: 650; text-transform: capitalize; }
 .ui-calendar-heading button, .ui-calendar-actions button { min-height: 32px; display: inline-flex; align-items: center; justify-content: center; padding: 5px 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--ui-control-text); font: 500 var(--font-size-sm) var(--brand-ui-font); cursor: pointer; }

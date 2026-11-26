@@ -1,5 +1,5 @@
 import { Button, SelectField, TextField } from '../components/ui/FormControls'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowDown, ArrowLeft, ArrowUp, Archive, Save, Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
@@ -23,6 +23,7 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
   const [afterStageKey, setAfterStageKey] = useState('')
   const [editing, setEditing] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
+  const reorderPending = useRef(false)
   const [error, setError] = useState('')
   const [settingsTab, setSettingsTab] = useState<SettingsTab>('pipelines')
   const [pipelineCreateOpen, setPipelineCreateOpen] = useState(false)
@@ -55,7 +56,12 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
     try { setData(await operation()); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('pipelineStageSettings.saved')) }
     catch (reason) {
       const code = reason instanceof Error && 'code' in reason ? String(reason.code) : ''
-      notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_STAGE_IN_USE' ? t('pipelineStageSettings.inUse') : code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed'))
+      if (code === 'PIPELINE_STAGE_INVALID_ORDER') {
+        await refresh(pipelineId)
+        notifySystemAlert(SYSTEM_ALERT_KIND.error, t('pipelineStageSettings.orderChanged'))
+      } else {
+        notifySystemAlert(SYSTEM_ALERT_KIND.error, code === 'PIPELINE_STAGE_IN_USE' ? t('pipelineStageSettings.inUse') : code === 'PIPELINE_STAGE_NAME_EXISTS' ? t('pipelineStageSettings.duplicateName') : t('pipelineStageSettings.saveFailed'))
+      }
     } finally { setBusy(false) }
   }
   const manage = async (operation: () => Promise<PipelinesDto>, nextPipelineId?: string) => {
@@ -86,11 +92,13 @@ export function PipelineStagesWorkspace({ onBack }: { onBack: () => void }) {
     finally { setBusy(false) }
   }
   const move = (key: string, offset: -1 | 1) => {
+    if (reorderPending.current || busy) return
     const index = active.findIndex((stage) => stage.key === key); const target = index + offset
     if (index < 0 || target < 0 || target >= active.length) return
     const next = [...active]; [next[index], next[target]] = [next[target], next[index]]
     if (next.at(-2)?.stage !== 'won' || next.at(-1)?.stage !== 'lost') return
-    void mutate(() => api.opportunities.pipelineStages.reorder(pipelineId, next.map((stage) => stage.key)))
+    reorderPending.current = true
+    void mutate(() => api.opportunities.pipelineStages.reorder(pipelineId, next.map((stage) => stage.key))).finally(() => { reorderPending.current = false })
   }
 
   return <section className="pipeline-settings-page">

@@ -68,8 +68,8 @@ export class PlatformRepository {
       operation: runOperation,
       model: assistantRuns.modelKey,
       requestCount: count().mapWith(Number),
-      inputTokens: sql<number>`coalesce(sum(${assistantRuns.usageInputTokens}), 0)::int`,
-      outputTokens: sql<number>`coalesce(sum(${assistantRuns.usageOutputTokens}), 0)::int`,
+      inputTokens: sql<number>`coalesce(sum(${assistantRuns.usageInputTokens}), 0)::bigint`.mapWith(Number),
+      outputTokens: sql<number>`coalesce(sum(${assistantRuns.usageOutputTokens}), 0)::bigint`.mapWith(Number),
       estimatedCostUsd: sql<string | null>`sum(${assistantRuns.estimatedCostUsd})::text`,
       unpricedRequestCount: sql<number>`count(*) filter (where ${assistantRuns.estimatedCostUsd} is null)::int`,
     }).from(assistantRuns).innerJoin(organization, eq(organization.id, assistantRuns.organizationId))
@@ -77,8 +77,8 @@ export class PlatformRepository {
       .groupBy(organization.id, organization.name, organization.slug, runOperation, assistantRuns.modelKey);
 
     const auditModel = sql<string>`coalesce(${auditEvents.afterState}->>'model', ${PLATFORM_AI_USAGE.unknownModel})`;
-    const inputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageInputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageInputTokens')::integer else 0 end), 0)::int`;
-    const outputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageOutputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageOutputTokens')::integer else 0 end), 0)::int`;
+    const inputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageInputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageInputTokens')::bigint else 0 end), 0)::bigint`.mapWith(Number);
+    const outputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageOutputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageOutputTokens')::bigint else 0 end), 0)::bigint`.mapWith(Number);
     const estimatedCost = sql<string | null>`sum(case when ${auditEvents.afterState}->>'estimatedCostUsd' ~ ${PLATFORM_AI_USAGE.jsonDecimalPattern} then (${auditEvents.afterState}->>'estimatedCostUsd')::numeric else null end)::text`;
     const auditRows = database.select({
       organizationId: organization.id,

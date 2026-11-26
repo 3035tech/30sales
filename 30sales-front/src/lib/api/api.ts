@@ -1,4 +1,5 @@
 import { agentsApi } from './domains/agents'
+import { apiRequest } from './client'
 
 type LazyDomain<T extends object> = T
 
@@ -36,6 +37,19 @@ function lazyDomain<T extends object>(load: () => Promise<T>): LazyDomain<T> {
 }
 
 const identityDomain = () => import('./domains/identity').then(({ authApi, teamApi }) => ({ auth: authApi, team: teamApi }))
+const lazyAuthApi = lazyDomain(() => identityDomain().then((module) => module.auth))
+const authApi = new Proxy(lazyAuthApi, {
+  get(target, property, receiver) {
+    if (property === 'signOut') {
+      return async () => {
+        const response = await apiRequest('/api/auth/sign-out', { method: 'POST' })
+        if (!response.ok) throw new Error('Authentication sign out failed.')
+        return { data: null, error: null }
+      }
+    }
+    return Reflect.get(target, property, receiver)
+  },
+})
 
 export const api = {
   campaigns: lazyDomain(() => import('./domains/campaigns').then((module) => module.campaignsApi)),
@@ -61,6 +75,6 @@ export const api = {
 function lazyIdentityDomains() {
   return {
     team: lazyDomain(() => identityDomain().then((module) => module.team)),
-    auth: lazyDomain(() => identityDomain().then((module) => module.auth)),
+    auth: authApi,
   }
 }

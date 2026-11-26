@@ -10,7 +10,7 @@ import { api, type TeamInvitationDto, type TeamMemberDto } from '../lib/api'
 import { roleNames, type OrganizationRole } from '../lib/permissions'
 import { ORGANIZATION_ROLE } from '../lib/authorizationConstants'
 
-export function TeamSettings({ organizationId }: { organizationId: string }) {
+export function TeamSettings({ organizationId, canManageTeam }: { organizationId: string; canManageTeam: boolean }) {
   const { t, i18n } = useTranslation()
   const [members, setMembers] = useState<TeamMemberDto[]>([])
   const [invitations, setInvitations] = useState<TeamInvitationDto[]>([])
@@ -24,7 +24,9 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
   const [resendingId, setResendingId] = useState('')
   const [inviteError, setInviteError] = useState(false)
   const [invitationToCancel, setInvitationToCancel] = useState<TeamInvitationDto | null>(null)
+  const [memberToRemove, setMemberToRemove] = useState<TeamMemberDto | null>(null)
   const [cancelingId, setCancelingId] = useState('')
+  const [removingId, setRemovingId] = useState('')
 
   const refresh = async () => {
     setLoading(true)
@@ -73,21 +75,43 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
     void refresh()
   }
 
-  const cancelInvitation = async () => {
-    if (!invitationToCancel || cancelingId) return
+  const cancelInvitation = async (): Promise<boolean> => {
+    if (!invitationToCancel || cancelingId) return false
     const invitation = invitationToCancel
     setCancelingId(invitation.id)
     try {
       const result = await api.team.cancelInvitation({ organizationId, id: invitation.id })
-      if (result.error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.invitationCancelFailed')); void refresh(); return }
+      if (result.error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.invitationCancelFailed')); void refresh(); return false }
       notifySystemAlert(SYSTEM_ALERT_KIND.success, t('team.invitationCanceledFor', { email: invitation.email }))
       setInvitationToCancel(null)
       void refresh()
+      return true
     } catch {
       notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.invitationCancelFailed'))
       void refresh()
+      return false
     } finally {
       setCancelingId('')
+    }
+  }
+
+  const removeMember = async (): Promise<boolean> => {
+    if (!memberToRemove || removingId) return false
+    const member = memberToRemove
+    setRemovingId(member.id)
+    try {
+      const result = await api.team.removeMember({ organizationId, id: member.id })
+      if (result.error) { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.memberRemoveFailed')); void refresh(); return false }
+      setMemberToRemove(null)
+      notifySystemAlert(SYSTEM_ALERT_KIND.success, t('team.memberRemoved', { name: member.user.name }))
+      void refresh()
+      return true
+    } catch {
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, t('team.memberRemoveFailed'))
+      void refresh()
+      return false
+    } finally {
+      setRemovingId('')
     }
   }
 
@@ -97,7 +121,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
       <section className="team-panel"><div className="panel-heading"><span className="card-icon"><Users size={18} /></span><div><h3>{t('team.members')}</h3><p>{(loading || loadError) && members.length === 0 ? t('team.memberCountUnavailable') : t('team.memberCount', { count: members.length })}</p></div></div>
         {loadError && members.length > 0 && <WorkspaceState kind="error" compact message={t('team.loadFailed')} detail={t('table.resultsRetained')} />}
         {loading && members.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
-        {loading && members.length === 0 ? <WorkspaceState kind="loading" compact message={t('team.loading')} /> : loadError && members.length === 0 ? <WorkspaceState kind="error" message={t('team.loadFailed')} /> : members.length === 0 ? <WorkspaceState kind="empty" message={t('team.empty')} /> : <div className="member-list">{members.map((member) => <div className="member-row" key={member.id}><span className="avatar">{member.user.name.slice(0, 1)}</span><span className="member-person"><strong>{member.user.name}</strong><small>{member.user.email}</small></span><span className="role-badge">{member.role.split(',').map(labelRole).join(', ')}</span></div>)}</div>}
+        {loading && members.length === 0 ? <WorkspaceState kind="loading" compact message={t('team.loading')} /> : loadError && members.length === 0 ? <WorkspaceState kind="error" message={t('team.loadFailed')} /> : members.length === 0 ? <WorkspaceState kind="empty" message={t('team.empty')} /> : <div className="member-list">{members.map((member) => <div className="member-row team-member-row" key={member.id}><span className="avatar">{member.user.name.slice(0, 1)}</span><span className="member-person"><strong>{member.user.name}</strong><small>{member.user.email}</small></span><span className="role-badge">{member.role.split(',').map(labelRole).join(', ')}</span>{canManageTeam && !member.role.split(',').includes(ORGANIZATION_ROLE.owner) && <Button type="button" className="member-remove" disabled={Boolean(removingId || cancelingId)} aria-label={`${t('team.removeMember')}: ${member.user.name}`} onClick={() => setMemberToRemove(member)}><Trash2 size={15} aria-hidden="true" /><span>{t('team.removeMember')}</span></Button>}</div>)}</div>}
         <div className="team-invitations"><div className="team-invitations-heading"><h4>{t('team.invitations')}</h4>{invitations.length > 0 && <span className="team-invitation-count">{invitations.length}</span>}</div>
         {loading && invitations.length === 0 ? <WorkspaceState kind="loading" compact message={t('team.loadingInvitations')} /> : invitationLoadError ? <WorkspaceState kind="error" compact message={t('team.invitationLoadFailed')} /> : invitations.length === 0 ? <WorkspaceState kind="empty" compact message={t('team.invitationsEmpty')} /> : <><p className="team-delivery-note">{t('team.deliveryNote')}</p><div className="member-list">{invitations.map((invitation) => {
             const status = invitationStatus(invitation)
@@ -113,7 +137,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
                 {resendingId === invitation.id ? <RefreshCw size={15} className="is-spinning" aria-hidden="true" /> : <RotateCw size={15} aria-hidden="true" />}
                 <span>{resendingId === invitation.id ? t('team.resendingInvitation') : t('team.resendInvitation')}</span>
               </Button>}
-              {canCancel && <Button type="button" className="invitation-cancel" disabled={Boolean(resendingId || cancelingId)} aria-label={`${t('team.cancelInvitation')}: ${invitation.email}`} onClick={() => setInvitationToCancel(invitation)}><Trash2 size={15} aria-hidden="true" /><span>{t('team.cancelInvitation')}</span></Button>}
+              {canCancel && canManageTeam && <Button type="button" className="invitation-cancel" disabled={Boolean(resendingId || cancelingId)} aria-label={`${t('team.cancelInvitation')}: ${invitation.email}`} onClick={() => setInvitationToCancel(invitation)}><Trash2 size={15} aria-hidden="true" /><span>{t('team.cancelInvitation')}</span></Button>}
             </div>
           })}</div></>}
         </div>
@@ -122,6 +146,7 @@ export function TeamSettings({ organizationId }: { organizationId: string }) {
     </div>
     <Modal open={inviteOpen} onOpenChange={(open) => { setInviteOpen(open); if (open) setInviteError(false) }} title={t('team.inviteTitle')} description={t('team.inviteHint')} closeLabel={t('common.close')} className="team-invite-modal"><form className="invite-form" onSubmit={invite}>{inviteError && <p className="team-invite-error" role="alert">{t('team.inviteFailedDetail')}</p>}<label>{t('common.email')}<TextField type="email" normalize="email" value={email} onChange={(event) => { setEmail(event.target.value); setInviteError(false) }} placeholder={t('team.emailPlaceholder')} required /></label><label>{t('team.role')}<SelectField value={role} onChange={(event) => { const selectedRole = roleNames.find((candidate) => candidate === event.target.value); if (selectedRole) setRole(selectedRole) }}>{roleNames.filter((candidate) => candidate !== ORGANIZATION_ROLE.owner).map((candidate) => <option key={candidate} value={candidate}>{t(`roles.${candidate}`)}</option>)}</SelectField></label><Button className="primary" disabled={busy}>{busy ? t('team.sending') : t('team.sendInvite')}<ArrowRight size={16} /></Button></form></Modal>
     <ConfirmDialog open={Boolean(invitationToCancel)} onOpenChange={(open) => { if (!open && !cancelingId) setInvitationToCancel(null) }} title={t('team.cancelInvitation')} description={t('team.cancelInvitationConfirm', { email: invitationToCancel?.email ?? '' })} confirmLabel={cancelingId ? t('team.cancelingInvitation') : t('team.confirmCancelInvitation')} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={cancelInvitation} />
+    <ConfirmDialog open={Boolean(memberToRemove)} onOpenChange={(open) => { if (!open && !removingId) setMemberToRemove(null) }} title={t('team.removeMember')} description={t('team.removeMemberConfirm', { name: memberToRemove?.user.name ?? '' })} confirmLabel={removingId ? t('team.removingMember') : t('team.removeMember')} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={removeMember} />
     <p className="footer-note"><span className="dot" />{t('team.verifyNote')}</p>
   </div>
 }

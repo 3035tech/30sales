@@ -50,6 +50,18 @@ export class PlatformRepository {
     });
   }
 
+  async removeOrganizationMember(organizationId: string, memberId: string, actorUserId: string, correlationId: string | null): Promise<'not_found' | 'owner_protected' | { success: true }> {
+    return database.transaction(async (transaction) => {
+      const [selectedMember] = await transaction.select({ id: member.id, userId: member.userId, role: member.role }).from(member)
+        .where(and(eq(member.id, memberId), eq(member.organizationId, organizationId))).for('update').limit(1);
+      if (!selectedMember) return 'not_found' as const;
+      if (selectedMember.role.split(',').includes(ORGANIZATION_ROLE.owner)) return 'owner_protected' as const;
+      await transaction.delete(member).where(and(eq(member.id, memberId), eq(member.organizationId, organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: 'organization.member_removed', entityType: 'member', entityId: memberId, correlationId, beforeState: { userId: selectedMember.userId, role: selectedMember.role }, afterState: { removed: true } });
+      return { success: true as const };
+    });
+  }
+
   async createOrganizationInvitation(organizationId: string, input: CreatePlatformOrganizationInvitationDto, actorUserId: string, correlationId: string | null): Promise<{ invitationId: string; email: string; organizationId: string; organizationName: string } | 'not_found' | 'already_invited'> {
     const now = new Date();
     const email = input.email.toLowerCase();

@@ -145,6 +145,14 @@ export class PlatformService {
     return result;
   }
 
+  async removeOrganizationMember(request: ApiRequestDto, organizationId: string, memberId: string): Promise<{ success: true }> {
+    const actor = await this.requireSuperAdmin(request);
+    const result = await this.repository.removeOrganizationMember(organizationId, memberId, actor.userId, request.correlationId);
+    if (result === 'not_found') throw new NotFoundException({ code: 'ORGANIZATION_MEMBER_NOT_FOUND' });
+    if (result === 'owner_protected') throw new ConflictException({ code: 'ORGANIZATION_OWNER_PROTECTED', message: 'The organization owner cannot be removed from the team.' });
+    return result;
+  }
+
   async createOrganization(request: ApiRequestDto, input: CreatePlatformOrganizationDto): Promise<PlatformOrganizationCreateResultDto> {
     const actor = await this.requireSuperAdmin(request);
     const result = await this.repository.createOrganization(input, actor, request.correlationId);

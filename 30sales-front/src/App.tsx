@@ -553,7 +553,7 @@ export default function App() {
         <Suspense fallback={<WorkspaceState kind="loading" compact message={t('common.loading')} />}>
         {page === 'closerSla' ? <CloserSlaSettingsWorkspace />
           : page === 'pipelineStages' ? <PipelineStagesWorkspace onBack={() => navigateToPage('pipeline')} />
-          : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} />
+          : page === 'team' && current?.activeOrganizationId ? <TeamSettings organizationId={current.activeOrganizationId} canManageTeam={Boolean(current.platformOrganizationContext || activeRoles.some((role) => role === ORGANIZATION_ROLE.owner || role === ORGANIZATION_ROLE.admin))} />
           : page === 'businessLines' && current?.activeOrganizationId ? <BusinessLinesWorkspace organizationId={current.activeOrganizationId} />
           : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} onOpenTask={(taskId) => navigateToPage('tasks', { taskId })} />
           : page === 'channels' ? <ChannelsWorkspace />

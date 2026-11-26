@@ -25,6 +25,10 @@ export class PlatformController {
   listOrganizationMembers(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string) {
     return this.platformService.listOrganizationMembers(request, organizationId);
   }
+  @Delete(':organizationId/members/:memberId')
+  removeOrganizationMember(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Param('memberId', new ZodValidationPipe(platformOrganizationIdSchema)) memberId: string) {
+    return this.platformService.removeOrganizationMember(request, organizationId, memberId);
+  }
   @Post(':organizationId/invitations')
   inviteOrganizationMember(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Body(new ZodValidationPipe(createPlatformOrganizationInvitationSchema)) input: CreatePlatformOrganizationInvitationDto) {
     return this.platformService.inviteOrganizationMember(request, organizationId, input);

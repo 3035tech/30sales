@@ -17,6 +17,12 @@
 .notification-menu{position:relative}.notification-trigger{position:relative;width:38px;height:38px;display:grid;place-items:center;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#475569}.notification-trigger:focus-visible,.notification-item:focus-visible,.notification-mark-all:focus-visible{outline:2px solid #2563eb;outline-offset:2px}.notification-count{position:absolute;top:-6px;right:-7px;min-width:18px;height:18px;padding:0 4px;display:grid;place-items:center;border:2px solid #fff;border-radius:12px;background:#dc2626;color:#fff;font-size:var(--font-size-xs);font-weight:700}.notification-panel{position:absolute;z-index:20;top:48px;right:0;width:min(360px,calc(100vw - 28px));max-height:min(70vh,520px);overflow:auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;box-shadow:0 14px 38px #0f172a20}.notification-panel-heading{position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;background:#fff;border-bottom:1px solid #edf1f4}.notification-heading-copy{display:grid;gap:3px}.notification-panel-heading strong{font-size:var(--font-size-base)}.notification-panel-heading span{font-size:var(--font-size-xs);color:#64748b}.notification-mark-all{padding:5px 0;border:0;background:transparent;color:#1d4ed8;font-size:var(--font-size-xs);font-weight:650;cursor:pointer}.notification-mark-all:disabled{color:#94a3b8;cursor:wait}.notification-message{margin:0;padding:20px 16px;color:#64748b;font-size:var(--font-size-sm);line-height:1.5}.notification-item{width:100%;display:grid;gap:5px;padding:13px 16px;text-align:left;border:0;border-bottom:1px solid #edf1f4;background:#fff;color:#334155;font-size:var(--font-size-sm)}.notification-item:hover{background:#ffffff}.notification-item-title{font-weight:700;color:#b45309}.notification-item-title.is-inbox{color:#1d4ed8}.notification-item small{color:#64748b}.notification-open{display:flex;align-items:center;gap:4px;margin-top:3px;color:#2563eb;font-weight:600}
 @media(max-width:640px){.notification-panel{position:fixed;top:calc(env(safe-area-inset-top) + 72px);right:12px;left:12px;width:auto;max-height:min(70vh,520px)}.account{gap:9px}}
 
+.notification-panel .notification-item{display:grid;grid-template-columns:minmax(0,1fr);justify-items:stretch;align-content:start;gap:5px;width:100%;min-height:0;padding:13px 16px;border:0;border-radius:0;text-align:left;white-space:normal}
+.notification-panel .notification-item:hover:not(:disabled){border:0;background:#f8fafc;color:#334155}
+.notification-panel .notification-item>span{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.notification-panel .notification-item-title{display:block;line-height:1.35}
+.notification-panel .notification-open{justify-self:start;display:inline-flex;align-items:center;margin-top:3px}
+
 .nav-items{display:flex;flex-direction:column;min-height:0}.mobile-nav-toggle{display:none}
 .nav:focus-visible,.mobile-nav-toggle:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 @media(max-width:640px){.rail{position:relative;z-index:30;justify-content:space-between}.mobile-nav-toggle{display:grid;place-items:center;width:40px;height:40px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;color:#334155}.nav-items{display:none;position:fixed;z-index:40;top:62px;left:0;right:0;max-height:calc(100vh - 62px);overflow:auto;padding:14px 17px 20px;background:#fff;border-bottom:1px solid #e2e8f0;box-shadow:0 14px 24px #0f172a1a}.nav-items.open{display:flex}.nav-items .rail-caption{display:block;padding:4px 11px 10px}.nav-items .nav{display:flex;min-height:44px}.rail-bottom{display:none}}
@@ -101,6 +107,11 @@
 .team-page .team-panel{box-shadow:0 1px 2px rgba(31,55,45,.035)}
 .team-page .panel-heading{padding-bottom:16px;border-bottom:1px solid #edf2ef}
 .team-page .team-invitations{margin-top:24px;padding-top:18px;border-top:1px solid #e8eeea}
+.team-page .team-member-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:12px}
+.team-page .member-remove{min-height:34px;padding:6px 9px;border:1px solid #f2d7d7;border-radius:7px;background:#fff;color:#a33b3b;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:var(--font-size-xs)}
+.team-page .member-remove:hover:not(:disabled){background:#fff5f5}
+.team-page .member-remove:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
+.team-page .member-remove:disabled{opacity:.55;cursor:not-allowed}
 .team-page .team-invitations-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .team-page .team-invitations-heading h4{margin:0}
 .team-page .team-invitation-count{display:inline-grid;min-width:22px;height:22px;place-items:center;padding:0 6px;border-radius:11px;background:#edf5f0;color:#426b53;font-size:var(--font-size-xs);font-weight:700}
@@ -113,7 +124,7 @@
 .team-page .invite-panel{align-self:start;min-height:190px;background:linear-gradient(145deg,#fff 0%,#f7fbf8 100%)}
 .team-page .invite-panel .primary{margin-top:4px}
 .team-page .refresh:hover{background:#f5faf7;color:#177850}
-@media(max-width:640px){.team-page .team-panel{padding:16px}.team-page .team-invitation-row{grid-template-columns:minmax(0,1fr) auto;gap:8px}.team-page .team-invitation-row .invitation-resend{grid-column:1/-1;justify-content:center}.team-page .team-invitation-row .member-person small{font-size:11px}.team-page .invite-panel{min-height:0}}
+@media(max-width:640px){.team-page .team-panel{padding:16px}.team-page .team-member-row{grid-template-columns:auto minmax(0,1fr) auto;gap:8px}.team-page .team-member-row .role-badge{grid-column:2;justify-self:start}.team-page .team-member-row .member-remove{grid-column:3;grid-row:2}.team-page .team-invitation-row{grid-template-columns:minmax(0,1fr) auto;gap:8px}.team-page .team-invitation-row .invitation-resend{grid-column:1/-1;justify-content:center}.team-page .team-invitation-row .member-person small{font-size:11px}.team-page .invite-panel{min-height:0}}
 .notification-message-preview{display:-webkit-box;overflow:hidden;color:#475569!important;text-overflow:ellipsis;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:2}
 .notification-toast{width:min(460px,calc(100vw - 32px))}
 .notification-toast>button:nth-child(2) small.notification-message-preview{display:-webkit-box;color:#475569;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal}

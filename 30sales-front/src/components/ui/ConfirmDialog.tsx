@@ -11,7 +11,7 @@ type ConfirmDialogProps = {
   cancelLabel: string
   closeLabel: string
   onOpenChange: (open: boolean) => void
-  onConfirm: () => void | Promise<void>
+  onConfirm: () => void | boolean | Promise<void | boolean>
   destructive?: boolean
 }
 
@@ -21,8 +21,8 @@ export function ConfirmDialog({ open, title, description, confirmLabel, cancelLa
   const confirmSelection = async () => {
     setSaving(true)
     try {
-      await onConfirm()
-      onOpenChange(false)
+      const confirmed = await onConfirm()
+      if (confirmed !== false) onOpenChange(false)
     } finally {
       setSaving(false)
     }

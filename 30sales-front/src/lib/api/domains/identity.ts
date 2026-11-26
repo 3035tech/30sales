@@ -80,6 +80,18 @@ export const teamApi = {
       const result = await authClient.organization.cancelInvitation({ invitationId: input.id });
       return { error: authError(result) };
     },
+    async removeMember(input: { organizationId: string; id: string }): Promise<{ error: { message: string } | null }> {
+      if (sessionStorage.getItem(PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY) === input.organizationId) {
+        try {
+          await request(`${PLATFORM_ORGANIZATION_API_PATH}/${encodeURIComponent(input.organizationId)}/members/${encodeURIComponent(input.id)}`, z.object({ success: z.literal(true) }), { method: 'DELETE' });
+          return { error: null };
+        } catch (error) {
+          return { error: { message: error instanceof Error ? error.message : 'The member could not be removed.' } };
+        }
+      }
+      const result = await authClient.organization.removeMember({ memberIdOrEmail: input.id, organizationId: input.organizationId });
+      return { error: authError(result) };
+    },
   };
 
 export const authApi = {

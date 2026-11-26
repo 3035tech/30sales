@@ -572,6 +572,12 @@ export class InboxRepository {
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
     return database.transaction(async (transaction) => {
       if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.userId, input.isPlatformOrganizationContext)) return 'not_found';
+      // Serialize read-cursor writes for this conversation. The read row may not
+      // exist yet, so locking it after a SELECT does not prevent two first reads
+      // from racing into the unique organization/conversation/user constraint.
+      await transaction.select({ id: conversations.id }).from(conversations)
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId)))
+        .for('update').limit(1);
       let lastInboundMessageId = input.lastInboundMessageId;
       if (!lastInboundMessageId) {
         // A null cursor marks the conversation through its latest inbound message.

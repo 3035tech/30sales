@@ -18,7 +18,7 @@ export class AgentsRepository {
     await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: ASSISTANT_MANUAL_ACTION.conversationConsulted, entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { mode: input.mode, model: input.model, usageInputTokens: input.usageInputTokens, usageOutputTokens: input.usageOutputTokens, estimatedCostUsd, pricingVersion: ASSISTANT_PRICING_VERSION } });
   }
 
-  async loadManualReplyContext(organizationId: string, conversationId: string): Promise<{ ownerUserId: string | null; automationMode: string; status: string; model: string; systemPrompt: string; messages: Array<{ role: 'user' | 'assistant'; content: string }> } | null> {
+  async loadManualReplyContext(organizationId: string, conversationId: string): Promise<{ ownerUserId: string | null; automationMode: string; status: string; model: string; systemPrompt: string; messages: Array<{ id: string; role: 'user' | 'assistant'; content: string }> } | null> {
     const [conversation] = await database.select({ ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode, status: conversations.status, businessLineId: messagingChannels.businessLineId, inboundProfileId: messagingChannels.inboundAssistantProfileId, outboundProfileId: messagingChannels.outboundAssistantProfileId, operationMode: messagingChannels.operationMode })
       .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
@@ -32,12 +32,12 @@ export class AgentsRepository {
       .where(and(eq(agentSettings.organizationId, organizationId), isNull(agentSettings.businessLineId), eq(agentSettings.agentKey, 'assistant'))).limit(1) : [];
     const assistant = profile ?? lineSettings ?? globalSettings;
     if (!assistant?.enabled) return null;
-    const history = await database.select({ direction: messages.direction, bodyText: messages.bodyText, transcriptText: messages.transcriptText }).from(messages)
+    const history = await database.select({ id: messages.id, direction: messages.direction, bodyText: messages.bodyText, transcriptText: messages.transcriptText }).from(messages)
       .where(and(eq(messages.organizationId, organizationId), eq(messages.conversationId, conversationId), sql`${messages.direction} in ('inbound', 'outbound')`))
       .orderBy(sql`${messages.occurredAt} desc`, sql`${messages.id} desc`).limit(30);
     const thread = history.reverse().flatMap((message) => {
       const content = [message.bodyText, message.transcriptText].filter(Boolean).join('\n');
-      return content ? [{ role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content }] : [];
+      return content ? [{ id: message.id, role: message.direction === 'inbound' ? 'user' as const : 'assistant' as const, content }] : [];
     });
     return { ownerUserId: conversation.ownerUserId, automationMode: conversation.automationMode, status: conversation.status, model: assistant.model, systemPrompt: assistant.systemPrompt, messages: thread };
   }

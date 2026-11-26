@@ -8,6 +8,7 @@ import { EvolutionHistoryWorker } from './evolution-history.worker';
 import { EvolutionMessageStatusReconciliationWorker } from './evolution-message-status-reconciliation.worker';
 import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter } from './message-status-webhook-adapters';
 import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
+import { EvolutionPollResultsProvider } from './evolution-poll-results.provider';
 
-@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository, EvolutionHistoryWorker, EvolutionMessageStatusReconciliationWorker, EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter, EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter], exports: [WebhooksService] })
+@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository, EvolutionHistoryWorker, EvolutionMessageStatusReconciliationWorker, EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter, EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter, EvolutionPollResultsProvider], exports: [WebhooksService] })
 export class WebhooksModule {}

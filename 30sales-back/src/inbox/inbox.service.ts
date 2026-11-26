@@ -222,6 +222,7 @@ export class InboxService {
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can create an opportunity from it.' });
     if (result === 'conversation_linked_elsewhere') throw new ConflictException({ code: 'CONVERSATION_OPPORTUNITY_CONFLICT', message: 'This conversation is already linked to a different opportunity.' });
     if (result === 'lead_unavailable') throw new NotFoundException({ code: 'LEAD_NOT_FOUND', message: 'Choose a lead in the same business line as this conversation.' });
+    if (result === 'lead_selection_required') throw new ConflictException({ code: 'LEAD_SELECTION_REQUIRED', message: 'This contact is linked to multiple leads. Select the correct lead before continuing.' });
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     return result;
   }

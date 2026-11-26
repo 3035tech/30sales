@@ -95,6 +95,14 @@ export class EvolutionIncomingMessageWebhookAdapter implements IncomingMessageWe
     return new IncomingWhatsappMessageDto(input.organizationId, input.channelId, this.provider, externalMessageId, `${input.channelId}:${isGroup ? remoteJid : senderPhone}`, isGroup ? (isValidPhone(senderPhone) ? senderPhone : null) : senderPhone, null, authorName, messageType, isGroup || isFromMe ? null : input.classifyCloserSignal(bodyText), bodyText, occurredAt, input.payloadHash, media, normalizedEvolutionMetadata, isGroup ? 'group' : 'direct', isGroup ? groupName?.trim().slice(0, 160) || remoteJid : null, isGroup ? remoteJid : null, isFromMe);
   }
 
+  pollUpdateTarget(value: unknown): { remoteJid: string; pollMessageId: string } | null {
+    const data = record(value); const key = record(data.key); const remoteJid = string(key.remoteJid) ?? string(data.remoteJid);
+    const message = this.unwrap(record(data.message)); const update = record(message.pollUpdateMessage);
+    const pollKey = record(update.pollCreationMessageKey); const pollMessageId = string(pollKey.id);
+    return remoteJid && remoteJid.endsWith('@g.us') && remoteJid.length <= 250 && pollMessageId && pollMessageId.length <= 250
+      ? { remoteJid, pollMessageId } : null;
+  }
+
   extractText(value: JsonRecord): string | null { return this.extractTextInternal(value); }
   unwrap(value: JsonRecord): JsonRecord {
     for (const key of ['ephemeralMessage', 'viewOnceMessage', 'viewOnceMessageV2', 'documentWithCaptionMessage']) {

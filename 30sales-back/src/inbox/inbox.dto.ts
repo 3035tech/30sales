@@ -16,7 +16,10 @@ export const assignConversationSchema = z.object({ ownerUserId: z.string().uuid(
 export type AssignConversationDto = z.infer<typeof assignConversationSchema>;
 export const reconcileConversationContactSchema = z.object({ leadId: z.string().uuid(), name: z.string().trim().min(2).max(160).optional(), phone: z.string().trim().min(8).max(40).optional(), isPrimary: z.boolean().default(false), isInterested: z.boolean().default(false) }).strict();
 export type ReconcileConversationContactInputDto = z.infer<typeof reconcileConversationContactSchema>;
-export const createConversationOpportunitySchema = z.object({ leadId: z.string().uuid(), summary: z.string().trim().min(10).max(8000), confirmedFacts: z.array(z.string().trim().min(1).max(500)).max(40), unknowns: z.array(z.string().trim().min(1).max(500)).max(40), nextAction: z.string().trim().min(3).max(500), nextActionAt: z.string().datetime({ offset: true }) }).strict();
+export const createConversationOpportunitySchema = z.object({ requestKey: z.string().uuid(), leadId: z.string().uuid().optional(), companyName: z.string().trim().min(2).max(160).optional(), createOpportunity: z.boolean().default(true), summary: z.string().trim().max(8000).default(''), confirmedFacts: z.array(z.string().trim().min(1).max(500)).max(40).default([]), unknowns: z.array(z.string().trim().min(1).max(500)).max(40).default([]), nextAction: z.string().trim().min(3).max(500), nextActionAt: z.string().datetime({ offset: true }) }).strict().superRefine((input, context) => {
+  if (input.createOpportunity && !input.summary.trim()) context.addIssue({ code: 'custom', path: ['summary'], message: 'A summary is required to create an opportunity.' });
+  if (new Date(input.nextActionAt).getTime() <= Date.now()) context.addIssue({ code: 'custom', path: ['nextActionAt'], message: 'Choose a future date and time for the follow-up task.' });
+});
 export type CreateConversationOpportunityInputDto = z.infer<typeof createConversationOpportunitySchema>;
 export const conversationTypingPresenceSchema = z.object({ state: z.enum(['composing', 'paused']) }).strict();
 export type ConversationTypingPresenceInputDto = z.infer<typeof conversationTypingPresenceSchema>;

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, ilike, inArray, isNull, notExists, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, messageAttachments, messageHiddenForUsers, messages, messagingChannels, opportunityConversationContexts, opportunities, opportunityStageHistory, people, userNotifications } from '../db/schema';
+import { accountPeople, accounts, agentSettings, auditEvents, businessLineMembers, businessLines, conversationGroupParticipants, conversationReads, conversationTagLinks, conversationTags, conversations, leadContacts, leads, leadStatusHistory, messageAttachments, messageHiddenForUsers, messages, messagingChannels, opportunityConversationContexts, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
@@ -200,41 +200,88 @@ export class InboxRepository {
       return new ConversationContactReconcileResultDto(conversation.id, lead.id, account?.name ?? '', updatedName, updatedPhone);
     });
   }
-  async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'conversation_linked_elsewhere'> {
+  async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string | null; taskId: string; leadId: string; leadCreated: boolean; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'lead_selection_required' | 'conversation_linked_elsewhere'> {
     return database.transaction(async (transaction) => {
-      const [conversation] = await transaction.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status })
+      const [conversation] = await transaction.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status, personName: people.name, personPhone: people.phone })
         .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
         .leftJoin(businessLines, and(eq(businessLines.id, messagingChannels.businessLineId), eq(businessLines.organizationId, messagingChannels.organizationId)))
         .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
       if (!conversation || !await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
       if (conversation.ownerUserId !== input.actorUserId) return 'not_owner';
       if (!conversation.businessLineId || conversation.lineStatus !== 'active' || !conversation.personId) return 'not_found';
-      const [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
-        .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
-        .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
-        .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId))).for('update', { of: leads }).limit(1);
-      if (!lead || !lead.personId) return 'lead_unavailable';
+      const [previousRequest] = await transaction.select({ entityId: auditEvents.entityId, afterState: auditEvents.afterState }).from(auditEvents)
+        .where(and(eq(auditEvents.organizationId, input.organizationId), eq(auditEvents.actorUserId, input.actorUserId), eq(auditEvents.action, 'task.created'), eq(auditEvents.entityType, 'task'), sql`${auditEvents.afterState}->>'requestKey' = ${input.input.requestKey}`, sql`${auditEvents.afterState}->>'conversationId' = ${conversation.id}`)).limit(1);
+      if (previousRequest) {
+        const state = previousRequest.afterState as Record<string, unknown>;
+        if (typeof previousRequest.entityId === 'string' && typeof state.leadId === 'string') return { taskId: previousRequest.entityId, leadId: state.leadId, opportunityId: typeof state.opportunityId === 'string' ? state.opportunityId : null, leadCreated: state.leadCreated === true, created: state.created === true };
+      }
+      let lead: { id: string; accountId: string; personId: string | null; businessLineId: string | null; accountName: string; contactName: string | null } | undefined;
+      let leadCreated = false;
+      if (input.input.leadId) {
+        [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
+          .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+          .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId))).for('update', { of: leads }).limit(1);
+        if (!lead) return 'lead_unavailable';
+      } else if (conversation.personId) {
+        const contactLink = exists(transaction.select({ id: leadContacts.id }).from(leadContacts).where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.personId, conversation.personId))));
+        const matchingLeads = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
+          .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
+          .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId), or(eq(leads.personId, conversation.personId), contactLink))).for('update', { of: leads }).limit(2);
+        if (matchingLeads.length > 1) return 'lead_selection_required';
+        lead = matchingLeads[0];
+      }
+      if (!lead && conversation.personId) {
+        const companyName = input.input.companyName?.trim() || `Empresa a identificar · ${conversation.personName?.trim() || conversation.personPhone || conversation.id.slice(0, 8)}`;
+        const [linkedAccount] = conversation.accountId ? await transaction.select({ id: accounts.id, name: accounts.name }).from(accounts).where(and(eq(accounts.id, conversation.accountId), eq(accounts.organizationId, input.organizationId))).limit(1) : [];
+        let account = linkedAccount;
+        if (!account) [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: companyName }).returning({ id: accounts.id, name: accounts.name });
+        if (!account) return 'lead_unavailable';
+        const [newLead] = await transaction.insert(leads).values({ organizationId: input.organizationId, businessLineId: conversation.businessLineId, accountId: account.id, personId: conversation.personId, createdByUserId: input.actorUserId, assignedToUserId: input.actorUserId, source: 'whatsapp', status: 'new', nextActionAt: new Date(input.input.nextActionAt) }).returning({ id: leads.id });
+        await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: newLead.id, personId: conversation.personId, isPrimary: true, createdByUserId: input.actorUserId });
+        await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: account.id, personId: conversation.personId, createdByUserId: input.actorUserId }).onConflictDoNothing();
+        await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: newLead.id, fromStatus: null, toStatus: 'new', changedByUserId: input.actorUserId });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: newLead.id, correlationId: input.correlationId, afterState: { status: 'new', source: 'whatsapp', createdFromConversation: conversation.id, companyIdentified: Boolean(input.input.companyName?.trim()) } });
+        lead = { id: newLead.id, accountId: account.id, personId: conversation.personId, businessLineId: conversation.businessLineId, accountName: account.name, contactName: conversation.personName };
+        leadCreated = true;
+      }
+      if (!lead) return 'lead_unavailable';
+      if (!lead.personId) {
+        await transaction.update(leads).set({ personId: conversation.personId, updatedAt: new Date() }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, input.organizationId)));
+        await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: conversation.personId, isPrimary: true, createdByUserId: input.actorUserId }).onConflictDoNothing();
+        lead.personId = conversation.personId;
+      }
+      await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: lead.id, personId: conversation.personId, isPrimary: false, createdByUserId: input.actorUserId }).onConflictDoNothing();
+      await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: lead.accountId, personId: conversation.personId, createdByUserId: input.actorUserId }).onConflictDoNothing();
       if (conversation.opportunityId) {
         const [linked] = await transaction.select({ leadId: opportunities.leadId }).from(opportunities).where(and(eq(opportunities.id, conversation.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
         if (!linked || linked.leadId !== lead.id) return 'conversation_linked_elsewhere';
       }
-      const [existing] = await transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, lead.id))).for('update').limit(1);
       const now = new Date();
+      const dueAt = new Date(input.input.nextActionAt);
+      const [task] = await transaction.insert(tasks).values({ organizationId: input.organizationId, leadId: lead.id, createdByUserId: input.actorUserId, assignedToUserId: input.actorUserId, title: input.input.nextAction, dueAt }).returning({ id: tasks.id });
+      const [existing] = input.input.createOpportunity ? await transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, lead.id))).for('update').limit(1) : [];
       let opportunityId = conversation.opportunityId ?? existing?.id;
-      const created = !opportunityId;
-      if (!opportunityId) {
+      const created = input.input.createOpportunity && !opportunityId;
+      if (input.input.createOpportunity && !opportunityId) {
         const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, name: `${lead.accountName} — ${input.input.summary.slice(0, 120)}`, stage: 'qualification', nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
         opportunityId = opportunity.id;
         await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from an Inbox conversation.' });
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', source: 'inbox_conversation', conversationId: conversation.id, leadId: lead.id } });
       }
-      await transaction.update(opportunities).set({ nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), updatedAt: now }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
-      await transaction.update(conversations).set({ accountId: lead.accountId, opportunityId, updatedAt: now }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
-      await transaction.insert(opportunityConversationContexts).values({ organizationId: input.organizationId, opportunityId, conversationId: conversation.id, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now })
-        .onConflictDoUpdate({ target: [opportunityConversationContexts.organizationId, opportunityConversationContexts.conversationId], set: { opportunityId, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now } });
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.conversation_context_added', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { conversationId: conversation.id, leadId: lead.id, summaryLength: input.input.summary.length, created } });
+      await transaction.update(leads).set({ nextActionAt: dueAt, updatedAt: now }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, input.organizationId)));
+      if (opportunityId) await transaction.update(opportunities).set({ nextAction: input.input.nextAction, nextActionAt: dueAt, updatedAt: now }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.update(conversations).set({ accountId: lead.accountId, opportunityId: input.input.createOpportunity ? opportunityId : conversation.opportunityId, updatedAt: now }).where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
+      if (opportunityId && input.input.createOpportunity) {
+        await transaction.insert(opportunityConversationContexts).values({ organizationId: input.organizationId, opportunityId, conversationId: conversation.id, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now })
+          .onConflictDoUpdate({ target: [opportunityConversationContexts.organizationId, opportunityConversationContexts.conversationId], set: { opportunityId, summary: input.input.summary, confirmedFacts: input.input.confirmedFacts, unknowns: input.input.unknowns, capturedAt: now } });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.conversation_context_added', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { conversationId: conversation.id, leadId: lead.id, summaryLength: input.input.summary.length, created } });
+      }
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'task.created', entityType: 'task', entityId: task.id, correlationId: input.correlationId, afterState: { leadId: lead.id, opportunityId: opportunityId ?? null, conversationId: conversation.id, source: 'inbox_follow_up', requestKey: input.input.requestKey, leadCreated, created } });
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: now.toISOString() })})`);
-      return { opportunityId, created };
+      return { opportunityId: input.input.createOpportunity ? opportunityId ?? null : null, taskId: task.id, leadId: lead.id, leadCreated, created };
     });
   }
   async isAssistantEnabled(organizationId: string, conversationId: string): Promise<boolean> {

@@ -5,7 +5,7 @@ import { requestContext } from '../common/request-context';
 import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
-import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, EvolutionMessageStatusReviewEventDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto } from './webhooks.dto';
+import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, EvolutionMessageStatusReviewEventDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto, type EvolutionPollResults } from './webhooks.dto';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { INBOX_ACTIVE_CONVERSATION_STATUSES } from '../inbox/inbox.constants';
 import { EVOLUTION_STATUS_RECONCILIATION, META_EXTERNAL_RECORD_TYPE, PROVIDER_EVENT_FAMILY, PROVIDER_MESSAGE_DELIVERY_STATES, PROVIDER_MESSAGE_STATUS_EVENT, WEBHOOK_EVENT_PROCESSING_STATE } from './provider-webhook-events.constants';
@@ -23,6 +23,22 @@ function withRequestCorrelation(payload: { [key: string]: import('../db/schema')
 
 @Injectable()
 export class WebhooksRepository {
+  async updateEvolutionPollResults(input: { organizationId: string; channelId: string; externalConversationId: string; pollMessageId: string; results: EvolutionPollResults }): Promise<boolean> {
+    const [row] = await database.select({ id: messages.id, providerMetadata: messages.providerMetadata, conversationId: conversations.id }).from(messages)
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .where(and(eq(messages.organizationId, input.organizationId), eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId), eq(messages.externalMessageId, input.pollMessageId))).limit(1);
+    const richContent = row?.providerMetadata?.evolution?.richContent;
+    if (!row || richContent?.kind !== 'poll') return false;
+    const options = richContent.options.map((name) => {
+      const update = input.results.options.find((entry) => entry.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
+      return { name, count: update?.count ?? 0, voters: update?.voters ?? [] };
+    });
+    const providerMetadata = { ...row.providerMetadata, evolution: { ...row.providerMetadata?.evolution, richContent: { ...richContent, results: { updatedAt: input.results.updatedAt, options } } } };
+    await database.update(messages).set({ providerMetadata }).where(and(eq(messages.id, row.id), eq(messages.organizationId, input.organizationId)));
+    await database.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: input.results.updatedAt })})`);
+    return true;
+  }
+
   async publishEvolutionPresence(input: { organizationId: string; channelId: string; externalConversationId: string; state: 'composing' | 'recording' | 'paused' | 'available' | 'unavailable'; participantId: string | null }): Promise<boolean> {
     const [conversation] = await database.select({ id: conversations.id }).from(conversations)
       .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).limit(1);

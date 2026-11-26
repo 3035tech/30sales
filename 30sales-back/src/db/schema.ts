@@ -47,7 +47,7 @@ export type MessageProviderMetadata = {
     reaction?: { targetExternalMessageId: string; emoji: string } | null;
     encryptedReaction?: { targetExternalMessageId: string } | null;
     quotedMessage?: { externalMessageId: string | null; bodyText: string | null } | null;
-    richContent?: { kind: 'poll'; title: string; options: string[] } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
+    richContent?: { kind: 'poll'; title: string; options: string[]; results?: { updatedAt: string; options: Array<{ name: string; count: number; voters: Array<{ id: string; name: string | null; phone: string | null }> }> } } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
     author?: { name: string | null; phone: string | null } | null;
   } | null;
 };

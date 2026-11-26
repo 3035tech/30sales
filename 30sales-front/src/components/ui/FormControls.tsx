@@ -311,7 +311,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
   const selectedDateKey = selectedDate ? formatCalendarDate(selectedDate) : ''
   const id = useId()
   const dateKey = value.slice(0, 10)
-  const dateIsOutsideBounds = Boolean(selectedDate && (min && dateKey < min.slice(0, 10) || max && dateKey > max.slice(0, 10)))
+  const dateIsOutsideBounds = Boolean(selectedDate && (min && (mode === 'datetime-local' ? selectedDate.getTime() < (parseCalendarValue(min)?.getTime() ?? 0) : dateKey < min.slice(0, 10)) || max && (mode === 'datetime-local' ? selectedDate.getTime() > (parseCalendarValue(max)?.getTime() ?? Number.POSITIVE_INFINITY) : dateKey > max.slice(0, 10))))
   const valueIsComplete = mode === 'date' ? isValidDateValue(value) : isValidDateTimeValue(value)
   const visibleError = error ?? (validationError || (dateIsOutsideBounds ? t('formControls.dateOutOfRange') : undefined))
   useEffect(() => {
@@ -378,7 +378,7 @@ export function CalendarField({ value, onValueChange, mode, min, max, required, 
         const today = dayKey === formatCalendarDate(new Date())
         return <Button key={dayKey} data-date={dayKey} type="button" role="gridcell" className={`ui-calendar-day${inCurrentMonth ? '' : ' outside'}${selected ? ' selected' : ''}${today ? ' today' : ''}`} aria-label={new Intl.DateTimeFormat(i18n.language, { dateStyle: 'full' }).format(day)} aria-pressed={selected} aria-current={today ? 'date' : undefined} disabled={isOutsideDateBounds(day, min, max)} onKeyDown={(event) => { const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : event.key === 'ArrowUp' ? -7 : event.key === 'ArrowDown' ? 7 : 0; if (delta) { event.preventDefault(); const next = new Date(day.getFullYear(), day.getMonth(), day.getDate() + delta); setMonth(next); window.requestAnimationFrame(() => rootRef.current?.querySelector<HTMLButtonElement>(`[data-date="${formatCalendarDate(next)}"]`)?.focus()) } }} onClick={() => chooseDay(day)}>{day.getDate()}</Button>
       })}</div>
-      {mode === 'datetime-local' && <label className="ui-calendar-time">{t('formControls.time')}<input className="ui-time-input" type="time" value={timeValue} onChange={(event) => updateTime(event.target.value)} /></label>}
+      {mode === 'datetime-local' && <label className="ui-calendar-time">{t('formControls.time')}<input className="ui-time-input" type="time" min={min && min.slice(0, 10) === dateKey ? min.slice(11, 16) : undefined} max={max && max.slice(0, 10) === dateKey ? max.slice(11, 16) : undefined} value={timeValue} onChange={(event) => updateTime(event.target.value)} /></label>}
       <div className="ui-calendar-actions"><Button type="button" onClick={() => { onValueChange(''); setValidationError(''); setOpen(false) }} disabled={required}>{t('formControls.clear')}</Button><Button type="button" onClick={() => { chooseDay(new Date()); if (mode === 'date') setOpen(false) }}>{t('formControls.today')}</Button></div>
     </div>, popoverHost ?? document.body)}
     <input ref={hiddenInputRef} className="ui-visually-hidden" tabIndex={-1} aria-hidden="true" type="text" value={valueIsComplete ? 'selected' : ''} required={required} onChange={() => undefined} onInvalid={(event) => { setSubmitAttempted(true); const message = dateIsOutsideBounds ? t('formControls.dateOutOfRange') : t('formControls.required'); event.preventDefault(); event.currentTarget.setCustomValidity(message); setValidationError(message); rootRef.current?.querySelector<HTMLButtonElement>('.ui-calendar-trigger')?.focus() }} />
@@ -390,7 +390,10 @@ function parseCalendarValue(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
   if (!match) return null
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return date.getFullYear() === Number(match[1]) && date.getMonth() === Number(match[2]) - 1 && date.getDate() === Number(match[3]) ? date : null
+  if (date.getFullYear() !== Number(match[1]) || date.getMonth() !== Number(match[2]) - 1 || date.getDate() !== Number(match[3])) return null
+  const time = /T(\d{2}):(\d{2})/.exec(value)
+  if (time) date.setHours(Number(time[1]), Number(time[2]), 0, 0)
+  return date
 }
 
 function isValidDateValue(value: string) {

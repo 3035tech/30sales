@@ -23,6 +23,13 @@ export const assistantAgentResponseSchema = z.object({
   unknowns: z.array(z.string().trim().min(1).max(300)).max(12),
   nextStep: z.string().trim().min(1).max(500),
 }).strict();
+export const assistantConversationSummarySchema = z.object({
+  summary: z.string().trim().min(1).max(1000),
+  confirmedFacts: z.array(z.object({ fact: z.string().trim().min(1).max(300), evidence: z.array(z.object({ messageId: z.string().uuid(), quote: z.string().trim().min(3).max(500) }).strict()).min(1).max(3) }).strict()).max(12),
+  unknowns: z.array(z.string().trim().min(1).max(300)).max(12),
+  nextStep: z.string().trim().min(1).max(500),
+}).strict();
+export type AssistantConversationSummaryDto = z.infer<typeof assistantConversationSummarySchema>;
 export type AssistantAgentResponseDto = z.infer<typeof assistantAgentResponseSchema>;
 export type AssistantModelExecutionDto = {
   result: AssistantAgentResponseDto;

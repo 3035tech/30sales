@@ -1,10 +1,19 @@
 import { Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, gt } from 'drizzle-orm';
 import { database } from '../db';
-import { member, organization, user } from '../db/auth-schema';
+import { invitation, member, organization, user } from '../db/auth-schema';
+import { AUTH_INVITATION_STATUS } from '../auth/authorization.constants';
 
 @Injectable()
 export class SessionRepository {
+  async findActiveInvitationPreview(invitationId: string) {
+    const [record] = await database.select({ id: invitation.id, email: invitation.email, role: invitation.role, organizationName: organization.name })
+      .from(invitation).innerJoin(organization, eq(organization.id, invitation.organizationId))
+      .where(and(eq(invitation.id, invitationId), eq(invitation.status, AUTH_INVITATION_STATUS.pending), gt(invitation.expiresAt, new Date())))
+      .limit(1);
+    return record?.role ? record : null;
+  }
+
   async findUserPlatformRole(userId: string) {
     const [record] = await database.select({ platformRole: user.platformRole }).from(user).where(eq(user.id, userId)).limit(1);
     return record ?? null;

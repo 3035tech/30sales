@@ -1,14 +1,20 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { auth } from '../auth/auth';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { toWebHeaders } from '../common/http-headers';
-import { SessionOrganizationDto, SessionResponseDto, SessionUserDto } from './session.dto';
+import { InvitationPreviewDto, SessionOrganizationDto, SessionResponseDto, SessionUserDto } from './session.dto';
 import { PLATFORM_ORGANIZATION_CONTEXT_HEADER, PLATFORM_ROLE } from '../auth/authorization.constants';
 import { z } from 'zod';
 import { SessionRepository } from './session.repository';
 @Injectable()
 export class SessionService {
   constructor(private readonly repository: SessionRepository) {}
+
+  async getInvitationPreview(invitationId: string): Promise<InvitationPreviewDto> {
+    const invitation = await this.repository.findActiveInvitationPreview(invitationId);
+    if (!invitation?.role) throw new NotFoundException({ code: 'INVITATION_UNAVAILABLE', message: 'Invitation is unavailable.' });
+    return new InvitationPreviewDto(invitation.id, invitation.email, invitation.role, { name: invitation.organizationName });
+  }
 
   async getCurrent(request: ApiRequestDto): Promise<SessionResponseDto> {
     const headers = toWebHeaders(request.headers);

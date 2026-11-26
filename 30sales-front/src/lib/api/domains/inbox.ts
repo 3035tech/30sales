@@ -1,7 +1,7 @@
 import { request, requestBlob } from '../request';
 import { apiEventSource } from '../client';
 import { z } from 'zod';
-import { type ConversationDto, channelSchema, conversationPageSchema, conversationGroupParticipantsSchema, conversationTagSchema, messageSchema } from '../contracts';
+import { type ConversationDto, channelSchema, conversationPageSchema, conversationGroupParticipantsSchema, conversationTagSchema, linkPreviewSchema, messageSchema } from '../contracts';
 
 
 export const inboxApi = {
@@ -54,4 +54,5 @@ export const inboxApi = {
     addNote: (conversationId: string, input: { bodyText: string; idempotencyKey: string }) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/notes`, messageSchema, { method: 'POST', body: JSON.stringify(input) }),
     addTag: (conversationId: string, name: string, color: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags`, conversationTagSchema, { method: 'POST', body: JSON.stringify({ name, color }) }),
     removeTag: (conversationId: string, tagId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/tags/${encodeURIComponent(tagId)}`, z.object({ success: z.boolean() }), { method: 'DELETE' }),
+    linkPreview: (url: string) => request(`/api/v1/conversations/link-preview?url=${encodeURIComponent(url)}`, linkPreviewSchema.nullable()),
   };

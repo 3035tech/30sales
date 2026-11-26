@@ -1,3 +1,10 @@
+## Retomada da inspeção visual e funcional no Chrome — 25/11/2026
+
+- Pedido: percorrer a aplicação no Chrome, revisar layout e funcionalidades em diferentes tamanhos de tela e exercitar fluxos com dados de teste. O usuário autorizou cadastrar registros, com a restrição explícita de não mexer no Inbox, que contém dados de produção. Evitar também envios reais e efeitos externos.
+- A tentativa foi bloqueada antes de navegar: `cua.getState()` retornou `Sky Computer Use native pipe startup failed` e `The browser access host is unavailable`; `cua.getApp("Google Chrome")` falhou com o mesmo erro. O Chrome foi reaberto por solicitação do usuário, mas o conector continuou indisponível. Nenhum registro foi criado ou alterado.
+- Ao retomar, restabelecer o controle do Chrome pelo CUA e conferir qual sessão/empresa está ativa. Fazer uma varredura ampla das páginas e fluxos, testando layouts desktop e estreitos/responsivos. Criar dados de teste somente fora do Inbox, identificar o que foi criado para permitir limpeza segura depois e não enviar mensagens nem executar efeitos externos.
+- Correções anteriores foram commitadas e enviadas em `6582eb3` (`fix: polish AI and pipeline errors`); builds frontend/backend passaram. A branch `main` estava limpa e sincronizada com `origin/main` antes desta anotação.
+
 ## Intervalo de segurança da sincronização do Inbox — 25/11/2026
 
 - Reduzido de 30 para 10 segundos o refresh de segurança da lista e conversa aberta enquanto o Inbox está visível. A entrega primária continua sendo por webhook/SSE.

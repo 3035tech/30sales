@@ -1,1 +1,2 @@
 @media(min-width:1001px){.today-metrics{grid-template-columns:repeat(6,minmax(0,1fr))}}.today-metric.unassigned{border-color:#fde68a;background:#fffbeb}.today-metric.unassigned>span,.today-metric.unassigned strong{color:#92400e}
+.today-panel>header>button .today-queue-count{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:#eff6ff;color:#1d4ed8;font-size:10px;font-weight:700;line-height:1}

@@ -31,6 +31,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
   const [segments, setSegments] = useState<AccountSegmentDto[]>([])
   const [segmentDraft, setSegmentDraft] = useState('')
   const [segmentError, setSegmentError] = useState('')
+  const [profileError, setProfileError] = useState('')
   const [segmentModalOpen, setSegmentModalOpen] = useState(false)
   const [savingSegment, setSavingSegment] = useState(false)
   const [sortBy, setSortBy] = useState<AccountSortBy>('latestActivityAt')
@@ -86,7 +87,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     try { await api.accounts.assignSegment(accountId, segmentId || null); setRefresh((value) => value + 1) }
     catch { setSegmentError(t('accounts.segmentAssignFailed')) }
   }
-  const openProfile = (row: AccountRow) => { setSegmentError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount) }
+  const openProfile = (row: AccountRow) => { setProfileError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount) }
   const loadAccountContacts = async (accountId: string, offset: number) => {
     setAccountContactsLoading(true)
     setAccountContactsError('')
@@ -130,12 +131,12 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     event.preventDefault()
     if (!profileAccount) return
     setProfileSaving(true)
-    setSegmentError('')
+    setProfileError('')
     try {
       await api.accounts.updateProfile(profileAccount.id, { marketSegment: profileMarketSegment === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileMarketSegment, studentCount: profileStudentCount })
       setProfileAccount(null)
       setRefresh((value) => value + 1)
-    } catch { setSegmentError(t('accountProfileFields.profileSaveFailed')) }
+    } catch { setProfileError(t('accountProfileFields.profileSaveFailed')) }
     finally { setProfileSaving(false) }
   }
 
@@ -169,7 +170,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
       <ul className="account-segment-list">{segments.map((segment) => <li key={segment.id}>{segment.name}</li>)}</ul>
     </Modal>
     <Modal open={profileAccount !== null} onOpenChange={(open) => { if (!open) setProfileAccount(null) }} title={t('accountProfileFields.editProfile')} description={profileAccount?.name ?? ''} closeLabel={t('common.close')} className="account-profile-modal">
-      {segmentError && <WorkspaceState kind="error" compact message={segmentError} />}
+      {profileError && <WorkspaceState kind="error" compact message={profileError} />}
       <form className="account-profile-form" onSubmit={(event) => void saveProfile(event)}>
         <div className="account-profile-context"><Building2 size={18} aria-hidden="true" /><p>{t('accountProfileFields.profileIntro')}</p></div>
         <label>{t('accountProfileFields.marketSegment')}<SelectField value={profileMarketSegment} onChange={(event) => setProfileMarketSegment(ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === event.target.value) ?? ACCOUNT_PROFILE_EMPTY_VALUE)}><option value={ACCOUNT_PROFILE_EMPTY_VALUE}>{t('accountProfileFields.notProvided')}</option>{ACCOUNT_MARKET_SEGMENTS.map((segment) => <option key={segment} value={segment}>{t(`accountProfileFields.marketSegments.${segment}`)}</option>)}</SelectField><small>{t('accountProfileFields.marketSegmentHint')}</small></label>

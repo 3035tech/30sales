@@ -1,9 +1,45 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { lookup } from 'dns/promises';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, LinkPreviewDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto } from './inbox.dto';
+
+function isPrivateIp(ip: string): boolean {
+  if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip.startsWith('::ffff:')) return true
+  if (ip.startsWith('fd') || ip.startsWith('fe80') || ip.startsWith('fc') || ip.startsWith('::')) return true
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((n) => isNaN(n) || n < 0 || n > 255)) return false
+  const [a, b] = parts
+  if (a === 10 || a === 127 || a === 0) return true
+  if (a === 172 && b >= 16 && b <= 31) return true
+  if (a === 192 && b === 168) return true
+  if (a === 169 && b === 254) return true
+  if (a === 100 && b >= 64 && b <= 127) return true
+  return false
+}
+
+function extractOgTag(html: string, property: string): string | null {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const a = new RegExp(`<meta[^>]+property=["']${escaped}["'][^>]+content=["']([^"']{1,500})["']`, 'i').exec(html)
+  if (a) return a[1].trim()
+  const b = new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+property=["']${escaped}["']`, 'i').exec(html)
+  return b ? b[1].trim() : null
+}
+
+function extractMetaName(html: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const a = new RegExp(`<meta[^>]+name=["']${escaped}["'][^>]+content=["']([^"']{1,500})["']`, 'i').exec(html)
+  if (a) return a[1].trim()
+  const b = new RegExp(`<meta[^>]+content=["']([^"']{1,500})["'][^>]+name=["']${escaped}["']`, 'i').exec(html)
+  return b ? b[1].trim() : null
+}
+
+function extractHtmlTitle(html: string): string | null {
+  const match = /<title[^>]*>([^<]{1,300})<\/title>/i.exec(html)
+  return match ? match[1].trim() : null
+}
 import { InboxRepository } from './inbox.repository';
 import { ChannelCredentialResolverService } from '../channels/channel-credential-resolver.service';
 import { ChannelMessagingAdapterRegistry } from './channel-messaging-adapter.registry';
@@ -80,6 +116,44 @@ export class InboxService {
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'invalid_message') throw new BadRequestException({ code: 'INVALID_READ_CURSOR', message: 'The read cursor must reference an inbound message in this conversation.' });
     return result;
+  }
+  async getLinkPreview(request: ApiRequestDto, rawUrl: string): Promise<LinkPreviewDto | null> {
+    await this.tenantAccess.require(request, 'read', 'inbox');
+    if (!rawUrl || rawUrl.length > 2048) return null;
+    let parsed: URL;
+    try { parsed = new URL(rawUrl) } catch { return null }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    let resolvedAddress: string;
+    try { resolvedAddress = (await lookup(parsed.hostname)).address } catch { return null }
+    if (isPrivateIp(resolvedAddress)) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5_000);
+    let html: string;
+    try {
+      const response = await fetch(rawUrl, { signal: controller.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; bot/1.0)', Accept: 'text/html' }, redirect: 'follow' });
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type') ?? '';
+      if (!contentType.includes('text/html')) return null;
+      const decoder = new TextDecoder();
+      const reader = response.body?.getReader();
+      let chunk = ''; let totalBytes = 0;
+      if (reader) {
+        while (totalBytes < 300_000) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunk += decoder.decode(value, { stream: true }); totalBytes += value.byteLength;
+          if (chunk.includes('</head>') || chunk.includes('<body')) break;
+        }
+        await reader.cancel().catch(() => undefined);
+      }
+      html = chunk;
+    } catch { return null } finally { clearTimeout(timer) }
+    const title = extractOgTag(html, 'og:title') ?? extractHtmlTitle(html);
+    const description = extractOgTag(html, 'og:description') ?? extractMetaName(html, 'description');
+    const rawImage = extractOgTag(html, 'og:image');
+    let image: string | null = null;
+    if (rawImage) { try { const imgUrl = new URL(rawImage, rawUrl); if (imgUrl.protocol === 'http:' || imgUrl.protocol === 'https:') image = imgUrl.href } catch { /* ignore */ } }
+    return new LinkPreviewDto(rawUrl, title, description, image);
   }
   async claim(request: ApiRequestDto, conversationId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');

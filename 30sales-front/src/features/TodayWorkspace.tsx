@@ -49,27 +49,32 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
   }, [businessLineId, userId])
 
   useEffect(() => { void refresh() }, [refresh])
-  const riskyDeals = data.opportunities.filter((item) => isOpen(item) && (!item.nextActionAt || new Date(item.nextActionAt).getTime() < Date.now() || Date.now() - new Date(item.stageChangedAt).getTime() > 7 * 86400000))
+  const riskyDeals = data.opportunities.filter((item) => isOpen(item) && (
+    (item.nextActionAt != null && new Date(item.nextActionAt).getTime() < Date.now()) ||
+    Date.now() - new Date(item.stageChangedAt).getTime() > 7 * 86400000
+  ))
   const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
   const greeting = new Intl.DateTimeFormat(i18n.language, { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())
+  const totalDueCount = data.overdue.length + data.dueToday.length
+  const shownDueCount = Math.min(data.overdue.length, 3) + Math.min(data.dueToday.length, 3)
   const showMetric = (available: boolean, value: number) => loading && !hasLoaded || failed || !available ? '—' : value
   const metricDescription = (available: boolean, value: number) => loading && !hasLoaded || failed || !available ? t('today.metricsUnavailable') : t('today.taskCount', { count: value })
 
   return <section className="today-page">
-    <header className="today-heading"><div><p className="eyebrow">{t('today.eyebrow')}</p><h2>{t('today.title')}</h2><p className="muted">{greeting} · {t('today.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('today.refresh')}><RefreshCw size={16} /></Button></header>
+    <header className="today-heading"><div><p className="eyebrow">{t('today.eyebrow')}</p><h2>{t('today.title')}</h2><p className="muted">{greeting} · {t('today.description')}</p></div><Button className={`refresh${loading && hasLoaded ? ' is-refreshing' : ''}`} aria-busy={loading && hasLoaded ? 'true' : undefined} onClick={() => void refresh()} aria-label={t('today.refresh')}><RefreshCw size={16} /></Button></header>
     {failed && <WorkspaceState kind="error" compact message={t('today.loadFailed')} />}
     {partial && <WorkspaceState kind="partial" compact message={t('today.partial')} />}
     {loading && hasLoaded && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
     <div className="today-metrics">
-      <Button onClick={() => navigate('tasks')} className="today-metric overdue"><span>{t('today.overdue')}</span><strong>{showMetric(availability.overdue, data.overdue.length)}</strong><small>{metricDescription(availability.overdue, data.overdue.length)}</small></Button>
+      <Button onClick={() => navigate('tasks')} className={`today-metric${availability.overdue && data.overdue.length > 0 ? ' overdue' : ''}`}><span>{t('today.overdue')}</span><strong>{showMetric(availability.overdue, data.overdue.length)}</strong><small>{metricDescription(availability.overdue, data.overdue.length)}</small></Button>
       <Button onClick={() => navigate('tasks')} className="today-metric"><span>{t('today.dueToday')}</span><strong>{showMetric(availability.dueToday, data.dueToday.length)}</strong><small>{metricDescription(availability.dueToday, data.dueToday.length)}</small></Button>
       <Button onClick={() => navigate('handoffs')} className="today-metric"><span>{t('today.newHandoffs')}</span><strong>{showMetric(availability.handoffs, data.handoffs.length)}</strong><small>{availability.handoffs ? t('today.waitingCloser') : t('today.metricsUnavailable')}</small></Button>
       <Button onClick={() => navigate('leads')} className="today-metric"><span>{t('today.leadReplies')}</span><strong>{showMetric(availability.responded, data.responded.length)}</strong><small>{availability.responded ? t('today.awaitQualification') : t('today.metricsUnavailable')}</small></Button>
-      <Button onClick={() => navigate('leads')} className="today-metric unassigned"><span>{t('leadAssignment.unassignedLeads')}</span><strong>{showMetric(availability.unassignedResponded, data.unassignedResponded.length)}</strong><small>{availability.unassignedResponded ? t('leadAssignment.distribute') : t('today.metricsUnavailable')}</small></Button>
+      <Button onClick={() => navigate('leads')} className={`today-metric${availability.unassignedResponded && data.unassignedResponded.length > 0 ? ' unassigned' : ''}`}><span>{t('leadAssignment.unassignedLeads')}</span><strong>{showMetric(availability.unassignedResponded, data.unassignedResponded.length)}</strong><small>{availability.unassignedResponded ? t('leadAssignment.distribute') : t('today.metricsUnavailable')}</small></Button>
       <Button onClick={() => navigate('pipeline')} className="today-metric"><span>{t('today.dealsAtRisk')}</span><strong>{showMetric(availability.opportunities, riskyDeals.length)}</strong><small>{availability.opportunities ? t('today.riskRule') : t('today.metricsUnavailable')}</small></Button>
     </div>
     <div className="today-columns">
-      <section className="today-panel"><header><div><span className="today-icon red"><Clock3 size={16} /></span><h3>{t('today.attentionNow')}</h3></div><Button onClick={() => navigate('tasks')}>{t('today.openQueue')}<ArrowRight size={14} /></Button></header>
+      <section className="today-panel"><header><div><span className="today-icon red"><Clock3 size={16} /></span><h3>{t('today.attentionNow')}</h3></div><Button onClick={() => navigate('tasks')}>{t('today.openQueue')}{availability.overdue && availability.dueToday && totalDueCount > shownDueCount && <span className="today-queue-count">{totalDueCount}</span>}<ArrowRight size={14} /></Button></header>
         {loading && !hasLoaded ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : failed ? <WorkspaceState kind="error" compact message={t('today.metricsUnavailable')} /> : (!availability.overdue || !availability.dueToday) && data.overdue.length + data.dueToday.length === 0 ? <WorkspaceState kind="partial" compact message={t('today.partial')} /> : data.overdue.length + data.dueToday.length === 0 ? <WorkspaceState kind="empty" compact message={t('today.nothingDue')} detail={t('today.nothingDueHint')} /> : <ul>{[...data.overdue.slice(0, 3).map((task) => ({ task, overdue: true })), ...data.dueToday.slice(0, 3).map((task) => ({ task, overdue: false }))].map(({ task, overdue }) => <li key={task.id} className={overdue ? 'is-overdue' : ''}><span className="today-list-icon"><CalendarClock size={15} /></span><div><strong>{task.title}</strong><span>{task.accountName} · {task.contactName}</span></div><time>{dateLabel(task.dueAt)}</time></li>)}</ul>}
       </section>
       <section className="today-panel"><header><div><span className="today-icon blue"><UserRoundCheck size={16} /></span><h3>{t('today.salesQueue')}</h3></div></header>

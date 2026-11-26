@@ -31,6 +31,7 @@ export function AssistantSettingsWorkspace() {
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileError, setProfileError] = useState('')
   const [profileToDelete, setProfileToDelete] = useState<AssistantProfileDto | null>(null)
+  const [profilesLoading, setProfilesLoading] = useState(false)
 
   useEffect(() => { setBusinessLineId(searchParams.get('businessLineId')) }, [searchParams])
 
@@ -59,9 +60,11 @@ export function AssistantSettingsWorkspace() {
     setProfileEditingId(null)
     setProfileError('')
     if (!businessLineId) return () => { active = false }
+    setProfilesLoading(true)
     api.agents.listAssistantProfiles(businessLineId)
       .then((result) => { if (active) setProfiles(result) })
       .catch(() => { if (active) setProfileError(t('assistantSettings.profilesLoadFailed')) })
+      .finally(() => { if (active) setProfilesLoading(false) })
     return () => { active = false }
   }, [businessLineId, t])
 
@@ -152,7 +155,8 @@ export function AssistantSettingsWorkspace() {
     {businessLineId && <section className="assistant-profile-panel">
       <header><div><h3>{t('assistantSettings.profilesTitle')}</h3><p>{t('assistantSettings.profilesDescription')}</p></div><Button type="button" className="primary" onClick={() => startProfile()}><Plus size={16} />{t('assistantSettings.newProfile')}</Button></header>
       {profileError && <WorkspaceState kind="error" compact message={profileError} />}
-      {profiles.length === 0 && !profileDraft && <p className="assistant-profile-empty">{t('assistantSettings.profilesEmpty')}</p>}
+      {profilesLoading && <WorkspaceState kind="loading" compact message={t('common.loading')} />}
+      {!profilesLoading && profiles.length === 0 && !profileDraft && <p className="assistant-profile-empty">{t('assistantSettings.profilesEmpty')}</p>}
       <div className="assistant-profile-list">{profiles.map((profile) => <article className="assistant-profile-card" key={profile.id}><div><strong>{profile.name}</strong><span>{t(`assistantSettings.${profile.direction}`)} · {profile.enabled ? t('assistantSettings.enabled') : t('assistantSettings.disabled')}</span></div><div className="assistant-profile-actions"><IconButton label={t('assistantSettings.editProfile', { name: profile.name })} onClick={() => startProfile(profile)}><Pencil size={15} /></IconButton><IconButton label={t('assistantSettings.deleteProfile', { name: profile.name })} onClick={() => setProfileToDelete(profile)}><Trash2 size={15} /></IconButton></div></article>)}</div>
       <Modal open={profileDraft !== null} onOpenChange={(open) => { if (!open) { setProfileDraft(null); setProfileEditingId(null) } }} title={t(profileEditingId ? 'assistantSettings.editProfileTitle' : 'assistantSettings.newProfile')} closeLabel={t('common.close')} className="assistant-profile-modal">
       {profileDraft && <form className="assistant-profile-editor" onSubmit={(event) => void saveProfile(event)}>

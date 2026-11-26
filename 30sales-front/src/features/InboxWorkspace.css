@@ -28,6 +28,9 @@
 .inbox-message.internal { align-self: center; background: #fff7e8; }
 .inbox-message.internal .inbox-message-meta span { color:#9a5b00; font-weight:700; }
 .inbox-message.internal .inbox-message-meta { justify-content:space-between; }
+.inbox-message.internal.is-ai-note { background: #f0f6ff; }
+.inbox-message.internal.is-ai-note .inbox-message-meta span { color:#1e4f9e; }
+.inbox-note-ai::before { content:'✦ '; font-size:.7em; vertical-align:middle; opacity:.7; }
 .inbox-message-meta { display: flex; justify-content: flex-end; gap: 18px; }
 .inbox-message-actions { display:flex; align-items:center; gap:6px; margin:6px -4px -4px; opacity:.72; }
 .inbox-message-quick-reactions { display:flex; align-items:center; gap:2px; }
@@ -368,8 +371,8 @@
 .inbox-audio-player.is-compact .inbox-audio-play:hover:not(:disabled) { background:#344e69; }
 .inbox-audio-player.is-compact .inbox-audio-play svg { width:14px; height:14px; }
 .inbox-audio-player.is-compact .inbox-audio-track { gap:2px; }
-.inbox-audio-player.is-compact .inbox-audio-waveform { height:18px; gap:1px; }
-.inbox-audio-player.is-compact .inbox-audio-waveform span { min-width:1px; max-width:3px; border-radius:2px; background:#cbd5df; }
+.inbox-audio-player.is-compact .inbox-audio-waveform { height:18px; gap:2px; }
+.inbox-audio-player.is-compact .inbox-audio-waveform span { min-width:2px; max-width:4px; border-radius:2px; background:#cbd5df; }
 .inbox-audio-player.is-compact .inbox-audio-waveform span.played { background:#63a985; }
 .inbox-audio-player.is-compact .inbox-audio-waveform .inbox-audio-waveform-placeholder { height:3px; }
 .inbox-audio-player.is-compact .inbox-audio-track input[type=range] { inset:0 0 13px; height:18px; }
@@ -398,3 +401,44 @@
 .inbox-rich-card-action:hover { background:#f2fbf6; }
 .inbox-attachment{display:flex;align-items:center;gap:9px;min-width:min(260px,75vw);max-width:min(480px,78vw);margin:5px 0;padding:9px 10px;border:1px solid #dce4ec;border-radius:8px;background:#fff;color:#526176}.inbox-attachment>svg{flex:none;color:#647b96}.inbox-attachment-copy{display:grid;gap:3px;min-width:0;flex:1}.inbox-attachment-copy>strong{overflow:hidden;color:#344256;font-size:var(--font-size-sm);font-weight:600;text-overflow:ellipsis;white-space:nowrap}.inbox-attachment-status{color:#64748b;font-size:var(--font-size-xs);line-height:1.4}.inbox-attachment-status.is-available{color:#176b47}.inbox-attachment-status.is-failed{color:#a12d2d;font-weight:650}.inbox-attachment-diagnostic{overflow-wrap:anywhere;color:#64748b;font-size:11px;line-height:1.4}.inbox-attachment-diagnostic::before{content:"";display:inline-block;width:5px;height:5px;margin:0 6px 1px 1px;border-radius:50%;background:#bd4545}.inbox-attachment.is-failed{align-items:flex-start;border-color:#ead2d2;border-left:3px solid #bd4545;padding-left:8px;background:#fffdfd}.inbox-attachment.is-failed>svg{margin-top:1px;color:#a13a3a}.inbox-attachment>.ui-icon-button{flex:none}
 .inbox-audio-recording{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:10px;padding:6px 10px;border:1px solid #eadfe0;border-radius:8px;background:#fbf8f8;color:#475569}.inbox-audio-recording-live{display:inline-flex;align-items:center;gap:7px;color:#9f4b4b;font-size:var(--font-size-xs);font-weight:600;white-space:nowrap}.inbox-audio-recording-live i{width:7px;height:7px;border-radius:50%;background:#c76b6b;animation:inbox-audio-recording-pulse 1.2s ease-in-out infinite}.inbox-audio-recording .inbox-audio-waveform{height:20px;gap:2px}.inbox-audio-recording .inbox-audio-waveform span{max-height:20px;background:#d4a0a0;transition:height .1s linear}.inbox-audio-recording time{color:#64748b;font-size:var(--font-size-xs);font-variant-numeric:tabular-nums}.inbox-composer .inbox-composer-tools .inbox-media-action.is-recording{border-color:#eadfe0;background:#fbf5f5;color:#9f4b4b}@keyframes inbox-audio-recording-pulse{50%{opacity:.35}}@media(prefers-reduced-motion:reduce){.inbox-audio-recording-live i{animation:none}}
+
+/* Scroll-to-bottom float */
+.inbox-messages-container { position: relative; min-height: 0; }
+.inbox-messages-container > .inbox-messages { position: absolute; inset: 0; }
+.inbox-scroll-to-bottom { position: absolute; right: 14px; bottom: 14px; z-index: 2; display: flex; align-items: center; gap: 5px; padding: 6px 11px; border: 0; border-radius: 999px; background: #fff; box-shadow: 0 2px 10px rgba(15,23,42,.22); color: #334155; font-size: var(--font-size-xs); font-weight: 700; cursor: pointer; }
+.inbox-scroll-to-bottom:hover { background: #f1f5f9; }
+.inbox-scroll-to-bottom:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.inbox-scroll-to-bottom-badge { min-width: 18px; padding: 1px 5px; border-radius: 999px; background: #25a865; color: #fff; font-size: 11px; text-align: center; line-height: 1.6; }
+
+/* Date separators */
+.inbox-date-separator { display: flex; align-items: center; gap: 8px; margin: 4px 0 6px; color: #64748b; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.inbox-date-separator::before, .inbox-date-separator::after { content: ''; flex: 1; height: 1px; background: #d9e2ef; }
+.inbox-date-separator > span { flex: none; padding: 2px 10px; border: 1px solid #d9e2ef; border-radius: 999px; background: #f1f5f9; }
+
+/* Consecutive message grouping */
+.inbox-message.is-group-middle, .inbox-message.is-group-end { margin-top: -6px; }
+.inbox-message.inbound.is-group-start { border-top-left-radius: 12px; border-bottom-left-radius: 4px; }
+.inbox-message.inbound.is-group-middle { border-bottom-left-radius: 4px; }
+.inbox-message.outbound.is-group-start { border-top-right-radius: 12px; border-bottom-right-radius: 4px; }
+.inbox-message.outbound.is-group-middle { border-bottom-right-radius: 4px; }
+
+/* Audio speed toggle */
+.inbox-audio-speed { flex: none; padding: 3px 8px; border: 1px solid #d0dae5; border-radius: 6px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; line-height: 1.6; }
+.inbox-audio-speed:hover { background: #e2e8f0; color: #1e3a5f; }
+.inbox-audio-speed:focus-visible { outline: 2px solid #1769aa; outline-offset: 2px; }
+
+/* Link preview card */
+.inbox-link-preview { display: flex; flex-direction: column; overflow: hidden; margin-top: 7px; border: 1px solid #d9e2ef; border-left: 3px solid #94a3b8; border-radius: 6px; background: rgba(241,245,249,.7); color: inherit; text-decoration: none; max-width: 300px; transition: border-color 0.15s, background 0.15s; }
+.inbox-link-preview:hover { border-color: #64748b; border-left-color: #3b82f6; background: rgba(241,245,249,1); }
+.inbox-link-preview:focus-visible { outline: 2px solid #1769aa; outline-offset: 2px; }
+.inbox-link-preview-image { width: 100%; max-height: 150px; object-fit: cover; border-bottom: 1px solid #d9e2ef; }
+.inbox-link-preview-body { display: flex; flex-direction: column; gap: 2px; padding: 7px 10px; }
+.inbox-link-preview-url { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inbox-link-preview-title { font-size: 12.5px; font-weight: 600; color: #1e293b; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.inbox-link-preview-desc { margin: 1px 0 0; font-size: 11.5px; color: #64748b; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.inbox-message.outbound .inbox-link-preview { background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.25); border-left-color: rgba(255,255,255,.6); }
+.inbox-message.outbound .inbox-link-preview:hover { background: rgba(255,255,255,.25); border-color: rgba(255,255,255,.4); border-left-color: #fff; }
+.inbox-message.outbound .inbox-link-preview-url { color: rgba(255,255,255,.75); }
+.inbox-message.outbound .inbox-link-preview-title { color: #fff; }
+.inbox-message.outbound .inbox-link-preview-desc { color: rgba(255,255,255,.75); }
+.inbox-message.outbound .inbox-link-preview-image { border-bottom-color: rgba(255,255,255,.18); }

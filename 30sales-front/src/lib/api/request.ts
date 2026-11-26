@@ -14,7 +14,7 @@ export async function request<T>(path: string, schema: z.ZodType<T>, init: Reque
     throw new ApiError(response.status, parsedError.success ? parsedError.data.code ?? 'REQUEST_FAILED' : 'REQUEST_FAILED', parsedError.success ? parsedError.data.message ?? parsedError.data.error ?? 'The request could not be completed.' : 'The request could not be completed.');
   }
   const parsed = schema.safeParse(payload);
-  if (!parsed.success) throw new ApiError(502, 'INVALID_API_RESPONSE', 'O servidor retornou uma resposta inesperada.');
+  if (!parsed.success) throw new ApiError(502, 'INVALID_API_RESPONSE', 'The server returned an unexpected response.');
   return parsed.data;
 }
 

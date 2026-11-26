@@ -47,7 +47,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
   const [activeTab, setActiveTab] = useState<PlatformTab>('companies')
   const [createOrganizationOpen, setCreateOrganizationOpen] = useState(false)
   const [evolutionConfiguration, setEvolutionConfiguration] = useState<{ configured: boolean; displayName: string | null; baseUrl: string | null; updatedAt: string | null } | null>(null)
-  const [evolutionDisplayName, setEvolutionDisplayName] = useState('Evolution principal')
+  const [evolutionDisplayName, setEvolutionDisplayName] = useState(() => t('platform.evolutionDefaultName'))
   const [evolutionBaseUrl, setEvolutionBaseUrl] = useState('')
   const [evolutionApiKey, setEvolutionApiKey] = useState('')
   const [evolutionSaving, setEvolutionSaving] = useState(false)
@@ -81,7 +81,7 @@ export function PlatformWorkspace({ user, organizations, activeOrganizationId, a
     setEvolutionError(null)
     setEvolutionAuditLoading(true)
     setEvolutionAuditError(false)
-    api.platform.evolutionConfiguration().then((result) => { if (active) { setEvolutionConfiguration(result); setEvolutionDisplayName(result.displayName ?? 'Evolution principal'); setEvolutionBaseUrl(result.baseUrl ?? '') } }).catch(() => { if (active) setEvolutionError('load') })
+    api.platform.evolutionConfiguration().then((result) => { if (active) { setEvolutionConfiguration(result); setEvolutionDisplayName(result.displayName ?? t('platform.evolutionDefaultName')); setEvolutionBaseUrl(result.baseUrl ?? '') } }).catch(() => { if (active) setEvolutionError('load') })
     api.platform.evolutionAudit().then((result) => { if (active) setEvolutionAudit(result) }).catch(() => { if (active) setEvolutionAuditError(true) }).finally(() => { if (active) setEvolutionAuditLoading(false) })
     return () => { active = false }
   }, [evolutionConfigRefresh])

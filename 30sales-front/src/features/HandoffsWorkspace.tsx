@@ -80,11 +80,14 @@ export function HandoffsWorkspace() {
   }, [businessLineId])
 
   const create = async (event: React.FormEvent) => {
-    event.preventDefault(); setSaving(true); setError('')
+    event.preventDefault()
+    const nextStepAtDate = new Date(nextStepAt)
+    if (isNaN(nextStepAtDate.getTime())) return
+    setSaving(true); setError('')
     try {
       const confirmedReadiness = readinessFields.filter((field) => readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${readiness[field].trim()}`)
       const missingReadiness = readinessFields.filter((field) => !readiness[field].trim()).map((field) => `${t(`handoffReadiness.fields.${field}`)}: ${t('handoffReadiness.notConfirmed')}`)
-      await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: new Date(nextStepAt).toISOString() })
+      await api.handoffs.create({ leadId, reason: reason.trim(), evidence: evidence.trim(), confirmedFacts: [...confirmedReadiness, ...lines(confirmedFacts)], unknowns: [...missingReadiness, ...lines(unknowns)], nextStep: nextStep.trim(), nextStepAt: nextStepAtDate.toISOString() })
       setReason(''); setEvidence(''); setConfirmedFacts(''); setUnknowns(''); setReadiness({ decisionMaker: '', customerVolume: '', billingProcess: '', primaryNeed: '' }); setNextStep(''); setNextStepAt(''); setLeadId(''); setStatus('requested'); setSearch(''); setDebouncedSearch(''); setOffset(0); setRefreshTick((tick) => tick + 1); setCreateFormOpen(false); if (handoffId) setSearchParams({}); notifySystemAlert(SYSTEM_ALERT_KIND.success, t('handoffs.created'))
     } catch { notifySystemAlert(SYSTEM_ALERT_KIND.error, t('errors.createHandoff')) }
     finally { setSaving(false) }
@@ -95,9 +98,12 @@ export function HandoffsWorkspace() {
     catch { setError(t('errors.acceptHandoff')) }
   }
   const returnHandoff = async (event: React.FormEvent) => {
-    event.preventDefault(); setSaving(true); setError('')
+    event.preventDefault()
+    const returnDueAtDate = new Date(returnDueAt)
+    if (isNaN(returnDueAtDate.getTime())) return
+    setSaving(true); setError('')
     try {
-      await api.handoffs.returnToSdr(returningId, { reason: returnReason.trim(), nextStep: returnNextStep.trim(), dueAt: new Date(returnDueAt).toISOString() })
+      await api.handoffs.returnToSdr(returningId, { reason: returnReason.trim(), nextStep: returnNextStep.trim(), dueAt: returnDueAtDate.toISOString() })
       setReturningId(''); setReturnReason(''); setReturnNextStep(''); setReturnDueAt(''); setRefreshTick((tick) => tick + 1)
     } catch { setError(t('errors.returnHandoff')) }
     finally { setSaving(false) }
@@ -117,12 +123,15 @@ export function HandoffsWorkspace() {
     <Modal open={createFormOpen} onOpenChange={setCreateFormOpen} title={t('handoffs.new')} description={t('handoffs.newHint')} closeLabel={t('common.close')} className="handoff-create-modal">
     <form id="new-handoff-form" className="handoff-form" onSubmit={create}>
       <div className="handoff-fields">
-        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required disabled={leadOptionsState !== 'ready'}><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField>{leadOptionsState === 'loading' && <small aria-live="polite">{t('common.loading')}</small>}{leadOptionsState === 'error' && <small className="ui-field-error" role="alert">{t('handoffs.leadsLoadFailed')}</small>}{leadOptionsState === 'ready' && leads.length === 0 && <small>{t('handoffs.noRespondedLeads')}</small>}</label>
+        <label>{t('handoffs.lead')}<SelectField value={leadId} onChange={(event) => setLeadId(event.target.value)} required disabled={leadOptionsState !== 'ready'}><option value="">{t('handoffs.chooseLead')}</option>{leads.map((lead) => <option key={lead.id} value={lead.id}>{lead.accountName}{lead.contactName ? ` — ${lead.contactName}` : ''}</option>)}</SelectField>{leadOptionsState === 'loading' && <small aria-live="polite">{t('common.loading')}</small>}{leadOptionsState === 'error' && <small className="ui-field-error" role="alert">{t('handoffs.leadsLoadFailed')}</small>}{leadOptionsState === 'ready' && leads.length === 0 && <small>{t('handoffs.noRespondedLeads')}</small>}{leadOptionsState === 'ready' && leads.length >= 100 && <small>{t('handoffs.leadsCapHint')}</small>}</label>
+        <hr className="handoff-divider" aria-hidden="true" />
         <label>{t('handoffs.reason')}<TextField value={reason} onChange={(event) => setReason(event.target.value)} minLength={3} maxLength={1000} required /></label>
         <label>{t('handoffs.evidence')}<TextareaField value={evidence} onChange={(event) => setEvidence(event.target.value)} minLength={3} maxLength={2000} placeholder={t('handoffs.evidenceHint')} required /></label>
+        <hr className="handoff-divider" aria-hidden="true" />
         <label>{t('handoffs.confirmedFacts')}<TextareaField value={confirmedFacts} onChange={(event) => setConfirmedFacts(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
         <label>{t('handoffs.unknowns')}<TextareaField value={unknowns} onChange={(event) => setUnknowns(event.target.value)} placeholder={t('handoffs.listHint')} /></label>
         <div className="handoff-readiness"><div><strong>{t('handoffReadiness.title')}</strong><small>{t('handoffReadiness.hint')}</small></div>{readinessFields.map((field) => <label key={field}>{t(`handoffReadiness.fields.${field}`)}<TextField value={readiness[field]} onChange={(event) => setReadiness((current) => ({ ...current, [field]: event.target.value }))} maxLength={500} placeholder={t('handoffReadiness.placeholder')} /></label>)}</div>
+        <hr className="handoff-divider" aria-hidden="true" />
         <label>{t('handoffs.nextStep')}<TextField value={nextStep} onChange={(event) => setNextStep(event.target.value)} minLength={3} maxLength={500} required /></label>
         <label>{t('handoffs.nextStepAt')}<CalendarField mode="datetime-local" value={nextStepAt} onValueChange={(value) => setNextStepAt(value)} required /></label>
         <Button className="primary" disabled={saving || !leads.length}>{saving ? t('common.saving') : t('handoffs.send')}</Button>
@@ -130,15 +139,15 @@ export function HandoffsWorkspace() {
     </form>
     </Modal>
     {error && handoffs.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
-    <div className="handoff-tabs" role="group" aria-label={t('handoffs.views')}>
-      {statuses.map((item) => <Button key={item} type="button" aria-pressed={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}
+    <div className="handoff-tabs" role="tablist" aria-label={t('handoffs.views')}>
+      {statuses.map((item) => <Button key={item} role="tab" type="button" aria-selected={status === item} className={status === item ? 'selected' : ''} onClick={() => { setStatus(item); setOffset(0); if (handoffId) setSearchParams({}) }}>{t(`handoffs.status.${item}`)}</Button>)}
     </div>
     <div className="handoff-list-controls">
       <label>{t('handoffs.search')}<TextField type="search" value={search} onChange={(event) => { setSearch(event.target.value); setOffset(0) }} placeholder={t('handoffs.searchHint')} /></label>
       <label>{t('handoffs.sortBy')}<SelectField value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setOffset(0) }}><option value="requestedAt">{t('handoffs.sort.requestedAt')}</option><option value="accountName">{t('handoffs.sort.accountName')}</option><option value="contactName">{t('handoffs.sort.contactName')}</option><option value="nextStepAt">{t('handoffs.sort.nextStepAt')}</option></SelectField></label>
       <IconButton className="handoff-sort-direction" label={t(sortDirection === 'asc' ? 'handoffs.sortDescending' : 'handoffs.sortAscending')} onClick={() => { setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc'); setOffset(0) }}>{sortDirection === 'asc' ? <ArrowUp size={15} /> : <ArrowDown size={15} />}</IconButton>
     </div>
-    <div className="handoff-list">
+    <div className="handoff-list" role="tabpanel" aria-label={t(`handoffs.status.${status}`)}>
       {loading && handoffs.length > 0 && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
       {loading && handoffs.length === 0 ? <WorkspaceState kind="loading" message={t('common.loading')} /> : handoffs.length === 0 ? error ? <WorkspaceState kind="error" message={error} /> : <WorkspaceState kind="empty" message={debouncedSearch ? t('handoffs.noSearchResults') : t('handoffs.empty')} detail={debouncedSearch ? t('handoffs.noSearchResultsHint') : t('handoffs.emptyHint')} /> : handoffs.map((handoff) => <article className="handoff-card" key={handoff.id}>
         <div className="handoff-card-head"><div><span className="eyebrow">{handoff.accountName} · {handoff.contactName}</span><h3>{handoff.opportunityName}</h3></div><span className={`handoff-badge handoff-${handoff.status}`}>{t(`handoffs.status.${handoff.status}`)}</span></div>

@@ -10,12 +10,12 @@ export type SystemAlertKind = typeof SYSTEM_ALERT_KIND[keyof typeof SYSTEM_ALERT
 
 const SYSTEM_ALERT_DURATION_MS = { success: 5_000, error: 8_000, info: 6_000 } as const
 const SYSTEM_ALERT_LIMIT = 4
-type SystemAlertItem = { id: string; kind: SystemAlertKind; message: string }
+type SystemAlertItem = { id: string; kind: SystemAlertKind; message: string; createdAt: number }
 type SystemAlertListener = (item: SystemAlertItem) => void
 const listeners = new Set<SystemAlertListener>()
 
 export function notifySystemAlert(kind: SystemAlertKind, message: string) {
-  const item = { id: crypto.randomUUID(), kind, message }
+  const item = { id: crypto.randomUUID(), kind, message, createdAt: Date.now() }
   listeners.forEach((listener) => listener(item))
 }
 
@@ -30,10 +30,14 @@ export function SystemAlertViewport() {
   }, [])
 
   useEffect(() => {
-    const timers = alerts.map((alert) => window.setTimeout(
-      () => setAlerts((current) => current.filter(({ id }) => id !== alert.id)),
-      SYSTEM_ALERT_DURATION_MS[alert.kind],
-    ))
+    const now = Date.now()
+    const timers = alerts.map((alert) => {
+      const remaining = Math.max(0, SYSTEM_ALERT_DURATION_MS[alert.kind] - (now - alert.createdAt))
+      return window.setTimeout(
+        () => setAlerts((current) => current.filter(({ id }) => id !== alert.id)),
+        remaining,
+      )
+    })
     return () => timers.forEach(window.clearTimeout)
   }, [alerts])
 

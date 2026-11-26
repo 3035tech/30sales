@@ -70,3 +70,4 @@ export class ConversationGroupParticipantsResultDto {
 export class ConversationMessagesQueryDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly limit: number, readonly offset: number, readonly search = '', readonly isPlatformOrganizationContext = false) {} }
 export class ConversationReadDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly userId: string, readonly lastInboundMessageId: string | null, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationReadResultDto { constructor(readonly conversationId: string, readonly lastReadAt: string | null) {} }
+export class LinkPreviewDto { constructor(readonly url: string, readonly title: string | null, readonly description: string | null, readonly image: string | null) {} }

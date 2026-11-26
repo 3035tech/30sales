@@ -31,6 +31,8 @@ export class InboxController {
   assignees(@ApiRequest() request: ApiRequestDto) { return this.inboxService.assignees(request); }
   @Get('tags')
   tags(@ApiRequest() request: ApiRequestDto) { return this.inboxService.tags(request); }
+  @Get('link-preview')
+  getLinkPreview(@ApiRequest() request: ApiRequestDto, @Query('url') rawUrl: string) { return this.inboxService.getLinkPreview(request, rawUrl ?? ''); }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
   @Get(':id/group-participants')

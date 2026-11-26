@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { api, type CloserEventDto, type CloserSlaNotificationDto, type ConversationDto, type HandoffDto, type OpportunityDto, type TaskDto } from '../lib/api'
-import i18n from '../lib/i18n'
+
 import './CloserQueueWorkspace.css'
 import './CloserEventActions.css'
 import './CloserSlaNotifications.css'
@@ -38,23 +38,24 @@ function CloserEventActions({ event, assignees, acceptingId, eventAssignId, even
 }
 
 async function listAllOwnedOpportunities(businessLineId?: string): Promise<OpportunityDto[]> {
-  const pageSize = 100
+  const pageSize = 100; const maxPages = 20
   const firstPage = await api.opportunities.list({ businessLineId, view: 'mine', limit: pageSize, offset: 0 })
   const pages: OpportunityPage[] = [firstPage]
-  for (let offset = pageSize; pages[pages.length - 1].length === pageSize; offset += pageSize) {
+  for (let offset = pageSize; pages.length < maxPages && pages[pages.length - 1].length === pageSize; offset += pageSize) {
     pages.push(await api.opportunities.list({ businessLineId, view: 'mine', limit: pageSize, offset }))
   }
   return pages.flat()
 }
 
 async function listAllHandoffs(status: HandoffDto['status'], businessLineId?: string): Promise<HandoffDto[]> {
-  const pageSize = 100
+  const pageSize = 100; const maxPages = 20
   const records: HandoffDto[] = []
-  for (let offset = 0; ; offset += pageSize) {
-    const page = await api.handoffs.list(status, { businessLineId, limit: pageSize, offset })
-    records.push(...page)
-    if (page.length < pageSize) return records
+  for (let offset = 0, page = 0; page < maxPages; offset += pageSize, page++) {
+    const result = await api.handoffs.list(status, { businessLineId, limit: pageSize, offset })
+    records.push(...result)
+    if (result.length < pageSize) return records
   }
+  return records
 }
 
 async function listAllCloserEvents(businessLineId?: string): Promise<CloserEventDto[]> {
@@ -88,7 +89,9 @@ async function listAllUnreadActiveConversations(businessLineId?: string): Promis
 }
 
 export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOpenTask }: { userId: string; onOpenPipeline: () => void; onOpenInbox: (conversationId: string) => void; onOpenTask: (taskId: string) => void }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const dateLabel = (value: string) => new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  const elapsedSince = (value: string) => { const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000)); if (minutes < 60) return t('closerQueue.elapsed.minutes', { count: minutes }); const hours = Math.floor(minutes / 60); if (hours < 24) return t('closerQueue.elapsed.hours', { count: hours }); return t('closerQueue.elapsed.days', { days: Math.floor(hours / 24), hours: hours % 24 }) }
   const [searchParams] = useSearchParams()
   const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [handoffs, setHandoffs] = useState<HandoffDto[]>([])
@@ -296,7 +299,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
   const emptyState = <div><strong>{error || t('closerQueue.empty')}</strong></div>
 
   return <section className="closer-queue-page">
-    <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><Button className="refresh" type="button" onClick={requestRefresh} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></Button></header>
+    <header className="closer-queue-heading"><div><p className="eyebrow">{t('closerQueue.eyebrow')}</p><h2>{t('closerQueue.title')}</h2><p className="muted">{t('closerQueue.description')}</p></div><Button className={`refresh${refreshing ? ' is-refreshing' : ''}`} aria-busy={refreshing ? 'true' : undefined} type="button" onClick={requestRefresh} aria-label={t('closerQueue.refresh')}><RefreshCw size={16} /></Button></header>
     {slaNotifications.length > 0 && <section className="closer-sla-notifications" aria-label={t('closerSlaSettings.notifications.title')}><h3>{t('closerSlaSettings.notifications.title')}</h3>{slaNotifications.map((notification) => <article key={notification.id}><div><strong>{t(`closerSlaSettings.notifications.${notification.notificationType === 'closer_event_sla_escalated' ? 'escalated' : 'overdue'}`)}</strong><span>{notification.accountName ?? notification.summary}</span><small>{t(`closerEventTypes.${notification.eventType}`)} · {dateLabel(notification.dueAt)}</small></div><Button type="button" disabled={Boolean(acceptingId)} onClick={() => void openSlaNotification(notification)}>{t('closerQueue.openConversation')}<ArrowRight size={13} /></Button></article>)}</section>}
     <div className="closer-queue-summary" role="group" aria-label={t('closerQueue.summary.label')}>
       <Button type="button" className={`summary-handoffs${kindFilter === 'handoff' ? ' is-active' : ''}`} aria-pressed={kindFilter === 'handoff'} onClick={() => { setKindFilter((current) => current === 'handoff' ? '' : 'handoff'); setOffset(0) }}><span><UserRoundCheck size={15} />{t('closerQueue.summary.handoffs')}</span><strong>{summaryValue(handoffCount)}</strong></Button>
@@ -317,5 +320,3 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
   </section>
 }
 
-function dateLabel(value: string) { return new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) }
-function elapsedSince(value: string) { const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000)); if (minutes < 60) return i18n.t('closerQueue.elapsed.minutes', { count: minutes }); const hours = Math.floor(minutes / 60); if (hours < 24) return i18n.t('closerQueue.elapsed.hours', { count: hours }); return i18n.t('closerQueue.elapsed.days', { days: Math.floor(hours / 24), hours: hours % 24 }) }

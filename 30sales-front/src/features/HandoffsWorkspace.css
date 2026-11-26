@@ -5,4 +5,5 @@
 .handoff-pagination>label select { width: auto; min-width: 64px; flex: 0 0 auto; }
 
 .handoff-form[hidden]{display:none}.handoff-header-actions{display:flex;align-items:center;gap:8px}
+.handoff-divider{margin:4px 0;border:0;border-top:1px solid #e2e8f0}
 @media(max-width:640px){.handoff-header-actions{flex:none;align-self:flex-start}}

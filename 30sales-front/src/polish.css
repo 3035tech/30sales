@@ -144,8 +144,26 @@
   }
 }
 
+:is(.today-metric) {
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+:is(.refresh) {
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+:is(.refresh:hover:not(:disabled)) {
+  border-color: #c4d0da;
+  background-color: #f8fafc;
+  color: #334155;
+}
+
+:is(.opportunity-card) {
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  :is(.nav, .notification-trigger, .data-table-page-controls button) {
+  :is(.nav, .notification-trigger, .data-table-page-controls button, .today-metric, .refresh, .opportunity-card) {
     transition: none;
   }
 }

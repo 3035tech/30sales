@@ -242,3 +242,5 @@ export type TeamInvitationDto = z.infer<typeof teamInvitationSchema>;
 export type BusinessLineDto = z.infer<typeof businessLineSchema>;
 export type BusinessLineMemberDto = z.infer<typeof businessLineMemberSchema>;
 export type InvitationDto = z.infer<typeof invitationSchema>;
+export const linkPreviewSchema = z.object({ url: z.string().url(), title: z.string().nullable(), description: z.string().nullable(), image: z.string().url().nullable() });
+export type LinkPreviewDto = z.infer<typeof linkPreviewSchema>;

@@ -419,10 +419,20 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
   const [messagesLoadError, setMessagesLoadError] = useState(false)
   const [error, setError] = useState('')
   const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [contactDetailsEditOpen, setContactDetailsEditOpen] = useState(false)
+  const [contactNameDraft, setContactNameDraft] = useState('')
+  const [contactEmailDraft, setContactEmailDraft] = useState('')
+  const [contactDetailsSaving, setContactDetailsSaving] = useState(false)
+  const [contactDetailsError, setContactDetailsError] = useState('')
   const [leadSearch, setLeadSearch] = useState('')
   const [leadOptions, setLeadOptions] = useState<Array<{ id: string; accountName: string; contactName: string | null; phone: string | null }>>([])
 
   useEffect(() => { setBusinessLineFilter(globalBusinessLineId); setChannelFilter(''); setOffset(0) }, [globalBusinessLineId])
+  useEffect(() => {
+    setConversationIdFilter(initialConversationId)
+    setOffset(0)
+    setSelectedId(initialConversationId)
+  }, [initialConversationId])
   const [reconcileLeadId, setReconcileLeadId] = useState('')
   const [reconcileLead, setReconcileLead] = useState<{ id: string; accountName: string; contactName: string | null; phone: string | null } | null>(null)
   const [leadSearchLoading, setLeadSearchLoading] = useState(false)
@@ -961,6 +971,30 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
     if (!selected) return
     setLeadSearch(''); setLeadOptions([]); setReconcileLeadId(''); setReconcileLead(null); setLeadSearchFailed(false); setConfirmedName(selected.personName ?? ''); setConfirmedPhone(selected.personPhone ?? ''); setMarkAsPrimary(false); setMarkAsInterested(false); setReconcileError(''); setReconcileOpen(true)
   }
+  const openContactDetailsEdit = () => {
+    if (!selected) return
+    setContactNameDraft(selected.personName ?? '')
+    setContactEmailDraft(selected.personEmail ?? '')
+    setContactDetailsError('')
+    setContactDetailsEditOpen(true)
+  }
+  const saveContactDetails = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!selected || contactNameDraft.trim().length < 2) return
+    setContactDetailsSaving(true)
+    setContactDetailsError('')
+    try {
+      await api.inbox.updateContactDetails(selected.id, { name: contactNameDraft.trim(), email: contactEmailDraft.trim() })
+      setContactDetailsEditOpen(false)
+      await refresh()
+    } catch (error) {
+      setContactDetailsError(error instanceof ApiError && error.code === 'PERMISSION_DENIED'
+        ? t('inbox.contactNameEdit.permissionDenied')
+        : t('inbox.contactNameEdit.failed'))
+    } finally {
+      setContactDetailsSaving(false)
+    }
+  }
   const openOpportunityCreation = () => {
     if (!selected) return
     setOpportunityRequestKey(crypto.randomUUID())
@@ -1076,6 +1110,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
             <div><dt><Phone size={14} />{t('inbox.phone')}</dt><dd>{selected.personPhone ?? '—'}</dd></div>
             <div><dt><Building2 size={14} />{t('inbox.company')}</dt><dd>{selected.accountName ?? '—'}</dd></div>
           </dl></section>
+          {selected.conversationType !== 'group' && <Button type="button" onClick={openContactDetailsEdit}>{t('inbox.contactNameEdit.action')}</Button>}
           {selected.ownerUserId === currentUserId && <Button type="button" onClick={openContactReconciliation}>{t('inbox.contactReconciliation.action')}</Button>}
           {selected.ownerUserId === currentUserId && <Button type="button" onClick={openOpportunityCreation}><Sparkles size={15} aria-hidden="true" />{t('inbox.opportunityCreation.action')}</Button>}
           <section className="inbox-contact-section"><h4>{t('inbox.leadContext')}</h4><dl>
@@ -1169,6 +1204,14 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
         <div className="inbox-contact-reconcile-flags"><label><CheckboxField checked={markAsPrimary} onChange={(event) => setMarkAsPrimary(event.target.checked)} />{t('inbox.contactReconciliation.markPrimary')}</label><label><CheckboxField checked={markAsInterested} onChange={(event) => setMarkAsInterested(event.target.checked)} />{t('inbox.contactReconciliation.markInterested')}</label></div>
         {reconcileError && <WorkspaceState kind="error" compact message={reconcileError} />}
         <Button type="submit" disabled={reconciling || !reconcileLeadId || confirmedName.trim().length < 2}>{reconciling ? t('common.saving') : t('inbox.contactReconciliation.save')}</Button>
+      </form>
+    </Modal>
+    <Modal open={contactDetailsEditOpen} onOpenChange={setContactDetailsEditOpen} title={t('inbox.contactNameEdit.title')} description={t('inbox.contactNameEdit.description')} closeLabel={t('common.close')}>
+      <form className="inbox-contact-reconcile-form" onSubmit={saveContactDetails}>
+        <label>{t('inbox.contactNameEdit.name')}<TextField value={contactNameDraft} onChange={(event) => { setContactNameDraft(event.target.value); setContactDetailsError('') }} maxLength={160} minLength={2} required /></label>
+        <label>{t('inbox.contactNameEdit.email')}<TextField type="email" value={contactEmailDraft} onChange={(event) => { setContactEmailDraft(event.target.value); setContactDetailsError('') }} maxLength={254} /></label>
+        {contactDetailsError && <WorkspaceState kind="error" compact message={contactDetailsError} />}
+        <Button type="submit" disabled={contactDetailsSaving || contactNameDraft.trim().length < 2}>{contactDetailsSaving ? t('common.saving') : t('inbox.contactNameEdit.save')}</Button>
       </form>
     </Modal>
     <Modal open={opportunityOpen} onOpenChange={setOpportunityOpen} title={t('inbox.opportunityCreation.title')} description={t('inbox.opportunityCreation.description')} closeLabel={t('common.close')}>

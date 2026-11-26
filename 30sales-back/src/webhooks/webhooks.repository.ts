@@ -181,7 +181,7 @@ export class WebhooksRepository {
         let [person] = await transaction.select({ id: people.id }).from(people)
           .where(and(eq(people.organizationId, input.organizationId), sql`${storedPhone} = ${phoneDigits}`)).orderBy(people.createdAt, people.id).limit(1);
         if (!person) {
-          [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: input.senderName?.trim().slice(0, 160) || `+${phoneDigits}`, phone: `+${phoneDigits}` }).returning({ id: people.id });
+          [person] = await transaction.insert(people).values({ organizationId: input.organizationId, name: `+${phoneDigits}`, phone: `+${phoneDigits}` }).returning({ id: people.id });
         }
         if (person) [conversation] = await transaction.insert(conversations).values({
           organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,

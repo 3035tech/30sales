@@ -5,7 +5,7 @@ import { accountPeople, accounts, agentSettings, auditEvents, businessLineMember
 import { member as authMember, user as authUser } from '../db/auth-schema';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema, ChannelRecordDto } from '../channels/channels.dto';
 import { MessageAttachmentDto } from '../attachments/attachments.dto';
-import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactReconcileResultDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, conversationAutomationModeSchema, conversationStatusUpdateSchema, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
+import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactReconcileResultDto, ConversationContactDetailsUpdateDto, ConversationControlDto, ConversationControlResultDto, ConversationLeadSummaryDto, ConversationListItemDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationReadResultDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, conversationAutomationModeSchema, conversationStatusUpdateSchema, MessageRecordDto, AssistantQualificationDto, type OutboundMediaInputDto } from './inbox.dto';
 import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
@@ -198,6 +198,41 @@ export class InboxRepository {
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, entityType: 'conversation', entityId: conversation.id, correlationId: input.correlationId, beforeState: { personId: person.id, hasPhone: Boolean(person.phone) }, afterState: { leadId: lead.id, personId: person.id, hasPhone: Boolean(updatedPhone), isPrimary: input.isPrimary, isInterested: input.isInterested } });
       const [account] = await transaction.select({ name: accounts.name }).from(accounts).where(and(eq(accounts.id, lead.accountId), eq(accounts.organizationId, input.organizationId))).limit(1);
       return new ConversationContactReconcileResultDto(conversation.id, lead.id, account?.name ?? '', updatedName, updatedPhone);
+    });
+  }
+  async updateContactDetails(input: ConversationContactDetailsUpdateDto): Promise<{ conversationId: string; name: string; email: string | null } | 'not_found' | 'missing_contact' | 'contact_shared_across_lines'> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ personId: conversations.personId, ownerUserId: conversations.ownerUserId })
+        .from(conversations).where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).for('update').limit(1);
+      if (!conversation || !await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.actorUserId, input.isPlatformOrganizationContext)) return 'not_found';
+      if (!conversation.personId) return 'missing_contact';
+      const [currentPerson] = await transaction.select({ id: people.id, name: people.name, email: people.email }).from(people)
+        .where(and(eq(people.id, conversation.personId), eq(people.organizationId, input.organizationId))).limit(1);
+      if (!currentPerson) return 'missing_contact';
+      const [conversationLine] = await transaction.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
+        .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+      if (conversationLine?.businessLineId) {
+        const otherLineLead = exists(transaction.select({ id: leads.id }).from(leads)
+          .where(and(eq(leads.organizationId, input.organizationId), eq(leads.personId, currentPerson.id), sql`${leads.businessLineId} <> ${conversationLine.businessLineId}`)));
+        const otherLineContact = exists(transaction.select({ id: leadContacts.id }).from(leadContacts)
+          .innerJoin(leads, and(eq(leads.id, leadContacts.leadId), eq(leads.organizationId, leadContacts.organizationId)))
+          .where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.personId, currentPerson.id), sql`${leads.businessLineId} <> ${conversationLine.businessLineId}`)));
+        const otherLineConversation = exists(transaction.select({ id: conversations.id }).from(conversations)
+          .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+          .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.personId, currentPerson.id), sql`${messagingChannels.businessLineId} <> ${conversationLine.businessLineId}`)));
+        const [sharing] = await transaction.select({ isShared: sql<boolean>`${otherLineLead} or ${otherLineContact} or ${otherLineConversation}` })
+          .from(people).where(and(eq(people.id, currentPerson.id), eq(people.organizationId, input.organizationId))).limit(1);
+        if (sharing?.isShared) return 'contact_shared_across_lines';
+      }
+      const [updatedPerson] = await transaction.update(people).set({ name: input.name, email: input.email, updatedAt: new Date() })
+        .where(and(eq(people.id, conversation.personId), eq(people.organizationId, input.organizationId))).returning({ id: people.id, name: people.name, email: people.email });
+      if (!updatedPerson) return 'missing_contact';
+      await transaction.update(conversations).set({ updatedAt: new Date() })
+        .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'inbox.contact_details_updated', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, beforeState: { personId: currentPerson.id, name: currentPerson.name, hasEmail: Boolean(currentPerson.email) }, afterState: { personId: updatedPerson.id, name: updatedPerson.name, hasEmail: Boolean(updatedPerson.email) } });
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId })})`);
+      return { conversationId: input.conversationId, name: updatedPerson.name, email: updatedPerson.email };
     });
   }
   async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string | null; taskId: string; leadId: string; leadCreated: boolean; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'lead_selection_required' | 'conversation_linked_elsewhere'> {

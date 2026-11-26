@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, setConversationAutomationModeSchema, conversationStatusUpdateSchema, conversationTypingPresenceSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema, createConversationOpportunitySchema } from './inbox.dto';
-import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto, CreateConversationOpportunityInputDto, SetConversationAutomationModeInputDto, ConversationTypingPresenceInputDto } from './inbox.dto';
+import { assignConversationSchema, setConversationAutomationModeSchema, conversationStatusUpdateSchema, conversationTypingPresenceSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema, createConversationOpportunitySchema, updateConversationContactDetailsSchema } from './inbox.dto';
+import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto, CreateConversationOpportunityInputDto, SetConversationAutomationModeInputDto, ConversationTypingPresenceInputDto, UpdateConversationContactDetailsInputDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 import { OUTBOUND_MEDIA_LIMIT_BYTES } from './outbound-media.constants';
 import type { IncomingMediaFile } from './outbound-media';
@@ -45,6 +45,8 @@ export class InboxController {
   release(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string) { return this.inboxService.release(request, conversationId); }
   @Patch(':id/owner')
   assign(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(assignConversationSchema)) input: AssignConversationDto) { return this.inboxService.assign(request, conversationId, input); }
+  @Patch(':id/contact-details')
+  updateContactDetails(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(updateConversationContactDetailsSchema)) input: UpdateConversationContactDetailsInputDto) { return this.inboxService.updateContactDetails(request, conversationId, input); }
   @Post(':id/automation')
   setAutomation(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(setConversationAutomationModeSchema)) input: SetConversationAutomationModeInputDto) { return this.inboxService.setAutomationMode(request, conversationId, input.mode); }
   @Patch(':id/status')

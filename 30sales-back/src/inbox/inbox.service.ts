@@ -4,7 +4,7 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, LinkPreviewDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto, type ConversationTypingPresenceInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationContactDetailsUpdateDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, LinkPreviewDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto, type ConversationTypingPresenceInputDto, type UpdateConversationContactDetailsInputDto } from './inbox.dto';
 import { CHANNEL_PROVIDER } from '../channels/channels.constants';
 
 function isPrivateIp(ip: string): boolean {
@@ -214,6 +214,14 @@ export class InboxService {
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.invalidPhone) throw new BadRequestException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.invalidPhone, message: 'Enter a valid international phone number.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.notOwner) throw new ForbiddenException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.ownerRequired, message: 'Take ownership of the conversation before updating its contact.' });
     if (result === INBOX_CONTACT_RECONCILIATION_RESULT.contactSharedAcrossLines) throw new ConflictException({ code: INBOX_CONTACT_RECONCILIATION_ERROR_CODE.contactSharedAcrossLines, message: 'This contact is linked to another business line. Update the shared contact from an organization management workflow.' });
+    return result;
+  }
+  async updateContactDetails(request: ApiRequestDto, conversationId: string, input: UpdateConversationContactDetailsInputDto) {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const result = await this.repository.updateContactDetails(new ConversationContactDetailsUpdateDto(context.organizationId, conversationId, context.userId, input.name, input.email || null, request.correlationId, context.isPlatformOrganizationContext));
+    if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
+    if (result === 'missing_contact') throw new ConflictException({ code: 'CONVERSATION_CONTACT_MISSING', message: 'This conversation has no contact to update.' });
+    if (result === 'contact_shared_across_lines') throw new ConflictException({ code: 'CONTACT_SHARED_ACROSS_BUSINESS_LINES', message: 'This contact is linked to another business line and cannot be edited here.' });
     return result;
   }
   async createOpportunityFromConversation(request: ApiRequestDto, conversationId: string, input: CreateConversationOpportunityInputDto) {

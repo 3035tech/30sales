@@ -387,18 +387,23 @@ export default function App() {
   const openNotification = async (notification: UserNotificationDto) => {
     const scopeRevision = notificationScopeRevision.current
     setNotificationOpenError(false)
+    const hasDestination = Boolean(notification.taskId || notification.handoffId || notification.opportunityId || notification.channelId || notification.conversationId)
+    if (!hasDestination) {
+      setNotificationOpenError(true)
+      return
+    }
+    setNotificationsOpen(false)
+    if (notification.taskId) navigateToPage('tasks', { businessLineId: null, taskId: notification.taskId })
+    else if (notification.handoffId) navigateToPage('handoffs', { businessLineId: null, handoffId: notification.handoffId, status: notification.notificationType === 'handoff_returned' ? 'returned' : 'accepted' })
+    else if (notification.opportunityId) navigateToPage('pipeline', { businessLineId: null, opportunityId: notification.opportunityId })
+    else if (notification.channelId) navigateToPage('channels', { businessLineId: null })
+    else if (notification.conversationId) navigateToPage('inbox', { businessLineId: null, conversationId: notification.conversationId })
     try {
       await api.notifications.markRead(notification.id)
       if (scopeRevision !== notificationScopeRevision.current) return
       notificationRefreshRevision.current += 1
       setNotifications((items) => items.filter((item) => item.id !== notification.id))
       setUnreadNotificationCount((count) => Math.max(0, count - 1))
-      setNotificationsOpen(false)
-      if (notification.taskId) navigateToPage('tasks', { businessLineId: null, taskId: notification.taskId })
-      else if (notification.handoffId) navigateToPage('handoffs', { businessLineId: null, handoffId: notification.handoffId, status: notification.notificationType === 'handoff_returned' ? 'returned' : 'accepted' })
-      else if (notification.opportunityId) navigateToPage('pipeline', { businessLineId: null, opportunityId: notification.opportunityId })
-      else if (notification.channelId) navigateToPage('channels', { businessLineId: null })
-      else if (notification.conversationId) navigateToPage('inbox', { businessLineId: null, conversationId: notification.conversationId })
     } catch { if (scopeRevision === notificationScopeRevision.current) setNotificationOpenError(true) }
   }
 

@@ -66,25 +66,36 @@ function InboxMessageBody({ text }: { text: string }) {
   })}</p>
 }
 
-type InboxPoll = { title: string; options: string[]; results?: { updatedAt: string; options: Array<{ name: string; count: number; voters: Array<{ id: string; name: string | null; phone: string | null }> }> } }
+type InboxPoll = { title: string; options: string[]; resultsStatus?: 'pending' | 'available' | 'unsupported' | 'failed' | 'unavailable'; results?: { updatedAt: string; options: Array<{ name: string; count: number; voters: Array<{ id: string; name: string | null; phone: string | null }> }> } }
 
 function InboxPollCard({ poll }: { poll: InboxPoll }) {
   const { t } = useTranslation()
   const [votesOpen, setVotesOpen] = useState(false)
+  const [visibleVoters, setVisibleVoters] = useState<Record<string, number>>({})
   const results = poll.options.map((name) => poll.results?.options.find((option) => option.name.toLocaleLowerCase() === name.toLocaleLowerCase()) ?? { name, count: 0, voters: [] })
   const totalVotes = results.reduce((sum, option) => sum + option.count, 0)
   const voteLabel = (count: number) => count === 1 ? t('inbox.pollVote') : t('inbox.pollVotes', { count })
+  const resultStatusMessage = poll.resultsStatus === 'pending'
+    ? t('inbox.pollResultsPending')
+    : poll.resultsStatus === 'failed'
+      ? t('inbox.pollResultsFailed')
+      : poll.results
+        ? null
+        : poll.resultsStatus === 'unsupported'
+          ? t('inbox.pollResultsUnsupported')
+          : t('inbox.pollResultsLegacy')
   return <div className="inbox-poll">
     <strong className="inbox-poll-title">{poll.title}</strong>
     {results.map((option) => <div className="inbox-poll-option" key={option.name}>
-      <div className="inbox-poll-option-label"><span>{option.name}</span><strong>{option.count}</strong></div>
-      <div className="inbox-poll-track" role="meter" aria-label={`${option.name}: ${voteLabel(option.count)}`} aria-valuemin={0} aria-valuemax={Math.max(totalVotes, 1)} aria-valuenow={option.count}><span style={{ width: `${totalVotes ? Math.round(option.count / totalVotes * 100) : 0}%` }} /></div>
+      <div className="inbox-poll-option-label"><span>{option.name}</span>{poll.results && <strong>{option.count}</strong>}</div>
+      {poll.results && <div className="inbox-poll-track" role="meter" aria-label={`${option.name}: ${voteLabel(option.count)}`} aria-valuemin={0} aria-valuemax={Math.max(totalVotes, 1)} aria-valuenow={option.count}><span style={{ width: `${totalVotes ? Math.round(option.count / totalVotes * 100) : 0}%` }} /></div>}
     </div>)}
-    {poll.results ? <button className="inbox-poll-view-votes" type="button" onClick={() => setVotesOpen(true)}>{t('inbox.pollViewVotes')} · {voteLabel(totalVotes)}</button> : <small className="inbox-poll-unavailable">{t('inbox.pollResultsUnavailable')}</small>}
+    {poll.results && <button className="inbox-poll-view-votes" type="button" onClick={() => setVotesOpen(true)}>{t('inbox.pollViewVotes')} · {voteLabel(totalVotes)}</button>}
+    {resultStatusMessage && <small role="status" aria-live="polite" className={`inbox-poll-unavailable is-${poll.resultsStatus ?? 'unavailable'}`}>{resultStatusMessage}</small>}
     <Modal open={votesOpen} onOpenChange={setVotesOpen} title={t('inbox.pollViewVotes')} description={poll.title} closeLabel={t('common.close')} className="inbox-poll-votes-modal">
       <div className="inbox-poll-vote-groups">{results.map((option) => <section className="inbox-poll-vote-group" key={option.name}>
         <header><strong>{option.name}</strong><span>{voteLabel(option.count)}</span></header>
-        {option.voters.length ? <ul>{option.voters.map((voter) => <li key={voter.id}><span className="inbox-poll-voter-avatar" aria-hidden="true">{voter.name?.trim().slice(0, 1).toUpperCase() || '•'}</span><span className="inbox-poll-voter-copy"><strong>{voter.name || t('inbox.pollVoterUnknown')}</strong>{voter.phone && <small>{voter.phone}</small>}</span></li>)}</ul> : <p>{t('inbox.pollNoVotes')}</p>}
+        {option.voters.length ? <><ul>{option.voters.slice(0, visibleVoters[option.name] ?? 25).map((voter) => <li key={voter.id}><span className="inbox-poll-voter-avatar" aria-hidden="true">{voter.name?.trim().slice(0, 1).toUpperCase() || '•'}</span><span className="inbox-poll-voter-copy"><strong>{voter.name || t('inbox.pollVoterUnknown')}</strong>{voter.phone && <small>{voter.phone}</small>}</span></li>)}</ul>{(visibleVoters[option.name] ?? 25) < option.voters.length && <button type="button" className="inbox-poll-show-more" onClick={() => setVisibleVoters((current) => ({ ...current, [option.name]: (current[option.name] ?? 25) + 25 }))}>{t('inbox.showMoreVoters')} · {Math.min(25, option.voters.length - (visibleVoters[option.name] ?? 25))}</button>}</> : <p>{t('inbox.pollNoVotes')}</p>}
       </section>)}</div>
     </Modal>
   </div>

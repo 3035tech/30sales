@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { requestContext } from '../common/request-context';
-import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, jobs, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, EvolutionMessageStatusReviewEventDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto, type EvolutionPollResults } from './webhooks.dto';
@@ -23,20 +23,74 @@ function withRequestCorrelation(payload: { [key: string]: import('../db/schema')
 
 @Injectable()
 export class WebhooksRepository {
-  async updateEvolutionPollResults(input: { organizationId: string; channelId: string; externalConversationId: string; pollMessageId: string; results: EvolutionPollResults }): Promise<boolean> {
-    const [row] = await database.select({ id: messages.id, providerMetadata: messages.providerMetadata, conversationId: conversations.id }).from(messages)
-      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
-      .where(and(eq(messages.organizationId, input.organizationId), eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId), eq(messages.externalMessageId, input.pollMessageId))).limit(1);
-    const richContent = row?.providerMetadata?.evolution?.richContent;
-    if (!row || richContent?.kind !== 'poll') return false;
-    const options = richContent.options.map((name) => {
-      const update = input.results.options.find((entry) => entry.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
-      return { name, count: update?.count ?? 0, voters: update?.voters ?? [] };
+  async enqueueEvolutionPollResultsRefresh(input: { organizationId: string; channelId: string; externalConversationId: string; pollMessageId: string; voteUpdateMessageId: string }): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [poll] = await transaction.select({ id: messages.id, providerMetadata: messages.providerMetadata, conversationId: conversations.id }).from(messages)
+        .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+        .where(and(eq(messages.organizationId, input.organizationId), eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId), eq(messages.externalMessageId, input.pollMessageId))).limit(1);
+      if (!poll || poll.providerMetadata?.evolution?.richContent?.kind !== 'poll') return false;
+      const [job] = await transaction.insert(jobs).values({ organizationId: input.organizationId, jobType: 'evolution.poll_results.refresh', aggregateType: 'message', aggregateId: poll.id, idempotencyKey: `evolution-poll:${input.channelId}:${input.voteUpdateMessageId}` }).onConflictDoNothing({ target: [jobs.organizationId, jobs.idempotencyKey] }).returning({ id: jobs.id });
+      if (!job) return false;
+      const providerMetadata = { ...poll.providerMetadata, evolution: { ...poll.providerMetadata?.evolution, richContent: { ...poll.providerMetadata.evolution.richContent, resultsStatus: 'pending' as const } } };
+      await transaction.update(messages).set({ providerMetadata }).where(and(eq(messages.id, poll.id), eq(messages.organizationId, input.organizationId)));
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: poll.conversationId, occurredAt: new Date().toISOString() })})`);
+      return true;
     });
-    const providerMetadata = { ...row.providerMetadata, evolution: { ...row.providerMetadata?.evolution, richContent: { ...richContent, results: { updatedAt: input.results.updatedAt, options } } } };
-    await database.update(messages).set({ providerMetadata }).where(and(eq(messages.id, row.id), eq(messages.organizationId, input.organizationId)));
-    await database.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: input.results.updatedAt })})`);
-    return true;
+  }
+
+  async claimEvolutionPollResultsRefresh(): Promise<{ id: string; organizationId: string; pollMessageId: string; attempts: number } | null> {
+    return database.transaction(async (transaction) => {
+      const staleLock = new Date(Date.now() - 5 * 60_000);
+      const [job] = await transaction.select({ id: jobs.id, organizationId: jobs.organizationId, pollMessageId: jobs.aggregateId, attempts: jobs.attempts }).from(jobs)
+        .where(and(eq(jobs.jobType, 'evolution.poll_results.refresh'), or(and(eq(jobs.status, 'queued'), lte(jobs.availableAt, new Date())), and(eq(jobs.status, 'running'), lte(jobs.lockedAt, staleLock)))))
+        .orderBy(jobs.availableAt, jobs.createdAt).for('update', { skipLocked: true }).limit(1);
+      if (!job) return null;
+      const [claimed] = await transaction.update(jobs).set({ status: 'running', attempts: sql`${jobs.attempts}::numeric + 1`, lockedAt: new Date(), lockedBy: 'evolution-poll-results', updatedAt: new Date() })
+        .where(and(eq(jobs.id, job.id), eq(jobs.organizationId, job.organizationId))).returning({ id: jobs.id, organizationId: jobs.organizationId, pollMessageId: jobs.aggregateId, attempts: jobs.attempts });
+      return claimed ? { ...claimed, attempts: Number(claimed.attempts) } : null;
+    });
+  }
+
+  async evolutionPollResultsRefreshContext(input: { organizationId: string; pollMessageId: string }): Promise<{ channelId: string; externalConversationId: string | null; externalPollMessageId: string; providerChannelId: string; credentials: { ciphertext: string; iv: string; authTag: string } } | null> {
+    const [row] = await database.select({ channelId: conversations.channelId, externalConversationId: conversations.externalConversationId, externalPollMessageId: messages.externalMessageId, provider: conversations.provider, providerChannelId: messagingChannels.providerChannelId, ciphertext: messagingChannels.credentialsCiphertext, iv: messagingChannels.credentialsIv, authTag: messagingChannels.credentialsAuthTag, contentKind: sql<string | null>`${messages.providerMetadata}->'evolution'->'richContent'->>'kind'` }).from(messages)
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(messages.id, input.pollMessageId), eq(messages.organizationId, input.organizationId), eq(conversations.organizationId, input.organizationId), eq(conversations.provider, 'evolution'), eq(messagingChannels.isActive, true))).limit(1);
+    const channelId = row?.channelId;
+    const externalConversationId = row?.externalConversationId;
+    const externalPollMessageId = row?.externalPollMessageId;
+    const ciphertext = row?.ciphertext;
+    const iv = row?.iv;
+    const authTag = row?.authTag;
+    const providerChannelId = row?.providerChannelId;
+    if (!row || row.contentKind !== 'poll' || typeof channelId !== 'string' || typeof externalConversationId !== 'string' || typeof externalPollMessageId !== 'string' || typeof ciphertext !== 'string' || typeof iv !== 'string' || typeof authTag !== 'string' || typeof providerChannelId !== 'string') return null;
+    return { channelId, externalConversationId, externalPollMessageId, providerChannelId, credentials: { ciphertext, iv, authTag } };
+  }
+
+  async setEvolutionPollResultsStatus(input: { organizationId: string; pollMessageId: string; status: 'available' | 'unsupported' | 'failed'; results?: EvolutionPollResults }): Promise<void> {
+    const [row] = await database.select({ providerMetadata: messages.providerMetadata, conversationId: conversations.id }).from(messages)
+      .innerJoin(conversations, and(eq(conversations.id, messages.conversationId), eq(conversations.organizationId, messages.organizationId)))
+      .where(and(eq(messages.id, input.pollMessageId), eq(messages.organizationId, input.organizationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+    const richContent = row?.providerMetadata?.evolution?.richContent;
+    if (!row || richContent?.kind !== 'poll') return;
+    const resultOptions = input.results?.options;
+    const options = resultOptions ? richContent.options.map((name) => {
+      const update = resultOptions.find((entry) => entry.name.trim().toLocaleLowerCase() === name.trim().toLocaleLowerCase());
+      return { name, count: update?.count ?? 0, voters: update?.voters ?? [] };
+    }) : undefined;
+    const providerMetadata = { ...row.providerMetadata, evolution: { ...row.providerMetadata?.evolution, richContent: { ...richContent, resultsStatus: input.status, ...(input.results && options ? { results: { updatedAt: input.results.updatedAt, options } } : {}) } } };
+    await database.update(messages).set({ providerMetadata }).where(and(eq(messages.id, input.pollMessageId), eq(messages.organizationId, input.organizationId)));
+    await database.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: row.conversationId, occurredAt: new Date().toISOString() })})`);
+  }
+
+  async completeEvolutionPollResultsRefresh(input: { id: string; organizationId: string }): Promise<void> {
+    await database.update(jobs).set({ status: 'completed', lockedAt: null, lockedBy: null, completedAt: new Date(), updatedAt: new Date(), lastErrorCode: null }).where(and(eq(jobs.id, input.id), eq(jobs.organizationId, input.organizationId), eq(jobs.status, 'running')));
+  }
+
+  async failEvolutionPollResultsRefresh(input: { id: string; organizationId: string; pollMessageId: string; attempts: number; errorCode: 'EVOLUTION_POLL_RESULTS_UNAVAILABLE' | 'EVOLUTION_POLL_RESULTS_FAILED' }): Promise<void> {
+    const retry = input.attempts < 5;
+    await database.update(jobs).set({ status: retry ? 'queued' : 'failed', availableAt: new Date(Date.now() + Math.min(300_000, 2 ** input.attempts * 5_000)), lockedAt: null, lockedBy: null, lastErrorCode: input.errorCode, updatedAt: new Date() }).where(and(eq(jobs.id, input.id), eq(jobs.organizationId, input.organizationId), eq(jobs.status, 'running')));
+    if (!retry) await this.setEvolutionPollResultsStatus({ organizationId: input.organizationId, pollMessageId: input.pollMessageId, status: 'failed' });
   }
 
   async publishEvolutionPresence(input: { organizationId: string; channelId: string; externalConversationId: string; state: 'composing' | 'recording' | 'paused' | 'available' | 'unavailable'; participantId: string | null }): Promise<boolean> {

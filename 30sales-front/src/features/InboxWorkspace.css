@@ -217,6 +217,9 @@
 .inbox-poll-vote-group li { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border-bottom: 1px solid #e2e8f0; }
 .inbox-poll-vote-group li:last-child { border-bottom: 0; }
 .inbox-poll-vote-group > p { margin: 0; padding: 14px; color: #64748b; }
+.inbox-poll-show-more { width: 100%; padding: 11px 14px; border: 0; border-top: 1px solid #e2e8f0; background: #f8fafc; color: var(--primary, #245b9a); font: 600 var(--font-size-sm)/1.3 var(--brand-ui-font); cursor: pointer; }
+.inbox-poll-show-more:hover { background: #eef4f9; }
+.inbox-poll-show-more:focus-visible { outline: 2px solid var(--primary, #245b9a); outline-offset: -2px; }
 .inbox-poll-voter-avatar { display: grid; flex: 0 0 38px; height: 38px; place-items: center; border-radius: 50%; background: #e9f3ed; color: #247345; font-weight: 650; }
 .inbox-poll-voter-copy { display: grid; gap: 3px; min-width: 0; }
 .inbox-poll-voter-copy strong { overflow-wrap: anywhere; }

@@ -11,7 +11,7 @@ function text(value: unknown): string | null { return typeof value === 'string' 
 
 @Injectable()
 export class EvolutionPollResultsProvider {
-  async getVotes(input: PollCredentials): Promise<EvolutionPollResults | null> {
+  async getVotes(input: PollCredentials): Promise<{ kind: 'results'; results: EvolutionPollResults } | { kind: 'unsupported' } | { kind: 'retry' }> {
     try {
       await assertPublicEvolutionTarget(input.baseUrl);
       const response = await fetch(`${input.baseUrl.replace(/\/+$/, '')}/chat/getPollVote/${encodeURIComponent(input.instanceName)}`, {
@@ -19,11 +19,12 @@ export class EvolutionPollResultsProvider {
         body: JSON.stringify({ message: { key: { remoteJid: input.remoteJid, id: input.pollMessageId } } }),
         signal: AbortSignal.timeout(5_000), redirect: 'error',
       });
-      if (!response.ok) return null;
+      if (response.status === 404 || response.status === 405) return { kind: 'unsupported' };
+      if (!response.ok) return { kind: 'retry' };
       const result = await readLimitedJsonResponse(response, 256_000);
-      if (!result.ok) return null;
+      if (!result.ok) return { kind: 'retry' };
       const root = record(result.payload); const poll = record(root.poll ?? record(root.data).poll ?? root.data ?? root);
-      if (!Array.isArray(poll.options)) return null;
+      if (!Array.isArray(poll.options)) return { kind: 'retry' };
       const options = poll.options.slice(0, 20).flatMap((entry): EvolutionPollResults['options'] => {
         const option = record(entry); const name = text(option.optionName) ?? text(option.name);
         if (!name) return [];
@@ -39,9 +40,9 @@ export class EvolutionPollResultsProvider {
         const count = typeof rawCount === 'number' && Number.isSafeInteger(rawCount) && rawCount >= voters.length ? rawCount : voters.length;
         return [{ name: name.trim().slice(0, 200), count, voters }];
       });
-      return options.length ? { updatedAt: new Date().toISOString(), options } : null;
+      return options.length ? { kind: 'results', results: { updatedAt: new Date().toISOString(), options } } : { kind: 'retry' };
     } catch {
-      return null;
+      return { kind: 'retry' };
     }
   }
 }

@@ -9,7 +9,6 @@ import { env } from '../config/env';
 import { evolutionHistoryMessageSchema, EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, InboundMediaDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, type EvolutionMessageMetadata, type EvolutionGroupParticipantChange, type InterpretationFailureSignalInputDto, type ProviderEventFamily, WhatsappMessageStatusDto } from './webhooks.dto';
 import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter } from './message-status-webhook-adapters';
 import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
-import { EvolutionPollResultsProvider } from './evolution-poll-results.provider';
 import { EvolutionWebhookEnvelopeAdapter, matchesWebhookSecret, MetaCloudWebhookEnvelopeAdapter } from './provider-webhook-envelope.adapters';
 import { WebhooksRepository } from './webhooks.repository';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
@@ -31,7 +30,6 @@ export class WebhooksService {
     @Inject(MetaCloudMessageStatusWebhookAdapter) private readonly metaStatusAdapter: MetaCloudMessageStatusWebhookAdapter = new MetaCloudMessageStatusWebhookAdapter(),
     @Inject(EvolutionIncomingMessageWebhookAdapter) private readonly evolutionMessageAdapter: EvolutionIncomingMessageWebhookAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto),
     @Inject(MetaCloudIncomingMessageWebhookAdapter) private readonly metaMessageAdapter: MetaCloudIncomingMessageWebhookAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto),
-    private readonly evolutionPollResultsProvider: EvolutionPollResultsProvider = new EvolutionPollResultsProvider(),
   ) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
@@ -65,11 +63,9 @@ export class WebhooksService {
           ? this.evolutionMessageAdapter.pollUpdateTarget(item)
           : null;
         if (message && pollTarget) {
-          const results = await this.evolutionPollResultsProvider.getVotes({ baseUrl: credentials.baseUrl, apiKey: credentials.apiKey, instanceName: channel.providerChannelId, ...pollTarget });
-          if (results) await this.repository.updateEvolutionPollResults({ organizationId: channel.organizationId, channelId: channel.id, externalConversationId: message.externalConversationId, pollMessageId: pollTarget.pollMessageId, results });
-          // A pollUpdateMessage is a vote event, not a standalone chat message. If the
-          // provider cannot resolve its results, keep the original poll and avoid a
-          // misleading unsupported-message bubble in the conversation.
+          if (message.externalMessageId) await this.repository.enqueueEvolutionPollResultsRefresh({ organizationId: channel.organizationId, channelId: channel.id, externalConversationId: message.externalConversationId, pollMessageId: pollTarget.pollMessageId, voteUpdateMessageId: message.externalMessageId });
+          // Votes are refresh triggers, not standalone chat messages. The durable worker
+          // resolves the provider result after this webhook has returned.
           processed += 1;
           continue;
         }

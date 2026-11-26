@@ -106,13 +106,14 @@ export class EvolutionMessageMutationDto {
 
 export type InboundMediaType = 'image' | 'video' | 'audio' | 'document' | 'sticker';
 export type EvolutionPollResults = { updatedAt: string; options: Array<{ name: string; count: number; voters: Array<{ id: string; name: string | null; phone: string | null }> }> };
+export type EvolutionPollResultsStatus = 'pending' | 'available' | 'unsupported' | 'failed' | 'unavailable';
 export type EvolutionMessageMetadata = {
   source?: 'provider_echo';
   unsupportedType?: string;
   reaction: { targetExternalMessageId: string; emoji: string } | null;
   encryptedReaction?: { targetExternalMessageId: string } | null;
   quotedMessage: { externalMessageId: string | null; bodyText: string | null } | null;
-  richContent?: { kind: 'poll'; title: string; options: string[]; results?: EvolutionPollResults } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
+  richContent?: { kind: 'poll'; title: string; options: string[]; resultsStatus?: EvolutionPollResultsStatus; results?: EvolutionPollResults } | { kind: 'card'; title: string | null; body: string | null; buttonLabel: string | null; buttonUrl: string | null } | null;
   author?: { name: string | null; phone: string | null } | null;
 };
 
@@ -175,7 +176,7 @@ const evolutionMessageMetadataSchema = z.object({
   reaction: z.object({ targetExternalMessageId: z.string().min(1).max(250), emoji: z.string().min(1).max(32) }).nullable(),
   encryptedReaction: z.object({ targetExternalMessageId: z.string().min(1).max(250) }).nullable().optional(),
   quotedMessage: z.object({ externalMessageId: z.string().max(250).nullable(), bodyText: z.string().max(2000).nullable() }).nullable(),
-  richContent: z.union([z.object({ kind: z.literal('poll'), title: z.string().max(4096), options: z.array(z.string().max(200)).max(20), results: z.object({ updatedAt: z.string().datetime(), options: z.array(z.object({ name: z.string().max(200), count: z.number().int().min(0).max(10000), voters: z.array(z.object({ id: z.string().max(250), name: z.string().max(160).nullable(), phone: z.string().max(20).nullable() }).strict()).max(1000) }).strict()).max(20) }).strict().optional() }).strict(), z.object({ kind: z.literal('card'), title: z.string().max(500).nullable(), body: z.string().max(4096).nullable(), buttonLabel: z.string().max(120).nullable(), buttonUrl: z.string().url().max(2048).nullable() }).strict()]).nullable().optional(),
+  richContent: z.union([z.object({ kind: z.literal('poll'), title: z.string().max(4096), options: z.array(z.string().max(200)).max(20), resultsStatus: z.enum(['pending', 'available', 'unsupported', 'failed', 'unavailable']).optional(), results: z.object({ updatedAt: z.string().datetime(), options: z.array(z.object({ name: z.string().max(200), count: z.number().int().min(0).max(10000), voters: z.array(z.object({ id: z.string().max(250), name: z.string().max(160).nullable(), phone: z.string().max(20).nullable() }).strict()).max(1000) }).strict()).max(20) }).strict().optional() }).strict(), z.object({ kind: z.literal('card'), title: z.string().max(500).nullable(), body: z.string().max(4096).nullable(), buttonLabel: z.string().max(120).nullable(), buttonUrl: z.string().url().max(2048).nullable() }).strict()]).nullable().optional(),
   author: z.object({ name: z.string().max(160).nullable(), phone: z.string().max(20).nullable() }).nullable().optional(),
 }).strict();
 

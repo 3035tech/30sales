@@ -6,10 +6,10 @@ import { AUTH_INVITATION_STATUS } from '../auth/authorization.constants';
 
 @Injectable()
 export class SessionRepository {
-  async findActiveInvitationPreview(invitationId: string) {
+  async findActiveInvitationPreview(invitationId: string, organizationId?: string) {
     const [record] = await database.select({ id: invitation.id, email: invitation.email, role: invitation.role, organizationName: organization.name })
       .from(invitation).innerJoin(organization, eq(organization.id, invitation.organizationId))
-      .where(and(eq(invitation.id, invitationId), eq(invitation.status, AUTH_INVITATION_STATUS.pending), gt(invitation.expiresAt, new Date())))
+      .where(and(eq(invitation.id, invitationId), organizationId ? eq(invitation.organizationId, organizationId) : undefined, eq(invitation.status, AUTH_INVITATION_STATUS.pending), gt(invitation.expiresAt, new Date())))
       .limit(1);
     return record?.role ? record : null;
   }

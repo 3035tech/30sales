@@ -114,7 +114,7 @@ export class PlatformService {
     if (result === 'already_invited') throw new ConflictException({ code: PLATFORM_ERROR_CODE.invitationAlreadyPending });
     let emailSent = false;
     try {
-      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { name: result.organizationName } });
+      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { id: result.organizationId, name: result.organizationName } });
       emailSent = true;
     } catch {
       emailSent = false;
@@ -129,7 +129,7 @@ export class PlatformService {
     if (result === 'not_pending') throw new ConflictException({ code: PLATFORM_ERROR_CODE.invitationNotPending });
     let emailSent = false;
     try {
-      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { name: result.organizationName } });
+      await sendInvitationEmail({ id: result.invitationId, email: result.email, inviter: { user: { name: actor.name, email: actor.email } }, organization: { id: result.organizationId, name: result.organizationName } });
       emailSent = true;
     } catch {
       emailSent = false;
@@ -143,9 +143,10 @@ export class PlatformService {
     if (!result) throw new ConflictException({ code: PLATFORM_ERROR_CODE.organizationSlugAlreadyExists });
     const invitationUrl = new URL(PLATFORM_INVITATION_PATH, env.FRONTEND_URL);
     invitationUrl.searchParams.set('id', result.invitationId);
+    invitationUrl.searchParams.set('organizationId', result.organization.id);
     let emailSent = false;
     try {
-      await sendInvitationEmail({ id: result.invitationId, email: input.ownerEmail.toLowerCase(), inviter: { user: { name: actor.name, email: actor.email } }, organization: { name: result.organization.name } });
+      await sendInvitationEmail({ id: result.invitationId, email: input.ownerEmail.toLowerCase(), inviter: { user: { name: actor.name, email: actor.email } }, organization: { id: result.organization.id, name: result.organization.name } });
       emailSent = true;
     } catch {
       emailSent = false;

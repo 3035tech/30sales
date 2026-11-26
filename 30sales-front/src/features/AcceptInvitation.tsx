@@ -7,9 +7,12 @@ import { roleNames } from '../lib/permissions'
 
 export function AcceptInvitation() {
   const { t } = useTranslation()
-  const invitationId = new URLSearchParams(window.location.search).get('id') ?? ''
+  const invitationParams = new URLSearchParams(window.location.search)
+  const invitationId = invitationParams.get('id') ?? ''
+  const organizationId = invitationParams.get('organizationId') ?? ''
   const [invite, setInvite] = useState<InvitationDto | null>(null)
   const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState(t('invitation.loading'))
@@ -22,7 +25,7 @@ export function AcceptInvitation() {
     let mounted = true
     void (async () => {
       if (!invitationId) { setMessage(''); setError(t('invitation.invalidLink')); return }
-      const [inviteResult, sessionResult] = await Promise.all([api.auth.getInvitation(invitationId), api.auth.getSession()])
+      const [inviteResult, sessionResult] = await Promise.all([api.auth.getInvitation(invitationId, organizationId || undefined), api.auth.getSession()])
       if (!mounted) return
       if (inviteResult.error || !inviteResult.data) { setMessage(''); setError(t('invitation.unavailable')); return }
       setInvite(inviteResult.data)
@@ -38,7 +41,7 @@ export function AcceptInvitation() {
       window.location.replace('/')
     })()
     return () => { mounted = false }
-  }, [invitationId, t])
+  }, [invitationId, organizationId, t])
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -46,13 +49,13 @@ export function AcceptInvitation() {
     setBusy(true)
     setError('')
     if (loginMode) {
-      const result = await api.auth.signInEmail({ email: invite.email, password, callbackURL: window.location.href })
+      const result = await api.auth.signInEmail({ email, password, callbackURL: window.location.href })
       setBusy(false)
       if (result.error) { setError(t('invitation.signInFailed')); return }
       window.location.reload()
       return
     }
-    const result = await api.auth.signUpEmail({ name, email: invite.email, password, callbackURL: window.location.href })
+    const result = await api.auth.signUpEmail({ name, email, password, callbackURL: window.location.href })
     setBusy(false)
     if (result.error) { setError(t('invitation.createFailed')); return }
     setMessage(t('invitation.verificationSent'))
@@ -63,7 +66,7 @@ export function AcceptInvitation() {
   return <main className="invite-shell"><section className="invite-card">
     <div className="invite-brand"><img src="/brand-kit/logos/logo-default.svg" alt="30Sales" /></div><span className="welcome-icon"><Command size={23} /></span>
     <p className="eyebrow">{t('invitation.eyebrow')}</p><h1>{organizationName}</h1>
-    {invite ? <p className="muted">{t('invitation.description', { role: roleName ? t(`roles.${roleName}`) : invite.role, email: invite.email })}</p> : <p className="muted">{message}</p>}
+    {invite ? <p className="muted">{t('invitation.description', { role: roleName ? t(`roles.${roleName}`) : invite.role, email: invite.emailHint })}</p> : <p className="muted">{message}</p>}
     {invite?.role === 'owner' && <section className="invite-onboarding" aria-labelledby="invite-onboarding-title">
       <h2 id="invite-onboarding-title">{t('invitation.ownerNextTitle')}</h2>
       <p>{t('invitation.ownerNextDescription')}</p>
@@ -76,7 +79,7 @@ export function AcceptInvitation() {
     {message && invite && <p className="invite-status">{message}</p>}
     {invite && !hasSession && !message && <form className="login-form" onSubmit={submit}>
       {!loginMode && <label>{t('invitation.yourName')}<TextField autoComplete="name" value={name} onChange={(event) => setName(event.target.value)} required /></label>}
-      <label>{t('invitation.invitedEmail')}<TextField type="email" normalize="email" value={invite.email} readOnly /></label>
+      <label>{t('invitation.invitedEmail')}<TextField type="email" normalize="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required /></label>
       <label>{t('invitation.password')}<TextField type="password" autoComplete={loginMode ? 'current-password' : 'new-password'} minLength={8} value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
       <Button className="primary" disabled={busy}>{busy ? t('invitation.signingIn') : loginMode ? t('invitation.signInAccept') : t('invitation.createAccount')}<ArrowRight size={16} /></Button>
       <Button type="button" className="text-button" onClick={() => { setLoginMode(!loginMode); setError('') }}>{loginMode ? t('invitation.newAccount') : t('invitation.existingAccount')}</Button>

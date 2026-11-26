@@ -22,7 +22,7 @@ export class PlatformRepository {
     return new PlatformOrganizationMembersDto(rows.map((row) => ({ id: row.id, role: row.role, user: { id: row.userId, name: row.name, email: row.email } })), invitations.map((row) => ({ ...row, createdAt: row.createdAt.toISOString(), expiresAt: row.expiresAt.toISOString() })));
   }
 
-  async renewOrganizationInvitation(organizationId: string, invitationId: string, actorUserId: string, correlationId: string | null): Promise<{ email: string; organizationName: string; invitationId: string } | 'not_found' | 'not_pending'> {
+  async renewOrganizationInvitation(organizationId: string, invitationId: string, actorUserId: string, correlationId: string | null): Promise<{ email: string; organizationId: string; organizationName: string; invitationId: string } | 'not_found' | 'not_pending'> {
     const now = new Date();
     return database.transaction(async (transaction) => {
       const [selectedOrganization] = await transaction.select({ name: organization.name }).from(organization).where(eq(organization.id, organizationId)).for('update').limit(1);
@@ -34,11 +34,11 @@ export class PlatformRepository {
       const expiresAt = new Date(now.getTime() + ORGANIZATION_INVITATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
       await transaction.update(invitation).set({ expiresAt }).where(and(eq(invitation.id, invitationId), eq(invitation.organizationId, organizationId)));
       await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.invitationResent, entityType: PLATFORM_AUDIT_ENTITY_TYPE.invitation, entityId: invitationId, correlationId, beforeState: { status: selectedInvitation.status, expiresAt: selectedInvitation.expiresAt.toISOString() }, afterState: { status: selectedInvitation.status, expiresAt: expiresAt.toISOString() } });
-      return { email: selectedInvitation.email, organizationName: selectedOrganization.name, invitationId };
+      return { email: selectedInvitation.email, organizationId, organizationName: selectedOrganization.name, invitationId };
     });
   }
 
-  async createOrganizationInvitation(organizationId: string, input: CreatePlatformOrganizationInvitationDto, actorUserId: string, correlationId: string | null): Promise<{ invitationId: string; email: string; organizationName: string } | 'not_found' | 'already_invited'> {
+  async createOrganizationInvitation(organizationId: string, input: CreatePlatformOrganizationInvitationDto, actorUserId: string, correlationId: string | null): Promise<{ invitationId: string; email: string; organizationId: string; organizationName: string } | 'not_found' | 'already_invited'> {
     const now = new Date();
     const email = input.email.toLowerCase();
     const result = await database.transaction(async (transaction) => {
@@ -50,7 +50,7 @@ export class PlatformRepository {
       const expiresAt = new Date(now.getTime() + ORGANIZATION_INVITATION_VALIDITY_DAYS * 24 * 60 * 60 * 1000);
       const [createdInvitation] = await transaction.insert(invitation).values({ organizationId, email, role: input.role, status: AUTH_INVITATION_STATUS.pending, expiresAt, inviterId: actorUserId }).returning({ id: invitation.id });
       await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.invitationCreated, entityType: PLATFORM_AUDIT_ENTITY_TYPE.invitation, entityId: createdInvitation.id, correlationId, afterState: { role: input.role, status: AUTH_INVITATION_STATUS.pending, expiresAt: expiresAt.toISOString(), createdByPlatformAdmin: true } });
-      return { invitationId: createdInvitation.id, organizationName: selectedOrganization.name };
+      return { invitationId: createdInvitation.id, organizationId, organizationName: selectedOrganization.name };
     });
     if (result === 'not_found' || result === 'already_invited') return result;
     return { ...result, email };

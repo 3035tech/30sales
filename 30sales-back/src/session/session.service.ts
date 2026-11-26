@@ -10,10 +10,12 @@ import { SessionRepository } from './session.repository';
 export class SessionService {
   constructor(private readonly repository: SessionRepository) {}
 
-  async getInvitationPreview(invitationId: string): Promise<InvitationPreviewDto> {
-    const invitation = await this.repository.findActiveInvitationPreview(invitationId);
+  async getInvitationPreview(invitationId: string, organizationId?: string): Promise<InvitationPreviewDto> {
+    const invitation = await this.repository.findActiveInvitationPreview(invitationId, organizationId);
     if (!invitation?.role) throw new NotFoundException({ code: 'INVITATION_UNAVAILABLE', message: 'Invitation is unavailable.' });
-    return new InvitationPreviewDto(invitation.id, invitation.email, invitation.role, { name: invitation.organizationName });
+    const separator = invitation.email.lastIndexOf('@');
+    const emailHint = separator > 0 ? `${invitation.email.slice(0, 1)}***${invitation.email.slice(separator)}` : '***';
+    return new InvitationPreviewDto(invitation.id, emailHint, invitation.role, { name: invitation.organizationName });
   }
 
   async getCurrent(request: ApiRequestDto): Promise<SessionResponseDto> {

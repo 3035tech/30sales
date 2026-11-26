@@ -84,9 +84,10 @@ export const authApi = {
     },
     signUpEmail: (input: { name: string; email: string; password: string; callbackURL?: string }) => authClient.signUp.email(input),
     getSession: () => authClient.getSession(),
-    async getInvitation(id: string): Promise<{ data: InvitationDto | null; error: { message: string } | null }> {
+    async getInvitation(id: string, organizationId?: string): Promise<{ data: InvitationDto | null; error: { message: string } | null }> {
       try {
-        const result = await request(`/api/v1/invitations/${encodeURIComponent(id)}/preview`, invitationSchema);
+        const organizationQuery = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : '';
+        const result = await request(`/api/v1/invitations/${encodeURIComponent(id)}/preview${organizationQuery}`, invitationSchema);
         return { data: result, error: null };
       } catch (error) {
         return { data: null, error: { message: error instanceof Error ? error.message : 'Invitation is unavailable.' } };

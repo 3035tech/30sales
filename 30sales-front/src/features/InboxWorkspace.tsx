@@ -305,7 +305,7 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
   </div>
 }
 
-export function InboxWorkspace({ initialSearch = '', initialConversationId = '' }: { initialSearch?: string; initialConversationId?: string }) {
+export function InboxWorkspace({ initialSearch = '', initialConversationId = '', onConversationRead }: { initialSearch?: string; initialConversationId?: string; onConversationRead?: () => void }) {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
@@ -450,6 +450,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const refreshRef = useRef<(quiet?: boolean) => Promise<void>>(async () => {})
   const selectedIdRef = useRef(selectedId)
   selectedIdRef.current = selectedId
+  const unreadOnlyRef = useRef(unreadOnly)
+  unreadOnlyRef.current = unreadOnly
+  const onConversationReadRef = useRef(onConversationRead)
+  onConversationReadRef.current = onConversationRead
   messageDraftLiveRef.current = messageDraft
 
   useEffect(() => {
@@ -476,15 +480,27 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     }
   }, [])
 
+  const refreshAfterConversationRead = (conversationId: string) => {
+    if (selectedIdRef.current === conversationId && unreadOnlyRef.current) skipUnreadAutoSelect.current = true
+    void refreshRef.current(true)
+    onConversationReadRef.current?.()
+  }
+
   useEffect(() => {
     if (messagesConversationId !== selectedId || messages.length === 0) return
     const container = messagesContainerRef.current
     if (!container) return
-    const firstUnreadMessageId = conversations.find((conversation) => conversation.id === selectedId)?.firstUnreadMessageId
-    const firstUnreadMessage = firstUnreadMessageId ? container.querySelector<HTMLElement>(`[data-message-id="${firstUnreadMessageId}"]`) : null
-    if (firstUnreadMessage) container.scrollTop += firstUnreadMessage.getBoundingClientRect().top - container.getBoundingClientRect().top
-    else container.scrollTop = container.scrollHeight
-    window.requestAnimationFrame(() => markVisibleMessagesRead())
+    container.scrollTop = container.scrollHeight
+    const frame = window.requestAnimationFrame(() => {
+      if (messageSearch) {
+        markVisibleMessagesRead()
+        return
+      }
+      api.inbox.markRead(selectedId, null).then(() => {
+        refreshAfterConversationRead(selectedId)
+      }).catch(() => {})
+    })
+    return () => window.cancelAnimationFrame(frame)
   }, [messagesConversationId, selectedId])
 
   const refresh = useCallback(async (quiet = false) => {
@@ -656,8 +672,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     if (readCursorKey.current === cursor) return
     readCursorKey.current = cursor
     api.inbox.markRead(selectedId, lastVisible).then(() => {
-      if (selectedIdRef.current === selectedId && unreadOnly) skipUnreadAutoSelect.current = true
-      void refreshRef.current(true)
+      refreshAfterConversationRead(selectedId)
     }).catch(() => { readCursorKey.current = '' })
   }
   useEffect(() => {

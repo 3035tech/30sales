@@ -136,6 +136,7 @@ export default function App() {
   const [notifications, setNotifications] = useState<UserNotificationDto[]>([])
   const [notificationToast, setNotificationToast] = useState<UserNotificationDto | null>(null)
   const [unreadNotificationCount, setUnreadNotificationCount] = useState(0)
+  const [unreadConversationCount, setUnreadConversationCount] = useState(0)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [notificationsError, setNotificationsError] = useState(false)
   const [notificationsActionError, setNotificationsActionError] = useState(false)
@@ -146,10 +147,12 @@ export default function App() {
   const notificationsLoadedRef = useRef(false)
   const notificationIdsRef = useRef<Set<string>>(new Set())
   const notificationRefreshRevision = useRef(0)
+  const unreadConversationRefreshRevision = useRef(0)
   const notificationScopeRevision = useRef(0)
   const notificationRequestId = useRef(0)
   const notificationRequestsInFlight = useRef(new Map<string, number>())
   const requestNotificationRefreshRef = useRef<() => void>(() => {})
+  const requestUnreadConversationRefreshRef = useRef<() => void>(() => {})
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [navigationCollapsed, setNavigationCollapsed] = useState(() => window.localStorage.getItem('30sales-navigation-collapsed') === 'true')
   const [expandedNavigationGroups, setExpandedNavigationGroups] = useState<Set<NavigationGroup>>(() => {
@@ -186,12 +189,14 @@ export default function App() {
   const clearNotificationScope = () => {
     notificationScopeRevision.current += 1
     notificationRefreshRevision.current += 1
+    unreadConversationRefreshRevision.current += 1
     notificationRequestsInFlight.current.clear()
     notificationsLoadedRef.current = false
     notificationIdsRef.current = new Set()
     setNotifications([])
     setNotificationToast(null)
     setUnreadNotificationCount(0)
+    setUnreadConversationCount(0)
     setNotificationsOpen(false)
     setNotificationsError(false)
     setNotificationsActionError(false)
@@ -264,9 +269,18 @@ export default function App() {
   useEffect(() => {
     if (!current?.activeOrganizationId) return
     let active = true
+    const refreshUnreadConversations = () => {
+      const revision = ++unreadConversationRefreshRevision.current
+      api.inbox.conversations({ unreadOnly: true, limit: 1 }).then((page) => {
+        if (active && revision === unreadConversationRefreshRevision.current) setUnreadConversationCount(page.pagination.total)
+      }).catch(() => {})
+    }
+    requestUnreadConversationRefreshRef.current = refreshUnreadConversations
     const refresh = () => {
       const organizationId = current.activeOrganizationId
-      if (!organizationId || document.visibilityState !== 'visible' || notificationRequestsInFlight.current.has(organizationId)) return
+      if (!organizationId || document.visibilityState !== 'visible') return
+      refreshUnreadConversations()
+      if (notificationRequestsInFlight.current.has(organizationId)) return
       const requestId = ++notificationRequestId.current
       notificationRequestsInFlight.current.set(organizationId, requestId)
       const revision = ++notificationRefreshRevision.current
@@ -289,7 +303,7 @@ export default function App() {
     refresh()
     const interval = window.setInterval(refresh, 30_000)
     document.addEventListener('visibilitychange', refresh)
-    return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); requestNotificationRefreshRef.current = () => {} }
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener('visibilitychange', refresh); requestNotificationRefreshRef.current = () => {}; requestUnreadConversationRefreshRef.current = () => {} }
   }, [current?.activeOrganizationId])
 
   useEffect(() => {
@@ -449,7 +463,7 @@ export default function App() {
         {navigationPageGroups.customers.some(canViewPage) && <div className="nav-group" role="group" aria-label={t('common.navGroups.customers')}>
           <Button className={`nav-group-toggle ${navigationGroupForPage(page) === 'customers' ? 'current' : ''}`} data-compact-label="C" title={t('common.navGroups.customers')} aria-expanded={expandedNavigationGroups.has('customers')} aria-controls="nav-group-customers" onClick={(event) => { event.stopPropagation(); toggleNavigationGroup('customers') }}><span>{t('common.navGroups.customers')}</span><ChevronDown size={15} aria-hidden="true" /></Button>
           <div className="nav-group-links" id="nav-group-customers" hidden={!expandedNavigationGroups.has('customers')}>
-            {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length > 0 && <span className="nav-count">{notifications.filter((notification) => notification.notificationType === USER_NOTIFICATION_TYPE.inboxNewMessage || notification.notificationType === USER_NOTIFICATION_TYPE.conversationAssigned).length}</span>}</Button>}
+            {canViewPage('inbox') && <Button className={`nav ${page === 'inbox' ? 'active' : ''}`} aria-current={page === 'inbox' ? 'page' : undefined} aria-label={unreadConversationCount > 0 ? `${t('common.inboxNav')}, ${t('common.unreadConversations', { count: unreadConversationCount })}` : undefined} onClick={() => navigateToPage('inbox')}><MessageSquareText size={18} />{t('common.inboxNav')}{unreadConversationCount > 0 && <span className="nav-count" aria-hidden="true">{unreadConversationCount > 99 ? '99+' : unreadConversationCount}</span>}</Button>}
             {canViewPage('leads') && <Button className={`nav ${page === 'leads' ? 'active' : ''}`} aria-current={page === 'leads' ? 'page' : undefined} onClick={() => navigateToPage('leads')}><Users size={18} />{t('common.leadsNav')}</Button>}
             {canViewPage('accounts') && <Button className={`nav ${page === 'accounts' ? 'active' : ''}`} aria-current={page === 'accounts' ? 'page' : undefined} onClick={() => navigateToPage('accounts')}><Building2 size={18} />{t('common.accountsNav')}</Button>}
           </div>
@@ -538,7 +552,7 @@ export default function App() {
           : page === 'closerQueue' ? <CloserQueueWorkspace userId={current.user.id} onOpenPipeline={() => navigateToPage('pipeline')} onOpenInbox={(conversationId) => navigateToPage('inbox', { conversationId })} onOpenTask={(taskId) => navigateToPage('tasks', { taskId })} />
           : page === 'channels' ? <ChannelsWorkspace />
           : page === 'assistant' ? <AssistantSettingsWorkspace />
-          : page === 'inbox' ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} />
+          : page === 'inbox' ? <InboxWorkspace initialSearch={inboxSearchSeed} initialConversationId={inboxConversationSeed} onConversationRead={() => requestUnreadConversationRefreshRef.current()} />
           : page === 'leads' ? <LeadsWorkspace initialSearch={leadSearchSeed} onOpenInbox={(conversationId) => navigateToPage('inbox', { businessLineId: null, conversationId })} />
           : page === 'accounts' ? <AccountsWorkspace onOpenLeads={(name) => navigateToPage('leads', { search: name })} canManageSegments={canManageSegments} canUpdateProfile={canUpdateAccountProfile} />
             : page === 'tasks' ? <TasksWorkspace />

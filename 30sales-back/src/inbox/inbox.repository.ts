@@ -537,13 +537,21 @@ export class InboxRepository {
   async markRead(input: ConversationReadDto): Promise<ConversationReadResultDto | 'not_found' | 'invalid_message'> {
     return database.transaction(async (transaction) => {
       if (!await this.canAccessConversationLineInTransaction(transaction, input.organizationId, input.conversationId, input.userId, input.isPlatformOrganizationContext)) return 'not_found';
-      if (!input.lastInboundMessageId) {
-        const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
-          .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
-        return new ConversationReadResultDto(input.conversationId, current?.lastReadAt?.toISOString() ?? null);
+      let lastInboundMessageId = input.lastInboundMessageId;
+      if (!lastInboundMessageId) {
+        // A null cursor marks the conversation through its latest inbound message.
+        const [latestInbound] = await transaction.select({ id: messages.id }).from(messages)
+          .where(and(eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound')))
+          .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
+        lastInboundMessageId = latestInbound?.id ?? null;
+        if (!lastInboundMessageId) {
+          const [current] = await transaction.select({ lastReadAt: conversationReads.lastReadAt }).from(conversationReads)
+            .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).limit(1);
+          return new ConversationReadResultDto(input.conversationId, current?.lastReadAt?.toISOString() ?? null);
+        }
       }
       const [message] = await transaction.select({ createdAt: messages.createdAt }).from(messages)
-        .where(and(eq(messages.id, input.lastInboundMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound'))).limit(1);
+        .where(and(eq(messages.id, lastInboundMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId), eq(messages.direction, 'inbound'))).limit(1);
       if (!message) return 'invalid_message';
       const [current] = await transaction.select({ id: conversationReads.id, lastReadAt: conversationReads.lastReadAt, lastReadMessageId: conversationReads.lastReadMessageId }).from(conversationReads)
         .where(and(eq(conversationReads.organizationId, input.organizationId), eq(conversationReads.conversationId, input.conversationId), eq(conversationReads.userId, input.userId))).for('update').limit(1);
@@ -551,18 +559,18 @@ export class InboxRepository {
       if (current?.lastReadMessageId) {
         const [currentMessage] = await transaction.select({ createdAt: messages.createdAt }).from(messages)
           .where(and(eq(messages.id, current.lastReadMessageId), eq(messages.organizationId, input.organizationId), eq(messages.conversationId, input.conversationId))).limit(1);
-        if (currentMessage && (currentMessage.createdAt > lastReadAt || (currentMessage.createdAt.getTime() === lastReadAt.getTime() && current.lastReadMessageId >= input.lastInboundMessageId))) {
+        if (currentMessage && (currentMessage.createdAt > lastReadAt || (currentMessage.createdAt.getTime() === lastReadAt.getTime() && current.lastReadMessageId >= lastInboundMessageId))) {
           return new ConversationReadResultDto(input.conversationId, current.lastReadAt?.toISOString() ?? currentMessage.createdAt.toISOString());
         }
       } else if (current?.lastReadAt && current.lastReadAt > lastReadAt) {
         return new ConversationReadResultDto(input.conversationId, current.lastReadAt.toISOString());
       }
       if (current) {
-        await transaction.update(conversationReads).set({ lastReadAt, lastReadMessageId: input.lastInboundMessageId, updatedAt: new Date() }).where(and(eq(conversationReads.id, current.id), eq(conversationReads.organizationId, input.organizationId)));
+        await transaction.update(conversationReads).set({ lastReadAt, lastReadMessageId: lastInboundMessageId, updatedAt: new Date() }).where(and(eq(conversationReads.id, current.id), eq(conversationReads.organizationId, input.organizationId)));
       } else {
-        await transaction.insert(conversationReads).values({ organizationId: input.organizationId, conversationId: input.conversationId, userId: input.userId, lastReadAt, lastReadMessageId: input.lastInboundMessageId });
+        await transaction.insert(conversationReads).values({ organizationId: input.organizationId, conversationId: input.conversationId, userId: input.userId, lastReadAt, lastReadMessageId: lastInboundMessageId });
       }
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'conversation.marked_read', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { lastReadAt: lastReadAt.toISOString(), lastInboundMessageId: input.lastInboundMessageId } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'conversation.marked_read', entityType: 'conversation', entityId: input.conversationId, correlationId: input.correlationId, afterState: { lastReadAt: lastReadAt.toISOString(), lastInboundMessageId } });
       return new ConversationReadResultDto(input.conversationId, lastReadAt.toISOString());
     });
   }

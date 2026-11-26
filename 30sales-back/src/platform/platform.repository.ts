@@ -76,7 +76,7 @@ export class PlatformRepository {
       .where(and(gte(assistantRuns.startedAt, from), lt(assistantRuns.startedAt, toExclusive)))
       .groupBy(organization.id, organization.name, organization.slug, runOperation, assistantRuns.modelKey);
 
-    const auditModel = sql<string>`coalesce(${auditEvents.afterState}->>'model', ${PLATFORM_AI_USAGE.unknownModel})`;
+    const auditModel = sql<string | null>`${auditEvents.afterState}->>'model'`;
     const inputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageInputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageInputTokens')::bigint else 0 end), 0)::bigint`.mapWith(Number);
     const outputTokens = sql<number>`coalesce(sum(case when ${auditEvents.afterState}->>'usageOutputTokens' ~ ${PLATFORM_AI_USAGE.jsonIntegerPattern} then (${auditEvents.afterState}->>'usageOutputTokens')::bigint else 0 end), 0)::bigint`.mapWith(Number);
     const estimatedCost = sql<string | null>`sum(case when ${auditEvents.afterState}->>'estimatedCostUsd' ~ ${PLATFORM_AI_USAGE.jsonDecimalPattern} then (${auditEvents.afterState}->>'estimatedCostUsd')::numeric else null end)::text`;
@@ -100,7 +100,7 @@ export class PlatformRepository {
       ...automated.map((row) => new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, row.operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount))),
       ...audited.map((row) => {
         const operation = Object.values(PLATFORM_AI_USAGE_AUDIT_OPERATIONS).find((candidate) => candidate.action === row.action)?.operation ?? PLATFORM_AI_USAGE_AUDIT_OPERATIONS.qualificationSuggestions.operation;
-        return new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, operation, row.model, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount));
+        return new PlatformAiUsagePointDto(row.organizationId, row.organizationName, row.organizationSlug, operation, row.model ?? PLATFORM_AI_USAGE.unknownModel, row.requestCount, Number(row.inputTokens), Number(row.outputTokens), row.estimatedCostUsd, Number(row.unpricedRequestCount));
       }),
     ];
   }

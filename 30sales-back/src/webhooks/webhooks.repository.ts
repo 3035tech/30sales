@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { requestContext } from '../common/request-context';
-import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, jobs, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
+import { agentSettings, assistantProfiles, auditEvents, businessLineMembers, businessLines, closerEventSlaPolicies, closerEvents, conversationGroupParticipants, conversations, evolutionGroupMetadata, evolutionHistoryBatches, externalRecords, handoffs, inboxEvents, jobs, leadContacts, leads, messageAttachments, messages, messagingChannels, opportunities, outboxEvents, people, userNotifications, type JsonValue } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import type { WebhookChannelDto } from './webhooks.dto';
 import { EvolutionChatStateDto, EvolutionContactUpdateDto, EvolutionGroupMetadataDto, EvolutionGroupParticipantsUpdateDto, EvolutionHistoryBatchDto, EvolutionMessageMutationDto, EvolutionMessageStatusReviewEventDto, IncomingWhatsappMessageDto, InterpretationFailureSignalDto, ProviderWebhookEventDto, WhatsappMessageStatusDto, type EvolutionPollResults } from './webhooks.dto';
@@ -15,6 +15,11 @@ import { applyPendingEvolutionMessageStatuses } from './pending-message-statuses
 
 type WebhooksTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
 type OutboundMessageStatusTarget = { id: string; conversationId: string; deliveryState: string; ownerUserId: string | null; businessLineId: string | null };
+
+function readableEvolutionGroupName(value: string | null | undefined): string | null {
+  const name = value?.trim();
+  return name && !name.endsWith('@g.us') ? name : null;
+}
 
 function withRequestCorrelation(payload: { [key: string]: import('../db/schema').JsonValue }): { [key: string]: import('../db/schema').JsonValue } {
   const correlationId = requestContext.getStore()?.correlationId;
@@ -164,15 +169,30 @@ export class WebhooksRepository {
       if (!channel) return 'duplicate';
       const lockKey = `${input.organizationId}:${input.channelId}:${input.externalConversationId}`;
       await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
-      let [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+      let [conversation] = await transaction.select({ id: conversations.id, displayName: conversations.displayName }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
 
+      let cachedGroupName: string | null = null;
+      if (input.conversationType === 'group') {
+        const [metadata] = await transaction.select({ displayName: evolutionGroupMetadata.displayName }).from(evolutionGroupMetadata)
+          .where(and(eq(evolutionGroupMetadata.organizationId, input.organizationId), eq(evolutionGroupMetadata.channelId, input.channelId), eq(evolutionGroupMetadata.groupJid, input.externalConversationId))).limit(1);
+        cachedGroupName = metadata?.displayName ?? null;
+        const incomingGroupName = readableEvolutionGroupName(input.displayName);
+        if (incomingGroupName && input.providerRecipientId) {
+          await transaction.insert(evolutionGroupMetadata).values({ organizationId: input.organizationId, channelId: input.channelId, groupJid: input.providerRecipientId, displayName: incomingGroupName, updatedAt: new Date() })
+            .onConflictDoUpdate({ target: [evolutionGroupMetadata.organizationId, evolutionGroupMetadata.channelId, evolutionGroupMetadata.groupJid], set: { displayName: incomingGroupName, updatedAt: new Date() } });
+          cachedGroupName = incomingGroupName;
+        }
+      }
+      const groupDisplayName = input.conversationType === 'group'
+        ? readableEvolutionGroupName(input.displayName) ?? cachedGroupName ?? readableEvolutionGroupName(conversation?.displayName) ?? input.displayName
+        : null;
       if (!conversation && input.conversationType === 'group') {
         [conversation] = await transaction.insert(conversations).values({
           organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
-          channelId: input.channelId, conversationType: 'group', displayName: input.displayName,
+          channelId: input.channelId, conversationType: 'group', displayName: groupDisplayName,
           providerRecipientId: input.providerRecipientId, status: 'open', automationMode: 'paused', lastMessageAt: input.occurredAt,
-        }).returning({ id: conversations.id });
+        }).returning({ id: conversations.id, displayName: conversations.displayName });
       }
 
       if (!conversation && input.conversationType === 'direct' && input.senderPhone) {
@@ -186,8 +206,8 @@ export class WebhooksRepository {
         if (person) [conversation] = await transaction.insert(conversations).values({
           organizationId: input.organizationId, provider: 'evolution', externalConversationId: input.externalConversationId,
           channelId: input.channelId, personId: person.id, status: 'open', automationMode: 'human', lastMessageAt: input.occurredAt,
-        }).onConflictDoNothing({ target: [conversations.organizationId, conversations.provider, conversations.externalConversationId] }).returning({ id: conversations.id });
-        if (!conversation) [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        }).onConflictDoNothing({ target: [conversations.organizationId, conversations.provider, conversations.externalConversationId] }).returning({ id: conversations.id, displayName: conversations.displayName });
+        if (!conversation) [conversation] = await transaction.select({ id: conversations.id, displayName: conversations.displayName }).from(conversations)
           .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
       }
       if (!conversation) return 'duplicate';
@@ -300,7 +320,7 @@ export class WebhooksRepository {
     });
   }
 
-  async recordEvolutionGroupMetadata(input: EvolutionGroupMetadataDto): Promise<'updated' | 'unmatched' | 'duplicate'> {
+  async recordEvolutionGroupMetadata(input: EvolutionGroupMetadataDto): Promise<'updated' | 'duplicate'> {
     return database.transaction(async (transaction) => {
       const [event] = await transaction.insert(inboxEvents).values({
         organizationId: input.organizationId, provider: 'evolution', externalEventId: input.externalEventId,
@@ -309,9 +329,11 @@ export class WebhooksRepository {
         status: 'processed', attempts: '1', processedAt: new Date(),
       }).onConflictDoNothing({ target: [inboxEvents.organizationId, inboxEvents.provider, inboxEvents.externalEventId] }).returning({ id: inboxEvents.id });
       if (!event) return 'duplicate';
+      await transaction.insert(evolutionGroupMetadata).values({ organizationId: input.organizationId, channelId: input.channelId, groupJid: input.providerRecipientId, displayName: input.displayName, updatedAt: new Date() })
+        .onConflictDoUpdate({ target: [evolutionGroupMetadata.organizationId, evolutionGroupMetadata.channelId, evolutionGroupMetadata.groupJid], set: { displayName: input.displayName, updatedAt: new Date() } });
       const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)
         .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.conversationType, 'group'), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
-      if (!conversation) return 'unmatched';
+      if (!conversation) return 'updated';
       await transaction.update(conversations).set({ displayName: input.displayName, providerRecipientId: input.providerRecipientId, updatedAt: new Date() })
         .where(and(eq(conversations.id, conversation.id), eq(conversations.organizationId, input.organizationId)));
       await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
@@ -578,14 +600,22 @@ export class WebhooksRepository {
       if (input.conversationType === 'group') {
         const lockKey = `${input.organizationId}:${input.channelId}:${input.externalConversationId}`;
         await transaction.execute(sql`select pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
-        let [groupConversation] = await transaction.select({ id: conversations.id }).from(conversations)
+        let [groupConversation] = await transaction.select({ id: conversations.id, displayName: conversations.displayName }).from(conversations)
           .where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.provider, input.provider), eq(conversations.channelId, input.channelId), eq(conversations.externalConversationId, input.externalConversationId))).for('update').limit(1);
+        const [metadata] = await transaction.select({ displayName: evolutionGroupMetadata.displayName }).from(evolutionGroupMetadata)
+          .where(and(eq(evolutionGroupMetadata.organizationId, input.organizationId), eq(evolutionGroupMetadata.channelId, input.channelId), eq(evolutionGroupMetadata.groupJid, input.externalConversationId))).limit(1);
+        const incomingGroupName = readableEvolutionGroupName(input.displayName);
+        const groupDisplayName = incomingGroupName ?? metadata?.displayName ?? readableEvolutionGroupName(groupConversation?.displayName) ?? input.displayName;
+        if (incomingGroupName && input.providerRecipientId) {
+          await transaction.insert(evolutionGroupMetadata).values({ organizationId: input.organizationId, channelId: input.channelId, groupJid: input.providerRecipientId, displayName: incomingGroupName, updatedAt: new Date() })
+            .onConflictDoUpdate({ target: [evolutionGroupMetadata.organizationId, evolutionGroupMetadata.channelId, evolutionGroupMetadata.groupJid], set: { displayName: incomingGroupName, updatedAt: new Date() } });
+        }
         if (!groupConversation) {
           [groupConversation] = await transaction.insert(conversations).values({
             organizationId: input.organizationId, provider: input.provider, externalConversationId: input.externalConversationId,
-            channelId: input.channelId, conversationType: 'group', displayName: input.displayName, providerRecipientId: input.providerRecipientId,
+            channelId: input.channelId, conversationType: 'group', displayName: groupDisplayName, providerRecipientId: input.providerRecipientId,
             status: 'open', automationMode: 'paused', lastMessageAt: input.occurredAt,
-          }).returning({ id: conversations.id });
+          }).returning({ id: conversations.id, displayName: conversations.displayName });
         }
         const [groupMessage] = await transaction.insert(messages).values({
           organizationId: input.organizationId, conversationId: groupConversation.id, externalMessageId: input.externalMessageId,
@@ -600,7 +630,7 @@ export class WebhooksRepository {
           sourceIv: input.media.sourceIv, sourceAuthTag: input.media.sourceAuthTag, mimeType: input.media.mimeType,
           fileName: input.media.fileName, sizeBytes: input.media.sizeBytes, sha256: input.media.sha256,
         });
-        await transaction.update(conversations).set({ status: 'open', displayName: input.displayName, providerRecipientId: input.providerRecipientId,
+        await transaction.update(conversations).set({ status: 'open', displayName: groupDisplayName, providerRecipientId: input.providerRecipientId,
           lastMessageAt: sql`greatest(coalesce(${conversations.lastMessageAt}, ${input.occurredAt}), ${input.occurredAt})`, updatedAt: new Date() })
           .where(and(eq(conversations.id, groupConversation.id), eq(conversations.organizationId, input.organizationId)));
         await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: groupConversation.id, occurredAt: input.occurredAt.toISOString() })})`);

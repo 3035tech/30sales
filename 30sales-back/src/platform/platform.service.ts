@@ -6,7 +6,7 @@ import { toWebHeaders } from '../common/http-headers';
 import { sendInvitationEmail } from '../email/templates';
 import { env } from '../config/env';
 import { PLATFORM_AI_USAGE } from './platform.constants';
-import { PlatformAiUsageDto, PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationInvitationResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto } from './platform.dto';
+import { PlatformAiUsageDto, PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformContextDto, PlatformEvolutionConnectionCheckDto, PlatformInvitationCancellationDto, PlatformOrganizationAccessResultDto, PlatformOrganizationCreateResultDto, PlatformOrganizationInvitationResultDto, PlatformOrganizationListDto, type CheckPlatformEvolutionConnectionDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto } from './platform.dto';
 import { PlatformRepository } from './platform.repository';
 import { ChannelCredentialCryptoService } from '../channels/channel-credential-crypto.service';
 import { PlatformEvolutionConfigurationDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
@@ -135,6 +135,14 @@ export class PlatformService {
       emailSent = false;
     }
     return new PlatformOrganizationInvitationResultDto(result.email, emailSent);
+  }
+
+  async cancelOrganizationInvitation(request: ApiRequestDto, organizationId: string, invitationId: string): Promise<PlatformInvitationCancellationDto> {
+    const actor = await this.requireSuperAdmin(request);
+    const result = await this.repository.cancelOrganizationInvitation(organizationId, invitationId, actor.userId, request.correlationId);
+    if (result === 'not_found') throw new NotFoundException({ code: PLATFORM_ERROR_CODE.organizationNotFound });
+    if (result === 'not_pending') throw new ConflictException({ code: PLATFORM_ERROR_CODE.invitationNotPending });
+    return result;
   }
 
   async createOrganization(request: ApiRequestDto, input: CreatePlatformOrganizationDto): Promise<PlatformOrganizationCreateResultDto> {

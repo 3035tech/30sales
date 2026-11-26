@@ -2,7 +2,7 @@ import { createAuthClient } from 'better-auth/react';
 import { organizationClient } from 'better-auth/client/plugins';
 import { z } from 'zod';
 import { access, roles, type OrganizationRole } from '../../permissions';
-import { memberSchema, invitationSchema, platformOrganizationInvitationResultSchema, platformOrganizationInvitationResendSchema, platformOrganizationMembersSchema, teamInvitationSchema, type TeamMemberDto, type InvitationDto } from '../contracts';
+import { memberSchema, invitationSchema, platformInvitationCancellationSchema, platformOrganizationInvitationResultSchema, platformOrganizationInvitationResendSchema, platformOrganizationMembersSchema, teamInvitationSchema, type TeamMemberDto, type InvitationDto } from '../contracts';
 import { apiAuthFetch } from '../client';
 import { PLATFORM_ORGANIZATION_API_PATH, PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY } from '../../authorizationConstants';
 import { request } from '../request';
@@ -67,6 +67,18 @@ export const teamApi = {
       }
       const result = await authClient.organization.inviteMember({ organizationId: input.organizationId, email: input.email, role: input.role, resend: true });
       return { error: authError(result), emailSent: !result.error };
+    },
+    async cancelInvitation(input: { organizationId: string; id: string }): Promise<{ error: { message: string } | null }> {
+      if (sessionStorage.getItem(PLATFORM_ORGANIZATION_CONTEXT_STORAGE_KEY) === input.organizationId) {
+        try {
+          await request(`${PLATFORM_ORGANIZATION_API_PATH}/${encodeURIComponent(input.organizationId)}/invitations/${encodeURIComponent(input.id)}`, platformInvitationCancellationSchema, { method: 'DELETE' });
+          return { error: null };
+        } catch (error) {
+          return { error: { message: error instanceof Error ? error.message : 'The invitation could not be canceled.' } };
+        }
+      }
+      const result = await authClient.organization.cancelInvitation({ invitationId: input.id });
+      return { error: authError(result) };
     },
   };
 

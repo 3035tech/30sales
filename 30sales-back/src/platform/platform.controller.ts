@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Query } from '@nestjs/common';
 import { PLATFORM_API_PATH, PLATFORM_ORGANIZATION_API_PATH } from '../auth/authorization.constants';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
@@ -32,6 +32,10 @@ export class PlatformController {
   @Post(':organizationId/invitations/:invitationId/resend')
   resendOrganizationInvitation(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Param('invitationId', new ZodValidationPipe(platformOrganizationInvitationIdSchema)) invitationId: string) {
     return this.platformService.resendOrganizationInvitation(request, organizationId, invitationId);
+  }
+  @Delete(':organizationId/invitations/:invitationId')
+  cancelOrganizationInvitation(@ApiRequest() request: ApiRequestDto, @Param('organizationId', new ZodValidationPipe(platformOrganizationIdSchema)) organizationId: string, @Param('invitationId', new ZodValidationPipe(platformOrganizationInvitationIdSchema)) invitationId: string) {
+    return this.platformService.cancelOrganizationInvitation(request, organizationId, invitationId);
   }
   @Get('integrations/evolution')
   getEvolutionConfiguration(@ApiRequest() request: ApiRequestDto) { return this.platformService.getEvolutionConfiguration(request); }

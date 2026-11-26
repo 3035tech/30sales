@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, desc, eq, exists, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, businessLineMembers, businessLines, closerEvents, conversations, handoffs, leads, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
+import { accounts, businessLineMembers, businessLines, closerEvents, conversations, handoffs, leads, messages, messagingChannels, opportunities, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember } from '../db/auth-schema';
 import { MarkAllUserNotificationsReadDto, MarkUserNotificationReadDto, UserNotificationDto, UserNotificationsListDto, UserNotificationsPageDto, userNotificationTypeValues } from './notifications.dto';
 import { USER_NOTIFICATION_TYPE } from './notifications.constants';
@@ -52,9 +52,11 @@ export class NotificationsRepository {
       channelId: userNotifications.channelId,
       taskTitle: tasks.title,
       eventType: closerEvents.eventType,
-      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} in ('inbox_new_message', 'message_delivery_failed', 'media_download_failed') then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'conversation_assigned' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} = 'channel_disconnected' then coalesce(${messagingChannels.displayName}, '') else ${closerEvents.summary} end`,
+      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} in ('inbox_new_message', 'message_delivery_failed', 'media_download_failed', 'conversation_assigned') then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'channel_disconnected' then coalesce(${messagingChannels.displayName}, '') else ${closerEvents.summary} end`,
       accountName: accounts.name,
       contactName: people.name,
+      contactPhone: people.phone,
+      messagePreview: sql<string | null>`case when ${userNotifications.notificationType} = 'inbox_new_message' then (select nullif(left(trim(${messages.bodyText}), 180), '') from ${messages} where ${messages.organizationId} = ${userNotifications.organizationId} and ${messages.conversationId} = ${userNotifications.conversationId} and ${messages.direction} = 'inbound' and ${messages.createdAt} <= ${userNotifications.createdAt} order by ${messages.createdAt} desc, ${messages.id} desc limit 1) else null end`,
       dueAt: sql<Date | null>`coalesce(${closerEvents.dueAt}, ${tasks.dueAt})`,
       createdAt: userNotifications.createdAt,
     }).from(userNotifications)
@@ -83,7 +85,7 @@ export class NotificationsRepository {
     const data = rows.flatMap((row) => {
       const notificationType = userNotificationTypeValues.find((value) => value === row.notificationType);
       const dueAt = row.dueAt ? new Date(row.dueAt.toString()).toISOString() : null;
-      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId || row.channelId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.channelId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, dueAt, row.createdAt.toISOString())] : [];
+      return (row.conversationId || row.taskId || row.handoffId || row.opportunityId || row.channelId) && notificationType ? [new UserNotificationDto(row.id, notificationType, row.conversationId, row.taskId, row.handoffId, row.opportunityId, row.channelId, row.taskTitle, row.eventType, row.summary, row.accountName, row.contactName, row.contactPhone, row.messagePreview, dueAt, row.createdAt.toISOString())] : [];
     });
     return new UserNotificationsPageDto(data, count?.total ?? 0);
   }

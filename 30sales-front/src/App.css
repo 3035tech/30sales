@@ -104,11 +104,19 @@
 .team-page .team-invitations-heading{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .team-page .team-invitations-heading h4{margin:0}
 .team-page .team-invitation-count{display:inline-grid;min-width:22px;height:22px;place-items:center;padding:0 6px;border-radius:11px;background:#edf5f0;color:#426b53;font-size:var(--font-size-xs);font-weight:700}
-.team-page .team-invitation-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:12px;padding:14px 0}
+.team-page .team-invitation-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:12px;padding:14px 0}
 .team-page .team-invitation-row .member-person{min-width:0}
 .team-page .team-invitation-row .member-person strong{font-weight:650}
 .team-page .team-invitation-row .invitation-status{white-space:nowrap}
+.team-page .team-invitation-row .invitation-cancel,.team-page .team-invitation-row .invitation-cancel-confirm{min-height:34px;padding:6px 8px;border:1px solid #f2d7d7;border-radius:7px;background:#fff;color:#a33b3b;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:var(--font-size-xs)}
+.team-page .team-invitation-row .invitation-cancel:hover:not(:disabled),.team-page .team-invitation-row .invitation-cancel-confirm:hover:not(:disabled){background:#fff5f5}
 .team-page .invite-panel{align-self:start;min-height:190px;background:linear-gradient(145deg,#fff 0%,#f7fbf8 100%)}
 .team-page .invite-panel .primary{margin-top:4px}
 .team-page .refresh:hover{background:#f5faf7;color:#177850}
 @media(max-width:640px){.team-page .team-panel{padding:16px}.team-page .team-invitation-row{grid-template-columns:minmax(0,1fr) auto;gap:8px}.team-page .team-invitation-row .invitation-resend{grid-column:1/-1;justify-content:center}.team-page .team-invitation-row .member-person small{font-size:11px}.team-page .invite-panel{min-height:0}}
+.notification-message-preview{display:-webkit-box;overflow:hidden;color:#475569!important;text-overflow:ellipsis;white-space:normal;-webkit-box-orient:vertical;-webkit-line-clamp:2}
+.notification-toast{width:min(460px,calc(100vw - 32px))}
+.notification-toast>button:nth-child(2) small.notification-message-preview{display:-webkit-box;color:#475569;-webkit-box-orient:vertical;-webkit-line-clamp:2;white-space:normal}
+.notification-toast>.notification-toast-content{align-items:start;text-align:left}
+.notification-toast>.notification-toast-content strong{font-size:14px;line-height:1.25}
+.notification-toast>.notification-toast-content small.notification-toast-contact{color:#334155;font-weight:650}

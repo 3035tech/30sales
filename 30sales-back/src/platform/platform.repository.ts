@@ -5,7 +5,7 @@ import { assistantRuns, auditEvents, platformAuditEvents, platformEvolutionConfi
 import { invitation, member, organization, user } from '../db/auth-schema';
 import { AUDIT_ACTOR_TYPE, AUTH_INVITATION_STATUS, ORGANIZATION_INVITATION_VALIDITY_DAYS, ORGANIZATION_ROLE, PLATFORM_AUDIT_ACTION, PLATFORM_AUDIT_ENTITY_TYPE, PLATFORM_ORGANIZATION_SLUG_UNIQUE_VIOLATION, PLATFORM_ROLE } from '../auth/authorization.constants';
 import { PLATFORM_AI_USAGE_AUDIT_ACTIONS, PLATFORM_AI_USAGE_AUDIT_OPERATIONS, PLATFORM_AI_USAGE } from './platform.constants';
-import { PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformOrganizationListDto, PlatformOrganizationMembersDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
+import { PlatformAiUsagePointDto, PlatformAuditEventDto, PlatformEvolutionConfigurationDto, PlatformInvitationCancellationDto, PlatformOrganizationListDto, PlatformOrganizationMembersDto, PlatformOrganizationRecordDto, type CreatePlatformOrganizationDto, type CreatePlatformOrganizationInvitationDto, type ListPlatformOrganizationsQueryDto, type PlatformAiUsageQueryDto, type PlatformAuditQueryDto, type SavePlatformEvolutionConfigurationDto } from './platform.dto';
 
 type CreatedPlatformOrganization = { organization: PlatformOrganizationRecordDto; invitationId: string };
 
@@ -35,6 +35,18 @@ export class PlatformRepository {
       await transaction.update(invitation).set({ expiresAt }).where(and(eq(invitation.id, invitationId), eq(invitation.organizationId, organizationId)));
       await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.invitationResent, entityType: PLATFORM_AUDIT_ENTITY_TYPE.invitation, entityId: invitationId, correlationId, beforeState: { status: selectedInvitation.status, expiresAt: selectedInvitation.expiresAt.toISOString() }, afterState: { status: selectedInvitation.status, expiresAt: expiresAt.toISOString() } });
       return { email: selectedInvitation.email, organizationId, organizationName: selectedOrganization.name, invitationId };
+    });
+  }
+
+  async cancelOrganizationInvitation(organizationId: string, invitationId: string, actorUserId: string, correlationId: string | null): Promise<'not_found' | 'not_pending' | PlatformInvitationCancellationDto> {
+    return database.transaction(async (transaction) => {
+      const [selectedInvitation] = await transaction.select({ id: invitation.id, status: invitation.status }).from(invitation)
+        .where(and(eq(invitation.id, invitationId), eq(invitation.organizationId, organizationId))).for('update').limit(1);
+      if (!selectedInvitation) return 'not_found' as const;
+      if (selectedInvitation.status !== AUTH_INVITATION_STATUS.pending) return 'not_pending' as const;
+      await transaction.update(invitation).set({ status: 'canceled' }).where(and(eq(invitation.id, invitationId), eq(invitation.organizationId, organizationId)));
+      await transaction.insert(auditEvents).values({ organizationId, actorUserId, actorType: AUDIT_ACTOR_TYPE.user, action: PLATFORM_AUDIT_ACTION.invitationCancelled, entityType: PLATFORM_AUDIT_ENTITY_TYPE.invitation, entityId: invitationId, correlationId, beforeState: { status: AUTH_INVITATION_STATUS.pending }, afterState: { status: 'canceled' } });
+      return new PlatformInvitationCancellationDto(true);
     });
   }
 

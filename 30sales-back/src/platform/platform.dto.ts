@@ -14,6 +14,7 @@ export const platformOrganizationIdSchema = z.string().uuid();
 export const createPlatformOrganizationInvitationSchema = z.object({ email: z.string().trim().email().max(254), role: z.enum(PLATFORM_INVITABLE_ORGANIZATION_ROLES) }).strict();
 export type CreatePlatformOrganizationInvitationDto = z.infer<typeof createPlatformOrganizationInvitationSchema>;
 export const platformOrganizationInvitationIdSchema = z.string().uuid();
+export class PlatformInvitationCancellationDto { constructor(readonly success: true) {} }
 export const platformAuditQuerySchema = z.object({ limit: z.coerce.number().int().min(1).max(50).default(10), offset: z.coerce.number().int().min(0).default(0) }).strict();
 export const platformAiUsageQuerySchema = z.object({ from: z.string().date(), to: z.string().date(), limit: z.coerce.number().int().min(1).max(PLATFORM_AI_USAGE.maximumPageSize).default(PLATFORM_AI_USAGE.defaultPageSize), offset: z.coerce.number().int().min(PLATFORM_AI_USAGE.defaultPageOffset).default(PLATFORM_AI_USAGE.defaultPageOffset) }).strict().refine((query) => new Date(`${query.from}T00:00:00.000Z`).getTime() <= new Date(`${query.to}T00:00:00.000Z`).getTime(), { message: 'The start date must be before or equal to the end date.', path: ['from'] }).refine((query) => {
   const from = new Date(`${query.from}T00:00:00.000Z`);

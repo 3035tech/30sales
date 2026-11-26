@@ -643,6 +643,19 @@ export const conversationGroupParticipants = pgTable('conversation_group_partici
   check('conversation_group_participants_external_id_length_check', sql`length(${table.externalParticipantId}) between 1 and 250`),
 ]);
 
+export const evolutionGroupMetadata = pgTable('evolution_group_metadata', {
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  channelId: uuid('channel_id').notNull(),
+  groupJid: text('group_jid').notNull(),
+  displayName: text('display_name').notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'evolution_group_metadata_channel_tenant_fk', columns: [table.channelId, table.organizationId], foreignColumns: [messagingChannels.id, messagingChannels.organizationId] }).onDelete('cascade'),
+  primaryKey({ name: 'evolution_group_metadata_org_channel_jid_pk', columns: [table.organizationId, table.channelId, table.groupJid] }),
+  check('evolution_group_metadata_jid_length_check', sql`length(${table.groupJid}) between 1 and 250`),
+  check('evolution_group_metadata_display_name_length_check', sql`length(trim(${table.displayName})) between 1 and 160`),
+]);
+
 export const opportunityConversationContexts = pgTable('opportunity_conversation_contexts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),

@@ -46,7 +46,7 @@ function getGroupClass(message: { direction: string; occurredAt: string }, prev:
 
 function getGroupConversationName(displayName: string | null, fallback: string): string {
   const name = displayName?.trim()
-  return name && !name.includes('@') ? name : fallback
+  return name && !name.endsWith('@g.us') ? name : fallback
 }
 
 function InboxMessageBody({ text }: { text: string }) {
@@ -508,7 +508,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
       }
       api.inbox.markRead(selectedId, null).then(() => {
         refreshAfterConversationRead(selectedId)
-      }).catch(() => {})
+      }).catch(() => { setError(t('inbox.readFailed')) })
     })
     return () => window.cancelAnimationFrame(frame)
   }, [messagesConversationId, selectedId])
@@ -683,7 +683,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
     readCursorKey.current = cursor
     api.inbox.markRead(selectedId, lastVisible).then(() => {
       refreshAfterConversationRead(selectedId)
-    }).catch(() => { readCursorKey.current = '' })
+    }).catch(() => { readCursorKey.current = ''; setError(t('inbox.readFailed')) })
   }
   useEffect(() => {
     let active = true
@@ -748,7 +748,12 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
       else await api.inbox.setAutomationMode(selected.id, action === 'assistant' ? 'assistant' : 'paused')
       await refresh()
     } catch (caught) {
-      setError(caught instanceof ApiError && caught.code === 'ASSISTANT_AGENT_DISABLED' ? t('inbox.assistantNotEnabled') : t('inbox.controlFailed'))
+      if (caught instanceof ApiError && caught.status === 409) {
+        await refresh(true)
+        setError(t('inbox.controlConflict'))
+      } else {
+        setError(caught instanceof ApiError && caught.code === 'ASSISTANT_AGENT_DISABLED' ? t('inbox.assistantNotEnabled') : t('inbox.controlFailed'))
+      }
     } finally {
       setControlling(false)
     }
@@ -1182,7 +1187,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
         {loading && conversations.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : conversations.length === 0 ? error ? <WorkspaceState kind="error" compact message={error}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : <WorkspaceState kind="empty" compact message={hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')} detail={hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}>{hasConversationFilters && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}</WorkspaceState> : conversations.map((conversation) => {
           const label = conversation.conversationType === 'group' ? getGroupConversationName(conversation.displayName, t('inbox.groupConversation')) : conversation.personName ?? conversation.accountName ?? t('inbox.unknownContact')
           return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''} ${conversation.unread ? 'unread' : ''}`} onClick={() => { setSelectedId(conversation.id); if (window.matchMedia('(max-width: 760px)').matches) conversationThreadRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }) }} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><span className="inbox-conversation-topline"><strong>{label}</strong>{conversation.lastMessageAt && <time dateTime={conversation.lastMessageAt}>{new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' }).format(new Date(conversation.lastMessageAt))}</time>}</span><small>{conversation.conversationType === 'group' ? t('inbox.groupConversation') : conversation.personPhone ?? '—'}</small><span className="inbox-conversation-preview">{conversation.lastMessageDirection === 'outbound' && <span className={`inbox-list-ticks ${conversation.lastMessageDeliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${conversation.lastMessageDeliveryState ?? 'unknown'}`)}>{conversation.lastMessageDeliveryState === 'requested' ? <Clock3 size={13} /> : conversation.lastMessageDeliveryState === 'delivered' || conversation.lastMessageDeliveryState === 'read' ? <CheckCheck size={14} /> : <Check size={14} />}</span>}{conversation.lastMessagePreviewKind === 'encrypted_reaction' ? t('inbox.encryptedReactionPreview') : conversation.lastMessagePreview ?? (conversation.lastMessagePreviewKind === 'non_text' ? t('inbox.mediaPreview') : t('inbox.noMessagesYet'))}</span></span>{conversation.unread && <span className="inbox-unread-indicator" aria-label={t('inbox.unread')} />}
+            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><span className="inbox-conversation-topline"><strong>{label}</strong>{conversation.lastMessageAt && <time dateTime={conversation.lastMessageAt}>{new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' }).format(new Date(conversation.lastMessageAt))}</time>}</span><small>{conversation.conversationType === 'group' ? conversation.lastMessageAuthorName ?? conversation.lastMessageAuthorPhone ?? t('inbox.groupConversation') : conversation.personPhone ?? '—'}</small><span className="inbox-conversation-preview">{conversation.lastMessageDirection === 'outbound' && <span className={`inbox-list-ticks ${conversation.lastMessageDeliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${conversation.lastMessageDeliveryState ?? 'unknown'}`)}>{conversation.lastMessageDeliveryState === 'requested' ? <Clock3 size={13} /> : conversation.lastMessageDeliveryState === 'delivered' || conversation.lastMessageDeliveryState === 'read' ? <CheckCheck size={14} /> : <Check size={14} />}</span>}{conversation.lastMessagePreviewKind === 'encrypted_reaction' ? t('inbox.encryptedReactionPreview') : conversation.lastMessagePreview ?? (conversation.lastMessagePreviewKind === 'non_text' ? t('inbox.mediaPreview') : t('inbox.noMessagesYet'))}</span></span>{conversation.unread && <span className="inbox-unread-indicator" aria-label={t('inbox.unread')} />}
           </Button>
         })}
         </div>

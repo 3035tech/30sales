@@ -52,6 +52,7 @@ export const PLATFORM_AUDIT_ACTION = {
   organizationCreated: 'organization.created',
   invitationCreated: 'invitation.created',
   invitationResent: 'invitation.resent',
+  invitationCancelled: 'invitation.cancelled',
   organizationAccessed: 'organization.accessed',
   evolutionConfigurationUpdated: 'integration.evolution.configuration_updated',
 } as const;

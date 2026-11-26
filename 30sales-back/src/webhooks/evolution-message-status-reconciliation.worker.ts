@@ -25,12 +25,21 @@ export class EvolutionMessageStatusReconciliationWorker implements OnModuleInit,
     this.processing = true;
     try {
       const result = await this.repository.reconcilePendingEvolutionMessageStatuses();
-      if (result.reviewEvents.length > EVOLUTION_STATUS_RECONCILIATION.minimumResultCount) this.logger.warn(JSON.stringify({
+      const payloadErrors = result.reviewEvents.filter((e) => e.errorCode === EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode);
+      const unmatchedExhausted = result.reviewEvents.filter((e) => e.errorCode === EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode);
+      if (payloadErrors.length > EVOLUTION_STATUS_RECONCILIATION.minimumResultCount) this.logger.warn(JSON.stringify({
+        event: 'evolution_message_status_reconciliation',
+        outcome: 'payload_error',
+        reconciledCount: result.reconciled,
+        reviewEventCount: payloadErrors.length,
+        reviewEvents: payloadErrors,
+      }));
+      if (unmatchedExhausted.length > EVOLUTION_STATUS_RECONCILIATION.minimumResultCount) this.logger.debug(JSON.stringify({
         event: 'evolution_message_status_reconciliation',
         outcome: 'review_required',
         reconciledCount: result.reconciled,
-        reviewEventCount: result.reviewEvents.length,
-        reviewEvents: result.reviewEvents,
+        reviewEventCount: unmatchedExhausted.length,
+        reviewEvents: unmatchedExhausted,
       }));
     } catch {
       this.logger.error('Evolution message status reconciliation polling failed.');

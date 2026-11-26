@@ -13,7 +13,7 @@ export class MediaDownloadProvider {
     this.adapters = new Map<WebhookProvider, InboundMediaAdapter>([[evolution.provider, evolution], [metaCloud.provider, metaCloud]]);
   }
 
-  async download(input: { provider: WebhookProvider; providerChannelId: string; mediaId: string | null; sourcePayload: string; credentials: ChannelCredentialsDto; correlationId?: string }): Promise<MediaDownloadResult> {
+  async download(input: { provider: WebhookProvider; providerChannelId: string; mediaId: string | null; sourcePayload: string; credentials: ChannelCredentialsDto; correlationId?: string; mediaType?: string }): Promise<MediaDownloadResult> {
     const adapter = this.adapters.get(input.provider);
     if (!adapter || adapter.provider !== input.credentials.provider) throw new Error('MEDIA_SOURCE_INVALID');
     return adapter.download(input);

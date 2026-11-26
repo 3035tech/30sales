@@ -1,0 +1,2 @@
+ALTER TABLE "user_notifications" DROP CONSTRAINT "user_notifications_type_check";--> statement-breakpoint
+ALTER TABLE "user_notifications" ADD CONSTRAINT "user_notifications_type_check" CHECK ("user_notifications"."notification_type" in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned', 'channel_disconnected', 'message_delivery_failed', 'media_download_failed'));

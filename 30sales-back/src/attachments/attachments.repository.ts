@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { and, asc, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
-import { auditEvents, messageAttachments, messages, messagingChannels } from '../db/schema';
+import { auditEvents, conversations, messageAttachments, messages, messagingChannels, userNotifications } from '../db/schema';
+import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants.js';
 import { MediaAttachmentDownloadDto, MediaAttachmentWorkDto, RetryMediaAttachmentDto } from './attachments.dto';
 
 @Injectable()
@@ -45,11 +46,25 @@ export class AttachmentsRepository {
 
   async markFailed(input: MediaAttachmentWorkDto, errorCode: string, errorStage: string): Promise<void> {
     const terminal = input.attemptCount >= 5 || ['MEDIA_SIZE_LIMIT_EXCEEDED', 'MEDIA_CHECKSUM_MISMATCH', 'MEDIA_SOURCE_INVALID'].includes(errorCode);
+    const shouldNotify = terminal && !['MEDIA_SOURCE_INVALID', 'MEDIA_SIZE_LIMIT_EXCEEDED', 'MEDIA_CHECKSUM_MISMATCH'].includes(errorCode);
     const retryDelaySeconds = Math.min(300, 5 * 2 ** (input.attemptCount - 1));
     await database.transaction(async (transaction) => {
       await transaction.update(messageAttachments).set({ status: terminal ? 'failed' : 'pending', availableAt: new Date(Date.now() + retryDelaySeconds * 1000), lockedUntil: null, lastErrorCode: errorCode, lastErrorStage: errorStage, updatedAt: new Date() })
         .where(and(eq(messageAttachments.id, input.id), eq(messageAttachments.organizationId, input.organizationId), eq(messageAttachments.status, 'processing')));
       if (terminal) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: input.conversationId, occurredAt: new Date().toISOString() })})`);
+      if (shouldNotify) {
+        const [conversation] = await transaction.select({ ownerUserId: conversations.ownerUserId }).from(conversations)
+          .where(and(eq(conversations.id, input.conversationId), eq(conversations.organizationId, input.organizationId))).limit(1);
+        if (conversation?.ownerUserId) {
+          await transaction.insert(userNotifications).values({
+            organizationId: input.organizationId,
+            recipientUserId: conversation.ownerUserId,
+            conversationId: input.conversationId,
+            notificationType: USER_NOTIFICATION_TYPE.mediaDownloadFailed,
+            idempotencyKey: `media-download-failed:${input.id}`,
+          }).onConflictDoNothing({ target: [userNotifications.organizationId, userNotifications.recipientUserId, userNotifications.idempotencyKey] });
+        }
+      }
     });
   }
 

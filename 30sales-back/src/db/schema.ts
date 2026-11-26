@@ -893,7 +893,7 @@ export const userNotifications = pgTable('user_notifications', {
   unique('user_notifications_org_user_idempotency_unique').on(table.organizationId, table.recipientUserId, table.idempotencyKey),
   index('user_notifications_org_user_read_time_idx').on(table.organizationId, table.recipientUserId, table.readAt, table.createdAt),
   check('user_notifications_target_check', sql`num_nonnulls(${table.closerEventId}, ${table.conversationId}, ${table.taskId}, ${table.handoffId}, ${table.opportunityId}, ${table.channelId}) = 1`),
-  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned', 'channel_disconnected')`),
+  check('user_notifications_type_check', sql`${table.notificationType} in ('closer_event_sla_overdue', 'closer_event_sla_escalated', 'inbox_new_message', 'task_overdue', 'handoff_accepted', 'handoff_returned', 'conversation_assigned', 'opportunity_assigned', 'channel_disconnected', 'message_delivery_failed', 'media_download_failed')`),
 ]);
 
 export const inboxEvents = pgTable('inbox_events', {

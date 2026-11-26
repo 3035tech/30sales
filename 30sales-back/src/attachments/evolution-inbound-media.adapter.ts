@@ -12,12 +12,30 @@ const responseSchema = z.object({ base64: z.string(), mimetype: z.string().max(1
 type EvolutionResponseVariant = 'full_message' | 'message_key';
 type EvolutionResponseOutcome = 'accepted' | 'invalid' | 'rejected' | 'transport_error';
 
+const CIRCUIT_OPEN_THRESHOLD = 3;
+const CIRCUIT_OPEN_DURATION_MS = 5 * 60_000;
+const VIDEO_DOWNLOAD_TIMEOUT_MS = 45_000;
+const DEFAULT_DOWNLOAD_TIMEOUT_MS = 20_000;
+
 @Injectable()
 export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
   readonly provider = 'evolution' as const;
   private readonly logger = new Logger(EvolutionInboundMediaAdapter.name);
+  private readonly circuitBreakers = new Map<string, { transportErrors: number; openUntil: number | null }>();
+
+  private getCircuit(providerChannelId: string): { transportErrors: number; openUntil: number | null } {
+    let circuit = this.circuitBreakers.get(providerChannelId);
+    if (!circuit) { circuit = { transportErrors: 0, openUntil: null }; this.circuitBreakers.set(providerChannelId, circuit); }
+    return circuit;
+  }
 
   async download(input: InboundMediaAdapterInput): Promise<MediaDownloadResult> {
+    const circuit = this.getCircuit(input.providerChannelId);
+    if (circuit.openUntil !== null) {
+      if (Date.now() < circuit.openUntil) throw new Error('MEDIA_PROVIDER_UNAVAILABLE');
+      circuit.openUntil = null;
+      circuit.transportErrors = 0;
+    }
     const credentials = this.credentials(input.credentials);
     const source = sourceSchema.safeParse(JSON.parse(input.sourcePayload) as unknown);
     if (!source.success) throw new Error('MEDIA_SOURCE_INVALID');
@@ -30,11 +48,12 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     let parsedMedia: z.infer<typeof responseSchema> | null = null;
     let providerResponded = false;
     let providerRejected = false;
+    const timeoutMs = input.mediaType === 'video' ? VIDEO_DOWNLOAD_TIMEOUT_MS : DEFAULT_DOWNLOAD_TIMEOUT_MS;
     for (const [index, payload] of payloads.entries()) {
       const requestVariant: EvolutionResponseVariant = index === 0 ? 'full_message' : 'message_key';
       try {
         const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
-          body: JSON.stringify(payload), signal: AbortSignal.timeout(20_000), redirect: 'error' });
+          body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
         providerResponded = true;
         const contentType = this.safeContentType(response.headers.get('content-type'));
         if (!response.ok) {
@@ -80,7 +99,20 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
         continue;
       }
     }
-    if (!parsedMedia) throw new Error(providerRejected ? MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR : providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE');
+    if (!parsedMedia) {
+      const errorCode = providerRejected ? MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR : providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE';
+      if (errorCode === 'MEDIA_PROVIDER_UNAVAILABLE') {
+        circuit.transportErrors += 1;
+        if (circuit.transportErrors >= CIRCUIT_OPEN_THRESHOLD) {
+          circuit.openUntil = Date.now() + CIRCUIT_OPEN_DURATION_MS;
+          this.logger.warn(JSON.stringify({ event: 'evolution_media_circuit_open', providerChannelId: input.providerChannelId, transportErrors: circuit.transportErrors, correlationId: input.correlationId ?? null }));
+        }
+      } else {
+        circuit.transportErrors = 0;
+      }
+      throw new Error(errorCode);
+    }
+    circuit.transportErrors = 0;
     const encoded = parsedMedia.base64.replace(/^data:[^;,]+;base64,/i, '');
     if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) throw new Error('MEDIA_PROVIDER_RESPONSE_INVALID');
     const content = Buffer.from(encoded, 'base64');

@@ -24,7 +24,7 @@ export class NotificationsRepository {
       .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
       .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
       .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, messagingChannels.businessLineId), eq(authMember.userId, input.userId), eq(businessLines.status, 'active'))));
-    const conversationTypes = [USER_NOTIFICATION_TYPE.inboxNewMessage, USER_NOTIFICATION_TYPE.messageDeliveryFailed, USER_NOTIFICATION_TYPE.conversationAssigned];
+    const conversationTypes = [USER_NOTIFICATION_TYPE.inboxNewMessage, USER_NOTIFICATION_TYPE.messageDeliveryFailed, USER_NOTIFICATION_TYPE.mediaDownloadFailed, USER_NOTIFICATION_TYPE.conversationAssigned];
     const opportunityTypes = [USER_NOTIFICATION_TYPE.handoffAccepted, USER_NOTIFICATION_TYPE.handoffReturned, USER_NOTIFICATION_TYPE.opportunityAssigned];
     const closerEventTypes = [USER_NOTIFICATION_TYPE.closerEventSlaOverdue, USER_NOTIFICATION_TYPE.closerEventSlaEscalated];
     const closerEventAccess = and(
@@ -52,7 +52,7 @@ export class NotificationsRepository {
       channelId: userNotifications.channelId,
       taskTitle: tasks.title,
       eventType: closerEvents.eventType,
-      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} in ('inbox_new_message', 'message_delivery_failed') then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'conversation_assigned' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} = 'channel_disconnected' then coalesce(${messagingChannels.displayName}, '') else ${closerEvents.summary} end`,
+      summary: sql<string>`case when ${userNotifications.notificationType} = 'task_overdue' then coalesce(${tasks.title}, '') when ${userNotifications.notificationType} in ('inbox_new_message', 'message_delivery_failed', 'media_download_failed') then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} in ('handoff_accepted', 'opportunity_assigned') then coalesce(${opportunities.name}, '') when ${userNotifications.notificationType} = 'handoff_returned' then coalesce(${handoffs.returnReason}, '') when ${userNotifications.notificationType} = 'conversation_assigned' then coalesce(${people.name}, ${accounts.name}, '') when ${userNotifications.notificationType} = 'channel_disconnected' then coalesce(${messagingChannels.displayName}, '') else ${closerEvents.summary} end`,
       accountName: accounts.name,
       contactName: people.name,
       dueAt: sql<Date | null>`coalesce(${closerEvents.dueAt}, ${tasks.dueAt})`,

@@ -9,6 +9,7 @@ export const USER_NOTIFICATION_TYPE = {
   conversationAssigned: 'conversation_assigned',
   opportunityAssigned: 'opportunity_assigned',
   channelDisconnected: 'channel_disconnected',
+  mediaDownloadFailed: 'media_download_failed',
 } as const
 
 export const USER_NOTIFICATION_TYPES = Object.values(USER_NOTIFICATION_TYPE)

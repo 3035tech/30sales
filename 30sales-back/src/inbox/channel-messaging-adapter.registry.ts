@@ -25,6 +25,11 @@ export class ChannelMessagingAdapterRegistry {
     return this.adapter(input.credentials).sendContact(input);
   }
 
+  sendPresence(input: MessagingAdapterContext & { state: 'composing' | 'paused' }): Promise<void> {
+    const adapter = this.adapter(input.credentials);
+    return adapter.sendPresence ? adapter.sendPresence(input) : Promise.resolve();
+  }
+
   listGroupParticipants(input: { providerChannelId: string; groupJid: string; credentials: ChannelCredentialsDto }): Promise<GroupParticipantsResult> {
     return this.adapter(input.credentials).listGroupParticipants(input);
   }

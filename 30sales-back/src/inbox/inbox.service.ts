@@ -4,7 +4,8 @@ import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, LinkPreviewDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto } from './inbox.dto';
+import { AssignConversationDto, ConversationAssignDto, ConversationAutomationMode, ConversationAutomationUpdateDto, ConversationContactReconcileDto, ConversationControlDto, ConversationMessageDeliveryDto, ConversationMessageSendDto, ConversationMessagesQueryDto, ConversationNoteCreateDto, ConversationPageDto, ConversationReadDto, ConversationRepositoryListDto, ConversationStatusUpdateDto, ConversationTagMutationDto, ConversationTagRemoveDto, ConversationOpportunityCreateDto, CreateConversationNoteDto, CreateConversationTagDto, LinkPreviewDto, ListConversationsQueryDto, MarkConversationReadInputDto, MessageRecordDto, SendConversationMessageDto, SendConversationMediaDto, SendConversationContactDto, type ConversationStatusUpdateInputDto, type ReconcileConversationContactInputDto, type CreateConversationOpportunityInputDto, type ConversationTypingPresenceInputDto } from './inbox.dto';
+import { CHANNEL_PROVIDER } from '../channels/channels.constants';
 
 function isPrivateIp(ip: string): boolean {
   if (ip === '::1' || ip === '0:0:0:0:0:0:0:1' || ip.startsWith('::ffff:')) return true
@@ -58,6 +59,19 @@ export class InboxService {
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.realtime.stream(context.organizationId, context.userId);
+  }
+  async setTypingPresence(request: ApiRequestDto, conversationId: string, input: ConversationTypingPresenceInputDto): Promise<{ supported: boolean }> {
+    const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const target = await this.repository.getTypingPresenceTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);
+    if (!target || target.provider !== CHANNEL_PROVIDER.evolution) return { supported: false };
+    try {
+      const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, target.credentials);
+      if (credentials.provider !== CHANNEL_PROVIDER.evolution) return { supported: false };
+      await this.messagingAdapters.sendPresence({ providerChannelId: target.providerChannelId, recipientPhone: target.recipientPhone, credentials, state: input.state });
+      return { supported: true };
+    } catch {
+      return { supported: false };
+    }
   }
   async list(request: ApiRequestDto, query: ListConversationsQueryDto): Promise<ConversationPageDto> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');

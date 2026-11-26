@@ -6,8 +6,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignConversationSchema, setConversationAutomationModeSchema, conversationStatusUpdateSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema, createConversationOpportunitySchema } from './inbox.dto';
-import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto, CreateConversationOpportunityInputDto, SetConversationAutomationModeInputDto } from './inbox.dto';
+import { assignConversationSchema, setConversationAutomationModeSchema, conversationStatusUpdateSchema, conversationTypingPresenceSchema, createConversationNoteSchema, createConversationTagSchema, listConversationsSchema, markConversationReadSchema, reconcileConversationContactSchema, sendConversationContactSchema, sendConversationMessageSchema, sendConversationMediaSchema, createConversationOpportunitySchema } from './inbox.dto';
+import type { AssignConversationDto, ConversationStatusUpdateInputDto, CreateConversationNoteDto, CreateConversationTagDto, ListConversationsQueryDto, MarkConversationReadInputDto, ReconcileConversationContactInputDto, SendConversationContactDto, SendConversationMessageDto, SendConversationMediaDto, CreateConversationOpportunityInputDto, SetConversationAutomationModeInputDto, ConversationTypingPresenceInputDto } from './inbox.dto';
 import { InboxService } from './inbox.service';
 import { OUTBOUND_MEDIA_LIMIT_BYTES } from './outbound-media.constants';
 import type { IncomingMediaFile } from './outbound-media';
@@ -55,6 +55,8 @@ export class InboxController {
   createOpportunity(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(createConversationOpportunitySchema)) input: CreateConversationOpportunityInputDto) { return this.inboxService.createOpportunityFromConversation(request, conversationId, input); }
   @Post(':id/messages')
   sendMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(sendConversationMessageSchema)) input: SendConversationMessageDto) { return this.inboxService.sendMessage(request, conversationId, input); }
+  @Post(':id/presence')
+  setTypingPresence(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Body(new ZodValidationPipe(conversationTypingPresenceSchema)) input: ConversationTypingPresenceInputDto) { return this.inboxService.setTypingPresence(request, conversationId, input); }
   @Delete(':id/messages/:messageId')
   hideMessage(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Param('messageId', new ZodValidationPipe(conversationIdSchema)) messageId: string) { return this.inboxService.hideMessage(request, conversationId, messageId); }
   @Post(':id/messages/media')

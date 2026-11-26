@@ -9,7 +9,7 @@ import { ConversationAssignDto, ConversationAssigneeDto, ConversationAutomationU
 import { hasOrganizationRole, ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { OUTBOUND_MEDIA_ATTACHMENT_STATUS, OUTBOUND_MEDIA_ERROR } from './outbound-media.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_SEND_BLOCKED_CONNECTION_STATUSES } from '../channels/channels.constants';
-import { INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
+import { INBOX_ACTIVE_CONVERSATION_STATUSES, INBOX_CONTACT_RECONCILIATION_AUDIT_ACTION, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
 import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
@@ -33,6 +33,25 @@ export class InboxRepository {
       .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
       .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
     return target?.conversationType === 'group' && target.groupJid && target.credentialsCiphertext && target.credentialsIv && target.credentialsAuthTag ? target : null;
+  }
+
+  async getTypingPresenceTarget(organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false) {
+    if (!isPlatformOrganizationContext && !await this.canAccessConversationLine(organizationId, conversationId, userId)) return null;
+    const [target] = await database.select({
+      ownerUserId: conversations.ownerUserId, automationMode: conversations.automationMode, status: conversations.status,
+      conversationType: conversations.conversationType, groupJid: conversations.providerRecipientId,
+      channelId: conversations.channelId, provider: messagingChannels.provider, providerChannelId: messagingChannels.providerChannelId,
+      channelActive: messagingChannels.isActive, connectionStatus: messagingChannels.connectionStatus,
+      recipientPhone: people.phone, credentialsCiphertext: messagingChannels.credentialsCiphertext,
+      credentialsIv: messagingChannels.credentialsIv, credentialsAuthTag: messagingChannels.credentialsAuthTag,
+    }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    if (!target || target.ownerUserId !== userId || target.automationMode !== 'human' || !INBOX_ACTIVE_CONVERSATION_STATUSES.some((status) => status === target.status) || !target.channelId || !target.channelActive || !target.providerChannelId || !target.credentialsCiphertext || !target.credentialsIv || !target.credentialsAuthTag) return null;
+    const recipient = target.conversationType === 'group' ? target.groupJid ?? '' : (target.recipientPhone ?? '').replace(/\D/g, '');
+    if (target.conversationType === 'group' ? !recipient.endsWith('@g.us') : recipient.length < 8 || recipient.length > 15 || recipient.startsWith('0')) return null;
+    return { channelId: target.channelId, provider: target.provider, providerChannelId: target.providerChannelId, recipientPhone: recipient, credentials: { ciphertext: target.credentialsCiphertext, iv: target.credentialsIv, authTag: target.credentialsAuthTag } };
   }
 
   async syncGroupParticipantsSnapshot(input: { organizationId: string; conversationId: string; provider: string; participants: Array<{ id: string; phone: string | null; name: string | null; isAdmin: boolean }> }) {

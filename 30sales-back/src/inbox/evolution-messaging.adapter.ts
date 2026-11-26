@@ -54,6 +54,18 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     return this.post(url, body, { apikey: credentials.apiKey }, 30_000);
   }
 
+  async sendPresence(input: MessagingAdapterContext & { state: 'composing' | 'paused' }): Promise<void> {
+    const credentials = this.credentials(input.credentials);
+    const url = `${credentials.baseUrl.replace(/\/+$/, '')}/chat/sendPresence/${encodeURIComponent(input.providerChannelId)}`;
+    try { await assertPublicEvolutionTarget(url); } catch { throw new Error('EVOLUTION_PRESENCE_TARGET_INVALID'); }
+    let response: Response;
+    try {
+      response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ number: input.recipientPhone, options: { presence: input.state } }), signal: AbortSignal.timeout(5_000), redirect: 'error' });
+    } catch { throw new Error('EVOLUTION_PRESENCE_REQUEST_FAILED'); }
+    await response.body?.cancel();
+    if (!response.ok) throw new Error('EVOLUTION_PRESENCE_REJECTED');
+  }
+
   async listGroupParticipants(input: { providerChannelId: string; groupJid: string; credentials: ChannelCredentialsDto }): Promise<GroupParticipantsResult> {
     const credentials = this.credentials(input.credentials);
     if (!input.groupJid.endsWith('@g.us') || input.groupJid.length > 250) throw new Error('GROUP_IDENTIFIER_INVALID');

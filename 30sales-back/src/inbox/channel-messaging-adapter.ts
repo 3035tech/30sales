@@ -25,5 +25,6 @@ export interface ChannelMessagingAdapter {
   sendText(input: MessagingAdapterContext & { bodyText: string; targetMessage: QuotedMessage | null; mode: 'reply' | 'reaction' }): Promise<ProviderSendResult>;
   sendMedia(input: MessagingAdapterContext & { bodyText: string; media: PreparedOutboundMedia }): Promise<ProviderSendResult>;
   sendContact(input: MessagingAdapterContext & { contact: ContactMessageFields }): Promise<ProviderSendResult>;
+  sendPresence?(input: MessagingAdapterContext & { state: 'composing' | 'paused' }): Promise<void>;
   listGroupParticipants(input: { providerChannelId: string; groupJid: string; credentials: ChannelCredentialsDto }): Promise<GroupParticipantsResult>;
 }

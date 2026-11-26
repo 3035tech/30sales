@@ -346,6 +346,10 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   const [tagBusy, setTagBusy] = useState(false)
   const [messageKey, setMessageKey] = useState(() => crypto.randomUUID())
   const [sendingMessage, setSendingMessage] = useState(false)
+  const typingIdleTimerRef = useRef<number | null>(null)
+  const typingPresenceConversationRef = useRef('')
+  const typingPresenceLastSentAtRef = useRef(0)
+  const typingPresenceQueueRef = useRef(Promise.resolve())
   const [unknownDeliveryPending, setUnknownDeliveryPending] = useState(false)
   const [draftingReply, setDraftingReply] = useState(false)
   const [assistantConsultOpen, setAssistantConsultOpen] = useState(false)
@@ -493,7 +497,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
     }
   }, [selectedId])
   useEffect(() => { setMessageDraft(''); setMessageSearchDraft(''); setMessageSearch(''); setMediaDraft(null); setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageKey(crypto.randomUUID()); setMessageSendError(''); setUnknownDeliveryPending(false); setComposerMode(INBOX_COMPOSER_MODE.reply); hiddenMessageIdsRef.current = new Set() }, [selectedId])
-  useEffect(() => { if (!selectedId) return; const saved = draftsByConversationRef.current.get(selectedId); if (saved) setMessageDraft(saved) }, [selectedId])
+  useEffect(() => { if (!selectedId) return; setMessageDraft(draftsByConversationRef.current.get(selectedId) ?? '') }, [selectedId])
   useEffect(() => {
     if (!selectedId) { setMessages([]); setMessagesConversationId(''); return }
     let active = true
@@ -640,6 +644,34 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   }
   const clearConversationFilters = () => { setConversationIdFilter(''); setConversationSearch(''); setDebouncedSearch(''); setStatusFilter(''); setOwnerFilter(''); setUnreadOnly(false); setBusinessLineFilter(''); setChannelFilter(''); setTagFilter(''); setOffset(0) }
   const canSend = Boolean(selected && selected.ownerUserId === currentUserId && selected.automationMode === 'human' && selected.replyAvailable)
+  const queueTypingPresence = (conversationId: string, state: 'composing' | 'paused') => {
+    typingPresenceQueueRef.current = typingPresenceQueueRef.current
+      .catch(() => undefined)
+      .then(async () => { await api.inbox.setTypingPresence(conversationId, state).catch(() => undefined) })
+  }
+  const stopTypingPresence = (conversationId = typingPresenceConversationRef.current) => {
+    if (typingIdleTimerRef.current !== null) window.clearTimeout(typingIdleTimerRef.current)
+    typingIdleTimerRef.current = null
+    if (!conversationId || conversationId !== typingPresenceConversationRef.current) return
+    typingPresenceConversationRef.current = ''
+    typingPresenceLastSentAtRef.current = 0
+    queueTypingPresence(conversationId, 'paused')
+  }
+  const updateTypingPresence = (draft: string) => {
+    if (!draft.trim() || composerMode !== INBOX_COMPOSER_MODE.reply || !canSend || contactMode || !selectedId) {
+      stopTypingPresence()
+      return
+    }
+    const now = Date.now()
+    if (typingPresenceConversationRef.current !== selectedId || now - typingPresenceLastSentAtRef.current >= 8000) {
+      typingPresenceConversationRef.current = selectedId
+      typingPresenceLastSentAtRef.current = now
+      queueTypingPresence(selectedId, 'composing')
+    }
+    if (typingIdleTimerRef.current !== null) window.clearTimeout(typingIdleTimerRef.current)
+    typingIdleTimerRef.current = window.setTimeout(() => stopTypingPresence(selectedId), 2500)
+  }
+  useEffect(() => () => stopTypingPresence(), [selectedId])
   const canAddNote = Boolean(selected && selected.ownerUserId === currentUserId)
   const canEditTags = Boolean(selected && selected.ownerUserId === currentUserId)
   useEffect(() => { if (selected) setAssigneeTarget(selected.ownerUserId ?? assignees[0]?.id ?? '') }, [selected?.id, selected?.ownerUserId, assignees])
@@ -678,6 +710,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
   }
   const sendMessage = async (event: React.FormEvent) => {
     event.preventDefault()
+    stopTypingPresence()
     if (!selected || (composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || (!contactMode && !messageDraft.trim() && !mediaDraft) || (contactMode && (!contactDraft.fullName.trim() || !contactDraft.phoneNumber.trim())) || (composerMode === INBOX_COMPOSER_MODE.note && mediaDraft) || (mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && messageDraft.trim())) return
     setSendingMessage(true); setMessageSendError('')
     try {
@@ -693,7 +726,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
         setUnknownDeliveryPending(true)
         setMessageSendError(t('inboxRetry.deliveryUnknown'))
       } else {
-        setMessageDraft(''); setReplyTarget(null); setMediaDraft(null); setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageKey(crypto.randomUUID())
+        setMessageDraft(''); messageDraftLiveRef.current = ''; draftsByConversationRef.current.delete(selected.id); setReplyTarget(null); setMediaDraft(null); setContactMode(false); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageKey(crypto.randomUUID())
         if (composerMode === INBOX_COMPOSER_MODE.reply && message.deliveryState === INBOX_DELIVERY_STATE.failed) setMessageSendError(t('inbox.deliveryFailed'))
       }
     } catch (error) {
@@ -1030,7 +1063,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '' 
             {composerMode === INBOX_COMPOSER_MODE.reply && !canSend && <p className="inbox-composer-notice" role="status">{t('inbox.replyUnavailable')}</p>}
             {composerMode === INBOX_COMPOSER_MODE.note && !canAddNote && <p className="inbox-composer-notice is-private" role="status">{t('inboxComposer.noteUnavailable')}</p>}
             {replyTarget && composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-reply-target"><span><strong>{t('inbox.replyingTo')}</strong>{replyTarget.bodyText != null ? (replyTarget.bodyText.length > 100 ? replyTarget.bodyText.slice(0, 100) + '…' : replyTarget.bodyText) : t('inbox.nonTextMessage')}</span><IconButton label={t('inbox.cancelReply')} onClick={() => setReplyTarget(null)}><X size={14} /></IconButton></div>}
-            <TextareaField ref={messageDraftRef} value={messageDraft} onChange={(event) => { setMessageDraft(event.target.value); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && event.target.value.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} onKeyDown={(event) => { if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return; event.preventDefault(); event.currentTarget.form?.requestSubmit() }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || contactMode} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
+            <TextareaField ref={messageDraftRef} value={messageDraft} onBlur={() => stopTypingPresence()} onChange={(event) => { const draft = event.target.value; messageDraftLiveRef.current = draft; if (selectedId) { if (draft) draftsByConversationRef.current.set(selectedId, draft); else draftsByConversationRef.current.delete(selectedId) } setMessageDraft(draft); updateTypingPresence(draft); setMessageSendError(mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && draft.trim() ? t('inboxComposer.audioCaptionUnsupported') : '') }} onKeyDown={(event) => { if (event.key !== 'Enter' || event.shiftKey || event.ctrlKey || event.metaKey || event.nativeEvent.isComposing) return; event.preventDefault(); event.currentTarget.form?.requestSubmit() }} maxLength={4096} placeholder={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} disabled={(composerMode === INBOX_COMPOSER_MODE.reply ? !canSend : !canAddNote) || sendingMessage || contactMode} aria-label={t(composerMode === INBOX_COMPOSER_MODE.note ? 'inboxComposer.notePlaceholder' : 'inbox.replyPlaceholder')} />
             {composerMode === INBOX_COMPOSER_MODE.reply && <div className="inbox-composer-tools"><details ref={composerEmojiPickerRef} className="inbox-composer-emoji-picker" onKeyDown={(event) => { if (event.key === 'Escape') { composerEmojiPickerRef.current && (composerEmojiPickerRef.current.open = false); event.preventDefault(); event.stopPropagation() } }}><summary aria-label={t('inboxComposer.insertEmoji')}><Smile size={17} aria-hidden="true" /></summary><div className="inbox-composer-emoji-grid" role="group" aria-label={t('inboxComposer.emojiOptions')} onKeyDown={(event) => { const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]; const idx = buttons.indexOf(event.target as HTMLButtonElement); if (idx === -1) return; const cols = 8; const delta: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols }; if (event.key in delta) { event.preventDefault(); buttons[(idx + delta[event.key]! + buttons.length) % buttons.length]?.focus() } }}>{INBOX_COMPOSER_EMOJIS.map((emoji, index) => <button key={index} type="button" aria-label={t('inboxComposer.emojiOption', { emoji })} onClick={() => insertComposerEmoji(emoji)}>{emoji}</button>)}</div></details><input ref={attachmentInputRef} type="file" accept={INBOX_ATTACHMENT_ACCEPT} hidden onChange={selectMedia} /><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode} onClick={() => void draftReplyWithAssistant()}><Sparkles size={15} />{draftingReply ? t('inboxComposer.aiDrafting') : t('inboxComposer.aiDraft')}</Button><Button type="button" className="inbox-media-action" disabled={!canSend || assistantConsultLoading || contactMode} onClick={() => { setAssistantConsultMode(ASSISTANT_CONVERSATION_ASSIST_MODE.summary); setAssistantQuestion(''); setAssistantQuestionValidationAttempted(false); setAssistantConsultResult(null); setAssistantConsultError(false); setAssistantConsultOpen(true) }}><MessageSquareText size={15} />{t('inboxComposer.aiConsult')}</Button><IconButton className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || contactMode || Boolean(mediaDraft)} onClick={() => attachmentInputRef.current?.click()} label={t('inboxComposer.attachFile')}><Paperclip size={17} aria-hidden="true" /></IconButton><IconButton className={`inbox-media-action${audioRecording ? ' is-recording' : ''}`} disabled={!canSend || sendingMessage || draftingReply || contactMode || Boolean(mediaDraft)} onClick={() => audioRecording ? stopAudioRecording() : void startAudioRecording()} aria-pressed={audioRecording} label={t(audioRecording ? 'inboxComposer.stopAudioRecording' : 'inboxComposer.sendAudio')}>{audioRecording ? <Square size={16} aria-hidden="true" /> : <Mic size={17} aria-hidden="true" />}</IconButton><Button type="button" className="inbox-media-action" disabled={!canSend || sendingMessage || draftingReply || Boolean(mediaDraft)} onClick={() => { setContactMode((active) => !active); setContactDraft({ fullName: '', phoneNumber: '', organization: '', email: '', url: '' }); setMessageDraft(''); setMessageSendError('') }}><UserRound size={15} />{t(contactMode ? 'inboxComposer.cancelContact' : 'inboxComposer.attachContact')}</Button>{mediaDraft && <span className="inbox-media-selection"><span>{mediaDraft.type.startsWith(INBOX_AUDIO_MIME_PREFIX) ? <Mic size={14} /> : <Paperclip size={14} />}{mediaDraft.name}</span><small>{(mediaDraft.size / 1024 / 1024).toFixed(1)} MiB</small><IconButton label={t('inboxComposer.removeAttachment')} disabled={sendingMessage} onClick={() => { setMediaDraft(null); setMessageSendError('') }}><X size={15} /></IconButton></span>}</div>}
             {audioRecording && <div className="inbox-audio-recording" role="status" aria-label={t('inboxComposer.audioRecordingInProgress')}><span className="inbox-audio-recording-live"><i aria-hidden="true" />{t('inboxComposer.audioRecordingInProgress')}</span><div className="inbox-audio-waveform" aria-hidden="true">{audioRecordingWaveform.map((height, index) => <span key={index} style={{ height: `${height}%` }} />)}</div><time>{formatAudioTime(audioRecordingDuration)}</time></div>}
             {mediaDraft?.type.startsWith(INBOX_AUDIO_MIME_PREFIX) && <div className="inbox-audio-preview"><span>{t("inbox.audioPreview")}</span><InboxAudioPlayer file={mediaDraft} label={mediaDraft.name} compact /></div>}

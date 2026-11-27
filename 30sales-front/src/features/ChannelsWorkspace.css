@@ -45,3 +45,18 @@
 .channel-media-health-state.is-clear{color:#176b47}
 .channel-media-health button:focus-visible{outline:2px solid #2563eb;outline-offset:2px}
 @media(max-width:560px){.channel-media-health-heading{align-items:flex-start;flex-direction:column}.channel-media-health-heading .ui-button{width:100%;justify-content:center}.channel-media-health li{grid-template-columns:minmax(0,1fr) auto;gap:6px}.channel-media-health-details{grid-column:1/-1}}
+
+/* Keep everyday connection health visible; reveal less-used controls on demand. */
+.channel-status-cell{display:grid;justify-items:start;gap:10px;min-width:190px;white-space:normal}
+.channel-overview{display:grid;gap:7px;min-width:0}
+.channel-status-badges{display:flex;flex-wrap:wrap;gap:8px}
+.channel-quick-actions,.channel-settings-grid{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.channel-quick-actions .ui-icon-button,.channel-settings-grid .ui-icon-button{flex:0 0 auto}
+.channel-settings-details{width:100%;padding-top:8px;border-top:1px solid #e7edf3}
+.channel-settings-details>summary{display:inline-flex;align-items:center;gap:6px;padding:4px 2px;color:#526176;font-size:var(--font-size-xs);font-weight:650;cursor:pointer;list-style:none}
+.channel-settings-details>summary::-webkit-details-marker{display:none}
+.channel-settings-details>summary:focus-visible{outline:2px solid #2563eb;outline-offset:3px;border-radius:4px}
+.channel-settings-grid{padding:10px 0 2px}
+.channel-settings-grid .channel-profile-assignment{flex:1 1 100%}
+.channel-settings-grid .channel-profile-assignment summary{padding:4px 2px}
+@media(max-width:760px){.channel-status-cell{min-width:0}.channel-quick-actions{gap:5px}}

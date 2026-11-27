@@ -788,6 +788,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
           : await api.inbox.sendMessage(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey, ...(replyTarget ? { targetMessageId: replyTarget.id } : {}) })
         : await api.inbox.addNote(selected.id, { bodyText: messageDraft, idempotencyKey: messageKey })
       setMessages((current) => current.some((item) => item.id === message.id) ? current : [...current, message])
+      if (composerMode === INBOX_COMPOSER_MODE.reply) await refresh(true)
       if (composerMode === INBOX_COMPOSER_MODE.reply && message.deliveryState === INBOX_DELIVERY_STATE.unknown) {
         setUnknownDeliveryPending(true)
         setMessageSendError(t('inboxRetry.deliveryUnknown'))
@@ -812,6 +813,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
     try {
       const reaction = await api.inbox.sendMessage(selected.id, { bodyText: emoji, idempotencyKey: crypto.randomUUID(), targetMessageId: target.id, mode: 'reaction' })
       setMessages((current) => current.some((item) => item.id === reaction.id) ? current : [...current, reaction])
+      await refresh(true)
     } catch {
       setMessageSendError(t('inbox.reactionFailed'))
     } finally {

@@ -1,4 +1,5 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException, BadRequestException, PayloadTooLargeException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
 import { OPPORTUNITY_TRANSITIONS } from './opportunities.constants';
@@ -9,9 +10,49 @@ import { OpportunityActivitiesRepository } from './activities.repository';
 import { PipelineStagesRepository } from './pipeline-stages.repository';
 import { PipelinesRepository } from './pipelines.repository';
 import { hasOrganizationRole, ORGANIZATION_CLOSER_ROLES, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { MEDIA_STORAGE, type MediaStorage } from '../attachments/media-storage';
+import type { IncomingMediaFile } from '../inbox/outbound-media';
+import type { OpportunityProposalDto, ProposalInputDto } from './opportunities.dto';
+const PROPOSAL_FILE_MAX_BYTES = 16 * 1024 * 1024;
+const PDF_MIME_TYPE = 'application/pdf';
 @Injectable()
 export class OpportunitiesService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository, private readonly activitiesRepository: OpportunityActivitiesRepository, private readonly pipelineStagesRepository: PipelineStagesRepository, private readonly pipelinesRepository: PipelinesRepository) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: OpportunitiesRepository, private readonly activitiesRepository: OpportunityActivitiesRepository, private readonly pipelineStagesRepository: PipelineStagesRepository, private readonly pipelinesRepository: PipelinesRepository, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
+  async proposals(request: ApiRequestDto, opportunityId: string): Promise<OpportunityProposalDto[]> {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    this.requireOpportunityRecordAccess(context.role);
+    const rows = await this.repository.listProposals({ organizationId: context.organizationId, opportunityId, userId: context.userId, canManageAll: hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES) });
+    if (!rows) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found in the active business line.' });
+    return rows;
+  }
+  async recordProposal(request: ApiRequestDto, opportunityId: string, values: ProposalInputDto, file: IncomingMediaFile | undefined): Promise<OpportunityProposalDto> {
+    const context = await this.tenantAccess.require(request, 'update', 'pipeline');
+    if (!hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES) && !hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES)) throw new ForbiddenException({ code: 'CLOSER_ROLE_REQUIRED', message: 'Only opportunity owners and sales managers can record proposals.' });
+    if (!file || file.size === 0 || file.buffer.byteLength === 0) throw new BadRequestException({ code: 'PROPOSAL_FILE_REQUIRED', message: 'Choose a PDF proposal before saving.' });
+    if (file.size > PROPOSAL_FILE_MAX_BYTES || file.buffer.byteLength > PROPOSAL_FILE_MAX_BYTES) throw new PayloadTooLargeException({ code: 'PROPOSAL_FILE_TOO_LARGE', message: 'The proposal exceeds the 16 MiB limit.' });
+    if (file.mimetype.toLowerCase().split(';', 1)[0]?.trim() !== PDF_MIME_TYPE || file.buffer.subarray(0, 5).toString('ascii') !== '%PDF-') throw new BadRequestException({ code: 'PROPOSAL_FILE_INVALID', message: 'Only valid PDF proposals are accepted.' });
+    const id = randomUUID();
+    let storageKey: string;
+    try { storageKey = await this.storage.put(context.organizationId, id, file.buffer, PDF_MIME_TYPE); }
+    catch { throw new ServiceUnavailableException({ code: 'PROPOSAL_STORAGE_FAILED', message: 'The proposal could not be stored.' }); }
+    const fileName = file.originalname.replace(/[\\/\r\n"\u0000-\u001f]/g, '_').slice(0, 160) || 'proposal.pdf';
+    try {
+      const proposal = await this.repository.createProposal({ organizationId: context.organizationId, opportunityId, userId: context.userId, canManageAll: hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), values, fileName, mimeType: PDF_MIME_TYPE, fileSize: file.buffer.byteLength, storageKey, correlationId: request.correlationId ?? undefined });
+      if (!proposal) throw new NotFoundException({ code: 'OPPORTUNITY_NOT_FOUND', message: 'Opportunity was not found, is not assigned to you, or is outside your active business line.' });
+      return proposal;
+    } catch (error) {
+      await this.storage.remove(storageKey).catch(() => undefined);
+      throw error;
+    }
+  }
+  async downloadProposal(request: ApiRequestDto, opportunityId: string, proposalId: string) {
+    const context = await this.tenantAccess.require(request, 'read', 'pipeline');
+    this.requireOpportunityRecordAccess(context.role);
+    const proposal = await this.repository.proposalContent({ organizationId: context.organizationId, opportunityId, proposalId, userId: context.userId, canManageAll: hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), correlationId: request.correlationId ?? undefined });
+    if (!proposal) throw new NotFoundException({ code: 'OPPORTUNITY_PROPOSAL_NOT_FOUND', message: 'Proposal was not found in the active business line.' });
+    try { if (!await this.storage.exists(proposal.storageKey)) throw new Error('Missing proposal'); return { stream: await this.storage.read(proposal.storageKey), fileName: proposal.fileName, mimeType: proposal.mimeType }; }
+    catch { throw new ServiceUnavailableException({ code: 'OPPORTUNITY_PROPOSAL_UNAVAILABLE', message: 'The proposal content is temporarily unavailable.' }); }
+  }
   async pipelines(request: ApiRequestDto): Promise<PipelinesDto> {
     const context = await this.tenantAccess.require(request, 'read', 'pipeline');
     return this.pipelinesRepository.list(context.organizationId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES));

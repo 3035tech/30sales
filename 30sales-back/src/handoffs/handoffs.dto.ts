@@ -26,7 +26,7 @@ export class HandoffRecordDto {
     readonly leadId: string,
     readonly opportunityName: string,
     readonly accountName: string,
-    readonly contactName: string,
+    readonly contactName: string | null,
     readonly status: HandoffStatus,
     readonly reason: string,
     readonly evidence: string,

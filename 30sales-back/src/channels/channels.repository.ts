@@ -3,8 +3,8 @@ import { and, asc, desc, eq, exists, gte, ilike, inArray, isNull, lte, or, sql }
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
 import { member as authMember } from '../db/auth-schema';
-import { assistantProfiles, auditEvents, businessLineMembers, businessLines, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messageAttachments, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
-import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto, ChannelWebhookEventRetryDto } from './channels.dto';
+import { assistantProfiles, auditEvents, businessLineMembers, businessLines, campaignDraftChannels, campaignDrafts, channelAssistantScheduleExceptions, channelBusinessHours, conversations, inboxEvents, messageAttachments, messages, messagingChannels, platformEvolutionConfiguration, userNotifications } from '../db/schema';
+import { channelAssistantScheduleModeSchema, channelConnectionStatusSchema, channelOperationModeSchema, channelProviderSchema, ChannelBusinessLineTransferDto, ChannelConnectionStatusUpdateDto, ChannelHealthCheckAuditDto, ChannelHealthCheckTargetDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, ChannelScheduleExceptionDto, ChannelWebhookEventsPageDto, ChannelWebhookEventsQueryDto, ChannelWebhookEventRecordDto, ChannelWebhookEventRetryDto } from './channels.dto';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODE, CHANNEL_AUDIT_ACTION, CHANNEL_CONNECTION_STATUS, CHANNEL_EVENT_ERROR_FALLBACK, CHANNEL_OPERATION_MODE, CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUDED_DELIVERY_STATE, CHANNEL_WEBHOOK_EVENT_RETRY } from './channels.constants';
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
@@ -20,6 +20,36 @@ function channelMembershipCondition(organizationId: string, userId: string, canM
 
 @Injectable()
 export class ChannelsRepository {
+  async transferBusinessLine(input: ChannelBusinessLineTransferDto): Promise<ChannelRecordDto | 'channel_not_found' | 'business_line_not_found' | 'active_campaign'> {
+    return database.transaction(async (transaction) => {
+      const [channel] = await transaction.select().from(messagingChannels)
+        .where(and(eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.id, input.channelId), isNull(messagingChannels.deletedAt)))
+        .for('update').limit(1);
+      if (!channel) return 'channel_not_found';
+      const [targetLine] = await transaction.select({ id: businessLines.id, name: businessLines.name }).from(businessLines)
+        .where(and(eq(businessLines.organizationId, input.organizationId), eq(businessLines.id, input.businessLineId), eq(businessLines.status, 'active')))
+        .for('share').limit(1);
+      if (!targetLine) return 'business_line_not_found';
+      if (channel.businessLineId === targetLine.id) {
+        const hours = await transaction.select().from(channelBusinessHours).where(and(eq(channelBusinessHours.organizationId, input.organizationId), eq(channelBusinessHours.channelId, input.channelId)));
+        return this.toDto(channel, 0, hours, targetLine.name);
+      }
+      const [activeCampaign] = await transaction.select({ id: campaignDrafts.id }).from(campaignDrafts)
+        .where(and(eq(campaignDrafts.organizationId, input.organizationId), eq(campaignDrafts.status, 'active'), or(
+          eq(campaignDrafts.channelId, input.channelId),
+          exists(transaction.select({ id: campaignDraftChannels.campaignDraftId }).from(campaignDraftChannels)
+            .where(and(eq(campaignDraftChannels.organizationId, input.organizationId), eq(campaignDraftChannels.campaignDraftId, campaignDrafts.id), eq(campaignDraftChannels.channelId, input.channelId)))),
+        ))).limit(1);
+      if (activeCampaign) return 'active_campaign';
+      const [updated] = await transaction.update(messagingChannels).set({ businessLineId: targetLine.id, inboundAssistantProfileId: null, outboundAssistantProfileId: null, updatedAt: new Date() })
+        .where(and(eq(messagingChannels.organizationId, input.organizationId), eq(messagingChannels.id, input.channelId), isNull(messagingChannels.deletedAt))).returning();
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.business_line_transferred', entityType: 'messaging_channel', entityId: updated.id, correlationId: input.correlationId,
+        beforeState: { businessLineId: channel.businessLineId, inboundAssistantProfileId: channel.inboundAssistantProfileId, outboundAssistantProfileId: channel.outboundAssistantProfileId },
+        afterState: { businessLineId: targetLine.id, businessLineName: targetLine.name, inboundAssistantProfileId: null, outboundAssistantProfileId: null } });
+      const hours = await transaction.select().from(channelBusinessHours).where(and(eq(channelBusinessHours.organizationId, input.organizationId), eq(channelBusinessHours.channelId, input.channelId)));
+      return this.toDto(updated, 0, hours, targetLine.name);
+    });
+  }
   async mediaAttachmentHealth(organizationId: string, channelId: string): Promise<{ mediaType: string; status: string; stage: string | null; errorCode: string | null; count: number; oldestUpdatedAt: string }[]> {
     const staleBefore = new Date(Date.now() - MEDIA_ATTACHMENT_STALE_AFTER_MS);
     const rows = await database.select({ mediaType: messageAttachments.mediaType, status: messageAttachments.status,

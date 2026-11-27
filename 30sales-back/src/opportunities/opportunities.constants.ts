@@ -3,6 +3,7 @@ export const OPPORTUNITY_STAGES = [
   'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost', 'custom',
 ] as const;
 export type OpportunityStage = (typeof OPPORTUNITY_STAGES)[number];
+export const OPPORTUNITY_CREATION_MODES = ['human', 'ai', 'import', 'system'] as const;
 export const DEFAULT_PIPELINE_STAGES: readonly { key: Exclude<OpportunityStage, 'custom'>; position: number }[] = [
   { key: 'qualification', position: 100 }, { key: 'closer_contact_pending', position: 200 },
   { key: 'discovery_scheduled', position: 300 }, { key: 'discovery_done', position: 400 },

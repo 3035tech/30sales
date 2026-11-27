@@ -1,11 +1,11 @@
 import { Button, CalendarField, CurrencyField, IconButton, NumericField, SelectField, TextField, TextareaField } from '../components/ui/FormControls'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, MessageSquarePlus, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, Clock3, History, LayoutGrid, List, Mail, MessageSquarePlus, Phone, RefreshCw, Save, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { Modal } from '../components/ui/Modal'
-import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityConversationContextDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityPipelineSummaryDto, type OpportunityStage, type PipelineStageDto, type PipelinesDto } from '../lib/api'
+import { api, type ActivityDto, type ActivityType, type OpportunityAssigneeDto, type OpportunityConversationContextDto, type OpportunityDto, type OpportunityHistoryDto, type OpportunityPipelineSummaryDto, type OpportunityProposalDto, type OpportunityStage, type PipelineStageDto, type PipelinesDto } from '../lib/api'
 import './Pipeline.css'
 import './ActivityTimeline.css'
 
@@ -172,7 +172,7 @@ function CompactOpportunityRow({ opportunity, columns, stageLabel, assignableClo
   return <tr>
     <td data-label={columns[0].title}><details className="pipeline-compact-details" onToggle={(event) => setExpanded(event.currentTarget.open)}><summary><span>{opportunity.name}</span>{amountLabel && <small className="pipeline-compact-value">{amountLabel}</small>}</summary>{expanded && <div className="pipeline-compact-expanded"><OpportunityCard opportunity={opportunity} stages={stages} pipelines={pipelines} canManagePipeline={canManagePipeline} assignableClosers={assignableClosers} onUpdated={onUpdated} /></div>}</details></td>
     <td data-label={columns[1].title}>{opportunity.accountName}</td>
-    <td data-label={columns[2].title}><span className="pipeline-compact-contact">{opportunity.contactName}</span><OpportunityContactLinks email={opportunity.contactEmail} phone={opportunity.contactPhone} emailLabel={t('pipeline.contactEmailLink', { email: opportunity.contactEmail })} phoneLabel={t('pipeline.contactPhoneLink', { phone: opportunity.contactPhone })} /></td>
+    <td data-label={columns[2].title}><span className="pipeline-compact-contact">{opportunity.contactName ?? t('pipelineWorklist.unknownContact')}</span><OpportunityContactLinks email={opportunity.contactEmail} phone={opportunity.contactPhone} emailLabel={t('pipeline.contactEmailLink', { email: opportunity.contactEmail })} phoneLabel={t('pipeline.contactPhoneLink', { phone: opportunity.contactPhone })} /></td>
     <td data-label={columns[3].title}><span className={opportunity.stage === 'won' ? 'pipeline-stage-pill won' : opportunity.stage === 'lost' ? 'pipeline-stage-pill lost' : 'pipeline-stage-pill'}>{stageLabel}</span></td>
     <td data-label={columns[4].title}>{opportunity.ownerName ?? t('pipeline.unassignedOwner')}</td>
     <td data-label={columns[5].title}><span className={opportunity.nextActionAt && new Date(opportunity.nextActionAt).getTime() < Date.now() ? 'pipeline-overdue-text' : ''}>{opportunity.nextAction ?? t('pipeline.actionMissing')}</span><small className="pipeline-compact-secondary">{dateLabel(opportunity.nextActionAt)}</small><small className="pipeline-compact-secondary">{opportunity.lastActivity ? `${t(`activityTypes.${opportunity.lastActivity.type}`)} · ${opportunity.lastActivity.subject} · ${new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(opportunity.lastActivity.occurredAt))}` : t('pipeline.noInteractions')}</small>{opportunity.lastActivity?.result && <small className="pipeline-compact-secondary">{t('pipeline.activityResult')}: {opportunity.lastActivity.result}</small>}</td>
@@ -197,6 +197,45 @@ function PipelineColumn({ stage, title, count, opportunities, allStages, pipelin
       {opportunities.map((opportunity) => <OpportunityCard key={opportunity.id} opportunity={opportunity} stages={allStages} pipelines={pipelines} canManagePipeline={canManagePipeline} assignableClosers={assignableClosers} onUpdated={onUpdated} drop={dropEvent} onDropHandled={onDropHandled} />)}
       {count === 0 && <p className="pipeline-column-empty">{t('pipeline.noDeals')}</p>}
     </div>
+  </section>
+}
+
+function OpportunityProposals({ opportunity, onUpdated }: { opportunity: OpportunityDto; onUpdated: () => void }) {
+  const { t, i18n } = useTranslation()
+  const [items, setItems] = useState<OpportunityProposalDto[] | null>(null)
+  const [amount, setAmount] = useState<number | null>(null)
+  const [currency, setCurrency] = useState('BRL')
+  const [billingTerm, setBillingTerm] = useState<OpportunityProposalDto['billingTerm']>('monthly')
+  const [sentAt, setSentAt] = useState(localDateTime())
+  const [file, setFile] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [submitError, setSubmitError] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const load = useCallback(async () => {
+    setLoadError(false)
+    try { setItems(await api.opportunities.proposals.list(opportunity.id)) }
+    catch { setLoadError(true) }
+  }, [opportunity.id])
+  useEffect(() => { void load() }, [load])
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); if (amount === null || !file) return
+    setSaving(true); setSubmitError(false)
+    try {
+      const proposal = await api.opportunities.proposals.create(opportunity.id, { amount: String(amount), currency, billingTerm, sentAt: new Date(sentAt).toISOString(), file })
+      setItems((current) => [proposal, ...(current ?? [])]); setFile(null); setAmount(null); if (fileInputRef.current) fileInputRef.current.value = ''; onUpdated()
+    } catch { setSubmitError(true) } finally { setSaving(false) }
+  }
+  const download = async (proposal: OpportunityProposalDto) => {
+    try { const blob = await api.opportunities.proposals.download(opportunity.id, proposal.id); const url = URL.createObjectURL(blob); const anchor = document.createElement('a'); anchor.href = url; anchor.download = proposal.fileName; anchor.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000) } catch { setSubmitError(true) }
+  }
+  return <section className="opportunity-proposals"><h4>{t('pipeline.proposals')}</h4>
+    {items === null && !loadError && <p className="opportunity-proposal-state" role="status">{t('pipeline.proposalLoading')}</p>}
+    {loadError && <div className="opportunity-proposal-state opportunity-proposal-error" role="alert"><span>{t('pipeline.proposalLoadError')}</span><Button type="button" onClick={() => void load()}>{t('platform.retry')}</Button></div>}
+    {items?.length === 0 && <p className="opportunity-proposal-state">{t('pipeline.proposalEmpty')}</p>}
+    {items && items.length > 0 && <ol className="opportunity-proposal-list">{items.map((proposal) => <li className="opportunity-proposal-row" key={proposal.id}><span className="opportunity-proposal-main"><strong>{new Intl.NumberFormat(i18n.language, { style: 'currency', currency: proposal.currency }).format(Number(proposal.amount))}</strong><span>{t('pipeline.proposalVersion', { version: proposal.version })} · {t(`pipeline.billingTerms.${proposal.billingTerm}`)}</span><small>{t('pipeline.proposalSentBy', { name: proposal.createdByName })} · {new Intl.DateTimeFormat(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(proposal.sentAt))}</small><small className="opportunity-proposal-filename">{proposal.fileName}</small></span><Button type="button" onClick={() => void download(proposal)}>{t('pipeline.proposalDownload')}</Button></li>)}</ol>}
+    {submitError && <p className="error" role="alert">{t('pipeline.proposalSaveError')}</p>}
+    {opportunity.canUpdate && <form className="opportunity-proposal-form" onSubmit={(event) => void submit(event)}><div className="opportunity-proposal-form-heading"><strong>{t('pipeline.proposalAddTitle')}</strong><span>{t('pipeline.proposalAddHint')}</span></div><div className="pipeline-conditional"><label>{t('pipeline.proposalAmount')}<CurrencyField currency={currency} min={0.01} value={amount} onValueChange={setAmount} required /></label><label>{t('pipeline.proposalCurrency')}<TextField value={currency} onChange={(event) => setCurrency(event.target.value.toUpperCase())} minLength={3} maxLength={3} required /></label></div><div className="pipeline-conditional"><label>{t('pipeline.proposalBillingTerm')}<SelectField value={billingTerm} onChange={(event) => { if (['monthly', 'quarterly', 'annual', 'one_time'].includes(event.target.value)) setBillingTerm(event.target.value as OpportunityProposalDto['billingTerm']) }}>{(['monthly', 'quarterly', 'annual', 'one_time'] as const).map((term) => <option key={term} value={term}>{t(`pipeline.billingTerms.${term}`)}</option>)}</SelectField></label><label>{t('pipeline.proposalSentAt')}<CalendarField mode="datetime-local" value={sentAt} onValueChange={setSentAt} required /></label></div><label className="opportunity-proposal-file-label">{t('pipeline.proposalFile')}<input ref={fileInputRef} type="file" accept="application/pdf,.pdf" required onChange={(event) => setFile(event.target.files?.[0] ?? null)} /><small>{file?.name ?? t('pipeline.proposalFileHint')}</small></label><Button className="primary opportunity-proposal-submit" type="submit" disabled={saving || amount === null || !file}>{saving ? t('common.saving') : t('pipeline.proposalSave')}</Button></form>}
   </section>
 }
 
@@ -226,6 +265,7 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
   const [pendingDropKey, setPendingDropKey] = useState<string | null>(null)
   const [history, setHistory] = useState<OpportunityHistoryDto[] | null>(null)
   const [activities, setActivities] = useState<ActivityDto[] | null>(null)
+  const [showProposals, setShowProposals] = useState(false)
   const [focusActivityForm, setFocusActivityForm] = useState(false)
   const activityFormRef = useRef<HTMLFormElement>(null)
   const [activityType, setActivityType] = useState<ActivityType>('call')
@@ -310,6 +350,10 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     ...(activities ?? []).map((item) => ({ ...item, kind: 'activity' as const, timestamp: item.occurredAt })),
     ...(history ?? []).map((item) => ({ ...item, kind: 'stage' as const, timestamp: item.occurredAt })),
   ].sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime())
+  const onProposalRecorded = () => {
+    onUpdated()
+    if (activities !== null) void api.opportunities.activities.list(opportunity.id).then(setActivities).catch(() => setError(t('errors.loadOpportunityHistory')))
+  }
 
   useEffect(() => {
     if (!drop || drop.opportunityId !== opportunity.id) return
@@ -322,7 +366,8 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
 
   const details = <article className={`opportunity-card opportunity-card-detail${overdue ? ' at-risk' : ''}`}>
     <div className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</div>
-    <p className="opportunity-person">{opportunity.contactName} · {opportunity.ownerName ?? t('pipeline.unassignedOwner')}</p>
+    <p className="opportunity-person">{opportunity.contactName ?? t('pipelineWorklist.unknownContact')} · {opportunity.ownerName ?? t('pipeline.unassignedOwner')}</p>
+    <p className="opportunity-person">{opportunity.createdByType === 'human' ? t('pipeline.createdBy', { name: opportunity.createdByName ?? t('pipeline.unknownCreator') }) : t(`pipeline.creationModes.${opportunity.createdByType}`)}</p>
     {conversationContexts && conversationContexts.length > 0 && <section className="opportunity-conversation-context" aria-label={t('pipeline.conversationContext')}><h4>{t('pipeline.conversationContext')}</h4>{conversationContexts.map((context) => <article key={context.conversationId} className="opportunity-conversation-context-item"><small>{formatDate(context.capturedAt)}</small><p>{context.summary}</p>{context.confirmedFacts.length > 0 && <div><strong>{t('pipeline.confirmedFacts')}</strong><ul>{context.confirmedFacts.map((fact, index) => <li key={`${context.conversationId}-fact-${index}`}>{fact}</li>)}</ul></div>}{context.unknowns.length > 0 && <div><strong>{t('pipeline.openQuestions')}</strong><ul>{context.unknowns.map((unknown, index) => <li key={`${context.conversationId}-unknown-${index}`}>{unknown}</li>)}</ul></div>}</article>)}</section>}
     {contextsLoading && <WorkspaceState kind="loading" compact message={t('pipeline.contextLoading')} />}
     {contextsError && <WorkspaceState kind="error" compact message={t('pipeline.contextLoadFailed')}><Button onClick={() => void loadConversationContexts()}>{t('platform.retry')}</Button></WorkspaceState>}
@@ -345,6 +390,8 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
       {error && <p className="error">{error}</p>}<Button className="primary" disabled={saving || transferLoading || !targetKey}>{saving ? t('common.saving') : t('pipeline.saveTransition')}<Save size={14} /></Button>
     </form>}
     <Button className="opportunity-history-toggle" onClick={() => void toggleTimeline()}><History size={13} />{activities === null ? t('pipeline.timeline') : t('pipeline.hideHistory')}</Button>
+    <Button className="opportunity-history-toggle opportunity-proposal-toggle" aria-expanded={showProposals} onClick={() => setShowProposals((visible) => !visible)}>{t('pipeline.proposals')}{<ChevronDown size={14} aria-hidden="true" className={showProposals ? 'is-expanded' : ''}/>}</Button>
+    {showProposals && <OpportunityProposals opportunity={opportunity} onUpdated={onProposalRecorded} />}
     {activities !== null && <div className="opportunity-timeline">
       {opportunity.canUpdate && <form ref={activityFormRef} className="activity-form" onSubmit={submitActivity}>
         <strong>{t('pipeline.logActivity')}</strong>
@@ -368,7 +415,7 @@ function OpportunityCard({ opportunity, stages: availableStages, pipelines, canM
     <article className={`opportunity-card opportunity-card-compact${overdue ? ' at-risk' : ''}`} draggable={opportunity.canUpdate && !terminal(opportunity.stage)} onDragStart={(event) => { event.dataTransfer.setData('text/opportunity-id', opportunity.id); event.dataTransfer.effectAllowed = 'move' }}>
       <Button type="button" className="opportunity-card-open" onClick={() => setOpen(true)} aria-label={t('pipeline.openOpportunity', { name: opportunity.name })}>
         <span className="opportunity-card-top"><strong>{opportunity.name}</strong>{stale && <span className="stale-flag">{t('pipeline.stale')}</span>}</span>
-        <span className="opportunity-card-compact-meta">{opportunity.accountName} · {opportunity.contactName}</span>
+        <span className="opportunity-card-compact-meta">{opportunity.accountName} · {opportunity.contactName ?? t('pipelineWorklist.unknownContact')}</span>
         <span className="opportunity-card-compact-footer"><span className="pipeline-stage-pill">{stageLabel}</span>{amountLabel && <strong className="opportunity-value">{amountLabel}</strong>}</span>
         <span className={`opportunity-card-compact-action${overdue || !opportunity.nextActionAt ? ' overdue' : ''}`}>{opportunity.nextActionAt ? `${opportunity.nextAction ?? t('pipeline.actionMissing')} · ${formatDate(opportunity.nextActionAt)}` : t('pipeline.actionMissing')}</span>
       </Button>

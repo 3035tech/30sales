@@ -23,6 +23,7 @@ export class HandoffsService {
   async create(request: ApiRequestDto, dto: CreateHandoffDto): Promise<HandoffRecordDto> {
     const context = await this.tenantAccess.require(request, 'create', 'pipeline');
     const handoff = await this.repository.create(new HandoffRepositoryCreateDto(context.organizationId, context.userId, this.canManageAll(context.role), dto, request.correlationId));
+    if (handoff === 'business_line_pipeline_unavailable') throw new ConflictException({ code: 'BUSINESS_LINE_PIPELINE_UNAVAILABLE', message: 'Configure an active default pipeline for this lead’s business line before creating an opportunity.' });
     if (!handoff) throw new ConflictException({ code: 'HANDOFF_NOT_ALLOWED', message: 'The lead must be responded and must not have another active handoff.' });
     return handoff;
   }

@@ -1,4 +1,5 @@
 export const ACCOUNT_MARKET_SEGMENTS = ['education', 'sports', 'fitness', 'other'] as const;
+export const ACCOUNT_INDUSTRIES = ['education', 'sports', 'vehicle_rental', 'professional_services', 'retail', 'hospitality', 'nonprofit', 'other'] as const;
 export const ACCOUNT_MARKET_FILTER = { all: 'all', unclassified: 'unclassified' } as const;
 export const ACCOUNT_PROFILE_EMPTY_VALUE = '';
 export const ACCOUNT_CONTACT_LIMITS = { pageSize: 25, offsetStart: 0, pageStart: 1 } as const;

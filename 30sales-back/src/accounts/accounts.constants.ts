@@ -1,4 +1,5 @@
 export const ACCOUNT_MARKET_SEGMENTS = ['education', 'sports', 'fitness', 'other'] as const;
+export const ACCOUNT_INDUSTRIES = ['education', 'sports', 'vehicle_rental', 'professional_services', 'retail', 'hospitality', 'nonprofit', 'other'] as const;
 export const ACCOUNT_SEGMENT_RESULT = { exists: 'segment_exists', accountNotFound: 'account_not_found', segmentNotFound: 'segment_not_found' } as const;
 export const DATABASE_UNIQUE_VIOLATION_CODE = '23505';
 export const ACCOUNT_SEGMENT_ERROR_CODE = { exists: 'ACCOUNT_SEGMENT_ALREADY_EXISTS', restricted: 'ACCOUNT_SEGMENT_MANAGEMENT_RESTRICTED', notFound: 'ACCOUNT_SEGMENT_NOT_FOUND', accountNotFound: 'ACCOUNT_NOT_FOUND' } as const;

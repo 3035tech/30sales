@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { channelScheduleExceptionSchema, configureChannelCredentialsSchema, channelMonitoringCheckSchema, channelWebhookEventsQuerySchema, createChannelSchema, updateChannelSchema } from './channels.dto';
-import type { ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto, ChannelMonitoringCheckInputDto, ChannelWebhookEventsQueryDto, CreateChannelDto, UpdateChannelDto } from './channels.dto';
+import { channelScheduleExceptionSchema, configureChannelCredentialsSchema, channelMonitoringCheckSchema, channelWebhookEventsQuerySchema, createChannelSchema, transferChannelBusinessLineSchema, updateChannelSchema } from './channels.dto';
+import type { ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto, ChannelMonitoringCheckInputDto, ChannelWebhookEventsQueryDto, CreateChannelDto, TransferChannelBusinessLineDto, UpdateChannelDto } from './channels.dto';
 import { ChannelsService } from './channels.service';
 
 const channelIdSchema = z.string().uuid();
@@ -18,6 +18,8 @@ export class ChannelsController {
   create(@ApiRequest() request: ApiRequestDto, @Body(new ZodValidationPipe(createChannelSchema)) input: CreateChannelDto) { return this.channelsService.create(request, input); }
   @Patch(':id')
   update(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(updateChannelSchema)) input: UpdateChannelDto) { return this.channelsService.update(request, channelId, input); }
+  @Patch(':id/business-line')
+  transferBusinessLine(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string, @Body(new ZodValidationPipe(transferChannelBusinessLineSchema)) input: TransferChannelBusinessLineDto) { return this.channelsService.transferBusinessLine(request, channelId, input); }
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   delete(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(channelIdSchema)) channelId: string) { return this.channelsService.delete(request, channelId); }

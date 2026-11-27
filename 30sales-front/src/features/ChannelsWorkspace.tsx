@@ -1,7 +1,7 @@
 import { Button, CheckboxField, IconButton, NumericField, SelectField, TextField } from '../components/ui/FormControls'
 import { PhoneField } from '../components/ui/PhoneField'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Activity, CalendarClock, Check, ChevronLeft, ChevronRight, Link2, Plus, Power, QrCode, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
+import { Activity, ArrowRightLeft, CalendarClock, Check, ChevronLeft, ChevronRight, Link2, Plus, Power, QrCode, RefreshCw, RotateCcw, Search, Settings2, ShieldCheck, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
@@ -66,6 +66,9 @@ export function ChannelsWorkspace() {
   const [updatingId, setUpdatingId] = useState('')
   const [deletingId, setDeletingId] = useState('')
   const [channelToDelete, setChannelToDelete] = useState<ChannelDto | null>(null)
+  const [transferChannel, setTransferChannel] = useState<ChannelDto | null>(null)
+  const [transferTargetLineId, setTransferTargetLineId] = useState('')
+  const [transferring, setTransferring] = useState(false)
   const [quotaChannel, setQuotaChannel] = useState<ChannelDto | null>(null)
   const [quotaLimit, setQuotaLimit] = useState<number | null>(null)
   const [savingQuota, setSavingQuota] = useState(false)
@@ -490,9 +493,24 @@ export function ChannelsWorkspace() {
     return <details className="channel-profile-assignment"><summary>{t('channels.assistantProfiles')}</summary>{channel.operationMode !== 'outbound' && renderSelect('inbound', channel.inboundAssistantProfileId)}{channel.operationMode !== 'inbound' && renderSelect('outbound', channel.outboundAssistantProfileId)}</details>
   }
 
+  const transferBusinessLine = async () => {
+    if (!transferChannel || !transferTargetLineId) return
+    setTransferring(true)
+    try {
+      await api.channels.transferBusinessLine(transferChannel.id, transferTargetLineId)
+      setTransferChannel(null)
+      setTransferTargetLineId('')
+      setRefresh((version) => version + 1)
+    } catch (caught) {
+      notifySystemAlert(SYSTEM_ALERT_KIND.error, caught instanceof ApiError && caught.code === 'CHANNEL_HAS_ACTIVE_CAMPAIGN' ? t('channels.transferBlockedByCampaign') : caught instanceof ApiError ? caught.message : t('channels.transferFailed'))
+    } finally {
+      setTransferring(false)
+    }
+  }
+
   const columns: DataTableColumn<ChannelDto, SortKey>[] = [
     { id: 'displayName', label: t('channels.columns.name'), render: (channel) => <div className="channel-name-cell"><WhatsAppMark size={19} /><strong>{channel.displayName}</strong></div> },
-    { id: 'businessLine', label: t('businessLines.title'), render: (channel) => channel.businessLineName ?? '' },
+    { id: 'businessLine', label: t('businessLines.title'), render: (channel) => <div className="channel-name-cell"><span>{channel.businessLineName ?? ''}</span><IconButton label={t('channels.transferBusinessLine', { name: channel.displayName })} onClick={() => { setTransferChannel(channel); setTransferTargetLineId('') }}><ArrowRightLeft size={15} /></IconButton></div> },
     { id: 'provider', label: t('channels.columns.provider'), render: (channel) => <span className="channel-provider-cell"><WhatsAppMark size={16} />{t(`channels.providers.${channel.provider}`)}</span> },
     { id: 'phoneNumber', label: t('channels.columns.number'), render: (channel) => channel.phoneNumber },
     { id: 'dailyMessageCount', label: t('channels.columns.dailyQuota'), render: (channel) => <div className="channel-quota-cell"><strong>{t('channels.quotaUsage', { used: channel.dailyMessageCount, limit: channel.dailyMessageLimit })}</strong><small>{channel.dailyLimitTimeZone}</small><IconButton label={t('channels.editQuota', { name: channel.displayName })} onClick={() => { setQuotaChannel(channel); setQuotaLimit(channel.dailyMessageLimit) }}><Settings2 size={16} /></IconButton></div> },
@@ -633,5 +651,8 @@ export function ChannelsWorkspace() {
     {viewMode === 'channels' && error && rows.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')}><Button type="button" onClick={() => setRefresh((version) => version + 1)}>{t('platform.retry')}</Button></WorkspaceState>}
     {viewMode === 'channels' && <DataTable rows={rows.slice(offset, offset + limit)} columns={columns} getRowId={(channel) => channel.id} sort={{ key: sortKey, direction: sortDirection }} onSortChange={(key, direction) => { setSortKey(key); setSortDirection(direction); setOffset(0) }} pagination={{ limit, offset, total: rows.length, hasNextPage: offset + limit < rows.length }} onPageChange={setOffset} onPageSizeChange={(size) => { setLimit(size); setOffset(0) }} loading={loading} emptyState={<div><strong>{error || t('channels.empty')}</strong>{error && <Button type="button" onClick={() => setRefresh((version) => version + 1)}>{t('platform.retry')}</Button>}</div>} emptyStateKind={error ? 'error' : 'empty'} filters={<label className="channel-search"><Search size={15} /><TextField value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0) }} placeholder={t('channels.search')} aria-label={t('channels.search')} /></label>} />}
     <ConfirmDialog open={channelToDelete !== null} onOpenChange={(open) => { if (!open) setChannelToDelete(null) }} title={t('common.confirmAction')} description={channelToDelete ? t('channels.deleteConfirm', { name: channelToDelete.displayName }) : ''} confirmLabel={t('channels.delete')} cancelLabel={t('common.cancel')} closeLabel={t('common.close')} destructive onConfirm={deleteChannel} />
+    <Modal open={transferChannel !== null} onOpenChange={(open) => { if (!open && !transferring) setTransferChannel(null) }} title={t('channels.transferTitle', { name: transferChannel?.displayName ?? '' })} description={t('channels.transferDescription')} closeLabel={t('common.close')} className="channel-quota-modal">
+      {transferChannel && <div className="channel-form"><label>{t('channels.transferTarget')}<SelectField value={transferTargetLineId} onChange={(event) => setTransferTargetLineId(event.target.value)}><option value="">{t('businessLines.selectLine')}</option>{businessLines.filter((line) => line.id !== transferChannel.businessLineId).map((line) => <option key={line.id} value={line.id}>{line.name}</option>)}</SelectField></label><p>{t('channels.transferImpact')}</p><div className="channel-form-footer"><Button type="button" onClick={() => setTransferChannel(null)} disabled={transferring}>{t('common.cancel')}</Button><Button className="primary" type="button" disabled={!transferTargetLineId || transferring} onClick={() => void transferBusinessLine()}>{transferring ? t('common.saving') : t('channels.transferConfirm')}</Button></div></div>}
+    </Modal>
   </section>
 }

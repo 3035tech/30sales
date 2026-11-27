@@ -6,10 +6,11 @@ import { database } from '../db';
 import { accounts, auditEvents, businessLineMembers, businessLines, closerEvents, conversations, handoffHistory, handoffs, leadStatusHistory, leads, opportunities, opportunityStageHistory, people, tasks, userNotifications } from '../db/schema';
 import { member as authMember, user } from '../db/auth-schema';
 import { handoffStatusSchema, HandoffPageDto, HandoffRecordDto, HandoffRepositoryAcceptDto, HandoffRepositoryCreateDto, HandoffRepositoryListDto, HandoffRepositoryReturnDto } from './handoffs.dto';
+import { findLineDefaultPipelineId } from '../opportunities/line-default-pipeline';
 
 const requester = alias(user, 'handoff_requester');
 const closer = alias(user, 'handoff_closer');
-type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string; status: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
+type HandoffRow = { id: string; opportunityId: string; conversationId: string | null; leadId: string; opportunityName: string; accountName: string; contactName: string | null; status: string; reason: string; evidence: string; confirmedFacts: string[]; unknowns: string[]; nextStep: string; nextStepAt: Date; requestedByName: string; closerName: string | null; returnReason: string | null; requestedAt: Date; acceptedAt: Date | null; firstActivityAt: Date | null };
 function mapHandoff(row: HandoffRow): HandoffRecordDto {
   return new HandoffRecordDto(row.id, row.opportunityId, row.conversationId, row.leadId, row.opportunityName, row.accountName, row.contactName, handoffStatusSchema.parse(row.status), row.reason, row.evidence, row.confirmedFacts, row.unknowns, row.nextStep, row.nextStepAt.toISOString(), row.requestedByName, row.closerName, row.returnReason, row.requestedAt.toISOString(), row.acceptedAt?.toISOString() ?? null, row.firstActivityAt?.toISOString() ?? null);
 }
@@ -88,7 +89,7 @@ export class HandoffsRepository {
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-      .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+      .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
       .where(and(eq(handoffs.id, handoffId), eq(handoffs.organizationId, organizationId))).limit(1);
     return row ? mapHandoff(row) : null;
@@ -106,7 +107,7 @@ export class HandoffsRepository {
         .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .where(and(...conditions)),
     ]);
     const total = result?.total ?? 0;
@@ -121,19 +122,19 @@ export class HandoffsRepository {
       .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-      .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+      .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId))
       .where(and(...handoffConditions(input)))
       .orderBy(primaryOrder, tieOrder).limit(input.query.limit).offset(input.query.offset);
     return rows.map(mapHandoff);
   }
 
-  async create(input: HandoffRepositoryCreateDto): Promise<HandoffRecordDto | null> {
+  async create(input: HandoffRepositoryCreateDto): Promise<HandoffRecordDto | 'business_line_pipeline_unavailable' | null> {
     return database.transaction(async (transaction) => {
-      const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name })
+      const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount })
         .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
         .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), leadLineMembershipCondition(input.organizationId, input.actorUserId, input.canManageAll))).for('update', { of: leads }).limit(1);
-      if (!lead || !lead.personId || !['responded', 'converted_to_sdr'].includes(lead.status)) return null;
+      if (!lead || !['responded', 'converted_to_sdr'].includes(lead.status)) return null;
       const [activeHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
         .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
         .where(and(eq(handoffs.organizationId, input.organizationId), eq(opportunities.leadId, lead.id), inArray(handoffs.status, ['requested', 'accepted']))).limit(1);
@@ -141,10 +142,12 @@ export class HandoffsRepository {
       const [existingOpportunity] = await transaction.select({ id: opportunities.id }).from(opportunities).where(and(eq(opportunities.organizationId, input.organizationId), eq(opportunities.leadId, lead.id))).limit(1);
       let opportunityId = existingOpportunity?.id;
       if (!opportunityId) {
-        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, name: `${lead.accountName} — ${input.input.reason.slice(0, 120)}`, nextAction: input.input.nextStep, nextActionAt: new Date(input.input.nextStepAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
+        const pipelineId = await findLineDefaultPipelineId(transaction, input.organizationId, lead.businessLineId);
+        if (!pipelineId) return 'business_line_pipeline_unavailable';
+        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: lead.personId, pipelineId, createdByType: 'human', studentCountSnapshot: lead.studentCount, employeeCountSnapshot: lead.employeeCount, name: `${lead.accountName} — ${input.input.reason.slice(0, 120)}`, nextAction: input.input.nextStep, nextActionAt: new Date(input.input.nextStepAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
         opportunityId = opportunity.id;
-        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from a qualified handoff.' });
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', source: 'handoff' } });
+        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineId: pipelineId, toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from a qualified handoff.' });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', pipelineId, businessLineId: lead.businessLineId, source: 'handoff' } });
       } else {
         await transaction.update(opportunities).set({ nextAction: input.input.nextStep, nextActionAt: new Date(input.input.nextStepAt), updatedAt: new Date() }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
       }
@@ -156,7 +159,7 @@ export class HandoffsRepository {
         await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: lead.id, fromStatus: 'responded', toStatus: 'converted_to_sdr', changedByUserId: input.actorUserId });
       }
       const [row] = await transaction.select(handoffRecordSelection)
-        .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(and(eq(handoffs.id, handoff.id), eq(handoffs.organizationId, input.organizationId))).limit(1);
+        .from(handoffs).innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId))).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).innerJoin(requester, eq(requester.id, handoffs.requestedByUserId)).leftJoin(closer, eq(closer.id, handoffs.acceptedByUserId)).where(and(eq(handoffs.id, handoff.id), eq(handoffs.organizationId, input.organizationId))).limit(1);
       return row ? mapHandoff(row) : null;
     });
   }

@@ -1,12 +1,12 @@
 import { z } from 'zod';
 import { LEAD_STATUSES, UNASSIGNED_SEGMENT_FILTER } from '../leads/constants';
-import { ACCOUNT_CONTACT_MAX_PAGE_SIZE, ACCOUNT_CONTACT_PAGE_SIZE, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUSES, QUERY_BOOLEAN_VALUES } from './accounts.constants';
+import { ACCOUNT_CONTACT_MAX_PAGE_SIZE, ACCOUNT_CONTACT_PAGE_SIZE, ACCOUNT_INDUSTRIES, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUSES, QUERY_BOOLEAN_VALUES } from './accounts.constants';
 
 export const createAccountSegmentSchema = z.object({ name: z.string().trim().min(2).max(80) }).strict();
 export type CreateAccountSegmentDto = z.infer<typeof createAccountSegmentSchema>;
 export const assignAccountSegmentSchema = z.object({ segmentId: z.string().uuid().nullable() }).strict();
 export type AssignAccountSegmentDto = z.infer<typeof assignAccountSegmentSchema>;
-export const updateAccountProfileSchema = z.object({ marketSegment: z.enum(ACCOUNT_MARKET_SEGMENTS).nullable(), studentCount: z.number().int().nonnegative().nullable() }).strict();
+export const updateAccountProfileSchema = z.object({ marketSegment: z.enum(ACCOUNT_MARKET_SEGMENTS).nullable(), studentCount: z.number().int().nonnegative().nullable(), employeeCount: z.number().int().nonnegative().nullable(), industry: z.enum(ACCOUNT_INDUSTRIES).nullable(), legalName: z.string().trim().max(240).nullable(), taxId: z.string().trim().regex(/^(?:\d{14})?$/).nullable(), phone: z.string().trim().max(40).nullable(), address: z.string().trim().max(1000).nullable() }).strict();
 export type UpdateAccountProfileDto = z.infer<typeof updateAccountProfileSchema>;
 export const accountIdSchema = z.string().uuid();
 export const listAccountContactsSchema = z.object({ businessLineId: z.string().uuid().optional(), limit: z.coerce.number().int().min(1).max(ACCOUNT_CONTACT_MAX_PAGE_SIZE).default(ACCOUNT_CONTACT_PAGE_SIZE), offset: z.coerce.number().int().nonnegative().default(0) }).strict();
@@ -14,7 +14,7 @@ export type ListAccountContactsQueryDto = z.infer<typeof listAccountContactsSche
 export class AccountSegmentDto { constructor(readonly id: string, readonly name: string) {} }
 export class AccountSegmentRepositoryCreateDto { constructor(readonly organizationId: string, readonly actorUserId: string, readonly name: string, readonly correlationId: string | null) {} }
 export class AccountSegmentRepositoryAssignDto { constructor(readonly organizationId: string, readonly accountId: string, readonly segmentId: string | null, readonly actorUserId: string, readonly correlationId: string | null) {} }
-export class AccountProfileRepositoryUpdateDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly marketSegment: UpdateAccountProfileDto['marketSegment'], readonly studentCount: number | null, readonly correlationId: string | null) {} }
+export class AccountProfileRepositoryUpdateDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly input: UpdateAccountProfileDto, readonly correlationId: string | null) {} }
 export class AccountContactsRepositoryDto { constructor(readonly organizationId: string, readonly accountId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly query: ListAccountContactsQueryDto) {} }
 export class AccountContactMutationRepositoryDto extends AccountContactsRepositoryDto { constructor(organizationId: string, accountId: string, userId: string, canManageAll: boolean, includeOwnedOpportunities: boolean, query: ListAccountContactsQueryDto, readonly personId: string, readonly correlationId: string | null) { super(organizationId, accountId, userId, canManageAll, includeOwnedOpportunities, query); } }
 export class AccountContactDto { constructor(readonly id: string, readonly name: string, readonly email: string | null, readonly phone: string | null, readonly leadCount: number, readonly status: (typeof ACCOUNT_PERSON_STATUSES)[number]) {} }
@@ -42,7 +42,7 @@ export class AccountsRepositoryListDto {
   constructor(readonly organizationId: string, readonly userId: string, readonly canManageAll: boolean, readonly includeOwnedOpportunities: boolean, readonly query: ListAccountsQueryDto) {}
 }
 export class AccountRecordDto {
-  constructor(readonly id: string, readonly name: string, readonly segmentId: string | null, readonly segmentName: string | null, readonly marketSegment: (typeof ACCOUNT_MARKET_SEGMENTS)[number] | null, readonly studentCount: number | null, readonly contactCount: number, readonly leadCount: number, readonly respondedCount: number, readonly opportunityCount: number, readonly latestActivityAt: string | null) {}
+  constructor(readonly id: string, readonly name: string, readonly segmentId: string | null, readonly segmentName: string | null, readonly marketSegment: (typeof ACCOUNT_MARKET_SEGMENTS)[number] | null, readonly studentCount: number | null, readonly employeeCount: number | null, readonly industry: (typeof ACCOUNT_INDUSTRIES)[number] | null, readonly legalName: string | null, readonly taxId: string | null, readonly phone: string | null, readonly address: string | null, readonly contactCount: number, readonly leadCount: number, readonly respondedCount: number, readonly opportunityCount: number, readonly latestActivityAt: string | null) {}
 }
 export class AccountPageDto {
   constructor(readonly data: AccountRecordDto[], readonly pagination: { readonly limit: number; readonly offset: number; readonly total: number; readonly hasNextPage: boolean }) {}

@@ -1,13 +1,14 @@
 import { sql } from 'drizzle-orm';
 import { boolean, check, date, foreignKey, index, integer, jsonb, numeric, pgEnum, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 import { member as authMember, organization as authOrganization, user as authUser } from './auth-schema';
-import { ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
+import { ACCOUNT_INDUSTRIES, ACCOUNT_MARKET_SEGMENTS } from '../accounts/accounts.constants';
 import { ASSISTANT_DELIVERY_OUTCOME_VALUES, ASSISTANT_INTENT_VALUES, ASSISTANT_PRICING_VERSION, ASSISTANT_RUN_OPERATION_VALUES, ASSISTANT_RUN_OPERATIONS, ASSISTANT_RUN_PROVIDER_VALUES, ASSISTANT_RUN_STATUS_VALUES, ASSISTANT_RUNTIME_PROVIDER, ASSISTANT_STOP_REASON_VALUES } from '../agents/assistant-runtime.constants';
 import { CONTACT_OUTREACH_BASES, CONTACT_OUTREACH_DECISION, CONTACT_OUTREACH_DECISIONS, LEAD_QUALIFICATION_FACT_CONFIDENCE_MAX, LEAD_QUALIFICATION_FACT_CONFIDENCE_MIN, LEAD_QUALIFICATION_FACT_MAX_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MAX_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_MIN_KEY_LENGTH, LEAD_QUALIFICATION_FACT_MIN_VALUE_LENGTH, LEAD_QUALIFICATION_FACT_SOURCE, LEAD_QUALIFICATION_FACT_SOURCES, LEAD_QUALIFICATION_FACT_STATE, LEAD_QUALIFICATION_FACT_STATES } from '../leads/constants';
 import { CAMPAIGN_DRAFT_STATUSES, CAMPAIGN_OPENING_MESSAGE_DEFAULT } from '../campaigns/campaigns.constants';
 import { CHANNEL_ASSISTANT_SCHEDULE_MODES, CHANNEL_CONNECTION_STATUSES, CHANNEL_DAILY_LIMIT_TIME_ZONE_DEFAULT, CHANNEL_DAILY_MESSAGE_LIMIT_DEFAULT, CHANNEL_OPERATION_MODES } from '../channels/channels.constants';
 import { BUSINESS_LINE_STATUSES } from '../business-lines/business-lines.constants';
 import { ACCOUNT_PERSON_STATUSES, ACCOUNT_PERSON_STATUS } from '../accounts/accounts.constants';
+import { OPPORTUNITY_CREATION_MODES } from '../opportunities/opportunities.constants';
 
 export const leadStatus = pgEnum('lead_status', ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']);
 export const leadSource = pgEnum('lead_source', ['manual', 'import', 'whatsapp', 'referral']);
@@ -18,8 +19,10 @@ export const leadQualificationFactSource = pgEnum('lead_qualification_fact_sourc
 export const accountPersonStatus = pgEnum('account_person_status', ACCOUNT_PERSON_STATUSES);
 export const campaignDraftStatus = pgEnum('campaign_draft_status', CAMPAIGN_DRAFT_STATUSES);
 export const accountMarketSegment = pgEnum('account_market_segment', ACCOUNT_MARKET_SEGMENTS);
+export const accountIndustry = pgEnum('account_industry', ACCOUNT_INDUSTRIES);
 export const taskStatus = pgEnum('task_status', ['open', 'completed', 'cancelled']);
 export const opportunityStage = pgEnum('opportunity_stage', ['qualification', 'closer_contact_pending', 'discovery_scheduled', 'discovery_done', 'solution_confirmed', 'proposal_preparing', 'proposal_sent', 'negotiation', 'won', 'lost', 'custom']);
+export const opportunityCreationMode = pgEnum('opportunity_creation_mode', OPPORTUNITY_CREATION_MODES);
 export const handoffStatus = pgEnum('handoff_status', ['requested', 'accepted', 'returned', 'cancelled']);
 export const handoffEventType = pgEnum('handoff_event_type', ['requested', 'accepted', 'returned']);
 export const activityType = pgEnum('activity_type', ['call', 'meeting', 'email', 'message', 'task', 'note', 'research']);
@@ -102,15 +105,22 @@ export const accounts = pgTable('accounts', {
   id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
+  legalName: text('legal_name'),
+  taxId: text('tax_id'),
+  phone: text('phone'),
+  address: text('address'),
+  industry: accountIndustry('industry'),
   segmentId: uuid('segment_id'),
   marketSegment: accountMarketSegment('market_segment'),
   studentCount: integer('student_count'),
+  employeeCount: integer('employee_count'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'accounts_segment_tenant_fk', columns: [table.segmentId, table.organizationId], foreignColumns: [accountSegments.id, accountSegments.organizationId] }),
   unique('accounts_id_organization_unique').on(table.id, table.organizationId),
   check('accounts_student_count_check', sql`${table.studentCount} is null or ${table.studentCount} >= 0`),
+  check('accounts_employee_count_check', sql`${table.employeeCount} is null or ${table.employeeCount} >= 0`),
   index('accounts_org_name_idx').on(table.organizationId, table.name),
   index('accounts_org_segment_idx').on(table.organizationId, table.segmentId),
 ]);
@@ -280,15 +290,21 @@ export const opportunities = pgTable('opportunities', {
   organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
   leadId: uuid('lead_id').notNull(),
   accountId: uuid('account_id').notNull(),
-  primaryPersonId: uuid('primary_person_id').notNull(),
+  primaryPersonId: uuid('primary_person_id'),
   name: text('name').notNull(),
   pipelineId: uuid('pipeline_id'),
   stage: opportunityStage('stage').default('qualification').notNull(),
   pipelineStageKey: text('pipeline_stage_key'),
   ownerUserId: uuid('owner_user_id').references(() => authUser.id, { onDelete: 'set null' }),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdByType: opportunityCreationMode('created_by_type').default('human').notNull(),
+  studentCountSnapshot: integer('student_count_snapshot'),
+  employeeCountSnapshot: integer('employee_count_snapshot'),
   amount: numeric('amount', { precision: 14, scale: 2 }),
   currency: text('currency'),
+  quotedAmount: numeric('quoted_amount', { precision: 14, scale: 2 }),
+  quotedCurrency: text('quoted_currency'),
+  quotedAt: timestamp('quoted_at', { withTimezone: true }),
   closedAt: timestamp('closed_at', { withTimezone: true }),
   lossReason: text('loss_reason'),
   nextAction: text('next_action'),
@@ -309,6 +325,30 @@ export const opportunities = pgTable('opportunities', {
   index('opportunities_org_pipeline_stage_updated_idx').on(table.organizationId, table.pipelineId, table.stage, table.updatedAt),
   index('opportunities_org_owner_stage_idx').on(table.organizationId, table.ownerUserId, table.stage),
   index('opportunities_org_next_action_idx').on(table.organizationId, table.nextActionAt),
+]);
+
+export const opportunityProposals = pgTable('opportunity_proposals', {
+  id: uuid('id').default(sql`pg_catalog.gen_random_uuid()`).primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => authOrganization.id, { onDelete: 'cascade' }),
+  opportunityId: uuid('opportunity_id').notNull(),
+  version: integer('version').notNull(),
+  amount: numeric('amount', { precision: 14, scale: 2 }).notNull(),
+  currency: text('currency').notNull(),
+  billingTerm: text('billing_term').notNull(),
+  sentAt: timestamp('sent_at', { withTimezone: true }).notNull(),
+  fileName: text('file_name').notNull(),
+  mimeType: text('mime_type').notNull(),
+  fileSize: integer('file_size').notNull(),
+  storageKey: text('storage_key').notNull(),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => authUser.id, { onDelete: 'restrict' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  foreignKey({ name: 'opportunity_proposals_opportunity_tenant_fk', columns: [table.opportunityId, table.organizationId], foreignColumns: [opportunities.id, opportunities.organizationId] }).onDelete('cascade'),
+  unique('opportunity_proposals_version_unique').on(table.organizationId, table.opportunityId, table.version),
+  index('opportunity_proposals_org_opportunity_created_idx').on(table.organizationId, table.opportunityId, table.createdAt),
+  check('opportunity_proposals_billing_term_check', sql`${table.billingTerm} in ('monthly', 'quarterly', 'annual', 'one_time')`),
+  check('opportunity_proposals_currency_check', sql`${table.currency} ~ '^[A-Z]{3}$'`),
+  check('opportunity_proposals_file_size_check', sql`${table.fileSize} > 0`),
 ]);
 
 export const opportunityStageHistory = pgTable('opportunity_stage_history', {

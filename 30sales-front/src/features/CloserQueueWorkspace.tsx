@@ -232,7 +232,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
       const handoff = ['qualified_handoff', 'human_requested'].includes(event.eventType) ? handoffByOpportunity.get(event.opportunityId) : undefined
       return handoff ? [handoff.id] : []
     }))
-    const work: WorkItem[] = handoffs.filter((handoff) => !linkedHandoffIds.has(handoff.id)).map((handoff) => ({ id: `handoff:${handoff.id}`, kind: 'handoff', accountName: handoff.accountName, contactName: handoff.contactName, title: handoff.reason, context: handoff.evidence, occurredAt: handoff.requestedAt, deadline: handoff.nextStepAt, handoff }))
+    const work: WorkItem[] = handoffs.filter((handoff) => !linkedHandoffIds.has(handoff.id)).map((handoff) => ({ id: `handoff:${handoff.id}`, kind: 'handoff', accountName: handoff.accountName, contactName: handoff.contactName ?? t('pipelineWorklist.unknownContact'), title: handoff.reason, context: handoff.evidence, occurredAt: handoff.requestedAt, deadline: handoff.nextStepAt, handoff }))
     work.push(...closerEvents.map((event) => {
       const handoff = ['qualified_handoff', 'human_requested'].includes(event.eventType) ? handoffByOpportunity.get(event.opportunityId) : undefined
       return { id: handoff ? `handoff:${handoff.id}` : `event:${event.id}`, kind: handoff ? 'handoff' as const : 'lead_reply' as const, accountName: event.accountName ?? event.summary, contactName: event.contactName ?? '', title: handoff?.reason ?? t(`closerEventTypes.${event.eventType}`), context: handoff?.evidence ?? event.evidence ?? '', occurredAt: handoff?.requestedAt ?? event.occurredAt, deadline: event.dueAt ?? handoff?.nextStepAt ?? null, handoff, event }
@@ -240,7 +240,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
     work.push(...waitingForFirstActivity.flatMap((handoff) => {
       if (!handoff.acceptedAt) return []
       const acceptedAt = handoff.acceptedAt
-      return [{ id: `accepted-handoff:${handoff.id}`, kind: 'awaiting_first_activity' as const, accountName: handoff.accountName, contactName: handoff.contactName, title: t('closerQueue.awaitingFirstActivity'), context: `${handoff.evidence} · ${t('closerQueue.waitingElapsed', { duration: elapsedSince(acceptedAt) })}`, occurredAt: acceptedAt, deadline: null, handoff }]
+      return [{ id: `accepted-handoff:${handoff.id}`, kind: 'awaiting_first_activity' as const, accountName: handoff.accountName, contactName: handoff.contactName ?? t('pipelineWorklist.unknownContact'), title: t('closerQueue.awaitingFirstActivity'), context: `${handoff.evidence} · ${t('closerQueue.waitingElapsed', { duration: elapsedSince(acceptedAt) })}`, occurredAt: acceptedAt, deadline: null, handoff }]
     }))
     const terminalStages = new Set(['won', 'lost'])
     for (const opportunity of opportunities) {
@@ -248,7 +248,7 @@ export function CloserQueueWorkspace({ userId, onOpenPipeline, onOpenInbox, onOp
       const due = opportunity.nextActionAt ? new Date(opportunity.nextActionAt).getTime() : null
       if (due !== null && due > Date.now()) continue
       const kind: WorkKind = due === null ? 'no_action' : 'overdue'
-      work.push({ id: `opportunity:${opportunity.id}`, kind, accountName: opportunity.accountName, contactName: opportunity.contactName, title: opportunity.nextAction ?? (opportunity.stage === 'custom' ? opportunity.pipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${opportunity.stage}`)), context: `${opportunity.name} · ${kind === 'overdue' && opportunity.nextActionAt ? t('closerQueue.overdueContext', { date: dateLabel(opportunity.nextActionAt) }) : t('closerQueue.noActionContext')}`, occurredAt: opportunity.updatedAt, deadline: opportunity.nextActionAt ?? null })
+      work.push({ id: `opportunity:${opportunity.id}`, kind, accountName: opportunity.accountName, contactName: opportunity.contactName ?? t('pipelineWorklist.unknownContact'), title: opportunity.nextAction ?? (opportunity.stage === 'custom' ? opportunity.pipelineStageName ?? t('pipelineStageSettings.custom') : t(`opportunityStages.${opportunity.stage}`)), context: `${opportunity.name} · ${kind === 'overdue' && opportunity.nextActionAt ? t('closerQueue.overdueContext', { date: dateLabel(opportunity.nextActionAt) }) : t('closerQueue.noActionContext')}`, occurredAt: opportunity.updatedAt, deadline: opportunity.nextActionAt ?? null })
     }
     work.push(...openTasks.map((task) => {
       const isOverdue = new Date(task.dueAt).getTime() < Date.now()

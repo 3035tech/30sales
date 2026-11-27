@@ -1,9 +1,18 @@
 import { z } from 'zod';
-import { OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.constants';
+import { OPPORTUNITY_CREATION_MODES, OPPORTUNITY_STAGES, type OpportunityStage } from './opportunities.constants';
 import type { ACTIVITY_TYPES } from './activities.dto';
 type ActivityType = (typeof ACTIVITY_TYPES)[number];
 export type OpportunityLastActivityDto = { type: ActivityType; subject: string; result: string | null; occurredAt: string };
 export type OpportunityConversationContextDto = { conversationId: string; summary: string; confirmedFacts: string[]; unknowns: string[]; capturedAt: string };
+
+export const PROPOSAL_BILLING_TERMS = ['monthly', 'quarterly', 'annual', 'one_time'] as const;
+export const proposalBillingTermSchema = z.enum(PROPOSAL_BILLING_TERMS);
+export const proposalInputSchema = z.object({ amount: z.string().regex(/^\d{1,12}(\.\d{1,2})?$/), currency: z.string().regex(/^[A-Z]{3}$/), billingTerm: proposalBillingTermSchema, sentAt: z.string().datetime({ offset: true }) }).strict().superRefine((value, context) => {
+  if (Number(value.amount) <= 0) context.addIssue({ code: 'custom', message: 'Proposal amount must be greater than zero.', path: ['amount'] });
+  if (new Date(value.sentAt).getTime() > Date.now()) context.addIssue({ code: 'custom', message: 'Proposal date cannot be in the future.', path: ['sentAt'] });
+});
+export type ProposalInputDto = z.infer<typeof proposalInputSchema>;
+export class OpportunityProposalDto { constructor(readonly id: string, readonly version: number, readonly amount: string, readonly currency: string, readonly billingTerm: (typeof PROPOSAL_BILLING_TERMS)[number], readonly sentAt: string, readonly fileName: string, readonly fileSize: number, readonly createdByName: string, readonly createdAt: string) {} }
 
 export const opportunityStageSchema = z.enum(OPPORTUNITY_STAGES);
 const stageSchema = opportunityStageSchema;
@@ -68,7 +77,7 @@ export class OpportunityRecordDto {
     readonly leadId: string,
     readonly name: string,
     readonly accountName: string,
-    readonly contactName: string,
+    readonly contactName: string | null,
     readonly contactEmail: string | null,
     readonly contactPhone: string | null,
     readonly pipelineId: string,
@@ -78,6 +87,8 @@ export class OpportunityRecordDto {
     readonly stageChangedAt: string,
     readonly ownerUserId: string | null,
     readonly ownerName: string | null,
+    readonly createdByType: (typeof OPPORTUNITY_CREATION_MODES)[number],
+    readonly createdByName: string | null,
     readonly canUpdate: boolean,
     readonly amount: string | null,
     readonly currency: string | null,

@@ -1,13 +1,15 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { z } from 'zod';
 import { ApiRequest } from '../common/api-request.decorator';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { assignOpportunityOwnerSchema, createPipelineSchema, createPipelineStageSchema, listOpportunitiesSchema, reorderPipelineStagesSchema, transitionOpportunitySchema, updatePipelineSchema, updatePipelineStageSchema } from './opportunities.dto';
-import type { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
+import { assignOpportunityOwnerSchema, createPipelineSchema, createPipelineStageSchema, listOpportunitiesSchema, proposalInputSchema, reorderPipelineStagesSchema, transitionOpportunitySchema, updatePipelineSchema, updatePipelineStageSchema } from './opportunities.dto';
+import type { AssignOpportunityOwnerDto, CreatePipelineDto, CreatePipelineStageDto, ListOpportunitiesQueryDto, ProposalInputDto, ReorderPipelineStagesDto, TransitionOpportunityDto, UpdatePipelineDto, UpdatePipelineStageDto } from './opportunities.dto';
 import { OpportunitiesService } from './opportunities.service';
 import { createActivitySchema } from './activities.dto';
 import type { CreateActivityDto } from './activities.dto';
+import type { IncomingMediaFile } from '../inbox/outbound-media';
 
 const opportunityIdSchema = z.string().uuid();
 const pipelineStageKeySchema = z.string().min(1).max(64);
@@ -64,6 +66,17 @@ export class OpportunitiesController {
   @Get(':id/activities')
   activities(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string) {
     return this.opportunitiesService.activities(request, opportunityId);
+  }
+  @Get(':id/proposals')
+  proposals(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string) { return this.opportunitiesService.proposals(request, opportunityId); }
+  @Post(':id/proposals')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 16 * 1024 * 1024, files: 1, fields: 4, parts: 5 } }))
+  recordProposal(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string, @Body(new ZodValidationPipe(proposalInputSchema)) input: ProposalInputDto, @UploadedFile() file: IncomingMediaFile | undefined) { return this.opportunitiesService.recordProposal(request, opportunityId, input, file); }
+  @Get(':id/proposals/:proposalId/content')
+  async downloadProposal(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string, @Param('proposalId', new ZodValidationPipe(opportunityIdSchema)) proposalId: string): Promise<StreamableFile> {
+    const file = await this.opportunitiesService.downloadProposal(request, opportunityId, proposalId);
+    const safeName = file.fileName.replace(/[\\/\r\n"\u0000-\u001f]/g, '_').slice(0, 160) || 'proposal.pdf';
+    return new StreamableFile(file.stream, { type: file.mimeType, disposition: `attachment; filename="${safeName.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(safeName)}` });
   }
   @Post(':id/activities')
   createActivity(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(opportunityIdSchema)) opportunityId: string, @Body(new ZodValidationPipe(createActivitySchema)) dto: CreateActivityDto) {

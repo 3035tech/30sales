@@ -11,6 +11,7 @@ import { CHANNEL_PROVIDER, CHANNEL_QUOTA_COUNTED_DIRECTION, CHANNEL_QUOTA_EXCLUD
 import { isAssistantAllowedAt, isWithinBusinessHours, localDateAt, shiftLocalDate } from '../channels/channel-assistant-schedule';
 import { channelAssistantScheduleModeSchema, channelOperationModeSchema, channelProviderSchema } from '../channels/channels.dto';
 import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
+import { findLineDefaultPipelineId } from '../opportunities/line-default-pipeline';
 
 type AgentSendChannel = { channelId: string; provider: AssistantInboundEventDto['provider']; providerChannelId: string; recipientPhone: string; credentials: { ciphertext: string; iv: string; authTag: string } };
 
@@ -228,15 +229,16 @@ export class AssistantRuntimeRepository {
       const requestsCloser = ['meeting_request', 'proposal_request'].includes(input.result.intent);
       const requestsHuman = input.result.intent === 'explicit_human_request';
       let humanHandoffCreated = false;
-      if ((requestsCloser || requestsHuman) && agent.updatedByUserId && conversation.personId) {
-        const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, accountName: accounts.name, personName: people.name })
+      if ((requestsCloser || requestsHuman) && agent.updatedByUserId && conversation.personId && channel.businessLineId) {
+        const [lead] = await transaction.select({ id: leads.id, status: leads.status, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, personName: people.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount })
           .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
           .leftJoin(leadContacts, and(eq(leadContacts.leadId, leads.id), eq(leadContacts.organizationId, leads.organizationId)))
           .innerJoin(people, and(eq(people.id, conversation.personId), eq(people.organizationId, leads.organizationId)))
-          .where(and(eq(leads.organizationId, conversation.organizationId), or(eq(leads.personId, conversation.personId), eq(leadContacts.personId, conversation.personId)), conversation.accountId ? eq(leads.accountId, conversation.accountId) : sql`true`))
+          .where(and(eq(leads.organizationId, conversation.organizationId), eq(leads.businessLineId, channel.businessLineId), or(eq(leads.personId, conversation.personId), eq(leadContacts.personId, conversation.personId)), conversation.accountId ? eq(leads.accountId, conversation.accountId) : sql`true`))
           .orderBy(desc(leads.createdAt), desc(leads.id)).for('update', { of: leads }).limit(1);
+        const linePipelineId = lead ? await findLineDefaultPipelineId(transaction, conversation.organizationId, lead.businessLineId) : null;
         const ineligibleLeadStatuses = ['invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact'];
-        if (lead && !ineligibleLeadStatuses.includes(lead.status)) {
+        if (lead && linePipelineId && !ineligibleLeadStatuses.includes(lead.status)) {
           const [activeHandoff] = await transaction.select({ id: handoffs.id }).from(handoffs)
             .innerJoin(opportunities, and(eq(opportunities.id, handoffs.opportunityId), eq(opportunities.organizationId, handoffs.organizationId)))
             .where(and(eq(handoffs.organizationId, conversation.organizationId), eq(opportunities.leadId, lead.id), sql`${handoffs.status} in ('requested', 'accepted')`)).limit(1);
@@ -258,10 +260,10 @@ export class AssistantRuntimeRepository {
             if (!opportunityId) {
               const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);
               const initialStage = requestsHuman ? 'closer_contact_pending' : 'qualification';
-              const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
+              const [createdOpportunity] = await transaction.insert(opportunities).values({ organizationId: conversation.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, pipelineId: linePipelineId, createdByType: 'ai', studentCountSnapshot: lead.studentCount, employeeCountSnapshot: lead.employeeCount, name: `${lead.accountName} — ${input.result.summary.slice(0, 100)}`, stage: initialStage, nextAction: input.result.nextStep, nextActionAt: dueAt, createdByUserId: agent.updatedByUserId }).returning({ id: opportunities.id });
               opportunityId = createdOpportunity.id;
-              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: initialStage, toPipelineStageKey: null, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
-              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, source: requestsHuman ? 'assistant_human_request' : 'assistant_handoff' } });
+              await transaction.insert(opportunityStageHistory).values({ organizationId: conversation.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: initialStage, toPipelineId: linePipelineId, toPipelineStageKey: null, actorUserId: agent.updatedByUserId, reason: requestsHuman ? 'Opportunity created from a lead request for human assistance.' : 'Opportunity created from Assistant qualified handoff.' });
+              await transaction.insert(auditEvents).values({ organizationId: conversation.organizationId, actorType: 'system', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, afterState: { stage: initialStage, pipelineId: linePipelineId, businessLineId: lead.businessLineId, source: requestsHuman ? 'assistant_human_request' : 'assistant_handoff' } });
             }
 
             const dueAt = new Date(occurredAt.getTime() + 24 * 60 * 60 * 1000);

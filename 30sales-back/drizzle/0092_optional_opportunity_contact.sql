@@ -1,0 +1,1 @@
+ALTER TABLE "opportunities" ALTER COLUMN "primary_person_id" DROP NOT NULL;

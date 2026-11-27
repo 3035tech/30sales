@@ -1,6 +1,6 @@
-import { request } from '../request';
+import { request, requestBlob } from '../request';
 import { z } from 'zod';
-import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityConversationContextSchema, opportunityHistorySchema, opportunityPageSchema, opportunityPipelineSummarySchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
+import { type ActivityType, type OpportunityStage, activitySchema, opportunityAssigneeSchema, opportunityConversationContextSchema, opportunityHistorySchema, opportunityPageSchema, opportunityPipelineSummarySchema, opportunityProposalSchema, opportunitySchema, pipelineStagesSchema, pipelinesSchema } from '../contracts';
 
 
 export const opportunitiesApi = {
@@ -69,5 +69,14 @@ export const opportunitiesApi = {
     activities: {
       list: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, z.array(activitySchema)),
       create: (id: string, input: { type: ActivityType; subject: string; details?: string; result?: string; occurredAt: string }) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/activities`, activitySchema, { method: 'POST', body: JSON.stringify(input) }),
+    },
+    proposals: {
+      list: (id: string) => request(`/api/v1/opportunities/${encodeURIComponent(id)}/proposals`, z.array(opportunityProposalSchema)),
+      create: (id: string, input: { amount: string; currency: string; billingTerm: 'monthly' | 'quarterly' | 'annual' | 'one_time'; sentAt: string; file: File }) => {
+        const form = new FormData();
+        form.set('amount', input.amount); form.set('currency', input.currency); form.set('billingTerm', input.billingTerm); form.set('sentAt', input.sentAt); form.set('file', input.file, input.file.name);
+        return request(`/api/v1/opportunities/${encodeURIComponent(id)}/proposals`, opportunityProposalSchema, { method: 'POST', body: form });
+      },
+      download: (opportunityId: string, proposalId: string) => requestBlob(`/api/v1/opportunities/${encodeURIComponent(opportunityId)}/proposals/${encodeURIComponent(proposalId)}/content`),
     },
   };

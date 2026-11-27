@@ -13,6 +13,7 @@ import { INBOX_ACTIVE_CONVERSATION_STATUSES, INBOX_CONTACT_RECONCILIATION_AUDIT_
 import { USER_NOTIFICATION_TYPE } from '../notifications/notifications.constants';
 import { BUSINESS_LINE_STATUS } from '../business-lines/business-lines.constants';
 import { applyPendingEvolutionMessageStatuses } from '../webhooks/pending-message-statuses';
+import { findLineDefaultPipelineId } from '../opportunities/line-default-pipeline';
 
 const conversationAssigneeRoleValues = sql.join(ORGANIZATION_CONVERSATION_ASSIGNEE_ROLES.map((role) => sql`${role}`), sql`, `);
 type InboxTransaction = Parameters<Parameters<typeof database.transaction>[0]>[0];
@@ -235,7 +236,7 @@ export class InboxRepository {
       return { conversationId: input.conversationId, name: updatedPerson.name, email: updatedPerson.email };
     });
   }
-  async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string | null; taskId: string; leadId: string; leadCreated: boolean; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'lead_selection_required' | 'conversation_linked_elsewhere'> {
+  async createOpportunityFromConversation(input: ConversationOpportunityCreateDto): Promise<{ opportunityId: string | null; taskId: string; leadId: string; leadCreated: boolean; created: boolean } | 'not_found' | 'not_owner' | 'lead_unavailable' | 'lead_selection_required' | 'conversation_linked_elsewhere' | 'business_line_pipeline_unavailable'> {
     return database.transaction(async (transaction) => {
       const [conversation] = await transaction.select({ id: conversations.id, accountId: conversations.accountId, personId: conversations.personId, opportunityId: conversations.opportunityId, ownerUserId: conversations.ownerUserId, businessLineId: messagingChannels.businessLineId, lineStatus: businessLines.status, personName: people.name, personPhone: people.phone })
         .from(conversations).innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
@@ -251,17 +252,19 @@ export class InboxRepository {
         const state = previousRequest.afterState as Record<string, unknown>;
         if (typeof previousRequest.entityId === 'string' && typeof state.leadId === 'string') return { taskId: previousRequest.entityId, leadId: state.leadId, opportunityId: typeof state.opportunityId === 'string' ? state.opportunityId : null, leadCreated: state.leadCreated === true, created: state.created === true };
       }
-      let lead: { id: string; accountId: string; personId: string | null; businessLineId: string | null; accountName: string; contactName: string | null } | undefined;
+      const pipelineId = input.input.createOpportunity ? await findLineDefaultPipelineId(transaction, input.organizationId, conversation.businessLineId) : null;
+      if (input.input.createOpportunity && !pipelineId) return 'business_line_pipeline_unavailable';
+      let lead: { id: string; accountId: string; personId: string | null; businessLineId: string | null; accountName: string; contactName: string | null; studentCount: number | null; employeeCount: number | null } | undefined;
       let leadCreated = false;
       if (input.input.leadId) {
-        [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
+        [lead] = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount })
           .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
           .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
           .where(and(eq(leads.id, input.input.leadId), eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId))).for('update', { of: leads }).limit(1);
         if (!lead) return 'lead_unavailable';
       } else if (conversation.personId) {
         const contactLink = exists(transaction.select({ id: leadContacts.id }).from(leadContacts).where(and(eq(leadContacts.organizationId, input.organizationId), eq(leadContacts.leadId, leads.id), eq(leadContacts.personId, conversation.personId))));
-        const matchingLeads = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name })
+        const matchingLeads = await transaction.select({ id: leads.id, accountId: leads.accountId, personId: leads.personId, businessLineId: leads.businessLineId, accountName: accounts.name, contactName: people.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount })
           .from(leads).innerJoin(accounts, and(eq(accounts.id, leads.accountId), eq(accounts.organizationId, leads.organizationId)))
           .leftJoin(people, and(eq(people.id, leads.personId), eq(people.organizationId, leads.organizationId)))
           .where(and(eq(leads.organizationId, input.organizationId), eq(leads.businessLineId, conversation.businessLineId), or(eq(leads.personId, conversation.personId), contactLink))).for('update', { of: leads }).limit(2);
@@ -270,16 +273,16 @@ export class InboxRepository {
       }
       if (!lead && conversation.personId) {
         const companyName = input.input.companyName?.trim() || `Empresa a identificar · ${conversation.personName?.trim() || conversation.personPhone || conversation.id.slice(0, 8)}`;
-        const [linkedAccount] = conversation.accountId ? await transaction.select({ id: accounts.id, name: accounts.name }).from(accounts).where(and(eq(accounts.id, conversation.accountId), eq(accounts.organizationId, input.organizationId))).limit(1) : [];
+        const [linkedAccount] = conversation.accountId ? await transaction.select({ id: accounts.id, name: accounts.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount }).from(accounts).where(and(eq(accounts.id, conversation.accountId), eq(accounts.organizationId, input.organizationId))).limit(1) : [];
         let account = linkedAccount;
-        if (!account) [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: companyName }).returning({ id: accounts.id, name: accounts.name });
+        if (!account) [account] = await transaction.insert(accounts).values({ organizationId: input.organizationId, name: companyName }).returning({ id: accounts.id, name: accounts.name, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount });
         if (!account) return 'lead_unavailable';
         const [newLead] = await transaction.insert(leads).values({ organizationId: input.organizationId, businessLineId: conversation.businessLineId, accountId: account.id, personId: conversation.personId, createdByUserId: input.actorUserId, assignedToUserId: input.actorUserId, source: 'whatsapp', status: 'new', nextActionAt: new Date(input.input.nextActionAt) }).returning({ id: leads.id });
         await transaction.insert(leadContacts).values({ organizationId: input.organizationId, leadId: newLead.id, personId: conversation.personId, isPrimary: true, createdByUserId: input.actorUserId });
         await transaction.insert(accountPeople).values({ organizationId: input.organizationId, accountId: account.id, personId: conversation.personId, createdByUserId: input.actorUserId }).onConflictDoNothing();
         await transaction.insert(leadStatusHistory).values({ organizationId: input.organizationId, leadId: newLead.id, fromStatus: null, toStatus: 'new', changedByUserId: input.actorUserId });
         await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'lead.created', entityType: 'lead', entityId: newLead.id, correlationId: input.correlationId, afterState: { status: 'new', source: 'whatsapp', createdFromConversation: conversation.id, companyIdentified: Boolean(input.input.companyName?.trim()) } });
-        lead = { id: newLead.id, accountId: account.id, personId: conversation.personId, businessLineId: conversation.businessLineId, accountName: account.name, contactName: conversation.personName };
+        lead = { id: newLead.id, accountId: account.id, personId: conversation.personId, businessLineId: conversation.businessLineId, accountName: account.name, contactName: conversation.personName, studentCount: account.studentCount, employeeCount: account.employeeCount };
         leadCreated = true;
       }
       if (!lead) return 'lead_unavailable';
@@ -301,10 +304,10 @@ export class InboxRepository {
       let opportunityId = conversation.opportunityId ?? existing?.id;
       const created = input.input.createOpportunity && !opportunityId;
       if (input.input.createOpportunity && !opportunityId) {
-        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, name: `${lead.accountName} — ${input.input.summary.slice(0, 120)}`, stage: 'qualification', nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
+        const [opportunity] = await transaction.insert(opportunities).values({ organizationId: input.organizationId, leadId: lead.id, accountId: lead.accountId, primaryPersonId: conversation.personId, pipelineId: pipelineId ?? undefined, createdByType: 'human', studentCountSnapshot: lead.studentCount, employeeCountSnapshot: lead.employeeCount, name: `${lead.accountName} — ${input.input.summary.slice(0, 120)}`, stage: 'qualification', nextAction: input.input.nextAction, nextActionAt: new Date(input.input.nextActionAt), createdByUserId: input.actorUserId }).returning({ id: opportunities.id });
         opportunityId = opportunity.id;
-        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from an Inbox conversation.' });
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', source: 'inbox_conversation', conversationId: conversation.id, leadId: lead.id } });
+        await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId, fromStage: null, fromPipelineStageKey: null, toStage: 'qualification', toPipelineId: pipelineId, toPipelineStageKey: null, actorUserId: input.actorUserId, reason: 'Opportunity created from an Inbox conversation.' });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'opportunity.created', entityType: 'opportunity', entityId: opportunityId, correlationId: input.correlationId, afterState: { stage: 'qualification', pipelineId, businessLineId: lead.businessLineId, source: 'inbox_conversation', conversationId: conversation.id, leadId: lead.id } });
       }
       await transaction.update(leads).set({ nextActionAt: dueAt, updatedAt: now }).where(and(eq(leads.id, lead.id), eq(leads.organizationId, input.organizationId)));
       if (opportunityId) await transaction.update(opportunities).set({ nextAction: input.input.nextAction, nextActionAt: dueAt, updatedAt: now }).where(and(eq(opportunities.id, opportunityId), eq(opportunities.organizationId, input.organizationId)));
@@ -353,7 +356,9 @@ export class InboxRepository {
     else if (input.canManageAll && input.query.ownerUserId) conditions.push(eq(conversations.ownerUserId, input.query.ownerUserId));
     if (input.query.search) {
       const pattern = `%${input.query.search.replace(/[\\%_]/g, '\\$&')}%`;
-      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.phone, pattern))!);
+      const matchingGroupParticipant = exists(database.select({ id: conversationGroupParticipants.conversationId }).from(conversationGroupParticipants)
+        .where(and(eq(conversationGroupParticipants.organizationId, input.organizationId), eq(conversationGroupParticipants.conversationId, conversations.id), eq(conversationGroupParticipants.isPresent, true), or(ilike(conversationGroupParticipants.displayName, pattern), ilike(conversationGroupParticipants.phone, pattern)))));
+      conditions.push(or(ilike(accounts.name, pattern), ilike(people.name, pattern), ilike(people.phone, pattern), ilike(conversations.displayName, pattern), matchingGroupParticipant)!);
     }
     if (input.query.unreadOnly) conditions.push(unreadExists);
     if (input.query.tagId) conditions.push(sql`exists (select 1 from conversation_tag_links ctl where ctl.organization_id = ${input.organizationId} and ctl.conversation_id = ${conversations.id} and ctl.tag_id = ${input.query.tagId})`);

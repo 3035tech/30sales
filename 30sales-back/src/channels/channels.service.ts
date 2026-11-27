@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { randomBytes } from 'node:crypto';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { CHANNEL_HEALTH_STATUS, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, UpdateChannelDto } from './channels.dto';
+import { CHANNEL_HEALTH_STATUS, ChannelBusinessLineTransferDto, ChannelConnectionStatusUpdateDto, ChannelCredentialsDto, ChannelHealthCheckAuditDto, ChannelHealthCheckDto, ChannelMonitoringCheckDto, ChannelMonitoringStatusDto, ChannelRecordDto, ChannelRepositoryCreateDto, ChannelRepositoryCredentialsDto, ChannelRepositoryDeleteScheduleExceptionDto, ChannelRepositoryScheduleExceptionDto, ChannelRepositoryUpdateDto, channelCredentialsSchema, CreateChannelDto, platformEvolutionSecretsSchema, TransferChannelBusinessLineDto, UpdateChannelDto } from './channels.dto';
 import type { ChannelConnectionStatus, ChannelHealthStatus, ChannelMonitoringCheckInputDto, ChannelScheduleExceptionDto, ChannelScheduleExceptionInputDto, ConfigureChannelCredentialsDto, EvolutionWebhookConfigurationStatus } from './channels.dto';
 import { ChannelCredentialCryptoService } from './channel-credential-crypto.service';
 import { ChannelConnectionHealthProvider } from './channel-connection-health.provider';
@@ -13,7 +13,7 @@ import { CHANNEL_CONNECTION_STATUS, CHANNEL_MONITORING_CHECK_CONCURRENCY, CHANNE
 import { EvolutionWebhookConfigurationProvider } from './evolution-webhook-configuration.provider';
 import { EvolutionConnectionProvider, EvolutionConnectionResultDto } from './evolution-connection.provider';
 import { ChannelCredentialResolverService } from './channel-credential-resolver.service';
-import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
+import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES, ORGANIZATION_ROLE } from '../auth/authorization.constants';
 import { MEDIA_ATTACHMENT_STALE_AFTER_MINUTES } from '../attachments/media-attachment.constants';
 
 @Injectable()
@@ -44,6 +44,17 @@ export class ChannelsService {
     if (!result) throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
     if (result === 'schedule_required') throw new BadRequestException({ code: 'CHANNEL_SCHEDULE_REQUIRED', message: 'Configure at least one business-hours window before enabling scheduled assistant replies.' });
     if (result === 'profile_mismatch') throw new BadRequestException({ code: 'ASSISTANT_PROFILE_CHANNEL_MISMATCH', message: 'Assistant profiles must match the channel business line and direction.' });
+    return result;
+  }
+  async transferBusinessLine(request: ApiRequestDto, channelId: string, input: TransferChannelBusinessLineDto): Promise<ChannelRecordDto> {
+    const context = await this.tenantAccess.require(request, 'manage', 'integrations');
+    if (!context.isPlatformOrganizationContext && !hasOrganizationRole(context.role, [ORGANIZATION_ROLE.owner, ORGANIZATION_ROLE.admin])) {
+      throw new ForbiddenException({ code: 'CHANNEL_BUSINESS_LINE_TRANSFER_FORBIDDEN', message: 'Only company owners, company admins, and super admins can move a channel to another business line.' });
+    }
+    const result = await this.repository.transferBusinessLine(new ChannelBusinessLineTransferDto(context.organizationId, channelId, input.businessLineId, context.userId, request.correlationId));
+    if (result === 'channel_not_found') throw new NotFoundException({ code: 'CHANNEL_NOT_FOUND', message: 'The channel was not found in the active organization.' });
+    if (result === 'business_line_not_found') throw new NotFoundException({ code: 'BUSINESS_LINE_NOT_FOUND', message: 'The selected active business line was not found in this organization.' });
+    if (result === 'active_campaign') throw new ConflictException({ code: 'CHANNEL_HAS_ACTIVE_CAMPAIGN', message: 'Pause campaigns using this number before moving it to another business line.' });
     return result;
   }
   async delete(request: ApiRequestDto, channelId: string): Promise<{ deleted: true; historyPreserved: true; remoteInstanceDeleted: boolean }> {

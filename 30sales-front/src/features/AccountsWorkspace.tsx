@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { DataTable, type DataTableColumn } from '../components/ui/DataTable'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import { ACCOUNT_SEGMENT_ERROR_CODE, ACCOUNT_SEGMENT_FILTER, api, ApiError, type AccountMarketSegment, type AccountSegmentDto, type AccountSortBy, type LeadStatus } from '../lib/api'
-import { ACCOUNT_CONTACT_ERROR_CODE, ACCOUNT_CONTACT_LIMITS, ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUS, ACCOUNT_PROFILE_EMPTY_VALUE } from '../lib/accountConstants'
+import { ACCOUNT_CONTACT_ERROR_CODE, ACCOUNT_CONTACT_LIMITS, ACCOUNT_INDUSTRIES, ACCOUNT_MARKET_FILTER, ACCOUNT_MARKET_SEGMENTS, ACCOUNT_PERSON_STATUS, ACCOUNT_PROFILE_EMPTY_VALUE } from '../lib/accountConstants'
 import { Modal } from '../components/ui/Modal'
 import { ConfirmDialog } from '../components/ui/ConfirmDialog'
 import i18n from '../lib/i18n'
@@ -46,6 +46,12 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
   const [profileAccount, setProfileAccount] = useState<AccountRow | null>(null)
   const [profileMarketSegment, setProfileMarketSegment] = useState<AccountMarketSegment | typeof ACCOUNT_PROFILE_EMPTY_VALUE>(ACCOUNT_PROFILE_EMPTY_VALUE)
   const [profileStudentCount, setProfileStudentCount] = useState<number | null>(null)
+  const [profileEmployeeCount, setProfileEmployeeCount] = useState<number | null>(null)
+  const [profileIndustry, setProfileIndustry] = useState<(typeof ACCOUNT_INDUSTRIES)[number] | typeof ACCOUNT_PROFILE_EMPTY_VALUE>(ACCOUNT_PROFILE_EMPTY_VALUE)
+  const [profileLegalName, setProfileLegalName] = useState('')
+  const [profileTaxId, setProfileTaxId] = useState('')
+  const [profilePhone, setProfilePhone] = useState('')
+  const [profileAddress, setProfileAddress] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
   const [contactsAccount, setContactsAccount] = useState<AccountRow | null>(null)
   const [accountContacts, setAccountContacts] = useState<Awaited<ReturnType<typeof api.accounts.contacts>> | null>(null)
@@ -87,7 +93,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     try { await api.accounts.assignSegment(accountId, segmentId || null); setRefresh((value) => value + 1) }
     catch { setSegmentError(t('accounts.segmentAssignFailed')) }
   }
-  const openProfile = (row: AccountRow) => { setProfileError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount) }
+  const openProfile = (row: AccountRow) => { setProfileError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount); setProfileEmployeeCount(row.employeeCount); setProfileIndustry(row.industry ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileLegalName(row.legalName ?? ''); setProfileTaxId(row.taxId ?? ''); setProfilePhone(row.phone ?? ''); setProfileAddress(row.address ?? '') }
   const loadAccountContacts = async (accountId: string, offset: number) => {
     setAccountContactsLoading(true)
     setAccountContactsError('')
@@ -133,7 +139,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     setProfileSaving(true)
     setProfileError('')
     try {
-      await api.accounts.updateProfile(profileAccount.id, { marketSegment: profileMarketSegment === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileMarketSegment, studentCount: profileStudentCount })
+      await api.accounts.updateProfile(profileAccount.id, { marketSegment: profileMarketSegment === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileMarketSegment, studentCount: profileStudentCount, employeeCount: profileEmployeeCount, industry: profileIndustry === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileIndustry, legalName: profileLegalName.trim() || null, taxId: profileTaxId.replace(/\D/g, '') || null, phone: profilePhone.trim() || null, address: profileAddress.trim() || null })
       setProfileAccount(null)
       setRefresh((value) => value + 1)
     } catch { setProfileError(t('accountProfileFields.profileSaveFailed')) }
@@ -173,8 +179,14 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
       {profileError && <WorkspaceState kind="error" compact message={profileError} />}
       <form className="account-profile-form" onSubmit={(event) => void saveProfile(event)}>
         <div className="account-profile-context"><Building2 size={18} aria-hidden="true" /><p>{t('accountProfileFields.profileIntro')}</p></div>
+        <label>{t('accountProfileFields.industry')}<SelectField value={profileIndustry} onChange={(event) => setProfileIndustry(ACCOUNT_INDUSTRIES.find((industry) => industry === event.target.value) ?? ACCOUNT_PROFILE_EMPTY_VALUE)}><option value={ACCOUNT_PROFILE_EMPTY_VALUE}>{t('accountProfileFields.notProvided')}</option>{ACCOUNT_INDUSTRIES.map((industry) => <option key={industry} value={industry}>{t(`accountProfileFields.industries.${industry}`)}</option>)}</SelectField></label>
         <label>{t('accountProfileFields.marketSegment')}<SelectField value={profileMarketSegment} onChange={(event) => setProfileMarketSegment(ACCOUNT_MARKET_SEGMENTS.find((segment) => segment === event.target.value) ?? ACCOUNT_PROFILE_EMPTY_VALUE)}><option value={ACCOUNT_PROFILE_EMPTY_VALUE}>{t('accountProfileFields.notProvided')}</option>{ACCOUNT_MARKET_SEGMENTS.map((segment) => <option key={segment} value={segment}>{t(`accountProfileFields.marketSegments.${segment}`)}</option>)}</SelectField><small>{t('accountProfileFields.marketSegmentHint')}</small></label>
         {profileMarketSegment === 'education' && <label>{t('accountProfileFields.studentCount')}<NumericField mode="integer" min={0} max={10000000} value={profileStudentCount} onValueChange={setProfileStudentCount} /><small>{t('accountProfileFields.studentCountHint')}</small></label>}
+        <label>{t('accountProfileFields.employeeCount')}<NumericField mode="integer" min={0} max={10000000} value={profileEmployeeCount} onValueChange={setProfileEmployeeCount} /><small>{t('accountProfileFields.employeeCountHint')}</small></label>
+        <label>{t('accountProfileFields.legalName')}<TextField value={profileLegalName} onChange={(event) => setProfileLegalName(event.target.value)} maxLength={240} /></label>
+        <label>{t('accountProfileFields.taxId')}<TextField inputMode="numeric" value={profileTaxId} onChange={(event) => setProfileTaxId(event.target.value)} maxLength={18} /></label>
+        <label>{t('accountProfileFields.phone')}<TextField type="tel" value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} maxLength={40} /></label>
+        <label>{t('accountProfileFields.address')}<TextField value={profileAddress} onChange={(event) => setProfileAddress(event.target.value)} maxLength={1000} /></label>
         <div className="account-profile-actions"><Button type="button" onClick={() => setProfileAccount(null)}>{t('common.cancel')}</Button><Button className="primary" disabled={profileSaving}>{profileSaving ? t('common.saving') : t('accountProfileFields.saveProfile')}</Button></div>
       </form>
     </Modal>

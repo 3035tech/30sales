@@ -58,7 +58,7 @@ export class AccountsService {
   }
   async updateProfile(request: ApiRequestDto, accountId: string, body: UpdateAccountProfileDto) {
     const context = await this.tenantAccess.require(request, 'update', 'leads');
-    const result = await this.repository.updateProfile(new AccountProfileRepositoryUpdateDto(context.organizationId, accountId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), body.marketSegment, body.studentCount, request.correlationId));
+    const result = await this.repository.updateProfile(new AccountProfileRepositoryUpdateDto(context.organizationId, accountId, context.userId, hasOrganizationRole(context.role, ORGANIZATION_MANAGEMENT_ROLES), hasOrganizationRole(context.role, ORGANIZATION_CLOSER_ROLES), body, request.correlationId));
     if (result === ACCOUNT_PROFILE_ERROR_CODE.notFound) throw new NotFoundException({ code: result, message: 'Account was not found in the active organization.' });
     return result;
   }

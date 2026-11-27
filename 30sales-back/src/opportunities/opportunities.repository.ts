@@ -2,26 +2,64 @@ import { Injectable } from '@nestjs/common';
 import { and, asc, count, desc, eq, exists, gte, ilike, inArray, isNotNull, isNull, lt, notInArray, or, SQL, sql, sum } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { accounts, activities, auditEvents, businessLineMembers, businessLines, leads, opportunities, opportunityConversationContexts, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
+import { accounts, activities, auditEvents, businessLineMembers, businessLines, leads, opportunities, opportunityConversationContexts, opportunityProposals, opportunityStageHistory, people, pipelineStages, pipelines, userNotifications } from '../db/schema';
 import { member, user } from '../db/auth-schema';
-import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityConversationContextDto, type OpportunityLastActivityDto, OpportunityConversationContextsQueryDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto } from './opportunities.dto';
+import { OpportunityAssigneeDto, OpportunityHistoryRecordDto, type OpportunityConversationContextDto, type OpportunityLastActivityDto, OpportunityProposalDto, OpportunityConversationContextsQueryDto, OpportunityPageDto, OpportunityPipelineSummaryDto, OpportunityRecordDto, OpportunityRepositoryAssignOwnerDto, OpportunityRepositoryHistoryDto, OpportunityRepositoryListDto, OpportunityRepositoryTransitionDto, type ProposalInputDto } from './opportunities.dto';
 import { ORGANIZATION_CLOSER_ROLES } from '../auth/authorization.constants';
 
 const owner = alias(user, 'opportunity_owner');
+const creator = alias(user, 'opportunity_creator');
 const historyActor = alias(user, 'opportunity_history_actor');
 const customStage = alias(pipelineStages, 'opportunity_custom_stage');
 const pipelineOrderStage = alias(pipelineStages, 'opportunity_order_stage');
 const fromCustomStage = alias(pipelineStages, 'history_from_custom_stage');
 const toCustomStage = alias(pipelineStages, 'history_to_custom_stage');
-type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string; contactEmail: string | null; contactPhone: string | null; pipelineId: string | null; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; latestActivity?: Omit<OpportunityLastActivityDto, 'occurredAt'> & { occurredAt: Date } | null };
+type OpportunityRow = { id: string; leadId: string; name: string; accountName: string; contactName: string | null; contactEmail: string | null; contactPhone: string | null; pipelineId: string | null; stage: OpportunityRecordDto['stage']; pipelineStageKey: string | null; pipelineStageName: string | null; stageChangedAt: Date; ownerUserId: string | null; ownerName: string | null; createdByType: OpportunityRecordDto['createdByType']; createdByName: string | null; amount: string | null; currency: string | null; closedAt: Date | null; lossReason: string | null; nextAction: string | null; nextActionAt: Date | null; createdAt: Date; updatedAt: Date; latestActivity?: Omit<OpportunityLastActivityDto, 'occurredAt'> & { occurredAt: Date } | null };
 function mapOpportunity(row: OpportunityRow, canUpdate = false) {
   if (!row.pipelineId) throw new Error('Opportunity pipeline is not initialized');
   const lastActivity = row.latestActivity ? { ...row.latestActivity, occurredAt: row.latestActivity.occurredAt.toISOString() } : null;
-  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), lastActivity);
+  return new OpportunityRecordDto(row.id, row.leadId, row.name, row.accountName, row.contactName, row.contactEmail, row.contactPhone, row.pipelineId, row.stage, row.pipelineStageKey, row.pipelineStageName, row.stageChangedAt.toISOString(), row.ownerUserId, row.ownerName, row.createdByType, row.createdByName, canUpdate, row.amount, row.currency, row.closedAt?.toISOString() ?? null, row.lossReason, row.nextAction, row.nextActionAt?.toISOString() ?? null, row.createdAt.toISOString(), row.updatedAt.toISOString(), lastActivity);
 }
 
 @Injectable()
 export class OpportunitiesRepository {
+  async createProposal(input: { organizationId: string; opportunityId: string; userId: string; canManageAll: boolean; values: ProposalInputDto; fileName: string; mimeType: string; fileSize: number; storageKey: string; correlationId?: string }): Promise<OpportunityProposalDto | null> {
+    return database.transaction(async (transaction) => {
+      const [opportunity] = await transaction.select({ id: opportunities.id, ownerUserId: opportunities.ownerUserId, businessLineId: pipelines.businessLineId, stage: opportunities.stage }).from(opportunities)
+        .innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId)))
+        .innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId)))
+        .where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId), eq(businessLines.status, 'active')))
+        .for('update', { of: [opportunities] }).limit(1);
+      if (!opportunity || (!input.canManageAll && (opportunity.ownerUserId !== input.userId || !await this.lockLineMembership(transaction, input.organizationId, opportunity.businessLineId, input.userId)))) return null;
+      const [last] = await transaction.select({ version: opportunityProposals.version }).from(opportunityProposals)
+        .where(and(eq(opportunityProposals.organizationId, input.organizationId), eq(opportunityProposals.opportunityId, input.opportunityId)))
+        .orderBy(desc(opportunityProposals.version)).limit(1);
+      const [actor] = await transaction.select({ name: user.name }).from(user).where(eq(user.id, input.userId)).limit(1);
+      const [proposal] = await transaction.insert(opportunityProposals).values({ organizationId: input.organizationId, opportunityId: input.opportunityId, version: (last?.version ?? 0) + 1, amount: input.values.amount, currency: input.values.currency, billingTerm: input.values.billingTerm, sentAt: new Date(input.values.sentAt), fileName: input.fileName, mimeType: input.mimeType, fileSize: input.fileSize, storageKey: input.storageKey, createdByUserId: input.userId }).returning();
+      await transaction.update(opportunities).set({ quotedAmount: input.values.amount, quotedCurrency: input.values.currency, quotedAt: new Date(input.values.sentAt), updatedAt: new Date() }).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId)));
+      await transaction.insert(activities).values({ organizationId: input.organizationId, opportunityId: input.opportunityId, type: 'email', subject: `Proposal v${proposal.version} sent`, details: `${input.fileName} · ${input.values.billingTerm} · ${input.values.currency} ${input.values.amount}`, occurredAt: new Date(input.values.sentAt), createdByUserId: input.userId });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'opportunity.proposal_recorded', entityType: 'opportunity', entityId: input.opportunityId, correlationId: input.correlationId, beforeState: null, afterState: { proposalId: proposal.id, version: proposal.version, amount: proposal.amount, currency: proposal.currency, billingTerm: proposal.billingTerm } });
+      return new OpportunityProposalDto(proposal.id, proposal.version, proposal.amount, proposal.currency, proposal.billingTerm as OpportunityProposalDto['billingTerm'], proposal.sentAt.toISOString(), proposal.fileName, proposal.fileSize, actor?.name ?? '', proposal.createdAt.toISOString());
+    });
+  }
+
+  async listProposals(input: { organizationId: string; opportunityId: string; userId: string; canManageAll: boolean }): Promise<OpportunityProposalDto[] | null> {
+    const conditions = [eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId)];
+    if (!input.canManageAll) conditions.push(eq(opportunities.ownerUserId, input.userId), this.lineMembershipCondition(input.organizationId, input.userId));
+    const [accessible] = await database.select({ id: opportunities.id }).from(opportunities).innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId))).innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId))).where(and(...conditions, eq(businessLines.status, 'active'))).limit(1);
+    if (!accessible) return null;
+    const rows = await database.select({ id: opportunityProposals.id, version: opportunityProposals.version, amount: opportunityProposals.amount, currency: opportunityProposals.currency, billingTerm: opportunityProposals.billingTerm, sentAt: opportunityProposals.sentAt, fileName: opportunityProposals.fileName, fileSize: opportunityProposals.fileSize, createdAt: opportunityProposals.createdAt, createdByName: user.name }).from(opportunityProposals).innerJoin(user, eq(user.id, opportunityProposals.createdByUserId)).where(and(eq(opportunityProposals.organizationId, input.organizationId), eq(opportunityProposals.opportunityId, input.opportunityId))).orderBy(desc(opportunityProposals.version));
+    return rows.map((row) => new OpportunityProposalDto(row.id, row.version, row.amount, row.currency, row.billingTerm as OpportunityProposalDto['billingTerm'], row.sentAt.toISOString(), row.fileName, row.fileSize, row.createdByName, row.createdAt.toISOString()));
+  }
+
+  async proposalContent(input: { organizationId: string; opportunityId: string; proposalId: string; userId: string; canManageAll: boolean; correlationId?: string }) {
+    const conditions = [eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId), eq(opportunityProposals.id, input.proposalId), eq(opportunityProposals.organizationId, input.organizationId)];
+    if (!input.canManageAll) conditions.push(eq(opportunities.ownerUserId, input.userId), this.lineMembershipCondition(input.organizationId, input.userId));
+    const [row] = await database.select({ storageKey: opportunityProposals.storageKey, fileName: opportunityProposals.fileName, mimeType: opportunityProposals.mimeType }).from(opportunityProposals).innerJoin(opportunities, and(eq(opportunities.id, opportunityProposals.opportunityId), eq(opportunities.organizationId, opportunityProposals.organizationId))).innerJoin(pipelines, and(eq(pipelines.id, opportunities.pipelineId), eq(pipelines.organizationId, opportunities.organizationId))).innerJoin(businessLines, and(eq(businessLines.id, pipelines.businessLineId), eq(businessLines.organizationId, pipelines.organizationId))).where(and(...conditions, eq(businessLines.status, 'active'))).limit(1);
+    if (!row) return null;
+    await database.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: 'opportunity.proposal_downloaded', entityType: 'opportunity', entityId: input.opportunityId, correlationId: input.correlationId, afterState: { proposalId: input.proposalId } });
+    return row;
+  }
   private conditions(input: OpportunityRepositoryListDto): SQL[] {
     const conditions: SQL[] = [eq(opportunities.organizationId, input.organizationId)];
     if (input.accessibleBusinessLineIds) conditions.push(inArray(opportunities.pipelineId, database.select({ id: pipelines.id }).from(pipelines).where(and(eq(pipelines.organizationId, input.organizationId), inArray(pipelines.businessLineId, input.accessibleBusinessLineIds)))));
@@ -72,13 +110,13 @@ export class OpportunitiesRepository {
               : input.query.sortBy === 'ownerName' ? owner.name
                 : opportunities.nextActionAt;
     const direction = input.query.sortDirection === 'desc' ? desc : asc;
-    const rows = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
+    const rows = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, createdByType: opportunities.createdByType, createdByName: creator.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-      .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+      .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
       .leftJoin(customStage, and(eq(customStage.organizationId, opportunities.organizationId), eq(customStage.pipelineId, opportunities.pipelineId), eq(customStage.key, opportunities.pipelineStageKey)))
       .leftJoin(pipelineOrderStage, and(eq(pipelineOrderStage.organizationId, opportunities.organizationId), eq(pipelineOrderStage.pipelineId, opportunities.pipelineId), sql`case when ${opportunities.stage} = 'custom' then ${pipelineOrderStage.key} = ${opportunities.pipelineStageKey} else ${pipelineOrderStage.stage} = ${opportunities.stage} end`))
-      .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions))
+      .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).leftJoin(creator, eq(creator.id, opportunities.createdByUserId)).where(and(...conditions))
       .orderBy(direction(sortColumn), asc(opportunities.id)).limit(input.query.limit).offset(input.query.offset);
     if (rows.length === 0) return rows;
     const latestActivities = await database.selectDistinctOn([activities.opportunityId], { opportunityId: activities.opportunityId, type: activities.type, subject: activities.subject, result: activities.result, occurredAt: activities.occurredAt })
@@ -134,7 +172,7 @@ export class OpportunitiesRepository {
       this.selectRows(input, conditions),
       database.select({ total: count() }).from(opportunities)
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions)),
     ]);
@@ -150,22 +188,22 @@ export class OpportunitiesRepository {
     const [openRows, riskRows, valueRows, stageRows] = await Promise.all([
       database.select({ total: count() }).from(opportunities)
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...openConditions)),
       database.select({ total: count() }).from(opportunities)
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...riskConditions)),
       database.select({ currency: opportunities.currency, amount: sum(opportunities.amount) }).from(opportunities)
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...openConditions, isNotNull(opportunities.currency), isNotNull(opportunities.amount))).groupBy(opportunities.currency),
       database.select({ stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, total: count() }).from(opportunities)
         .innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-        .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+        .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
         .innerJoin(leads, and(eq(leads.id, opportunities.leadId), eq(leads.organizationId, opportunities.organizationId)))
         .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(...conditions)).groupBy(opportunities.stage, opportunities.pipelineStageKey),
     ]);
@@ -222,11 +260,11 @@ export class OpportunitiesRepository {
   }
 
   private async findAssignedOpportunity(input: OpportunityRepositoryAssignOwnerDto): Promise<OpportunityRecordDto | null> {
-    const [row] = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
+    const [row] = await database.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, createdByType: opportunities.createdByType, createdByName: creator.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
       .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId)))
-      .innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
+      .leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId)))
       .leftJoin(customStage, and(eq(customStage.organizationId, opportunities.organizationId), eq(customStage.pipelineId, opportunities.pipelineId), eq(customStage.key, opportunities.pipelineStageKey)))
-      .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
+      .leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).leftJoin(creator, eq(creator.id, opportunities.createdByUserId)).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
     return row ? mapOpportunity(row, true) : null;
   }
 
@@ -264,6 +302,9 @@ export class OpportunitiesRepository {
         nextActionAt: terminal ? null : input.input.nextActionAt ? new Date(input.input.nextActionAt) : null,
         amount: input.input.amount,
         currency: input.input.currency,
+        quotedAmount: input.input.stage === 'proposal_sent' && input.input.amount ? input.input.amount : undefined,
+        quotedCurrency: input.input.stage === 'proposal_sent' && input.input.amount ? input.input.currency : undefined,
+        quotedAt: input.input.stage === 'proposal_sent' && input.input.amount ? new Date() : undefined,
         closedAt: input.input.stage === 'won' && input.input.closedAt ? new Date(input.input.closedAt) : null,
         lossReason: input.input.stage === 'lost' ? input.input.lossReason ?? null : null,
       };
@@ -273,8 +314,8 @@ export class OpportunitiesRepository {
       if (!updated) return null;
       await transaction.insert(opportunityStageHistory).values({ organizationId: input.organizationId, opportunityId: updated.id, fromStage: current.stage, fromPipelineId: current.pipelineId, fromPipelineStageKey: current.pipelineStageKey, toStage: input.input.stage, toPipelineId: targetPipelineId, toPipelineStageKey: input.input.pipelineStageKey ?? null, actorUserId: input.actorUserId, reason: input.input.reason ?? input.input.lossReason ?? null });
       await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: current.pipelineId === targetPipelineId ? 'opportunity.stage_changed' : 'opportunity.pipeline_changed', entityType: 'opportunity', entityId: updated.id, correlationId: input.correlationId, beforeState: { pipelineId: current.pipelineId, stage: current.stage, pipelineStageKey: current.pipelineStageKey }, afterState: { pipelineId: targetPipelineId, stage: input.input.stage, pipelineStageKey: input.input.pipelineStageKey ?? null } });
-      const [row] = await transaction.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
-        .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).innerJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).leftJoin(customStage, and(eq(customStage.organizationId, opportunities.organizationId), eq(customStage.pipelineId, opportunities.pipelineId), eq(customStage.key, opportunities.pipelineStageKey))).leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
+      const [row] = await transaction.select({ id: opportunities.id, leadId: opportunities.leadId, name: opportunities.name, accountName: accounts.name, contactName: people.name, contactEmail: people.email, contactPhone: people.phone, pipelineId: opportunities.pipelineId, stage: opportunities.stage, pipelineStageKey: opportunities.pipelineStageKey, pipelineStageName: customStage.name, stageChangedAt: opportunities.stageChangedAt, ownerUserId: opportunities.ownerUserId, ownerName: owner.name, createdByType: opportunities.createdByType, createdByName: creator.name, amount: opportunities.amount, currency: opportunities.currency, closedAt: opportunities.closedAt, lossReason: opportunities.lossReason, nextAction: opportunities.nextAction, nextActionAt: opportunities.nextActionAt, createdAt: opportunities.createdAt, updatedAt: opportunities.updatedAt })
+        .from(opportunities).innerJoin(accounts, and(eq(accounts.id, opportunities.accountId), eq(accounts.organizationId, opportunities.organizationId))).leftJoin(people, and(eq(people.id, opportunities.primaryPersonId), eq(people.organizationId, opportunities.organizationId))).leftJoin(customStage, and(eq(customStage.organizationId, opportunities.organizationId), eq(customStage.pipelineId, opportunities.pipelineId), eq(customStage.key, opportunities.pipelineStageKey))).leftJoin(owner, eq(owner.id, opportunities.ownerUserId)).leftJoin(creator, eq(creator.id, opportunities.createdByUserId)).where(and(eq(opportunities.id, input.opportunityId), eq(opportunities.organizationId, input.organizationId))).limit(1);
       return row ? mapOpportunity(row, true) : null;
     });
   }

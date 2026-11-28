@@ -746,11 +746,16 @@ export const conversationTagLinks = pgTable('conversation_tag_links', {
   conversationId: uuid('conversation_id').notNull(),
   tagId: uuid('tag_id').notNull(),
   createdByUserId: uuid('created_by_user_id').references(() => authUser.id, { onDelete: 'set null' }),
+  origin: text('origin').default('local').notNull(),
+  providerLabelId: text('provider_label_id'),
+  providerSyncState: text('provider_sync_state').default('local').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => [
   foreignKey({ name: 'conversation_tag_links_conversation_tenant_fk', columns: [table.conversationId, table.organizationId], foreignColumns: [conversations.id, conversations.organizationId] }).onDelete('cascade'),
   foreignKey({ name: 'conversation_tag_links_tag_tenant_fk', columns: [table.tagId, table.organizationId], foreignColumns: [conversationTags.id, conversationTags.organizationId] }).onDelete('cascade'),
   unique('conversation_tag_links_org_conversation_tag_unique').on(table.organizationId, table.conversationId, table.tagId),
+  check('conversation_tag_links_origin_check', sql`${table.origin} in ('local', 'whatsapp', 'both')`),
+  check('conversation_tag_links_provider_sync_state_check', sql`${table.providerSyncState} in ('local', 'provider_accepted', 'provider_confirmed', 'failed')`),
   index('conversation_tag_links_org_tag_conversation_idx').on(table.organizationId, table.tagId, table.conversationId),
 ]);
 

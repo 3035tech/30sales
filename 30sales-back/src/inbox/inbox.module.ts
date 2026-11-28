@@ -9,5 +9,6 @@ import { MetaCloudMessagingAdapter } from './meta-cloud-messaging.adapter';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { AttachmentsModule } from '../attachments/attachments.module';
 import { EvolutionProfilePictureAdapter } from './evolution-profile-picture.adapter';
-@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, ChannelMessagingAdapterRegistry, EvolutionMessagingAdapter, MetaCloudMessagingAdapter, EvolutionProfilePictureAdapter, InboxRealtimeService], exports: [ChannelMessagingAdapterRegistry, InboxRepository] })
+import { EvolutionLabelsAdapter } from './evolution-labels.adapter';
+@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [InboxController], providers: [InboxService, InboxRepository, ChannelMessagingAdapterRegistry, EvolutionMessagingAdapter, MetaCloudMessagingAdapter, EvolutionProfilePictureAdapter, EvolutionLabelsAdapter, InboxRealtimeService], exports: [ChannelMessagingAdapterRegistry, InboxRepository, EvolutionLabelsAdapter] })
 export class InboxModule {}

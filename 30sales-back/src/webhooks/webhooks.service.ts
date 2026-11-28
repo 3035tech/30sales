@@ -11,6 +11,8 @@ import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdap
 import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
 import { EvolutionWebhookEnvelopeAdapter, matchesWebhookSecret, MetaCloudWebhookEnvelopeAdapter } from './provider-webhook-envelope.adapters';
 import { WebhooksRepository } from './webhooks.repository';
+import { InboxRepository } from '../inbox/inbox.repository';
+import { EvolutionLabelsAdapter } from '../inbox/evolution-labels.adapter';
 import { EVOLUTION_CONNECTION_STATE, EVOLUTION_WEBHOOK_EVENT, META_WHATSAPP_WEBHOOK_FIELD } from './provider-webhook-events.constants';
 
 type JsonRecord = Record<string, unknown>;
@@ -30,6 +32,8 @@ export class WebhooksService {
     @Inject(MetaCloudMessageStatusWebhookAdapter) private readonly metaStatusAdapter: MetaCloudMessageStatusWebhookAdapter = new MetaCloudMessageStatusWebhookAdapter(),
     @Inject(EvolutionIncomingMessageWebhookAdapter) private readonly evolutionMessageAdapter: EvolutionIncomingMessageWebhookAdapter = new EvolutionIncomingMessageWebhookAdapter(credentialCrypto),
     @Inject(MetaCloudIncomingMessageWebhookAdapter) private readonly metaMessageAdapter: MetaCloudIncomingMessageWebhookAdapter = new MetaCloudIncomingMessageWebhookAdapter(credentialCrypto),
+    private readonly inboxRepository: InboxRepository = new InboxRepository(),
+    @Inject(EvolutionLabelsAdapter) private readonly evolutionLabels: EvolutionLabelsAdapter = new EvolutionLabelsAdapter(),
   ) {}
 
   verifyCloudChallenge(mode: string | undefined, token: string | undefined, challenge: string | undefined): string {
@@ -103,6 +107,17 @@ export class WebhooksService {
         if (update && await this.repository.recordEvolutionGroupParticipants(update) === 'updated') processed += 1;
       } else if (eventName === EVOLUTION_WEBHOOK_EVENT.presenceUpdate) {
         processed += await this.publishEvolutionPresence(channel.id, channel.organizationId, item);
+      } else if (eventName === EVOLUTION_WEBHOOK_EVENT.labelsAssociation) {
+        const event = this.record(item);
+        const association = this.record(event.association);
+        const chatId = this.string(association.chatId);
+        const labelId = this.string(association.labelId);
+        const action = this.string(event.type)?.toLowerCase();
+        const phoneDigits = chatId ? this.phoneDigits(chatId.split('@')[0].split(':')[0]) : '';
+        if (chatId?.endsWith('@s.whatsapp.net') && labelId && (action === 'add' || action === 'remove') && this.isValidPhone(phoneDigits)) {
+          const label = (await this.evolutionLabels.list(channel.providerChannelId, credentials)).find((candidate) => candidate.id === labelId);
+          if (label && await this.inboxRepository.syncEvolutionLabelAssociation({ organizationId: channel.organizationId, channelId: channel.id, externalConversationId: `${channel.id}:${phoneDigits}`, labelId, labelName: label.name, color: label.color, action })) processed += 1;
+        }
       } else {
         const safeEventName = eventName.replace(/[^a-z0-9._-]/g, '_').slice(0, 120);
         const normalizedEventName = this.isKnownEvolutionEvent(safeEventName) ? safeEventName : `unknown.${safeEventName || 'event'}`;

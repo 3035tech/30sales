@@ -51,8 +51,9 @@ import { InboxRealtimeService } from './inbox-realtime.service';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/authorization.constants';
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
-import { ConversationGroupParticipantsResultDto } from './inbox.dto';
+import { ConversationGroupParticipantsResultDto, ConversationTagDto } from './inbox.dto';
 import { EvolutionProfilePictureAdapter } from './evolution-profile-picture.adapter';
+import { EvolutionLabelsAdapter } from './evolution-labels.adapter';
 
 const PROFILE_PICTURE_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
 const PROFILE_PICTURE_MISS_CACHE_MS = 24 * 60 * 60 * 1000;
@@ -60,7 +61,7 @@ const profilePictureRequests = new Map<string, Promise<void>>();
 
 @Injectable()
 export class InboxService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage, private readonly profilePictures: EvolutionProfilePictureAdapter) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage, private readonly profilePictures: EvolutionProfilePictureAdapter, private readonly evolutionLabels: EvolutionLabelsAdapter) {}
 
   async profilePicture(request: ApiRequestDto, conversationId: string): Promise<{ stream: Awaited<ReturnType<MediaStorage['read']>>; mimeType: string }> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
@@ -355,10 +356,34 @@ export class InboxService {
     const result = await this.repository.addTag(new ConversationTagMutationDto(context.organizationId, conversationId, context.userId, input.name, input.color, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can add tags.' });
-    return result;
+    const target = await this.repository.getEvolutionTagSyncTarget(context.organizationId, conversationId, result.id, context.userId, context.isPlatformOrganizationContext);
+    if (!target || target.provider !== CHANNEL_PROVIDER.evolution || !target.phone || !target.ciphertext || !target.iv || !target.authTag) return result;
+    try {
+      const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, { ciphertext: target.ciphertext, iv: target.iv, authTag: target.authTag });
+      if (credentials.provider !== CHANNEL_PROVIDER.evolution) return result;
+      const labels = await this.evolutionLabels.list(target.instanceName, credentials);
+      const matchedLabel = labels.find((label) => label.name.trim().toLocaleLowerCase('en-US') === result.name.trim().toLocaleLowerCase('en-US'));
+      if (!matchedLabel) return result;
+      await this.evolutionLabels.apply(target.instanceName, target.phone.replace(/\D/g, ''), matchedLabel.id, true, credentials);
+      await this.repository.setEvolutionTagProviderState(context.organizationId, conversationId, result.id, 'provider_accepted', matchedLabel.id);
+      return new ConversationTagDto(result.id, result.name, result.color, 'both', 'provider_accepted');
+    } catch {
+      await this.repository.setEvolutionTagProviderState(context.organizationId, conversationId, result.id, 'failed', null);
+      return new ConversationTagDto(result.id, result.name, result.color, 'local', 'failed');
+    }
   }
   async removeTag(request: ApiRequestDto, conversationId: string, tagId: string) {
     const context = await this.tenantAccess.require(request, 'assign', 'inbox');
+    const target = await this.repository.getEvolutionTagSyncTarget(context.organizationId, conversationId, tagId, context.userId, context.isPlatformOrganizationContext);
+    if (target?.provider === CHANNEL_PROVIDER.evolution && target.labelId && target.origin !== 'local' && target.phone && target.ciphertext && target.iv && target.authTag) {
+      try {
+        const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, { ciphertext: target.ciphertext, iv: target.iv, authTag: target.authTag });
+        if (credentials.provider === CHANNEL_PROVIDER.evolution) await this.evolutionLabels.apply(target.instanceName, target.phone.replace(/\D/g, ''), target.labelId, false, credentials);
+      } catch {
+        await this.repository.setEvolutionTagProviderState(context.organizationId, conversationId, tagId, 'failed', target.labelId);
+        throw new ServiceUnavailableException({ code: 'EVOLUTION_LABEL_SYNC_FAILED', message: 'A etiqueta permaneceu na conversa porque a Evolution não confirmou a solicitação.' });
+      }
+    }
     const result = await this.repository.removeTag(new ConversationTagRemoveDto(context.organizationId, conversationId, tagId, context.userId, request.correlationId, context.isPlatformOrganizationContext));
     if (result === 'not_found') throw new NotFoundException({ code: 'CONVERSATION_NOT_FOUND', message: 'Conversation was not found in the active organization.' });
     if (result === 'not_owner') throw new ForbiddenException({ code: 'CONVERSATION_OWNER_REQUIRED', message: 'Only the conversation owner can remove tags.' });

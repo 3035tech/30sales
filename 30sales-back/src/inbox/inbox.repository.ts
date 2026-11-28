@@ -23,6 +23,49 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
+  async getEvolutionTagSyncTarget(organizationId: string, conversationId: string, tagId: string, userId: string, isPlatformOrganizationContext = false) {
+    if (!isPlatformOrganizationContext && !await this.canAccessConversationLine(organizationId, conversationId, userId)) return null;
+    const [target] = await database.select({ provider: conversations.provider, channelId: messagingChannels.id, instanceName: messagingChannels.providerChannelId, phone: people.phone, labelName: conversationTags.name, labelId: conversationTagLinks.providerLabelId, origin: conversationTagLinks.origin, ciphertext: messagingChannels.credentialsCiphertext, iv: messagingChannels.credentialsIv, authTag: messagingChannels.credentialsAuthTag }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .innerJoin(conversationTagLinks, and(eq(conversationTagLinks.conversationId, conversations.id), eq(conversationTagLinks.organizationId, conversations.organizationId), eq(conversationTagLinks.tagId, tagId)))
+      .innerJoin(conversationTags, and(eq(conversationTags.id, conversationTagLinks.tagId), eq(conversationTags.organizationId, conversationTagLinks.organizationId)))
+      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.id, conversationId), eq(conversations.ownerUserId, userId))).limit(1);
+    return target ?? null;
+  }
+
+  async setEvolutionTagProviderState(organizationId: string, conversationId: string, tagId: string, state: 'provider_accepted' | 'failed', providerLabelId: string | null): Promise<void> {
+    await database.update(conversationTagLinks).set({ providerSyncState: state, providerLabelId, ...(state === 'provider_accepted' ? { origin: 'both' } : {}) })
+      .where(and(eq(conversationTagLinks.organizationId, organizationId), eq(conversationTagLinks.conversationId, conversationId), eq(conversationTagLinks.tagId, tagId)));
+    await database.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId, conversationId, occurredAt: new Date().toISOString() })})`);
+  }
+
+  async syncEvolutionLabelAssociation(input: { organizationId: string; channelId: string; externalConversationId: string; labelId: string; labelName: string; color: string; action: 'add' | 'remove' }): Promise<boolean> {
+    return database.transaction(async (transaction) => {
+      const [conversation] = await transaction.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.organizationId, input.organizationId), eq(conversations.channelId, input.channelId), eq(conversations.provider, 'evolution'), eq(conversations.externalConversationId, input.externalConversationId))).limit(1);
+      if (!conversation) return false;
+      const normalizedName = input.labelName.trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
+      if (!normalizedName || normalizedName.length > 64) return false;
+      const [tag] = await transaction.insert(conversationTags).values({ organizationId: input.organizationId, name: input.labelName.trim().slice(0, 64), normalizedName, color: input.color })
+        .onConflictDoUpdate({ target: [conversationTags.organizationId, conversationTags.normalizedName], set: { name: input.labelName.trim().slice(0, 64), color: input.color } }).returning({ id: conversationTags.id });
+      if (input.action === 'add') {
+        const [link] = await transaction.insert(conversationTagLinks).values({ organizationId: input.organizationId, conversationId: conversation.id, tagId: tag.id, origin: 'whatsapp', providerLabelId: input.labelId, providerSyncState: 'provider_confirmed' })
+          .onConflictDoUpdate({ target: [conversationTagLinks.organizationId, conversationTagLinks.conversationId, conversationTagLinks.tagId], set: { origin: sql`case when ${conversationTagLinks.origin} in ('local', 'both') then 'both' else 'whatsapp' end`, providerLabelId: input.labelId, providerSyncState: 'provider_confirmed' } }).returning({ id: conversationTagLinks.id });
+        if (link) await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
+        return Boolean(link);
+      }
+      const [link] = await transaction.select({ origin: conversationTagLinks.origin }).from(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, conversation.id), eq(conversationTagLinks.tagId, tag.id))).limit(1);
+      if (!link) return false;
+      if (link.origin === 'local' || link.origin === 'both') {
+        await transaction.update(conversationTagLinks).set({ origin: 'local', providerLabelId: null, providerSyncState: 'local' }).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, conversation.id), eq(conversationTagLinks.tagId, tag.id)));
+      } else {
+        await transaction.delete(conversationTagLinks).where(and(eq(conversationTagLinks.organizationId, input.organizationId), eq(conversationTagLinks.conversationId, conversation.id), eq(conversationTagLinks.tagId, tag.id)));
+      }
+      await transaction.execute(sql`select pg_notify('sales_inbox_updates', ${JSON.stringify({ organizationId: input.organizationId, conversationId: conversation.id, occurredAt: new Date().toISOString() })})`);
+      return true;
+    });
+  }
+
   async getProfilePictureTarget(organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false) {
     if (!isPlatformOrganizationContext && !await this.canAccessConversationLine(organizationId, conversationId, userId)) return null;
     const [target] = await database.select({
@@ -414,14 +457,14 @@ export class InboxRepository {
       .orderBy(desc(leads.updatedAt), desc(leads.id)) : [];
     const leadByContact = new Map<string, typeof leadRows[number]>();
     for (const lead of leadRows) { const key = `${lead.accountId}:${lead.personId}`; if (!leadByContact.has(key)) leadByContact.set(key, lead); }
-    const tagRows = rows.length ? await database.select({ conversationId: conversationTagLinks.conversationId, id: conversationTags.id, name: conversationTags.name, color: conversationTags.color }).from(conversationTagLinks)
+    const tagRows = rows.length ? await database.select({ conversationId: conversationTagLinks.conversationId, id: conversationTags.id, name: conversationTags.name, color: conversationTags.color, origin: conversationTagLinks.origin, providerSyncState: conversationTagLinks.providerSyncState }).from(conversationTagLinks)
       .innerJoin(conversationTags, and(eq(conversationTags.id, conversationTagLinks.tagId), eq(conversationTags.organizationId, conversationTagLinks.organizationId)))
       .where(and(eq(conversationTagLinks.organizationId, input.organizationId), inArray(conversationTagLinks.conversationId, rows.map((row) => row.id)))).orderBy(asc(conversationTags.name)) : [];
     const tagsByConversation = new Map<string, ConversationTagDto[]>();
     for (const tag of tagRows) {
       const conversationTagsForRow = tagsByConversation.get(tag.conversationId);
-      if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name, tag.color));
-      else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name, tag.color)]);
+      if (conversationTagsForRow) conversationTagsForRow.push(new ConversationTagDto(tag.id, tag.name, tag.color, tag.origin as 'local' | 'whatsapp' | 'both', tag.providerSyncState as 'local' | 'provider_accepted' | 'provider_confirmed' | 'failed'));
+      else tagsByConversation.set(tag.conversationId, [new ConversationTagDto(tag.id, tag.name, tag.color, tag.origin as 'local' | 'whatsapp' | 'both', tag.providerSyncState as 'local' | 'provider_accepted' | 'provider_confirmed' | 'failed')]);
     }
     const assistantSettings = rows.length ? await database.select({ businessLineId: agentSettings.businessLineId, enabled: agentSettings.enabled }).from(agentSettings).where(and(eq(agentSettings.organizationId, input.organizationId), eq(agentSettings.agentKey, 'assistant'))) : [];
     const lineAssistantSettings = new Map<string, boolean>(assistantSettings.flatMap((setting) => setting.businessLineId ? [[setting.businessLineId, setting.enabled] as const] : []));

@@ -80,6 +80,9 @@
 .inbox-tag-list { display:flex; flex-wrap:wrap; gap:4px; }
 .inbox-tag-list>span { display:inline-flex; align-items:center; gap:6px; padding:4px 9px; border:1px solid color-mix(in srgb,var(--tag-color,#94a3b8) 48%,white); border-radius:999px; background:color-mix(in srgb,var(--tag-color,#dbeafe) 20%,white); color:#253247; font-size:var(--font-size-xs); font-weight:600; }
 .inbox-tag-list>span::before { width:8px; height:8px; flex:none; border-radius:50%; background:var(--tag-color,#94a3b8); content:""; }
+.inbox-tag-list>span.inbox-tag-origin-whatsapp,.inbox-tag-list>span.inbox-tag-origin-both { border-style:dashed; }
+.inbox-tag-list>span.inbox-tag-sync-provider-accepted::after { width:6px; height:6px; flex:none; border-radius:50%; background:#d97706; content:""; }
+.inbox-tag-list>span.inbox-tag-sync-failed::after { width:6px; height:6px; flex:none; border-radius:50%; background:#dc2626; content:""; }
 .inbox-tag-list button { padding:0 3px; border:0; background:transparent; font-size:var(--font-size-base); line-height:1; }
 .inbox-tag-filter-label { display:flex; align-items:center; gap:6px; }
 .inbox-tag-filter-label>span { width:9px; height:9px; border-radius:50%; background:#cbd5e1; }

@@ -36,7 +36,7 @@ export const createConversationTagSchema = z.object({ name: z.string().trim().mi
 export type CreateConversationTagDto = z.infer<typeof createConversationTagSchema>;
 export class ConversationTagMutationDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly actorUserId: string, readonly name: string, readonly color: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
 export class ConversationTagRemoveDto { constructor(readonly organizationId: string, readonly conversationId: string, readonly tagId: string, readonly actorUserId: string, readonly correlationId: string | null = null, readonly isPlatformOrganizationContext = false) {} }
-export class ConversationTagDto { constructor(readonly id: string, readonly name: string, readonly color = '#dbeafe') {} }
+export class ConversationTagDto { constructor(readonly id: string, readonly name: string, readonly color = '#dbeafe', readonly origin: 'local' | 'whatsapp' | 'both' = 'local', readonly providerSyncState: 'local' | 'provider_accepted' | 'provider_confirmed' | 'failed' = 'local') {} }
 export class AssistantQualificationDto { constructor(readonly intent: string, readonly summary: string, readonly confirmedFacts: string[], readonly unknowns: string[], readonly nextStep: string, readonly updatedAt: string) {} }
 export class ConversationLeadSummaryDto { constructor(readonly status: string, readonly source: string, readonly nextActionAt: string | null) {} }
 export class ConversationListItemDto {

@@ -1164,3 +1164,11 @@ Depois: worker/outbox/retry e reconciliação de timeout/callback sem correspond
 - SES e S3 compartilham as credenciais AWS do backend. A política IAM foi atualizada para permitir `ses:SendEmail` somente com esse remetente; a simulação retornou `allowed`.
 - O chart GitOps local referencia o Secret `30sales-aws-runtime` para `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`, removendo as variáveis SMTP antigas. O Secret foi criado no namespace `apps` do cluster de Dublin e validado via `kubectl describe` (somente nomes e tamanhos das chaves).
 - A aplicação ainda não foi publicada/sincronizada com estas alterações; falta reconciliar e publicar o commit GitOps e o commit do backend. Não enviar valores das credenciais a logs, Git ou chat.
+
+
+## Etiquetas Evolution no Inbox — 28/11/2026
+
+- Webhooks `LABELS_ASSOCIATION` agora resolvem a etiqueta do canal Evolution e sincronizam associação/remoção à conversa direta correta, com escopo de organização e canal. Origem e estado ficam no vínculo: local, WhatsApp, ambas, aceito pela API, confirmado por evento ou falha.
+- Ao adicionar etiqueta no Inbox, o backend procura uma etiqueta já existente na Evolution pelo nome e solicita associação; sem correspondência, mantém a etiqueta local. Ao remover etiqueta sincronizada, solicita remoção antes de apagar o vínculo local. A interface diferencia origem/estado e avisa que HTTP 200 da Evolution é somente aceite do pedido.
+- Migration Drizzle aditiva `0100_empty_loners.sql` adiciona origem, ID externo e estado ao vínculo. Builds Nest e Vite passaram; `git diff --check` passou. Não houve teste automatizado, migration aplicada, commit, push ou deploy.
+- Limite confirmado na API Evolution: há endpoints documentados para listar etiquetas e associá-las, mas não criação de novas definições de etiqueta; issues do repositório oficial registram respostas de sucesso sem propagação ao app e webhooks inconsistentes. Para criar uma etiqueta nova, criar primeiro no WhatsApp; a API pode aceitar a associação sem comprovar que o app a exibiu.

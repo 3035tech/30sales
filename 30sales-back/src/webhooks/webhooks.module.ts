@@ -10,6 +10,7 @@ import { EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdap
 import { EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter } from './incoming-message-webhook-adapters';
 import { EvolutionPollResultsProvider } from './evolution-poll-results.provider';
 import { EvolutionPollResultsWorker } from './evolution-poll-results.worker';
+import { InboxModule } from '../inbox/inbox.module';
 
-@Module({ imports: [ChannelsModule, AttachmentsModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository, EvolutionHistoryWorker, EvolutionMessageStatusReconciliationWorker, EvolutionPollResultsWorker, EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter, EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter, EvolutionPollResultsProvider], exports: [WebhooksService] })
+@Module({ imports: [ChannelsModule, AttachmentsModule, InboxModule], controllers: [WebhooksController], providers: [WebhooksService, WebhooksRepository, EvolutionHistoryWorker, EvolutionMessageStatusReconciliationWorker, EvolutionPollResultsWorker, EvolutionMessageStatusWebhookAdapter, MetaCloudMessageStatusWebhookAdapter, EvolutionIncomingMessageWebhookAdapter, MetaCloudIncomingMessageWebhookAdapter, EvolutionPollResultsProvider], exports: [WebhooksService] })
 export class WebhooksModule {}

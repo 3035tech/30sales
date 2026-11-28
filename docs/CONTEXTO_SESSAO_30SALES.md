@@ -80,6 +80,14 @@
 
 # Contexto de continuidade — 30Sales
 
+## Menu e ações de mensagem no Inbox — 28/11/2026
+
+- A fileira de emojis deixa de aparecer automaticamente. Ao passar o mouse ou focar uma mensagem, o botão de reação abre o seletor completo; a posição vertical e o alinhamento horizontal consideram a área rolável do chat. O seletor fecha ao reagir, clicar fora ou pressionar Esc.
+- Menu de três pontos oferece responder, encaminhar texto com destino selecionado e confirmação explícita, baixar anexos, copiar, consultar horário/direção/status de entrega, selecionar mensagens e apagar para mim. Seleção permite copiar ou apagar várias mensagens de uma vez; falhas parciais mantêm os itens não removidos selecionados.
+- Polish: barra de seleção reserva altura acima da timeline e permanece em uma linha com rolagem horizontal em telas estreitas; botões de seleção têm rótulos acessíveis individuais. Encaminhamento informa quando não há destino disponível, atualiza a fila após envio e orienta conferir o destino quando o resultado fica incerto.
+- Fixar/favoritar mensagem e apagar para todos não são oferecidos: não há comandos/provider capability e persistência local da mensagem que garantam esse comportamento. Encaminhamento suporta texto; anexos continuam com download individual.
+- Build Vite e `git diff --check` passaram. Vite manteve o aviso conhecido de bundle principal acima de 500 kB. Sem teste automatizado ou inspeção visual no navegador.
+
 ## Hardening após pentest estático — 28/11/2026
 
 - Evolution inbound valida canal ativo e segredo antes do parser JSON de 140 MB. Requisições Evolution autenticadas têm concorrência limitada por processo (`EVOLUTION_WEBHOOK_MAX_CONCURRENCY`, padrão 2); sobrecarga recebe 503 e `Retry-After`. O corpo continua limitado a 140 MB para compatibilidade, enquanto seu hash é calculado no parser sem guardar uma segunda cópia do Buffer.

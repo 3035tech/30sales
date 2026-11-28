@@ -31,6 +31,7 @@ export const inboxApi = {
       return request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/messages?${search.toString()}`, z.array(messageSchema));
     },
     groupParticipants: (conversationId: string) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/group-participants`, conversationGroupParticipantsSchema),
+    profilePicture: (conversationId: string) => requestBlob(`/api/v1/conversations/${encodeURIComponent(conversationId)}/avatar`),
     downloadAttachment: (attachmentId: string) => requestBlob(`/api/v1/attachments/${encodeURIComponent(attachmentId)}/content`),
     retryAttachment: (attachmentId: string) => request(`/api/v1/attachments/${encodeURIComponent(attachmentId)}/retry`, z.object({ id: z.string().uuid(), status: z.literal('pending') }), { method: 'POST' }),
     markRead: (conversationId: string, lastInboundMessageId: string | null) => request(`/api/v1/conversations/${encodeURIComponent(conversationId)}/read`, z.object({ conversationId: z.string().uuid(), lastReadAt: z.string().nullable() }), { method: 'POST', body: JSON.stringify({ lastInboundMessageId }) }),

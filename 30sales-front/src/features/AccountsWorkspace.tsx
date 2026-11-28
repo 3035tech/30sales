@@ -52,6 +52,12 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
   const [profileTaxId, setProfileTaxId] = useState('')
   const [profilePhone, setProfilePhone] = useState('')
   const [profileAddress, setProfileAddress] = useState('')
+  const [profileAddressLine1, setProfileAddressLine1] = useState('')
+  const [profileAddressLine2, setProfileAddressLine2] = useState('')
+  const [profileAddressPostalCode, setProfileAddressPostalCode] = useState('')
+  const [profileAddressCity, setProfileAddressCity] = useState('')
+  const [profileAddressState, setProfileAddressState] = useState('')
+  const [profileAddressCountry, setProfileAddressCountry] = useState('')
   const [profileSaving, setProfileSaving] = useState(false)
   const [contactsAccount, setContactsAccount] = useState<AccountRow | null>(null)
   const [accountContacts, setAccountContacts] = useState<Awaited<ReturnType<typeof api.accounts.contacts>> | null>(null)
@@ -93,7 +99,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     try { await api.accounts.assignSegment(accountId, segmentId || null); setRefresh((value) => value + 1) }
     catch { setSegmentError(t('accounts.segmentAssignFailed')) }
   }
-  const openProfile = (row: AccountRow) => { setProfileError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount); setProfileEmployeeCount(row.employeeCount); setProfileIndustry(row.industry ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileLegalName(row.legalName ?? ''); setProfileTaxId(row.taxId ?? ''); setProfilePhone(row.phone ?? ''); setProfileAddress(row.address ?? '') }
+  const openProfile = (row: AccountRow) => { setProfileError(''); setProfileAccount(row); setProfileMarketSegment(row.marketSegment ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileStudentCount(row.studentCount); setProfileEmployeeCount(row.employeeCount); setProfileIndustry(row.industry ?? ACCOUNT_PROFILE_EMPTY_VALUE); setProfileLegalName(row.legalName ?? ''); setProfileTaxId(row.taxId ?? ''); setProfilePhone(row.phone ?? ''); setProfileAddress(row.address ?? ''); setProfileAddressLine1(row.addressLine1 ?? ''); setProfileAddressLine2(row.addressLine2 ?? ''); setProfileAddressPostalCode(row.addressPostalCode ?? ''); setProfileAddressCity(row.addressCity ?? ''); setProfileAddressState(row.addressState ?? ''); setProfileAddressCountry(row.addressCountry ?? '') }
   const loadAccountContacts = async (accountId: string, offset: number) => {
     setAccountContactsLoading(true)
     setAccountContactsError('')
@@ -139,7 +145,7 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
     setProfileSaving(true)
     setProfileError('')
     try {
-      await api.accounts.updateProfile(profileAccount.id, { marketSegment: profileMarketSegment === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileMarketSegment, studentCount: profileStudentCount, employeeCount: profileEmployeeCount, industry: profileIndustry === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileIndustry, legalName: profileLegalName.trim() || null, taxId: profileTaxId.replace(/\D/g, '') || null, phone: profilePhone.trim() || null, address: profileAddress.trim() || null })
+      await api.accounts.updateProfile(profileAccount.id, { marketSegment: profileMarketSegment === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileMarketSegment, studentCount: profileStudentCount, employeeCount: profileEmployeeCount, industry: profileIndustry === ACCOUNT_PROFILE_EMPTY_VALUE ? null : profileIndustry, legalName: profileLegalName.trim() || null, taxId: profileTaxId.replace(/\D/g, '') || null, phone: profilePhone.trim() || null, address: profileAddress.trim() || null, addressLine1: profileAddressLine1.trim() || null, addressLine2: profileAddressLine2.trim() || null, addressPostalCode: profileAddressPostalCode.trim() || null, addressCity: profileAddressCity.trim() || null, addressState: profileAddressState.trim() || null, addressCountry: profileAddressCountry.trim() || null })
       setProfileAccount(null)
       setRefresh((value) => value + 1)
     } catch { setProfileError(t('accountProfileFields.profileSaveFailed')) }
@@ -187,6 +193,14 @@ export function AccountsWorkspace({ onOpenLeads, canManageSegments, canUpdatePro
         <label>{t('accountProfileFields.taxId')}<TextField inputMode="numeric" value={profileTaxId} onChange={(event) => setProfileTaxId(event.target.value)} maxLength={18} /></label>
         <label>{t('accountProfileFields.phone')}<TextField type="tel" value={profilePhone} onChange={(event) => setProfilePhone(event.target.value)} maxLength={40} /></label>
         <label>{t('accountProfileFields.address')}<TextField value={profileAddress} onChange={(event) => setProfileAddress(event.target.value)} maxLength={1000} /></label>
+        <fieldset className="account-profile-address"><legend>{t('accountAddressFields.structuredAddress')}</legend><div className="account-profile-address-grid">
+          <label>{t('accountAddressFields.addressLine1')}<TextField value={profileAddressLine1} onChange={(event) => setProfileAddressLine1(event.target.value)} maxLength={240} /></label>
+          <label>{t('accountAddressFields.addressLine2')}<TextField value={profileAddressLine2} onChange={(event) => setProfileAddressLine2(event.target.value)} maxLength={240} /></label>
+          <label>{t('accountAddressFields.postalCode')}<TextField value={profileAddressPostalCode} onChange={(event) => setProfileAddressPostalCode(event.target.value)} maxLength={32} /></label>
+          <label>{t('accountAddressFields.city')}<TextField value={profileAddressCity} onChange={(event) => setProfileAddressCity(event.target.value)} maxLength={120} /></label>
+          <label>{t('accountAddressFields.state')}<TextField value={profileAddressState} onChange={(event) => setProfileAddressState(event.target.value)} maxLength={120} /></label>
+          <label>{t('accountAddressFields.country')}<TextField value={profileAddressCountry} onChange={(event) => setProfileAddressCountry(event.target.value)} maxLength={120} /></label>
+        </div></fieldset>
         <div className="account-profile-actions"><Button type="button" onClick={() => setProfileAccount(null)}>{t('common.cancel')}</Button><Button className="primary" disabled={profileSaving}>{profileSaving ? t('common.saving') : t('accountProfileFields.saveProfile')}</Button></div>
       </form>
     </Modal>

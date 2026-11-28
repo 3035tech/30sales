@@ -23,6 +23,31 @@ type MessageSendResult = PreparedMessageSend | { kind: 'duplicate'; message: Mes
 
 @Injectable()
 export class InboxRepository {
+  async getProfilePictureTarget(organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false) {
+    if (!isPlatformOrganizationContext && !await this.canAccessConversationLine(organizationId, conversationId, userId)) return null;
+    const [target] = await database.select({
+      conversationId: conversations.id, conversationType: conversations.conversationType, provider: conversations.provider,
+      recipientId: conversations.providerRecipientId, personId: people.id, phone: people.phone,
+      storageKey: people.profilePictureKey, mimeType: people.profilePictureMimeType, fetchedAt: people.profilePictureFetchedAt,
+      channelId: messagingChannels.id, instanceName: messagingChannels.providerChannelId,
+      credentialsCiphertext: messagingChannels.credentialsCiphertext, credentialsIv: messagingChannels.credentialsIv,
+      credentialsAuthTag: messagingChannels.credentialsAuthTag,
+    }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .leftJoin(people, and(eq(people.id, conversations.personId), eq(people.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1);
+    if (!target || target.conversationType !== 'direct' || target.provider !== 'evolution' || !target.personId || !target.channelId || !target.instanceName) return null;
+    const personId = target.personId;
+    const recipientId = target.recipientId || target.phone?.replace(/\D/g, '') || null;
+    if (!recipientId || recipientId.length > 250 || !target.credentialsCiphertext || !target.credentialsIv || !target.credentialsAuthTag) return null;
+    return { ...target, personId, recipientId, credentials: { ciphertext: target.credentialsCiphertext, iv: target.credentialsIv, authTag: target.credentialsAuthTag } };
+  }
+
+  async saveProfilePicture(organizationId: string, personId: string, storageKey: string | null, mimeType: string | null, fetchedAt: Date): Promise<void> {
+    await database.update(people).set({ profilePictureKey: storageKey, profilePictureMimeType: mimeType, profilePictureFetchedAt: fetchedAt, updatedAt: fetchedAt })
+      .where(and(eq(people.id, personId), eq(people.organizationId, organizationId)));
+  }
+
   async getGroupParticipantsTarget(organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false) {
     const canRead = isPlatformOrganizationContext
       ? Boolean((await database.select({ id: conversations.id }).from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.organizationId, organizationId))).limit(1))[0])

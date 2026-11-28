@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from 'drizzle-orm';
 import { database } from '../db';
 import { requestContext } from '../common/request-context';
@@ -459,13 +460,14 @@ export class WebhooksRepository {
         const channelId = typeof payload?.channelId === 'string' ? payload.channelId : null;
         const externalMessageId = typeof payload?.externalMessageId === 'string' ? payload.externalMessageId : null;
         const deliveryState = PROVIDER_MESSAGE_DELIVERY_STATES.find((state) => state === payload?.deliveryState) ?? null;
+        const correlationId = typeof payload?.correlationId === 'string' ? payload.correlationId : null;
         const attempts = Number(event.attempts) + EVOLUTION_STATUS_RECONCILIATION.attemptIncrement;
         const invalidPayload = !channelId || !externalMessageId || !deliveryState;
 
         if (invalidPayload) {
           await transaction.update(inboxEvents).set({ status: WEBHOOK_EVENT_PROCESSING_STATE.failed, attempts: String(attempts), processedAt: new Date(), lastErrorCode: EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode })
             .where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
-          reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000))));
+          reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.invalidPayloadErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000)), channelId, correlationId, deliveryState, externalMessageId ? this.externalMessageIdFingerprint(externalMessageId) : null));
           continue;
         }
 
@@ -478,7 +480,6 @@ export class WebhooksRepository {
         if (message) {
           const status = new WhatsappMessageStatusDto(event.organizationId, channelId, CHANNEL_PROVIDER.evolution, externalMessageId, event.externalEventId, deliveryState, event.receivedAt, event.payloadHash);
           await this.applyMessageStatus(transaction, status, message);
-          const correlationId = typeof payload?.correlationId === 'string' ? payload.correlationId : null;
           await transaction.update(inboxEvents).set({
             eventType: PROVIDER_MESSAGE_STATUS_EVENT.matched,
             status: WEBHOOK_EVENT_PROCESSING_STATE.processed,
@@ -498,7 +499,7 @@ export class WebhooksRepository {
           processedAt: exhausted ? new Date() : null,
           lastErrorCode: exhausted ? EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode : null,
         }).where(and(eq(inboxEvents.id, event.id), eq(inboxEvents.organizationId, event.organizationId), eq(inboxEvents.status, WEBHOOK_EVENT_PROCESSING_STATE.pending)));
-        if (exhausted) reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000))));
+        if (exhausted) reviewEvents.push(new EvolutionMessageStatusReviewEventDto(event.id, event.organizationId, attempts, EVOLUTION_STATUS_RECONCILIATION.unmatchedErrorCode, Math.max(0, Math.floor((Date.now() - event.receivedAt.getTime()) / 1000)), channelId, correlationId, deliveryState, this.externalMessageIdFingerprint(externalMessageId)));
       }
       return { reconciled, reviewEvents };
     });
@@ -506,6 +507,10 @@ export class WebhooksRepository {
 
   private asJsonRecord(value: JsonValue): Record<string, JsonValue> | null {
     return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null;
+  }
+
+  private externalMessageIdFingerprint(externalMessageId: string): string {
+    return createHash('sha256').update(externalMessageId).digest('hex').slice(0, 16);
   }
 
   async updateKnownEvolutionContact(input: EvolutionContactUpdateDto): Promise<'updated' | 'duplicate' | 'unmatched'> {

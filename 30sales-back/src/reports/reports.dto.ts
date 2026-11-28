@@ -5,6 +5,8 @@ export const funnelReportQuerySchema = z.object({
   to: z.string().date(),
   businessLineId: z.string().uuid().optional(),
 }).strict().refine((query) => query.from <= query.to, { message: 'The start date must be before or equal to the end date.', path: ['from'] });
+export const dailyActivityQuerySchema = z.object({ date: z.string().date().optional(), businessLineId: z.string().uuid().optional(), scope: z.enum(['mine', 'team']).default('mine') }).strict();
+export type DailyActivityQueryDto = z.infer<typeof dailyActivityQuerySchema>;
 export type FunnelReportQueryDto = z.infer<typeof funnelReportQuerySchema>;
 
 export class FunnelReportStageDto { constructor(readonly stage: string, readonly pipelineStageKey: string | null, readonly pipelineStageName: string | null, readonly count: number) {} }
@@ -56,6 +58,11 @@ export class FunnelReportDto {
   ) {}
 }
 export class FunnelReportRepositoryQueryDto { constructor(readonly organizationId: string, readonly query: FunnelReportQueryDto, readonly businessLineIds: readonly string[] | null) {} }
+export class DailyActivityPointDto {
+  constructor(readonly channelId: string, readonly channelName: string, readonly phoneNumber: string, readonly ownerUserId: string, readonly ownerName: string, readonly newContacts: number, readonly continuations: number, readonly dailyNewContactGoal: number | null, readonly dailyContinuationGoal: number | null, readonly date: string) {}
+}
+export class DailyActivityReportDto { constructor(readonly date: string | null, readonly points: DailyActivityPointDto[], readonly generatedAt: string) {} }
+export class DailyActivityRepositoryQueryDto { constructor(readonly organizationId: string, readonly userId: string | null, readonly date: string | undefined, readonly businessLineIds: readonly string[] | null) {} }
 export class AiUsagePointDto {
   constructor(readonly date: string, readonly operation: string, readonly status: string, readonly runCount: number, readonly averageLatencyMs: number | null, readonly latencySampleCount: number, readonly estimatedCostUsd: string | null, readonly audioDurationMs: number, readonly inputTokens: number, readonly outputTokens: number) {}
 }

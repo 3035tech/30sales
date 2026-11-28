@@ -680,6 +680,27 @@
       "when": 1795777442294,
       "tag": "0096_open_juggernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1795797281297,
+      "tag": "0097_lame_gauntlet",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1795858340639,
+      "tag": "0098_puzzling_talisman",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1795859473077,
+      "tag": "0099_daily_channel_activity",
+      "breakpoints": true
     }
   ]
 }

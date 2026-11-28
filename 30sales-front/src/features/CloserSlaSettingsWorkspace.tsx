@@ -42,11 +42,14 @@ export function CloserSlaSettingsWorkspace() {
   }
 
   return <section className="closer-sla-page">
-    <header><p className="eyebrow">{t('closerSlaSettings.eyebrow')}</p><h2>{t('closerSlaSettings.title')}</h2><p className="muted">{t('closerSlaSettings.description')}</p></header>
+    <header><p className="eyebrow">{t('closerSlaSettings.eyebrow')}</p><h2>{t('closerSlaSettings.title')}</h2><p className="muted">{t('closerSlaSettings.description')}</p><p className="closer-sla-scope-hint">{t('closerSlaSettings.scopeHint')}</p></header>
     {loading ? <WorkspaceState kind="loading" message={t('common.loading')} /> : settings ? <form className="closer-sla-panel" onSubmit={(event) => void save(event)}>
       {settings.policies.map((policy) => <div className="closer-sla-row" key={policy.eventType}>
-        <span>{t(`closerSlaSettings.eventTypes.${policy.eventType}`)}</span>
-        <span className="closer-sla-control"><NumericField aria-label={t(`closerSlaSettings.eventTypes.${policy.eventType}`)} mode="integer" min={1} max={10080} step={1} disabled={!settings.canManage || saving} value={policy.targetMinutes} placeholder={t('closerSlaSettings.disabled')} onValueChange={(value) => updateTarget(policy.eventType, value)} /><span>{t('closerSlaSettings.minutes')}</span><label className="closer-sla-escalation"><CheckboxField checked={policy.escalateToManagers} disabled={!settings.canManage || saving || policy.targetMinutes === null} onChange={(event) => updateEscalation(policy.eventType, event.target.checked)} />{t('closerSlaSettings.escalateToManagers')}</label></span>
+        <div className="closer-sla-event"><strong>{t(`closerSlaSettings.eventTypes.${policy.eventType}`)}</strong><small>{t(`closerSlaSettings.eventDescriptions.${policy.eventType}`)}</small></div>
+        <div className="closer-sla-control">
+          <label className="closer-sla-target"><span>{t('closerSlaSettings.targetLabel')}</span><span className="closer-sla-target-input"><NumericField aria-label={`${t(`closerSlaSettings.eventTypes.${policy.eventType}`)} · ${t('closerSlaSettings.targetLabel')}`} aria-describedby={`sla-target-help-${policy.eventType}`} mode="integer" min={1} max={10080} step={1} disabled={!settings.canManage || saving} value={policy.targetMinutes} placeholder={t('closerSlaSettings.disabled')} onValueChange={(value) => updateTarget(policy.eventType, value)} /><span>{t('closerSlaSettings.minutes')}</span></span><small id={`sla-target-help-${policy.eventType}`}>{t('closerSlaSettings.targetHint')}</small></label>
+          <label className="closer-sla-escalation"><span className="closer-sla-checkbox-label"><CheckboxField checked={policy.escalateToManagers} disabled={!settings.canManage || saving || policy.targetMinutes === null} onChange={(event) => updateEscalation(policy.eventType, event.target.checked)} />{t('closerSlaSettings.escalateToManagers')}</span><small>{t('closerSlaSettings.escalationHint')}</small></label>
+        </div>
       </div>)}
       {!settings.canManage && <p className="notice">{t('closerSlaSettings.managerOnly')}</p>}
       {settings.canManage && <div className="closer-sla-footer"><Button className="primary" type="submit" disabled={saving}>{saving ? t('closerSlaSettings.saving') : <><Save size={15} />{t('closerSlaSettings.save')}</>}</Button></div>}

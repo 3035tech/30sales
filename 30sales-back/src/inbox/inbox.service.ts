@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { lookup } from 'dns/promises';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
@@ -52,10 +52,57 @@ import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES } from '../auth/auth
 import { CHANNEL_CONNECTION_ERROR, CHANNEL_MESSAGE_QUOTA_ERROR } from '../channels/channels.constants';
 import { INBOX_CONTACT_RECONCILIATION_ERROR_CODE, INBOX_CONTACT_RECONCILIATION_RESULT } from './inbox.constants';
 import { ConversationGroupParticipantsResultDto } from './inbox.dto';
+import { EvolutionProfilePictureAdapter } from './evolution-profile-picture.adapter';
+
+const PROFILE_PICTURE_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
+const PROFILE_PICTURE_MISS_CACHE_MS = 24 * 60 * 60 * 1000;
+const profilePictureRequests = new Map<string, Promise<void>>();
 
 @Injectable()
 export class InboxService {
-  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage) {}
+  constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: InboxRepository, private readonly credentialResolver: ChannelCredentialResolverService, private readonly messagingAdapters: ChannelMessagingAdapterRegistry, private readonly realtime: InboxRealtimeService, @Inject(MEDIA_STORAGE) private readonly storage: MediaStorage, private readonly profilePictures: EvolutionProfilePictureAdapter) {}
+
+  async profilePicture(request: ApiRequestDto, conversationId: string): Promise<{ stream: Awaited<ReturnType<MediaStorage['read']>>; mimeType: string }> {
+    const context = await this.tenantAccess.require(request, 'read', 'inbox');
+    const target = await this.repository.getProfilePictureTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);
+    if (!target) throw new NotFoundException({ code: 'CONVERSATION_PROFILE_PICTURE_NOT_FOUND', message: 'The profile picture was not found for this conversation.' });
+    const now = Date.now();
+    const checkedAt = target.fetchedAt?.getTime() ?? 0;
+    const cacheWindow = target.storageKey ? PROFILE_PICTURE_CACHE_MS : PROFILE_PICTURE_MISS_CACHE_MS;
+    if (target.storageKey && target.mimeType && now - checkedAt < cacheWindow) {
+      try { if (await this.storage.exists(target.storageKey)) return { stream: await this.storage.read(target.storageKey), mimeType: target.mimeType }; } catch { /* Refresh below and retain a stable service error if unavailable. */ }
+    } else if (!target.storageKey && target.fetchedAt && now - checkedAt < cacheWindow) {
+      throw new NotFoundException({ code: 'CONVERSATION_PROFILE_PICTURE_NOT_FOUND', message: 'The profile picture was not found for this conversation.' });
+    }
+
+    const requestKey = `${context.organizationId}:${target.personId}`;
+    let pending = profilePictureRequests.get(requestKey);
+    if (!pending) {
+      pending = (async () => {
+        const credentials = await this.credentialResolver.resolve(context.organizationId, target.channelId, target.credentials);
+        if (credentials.provider !== CHANNEL_PROVIDER.evolution) throw new NotFoundException({ code: 'CONVERSATION_PROFILE_PICTURE_NOT_FOUND', message: 'The profile picture was not found for this conversation.' });
+        const photo = await this.profilePictures.fetch(target.instanceName, target.recipientId, credentials);
+        if (!photo) {
+          await this.repository.saveProfilePicture(context.organizationId, target.personId, null, null, new Date());
+          return;
+        }
+        const storageKey = await this.storage.putProfilePicture(context.organizationId, target.personId, photo.content, photo.mimeType);
+        await this.repository.saveProfilePicture(context.organizationId, target.personId, storageKey, photo.mimeType, new Date());
+      })().finally(() => profilePictureRequests.delete(requestKey));
+      profilePictureRequests.set(requestKey, pending);
+    }
+    try { await pending; }
+    catch {
+      if (target.storageKey && target.mimeType) {
+        try { return { stream: await this.storage.read(target.storageKey), mimeType: target.mimeType }; } catch { /* Return the stable unavailable response below. */ }
+      }
+      throw new ServiceUnavailableException({ code: 'PROFILE_PICTURE_UNAVAILABLE', message: 'The profile picture is temporarily unavailable.' });
+    }
+    const refreshed = await this.repository.getProfilePictureTarget(context.organizationId, conversationId, context.userId, context.isPlatformOrganizationContext);
+    if (!refreshed?.storageKey || !refreshed.mimeType) throw new NotFoundException({ code: 'CONVERSATION_PROFILE_PICTURE_NOT_FOUND', message: 'The profile picture was not found for this conversation.' });
+    try { return { stream: await this.storage.read(refreshed.storageKey), mimeType: refreshed.mimeType }; }
+    catch { throw new NotFoundException({ code: 'CONVERSATION_PROFILE_PICTURE_NOT_FOUND', message: 'The profile picture was not found for this conversation.' }); }
+  }
   async events(request: ApiRequestDto): Promise<Observable<MessageEvent>> {
     const context = await this.tenantAccess.require(request, 'read', 'inbox');
     return this.realtime.stream(context.organizationId, context.userId);

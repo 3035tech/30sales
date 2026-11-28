@@ -16,6 +16,17 @@ const CIRCUIT_OPEN_THRESHOLD = 3;
 const CIRCUIT_OPEN_DURATION_MS = 5 * 60_000;
 const VIDEO_DOWNLOAD_TIMEOUT_MS = 45_000;
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 20_000;
+const SAFE_TRANSPORT_CODES = new Set([
+  'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EAI_AGAIN', 'ENOTFOUND',
+  'UND_ERR_SOCKET', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
+]);
+
+function safeTransportCode(error: unknown): string | null {
+  if (!(error instanceof Error)) return null;
+  const cause = (error as Error & { cause?: unknown }).cause;
+  if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string') return null;
+  return SAFE_TRANSPORT_CODES.has(cause.code) ? cause.code : null;
+}
 
 @Injectable()
 export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
@@ -48,21 +59,25 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     let parsedMedia: z.infer<typeof responseSchema> | null = null;
     let providerResponded = false;
     let providerRejected = false;
+    let transportFailed = false;
     const timeoutMs = input.mediaType === 'video' ? VIDEO_DOWNLOAD_TIMEOUT_MS : DEFAULT_DOWNLOAD_TIMEOUT_MS;
     for (const [index, payload] of payloads.entries()) {
       const requestVariant: EvolutionResponseVariant = index === 0 ? 'full_message' : 'message_key';
+      const requestStartedAt = Date.now();
+      let receivedHeaders = false;
       try {
         const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
           body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
+        receivedHeaders = true;
         providerResponded = true;
         const contentType = this.safeContentType(response.headers.get('content-type'));
         if (!response.ok) {
           providerRejected = true;
-          this.logResponse(input.correlationId, requestVariant, 'rejected', { statusCode: response.status, contentType });
+          this.logResponse(input, requestVariant, 'rejected', requestStartedAt, { statusCode: response.status, contentType });
           continue;
         }
         if (!response.body) {
-          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, failureReason: 'body_missing' });
+          this.logResponse(input, requestVariant, 'invalid', requestStartedAt, { statusCode: response.status, contentType, failureReason: 'body_missing' });
           continue;
         }
         const raw = await this.readBytes(response, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES);
@@ -70,7 +85,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
         try {
           decoded = JSON.parse(raw.toString('utf8')) as unknown;
         } catch {
-          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength, failureReason: 'invalid_json' });
+          this.logResponse(input, requestVariant, 'invalid', requestStartedAt, { statusCode: response.status, contentType, responseBytes: raw.byteLength, failureReason: 'invalid_json' });
           continue;
         }
         const parsed = responseSchema.safeParse(decoded);
@@ -78,7 +93,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
           const shape = this.responseShape(decoded);
           const invalidFields = parsed.error.issues.map((issue) => issue.path[0]).filter((field): field is string =>
             field === 'base64' || field === 'mimetype' || field === 'fileName');
-          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength,
+          this.logResponse(input, requestVariant, 'invalid', requestStartedAt, { statusCode: response.status, contentType, responseBytes: raw.byteLength,
             failureReason: shape.base64Type === 'missing' ? 'base64_missing' : shape.base64Type !== 'string' ? 'base64_not_string'
               : invalidFields.includes('mimetype') ? 'mimetype_invalid' : invalidFields.includes('fileName') ? 'file_name_invalid' : 'response_schema_invalid',
             invalidFields, ...shape });
@@ -86,21 +101,25 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
         }
         const encoded = parsed.data.base64.replace(/^data:[^;,]+;base64,/i, '');
         if (!encoded.length || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
-          this.logResponse(input.correlationId, requestVariant, 'invalid', { statusCode: response.status, contentType, responseBytes: raw.byteLength,
+          this.logResponse(input, requestVariant, 'invalid', requestStartedAt, { statusCode: response.status, contentType, responseBytes: raw.byteLength,
             failureReason: encoded.length ? 'base64_invalid' : 'base64_empty', base64Length: encoded.length });
           continue;
         }
         parsedMedia = parsed.data;
-        this.logResponse(input.correlationId, requestVariant, 'accepted', { statusCode: response.status, contentType, responseBytes: raw.byteLength, base64Length: encoded.length });
+        this.logResponse(input, requestVariant, 'accepted', requestStartedAt, { statusCode: response.status, contentType, responseBytes: raw.byteLength, base64Length: encoded.length });
         break;
       } catch (error) {
         if (error instanceof Error && error.message === 'MEDIA_SIZE_LIMIT_EXCEEDED') throw error;
-        this.logResponse(input.correlationId, requestVariant, 'transport_error', { failureReason: error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'network_or_read_error' });
+        transportFailed = true;
+        const transportCode = safeTransportCode(error);
+        const failureReason = error instanceof Error && error.name === 'TimeoutError' || transportCode?.includes('TIMEOUT') || transportCode === 'ETIMEDOUT'
+          ? 'timeout' : receivedHeaders ? 'response_read_error' : 'network_error';
+        this.logResponse(input, requestVariant, 'transport_error', requestStartedAt, { failureReason, ...(transportCode ? { transportCode } : {}) });
         continue;
       }
     }
     if (!parsedMedia) {
-      const errorCode = providerRejected ? MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR : providerResponded ? 'MEDIA_PROVIDER_RESPONSE_INVALID' : 'MEDIA_PROVIDER_UNAVAILABLE';
+      const errorCode = providerRejected ? MEDIA_ATTACHMENT_PROVIDER_REJECTED_ERROR : transportFailed || !providerResponded ? 'MEDIA_PROVIDER_UNAVAILABLE' : 'MEDIA_PROVIDER_RESPONSE_INVALID';
       if (errorCode === 'MEDIA_PROVIDER_UNAVAILABLE') {
         circuit.transportErrors += 1;
         if (circuit.transportErrors >= CIRCUIT_OPEN_THRESHOLD) {
@@ -120,10 +139,11 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     return { content, mimeType: parsedMedia.mimetype ?? null, fileName: parsedMedia.fileName ?? null, sha256: createHash('sha256').update(content).digest('hex') };
   }
 
-  private logResponse(correlationId: string | undefined, requestVariant: EvolutionResponseVariant, outcome: EvolutionResponseOutcome,
-    details: Record<string, unknown>): void {
-    this.logger.log(JSON.stringify({ event: 'evolution_media_response', outcome, stage: 'evolution_response', correlationId: correlationId ?? null,
-      requestVariant, ...details }));
+  private logResponse(input: InboundMediaAdapterInput, requestVariant: EvolutionResponseVariant, outcome: EvolutionResponseOutcome,
+    startedAt: number, details: Record<string, unknown>): void {
+    this.logger.log(JSON.stringify({ event: 'evolution_media_response', outcome, stage: 'evolution_response', correlationId: input.correlationId ?? null,
+      mediaType: input.mediaType, timeoutMs: input.mediaType === 'video' ? VIDEO_DOWNLOAD_TIMEOUT_MS : DEFAULT_DOWNLOAD_TIMEOUT_MS,
+      durationMs: Math.max(0, Date.now() - startedAt), requestVariant, ...details }));
   }
 
   private safeContentType(value: string | null): string | null {

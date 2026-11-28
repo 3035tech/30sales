@@ -182,7 +182,16 @@ export class AssistantRuntimeWorker implements OnModuleInit, OnModuleDestroy {
           });
         }
         const failed = await this.repository.retryOrFail(queueEvent, code, retryable);
-        this.logger.error(`Assistant event ${queueEvent.id} failed with ${code}${failed ? ' and was sent to human review' : ' and will be retried'}.`);
+        const modelDiagnostics = error instanceof AssistantRuntimeModelError ? error.diagnostics : null;
+        this.logger.error(JSON.stringify({
+          event: 'assistant_runtime_failure',
+          outcome: failed ? 'review_required' : 'retry_scheduled',
+          eventId: queueEvent.id,
+          organizationId: queueEvent.organizationId,
+          errorCode: code,
+          retryable,
+          ...(modelDiagnostics ?? {}),
+        }));
       } catch (retryError) {
         this.logger.error(`Assistant event ${queueEvent.id} could not be rescheduled: ${retryError instanceof Error ? retryError.message : 'unknown error'}`);
       }

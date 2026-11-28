@@ -9,6 +9,7 @@ import './FunnelReportWorkspace.css'
 import './HandoffReport.css'
 import './LeadFunnelReport.css'
 import './AiUsageReport.css'
+import { DailyActivityReport } from './DailyActivityReport'
 
 const leadStatuses: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 function dateInput(date: Date) { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10) }
@@ -20,7 +21,7 @@ function durationLabel(minutes: number, locale: string) {
   return hours ? `${format(hours, 'hour')}${remainder ? ` ${format(remainder, 'minute')}` : ''}` : format(remainder, 'minute')
 }
 
-export function FunnelReportWorkspace() {
+export function FunnelReportWorkspace({ organizationId, canManageActivity }: { organizationId: string; canManageActivity: boolean }) {
   const { t, i18n } = useTranslation()
   const [searchParams] = useSearchParams()
   const businessLineId = searchParams.get('businessLineId') ?? undefined
@@ -111,6 +112,7 @@ export function FunnelReportWorkspace() {
     <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></Button></header>
     <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<CalendarField mode="date" value={from} max={to} onValueChange={(value) => setFrom(value)} required /></label><label>{t('funnelReport.to')}<CalendarField mode="date" value={to} min={from} max={today} onValueChange={(value) => setTo(value)} required /></label><Button className="primary">{t('funnelReport.apply')}</Button></form>
     <p className="funnel-report-scope" role="note">{t(businessLineId ? 'funnelReport.lineScope' : 'funnelReport.portfolioScope')}</p>
+    <DailyActivityReport organizationId={organizationId} businessLineId={businessLineId} date={to} canManage={canManageActivity} />
     {error && report && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && report && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
     {loading && !report ? <WorkspaceState kind="loading" message={t('common.loading')} /> : report && <>

@@ -20,15 +20,27 @@ export class S3MediaStorageService implements MediaStorage {
     return key;
   }
 
+  async putProfilePicture(organizationId: string, personId: string, content: Buffer, mimeType: string): Promise<string> {
+    const key = this.validateProfilePictureKey(`profile-pictures/${organizationId}/${personId}`);
+    await this.client.send(new PutObjectCommand({
+      Bucket: this.bucketName,
+      Key: key,
+      Body: content,
+      ContentType: this.safeMimeType(mimeType),
+      ServerSideEncryption: 'AES256',
+    }));
+    return key;
+  }
+
   async read(key: string): Promise<Readable> {
-    const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucketName, Key: this.validateKey(key) }));
+    const response = await this.client.send(new GetObjectCommand({ Bucket: this.bucketName, Key: this.validateAnyKey(key) }));
     if (!(response.Body instanceof Readable)) throw new Error('S3 returned a non-streaming media body.');
     return response.Body;
   }
 
   async exists(key: string): Promise<boolean> {
     try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.bucketName, Key: this.validateKey(key) }));
+      await this.client.send(new HeadObjectCommand({ Bucket: this.bucketName, Key: this.validateAnyKey(key) }));
       return true;
     } catch (error) {
       if (this.isNotFound(error)) return false;
@@ -37,7 +49,7 @@ export class S3MediaStorageService implements MediaStorage {
   }
 
   async remove(key: string): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucketName, Key: this.validateKey(key) }));
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucketName, Key: this.validateAnyKey(key) }));
   }
 
   private createKey(organizationId: string, attachmentId: string): string {
@@ -50,6 +62,18 @@ export class S3MediaStorageService implements MediaStorage {
       throw new Error('Invalid media storage key.');
     }
     return key;
+  }
+
+  private validateProfilePictureKey(key: string): string {
+    const [prefix, organizationId, personId, ...rest] = key.split('/');
+    if (prefix !== 'profile-pictures' || rest.length || !/^[0-9a-f-]{36}$/i.test(organizationId ?? '') || !/^[0-9a-f-]{36}$/i.test(personId ?? '')) {
+      throw new Error('Invalid profile picture storage key.');
+    }
+    return key;
+  }
+
+  private validateAnyKey(key: string): string {
+    return key.startsWith('profile-pictures/') ? this.validateProfilePictureKey(key) : this.validateKey(key);
   }
 
   private safeMimeType(value: string | null): string {

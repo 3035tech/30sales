@@ -49,6 +49,35 @@ function getGroupConversationName(displayName: string | null, fallback: string):
   return name && !name.endsWith('@g.us') ? name : fallback
 }
 
+function InboxConversationAvatar({ conversationId, label, enabled }: { conversationId: string; label: string; enabled: boolean }) {
+  const containerRef = useRef<HTMLSpanElement>(null)
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!enabled || !containerRef.current) return
+    let active = true
+    let objectUrl: string | null = null
+    const load = () => {
+      void api.inbox.profilePicture(conversationId).then((blob) => {
+        if (!active || !blob.type.startsWith('image/')) return
+        objectUrl = URL.createObjectURL(blob)
+        setImageUrl(objectUrl)
+      }).catch(() => undefined)
+    }
+    if (typeof IntersectionObserver === 'undefined') load()
+    else {
+      const observer = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) { observer.disconnect(); load() }
+      }, { rootMargin: '160px' })
+      observer.observe(containerRef.current)
+      return () => { active = false; observer.disconnect(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+    }
+    return () => { active = false; if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [conversationId, enabled])
+  return <span ref={containerRef} className="inbox-avatar" aria-label={label}>
+    {imageUrl ? <img src={imageUrl} alt="" /> : <MessageSquareText size={17} aria-hidden="true" />}
+  </span>
+}
+
 function InboxMessageBody({ text }: { text: string }) {
   const parts = text.split(messageUrlPattern)
   return <p>{parts.map((part, index) => {
@@ -247,7 +276,7 @@ function InboxAudioPlayer({ src, file, label, compact = false }: {
       <div className="inbox-audio-time"><span>{formatAudioTime(currentTime)}</span><span>{formatAudioTime(duration)}</span></div>
     </div>
     {(failed || playbackBlocked) && <small className="inbox-audio-error">{t('inbox.audioUnavailable')}</small>}
-    {!compact && <button type="button" className="inbox-audio-speed" onClick={() => setSpeed((s) => s === 1 ? 1.5 : s === 1.5 ? 2 : 1)} aria-label={t('inbox.audioSpeed', { speed: speed === 1 ? '1×' : speed === 1.5 ? '1.5×' : '2×' })}>{speed === 1 ? '1×' : speed === 1.5 ? '1.5×' : '2×'}</button>}
+    <button type="button" className="inbox-audio-speed" onClick={() => setSpeed((s) => s === 1 ? 1.5 : s === 1.5 ? 2 : 1)} aria-label={t('inbox.audioSpeed', { speed: speed === 1 ? '1×' : speed === 1.5 ? '1.5×' : '2×' })}>{speed === 1 ? '1×' : speed === 1.5 ? '1.5×' : '2×'}</button>
   </div>
 }
 
@@ -260,7 +289,6 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
 }) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
-  const audioMenuRef = useRef<HTMLDetailsElement>(null)
   const [src, setSrc] = useState('')
   const [failed, setFailed] = useState(false)
   useEffect(() => {
@@ -278,28 +306,11 @@ function InboxMediaAttachment({ attachment, label, load, onOpen, onDownload }: {
     return () => { cancelled = true; observer.disconnect() }
   }, [attachment, failed, load, src])
   useEffect(() => () => { if (src) URL.revokeObjectURL(src) }, [src])
-  useEffect(() => {
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (event.target instanceof Node && !audioMenuRef.current?.contains(event.target)) audioMenuRef.current && (audioMenuRef.current.open = false)
-    }
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || !audioMenuRef.current?.open) return
-      audioMenuRef.current.open = false
-      audioMenuRef.current.querySelector('summary')?.focus()
-      event.stopPropagation()
-    }
-    document.addEventListener('pointerdown', closeOnOutsidePointer)
-    document.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.removeEventListener('pointerdown', closeOnOutsidePointer)
-      document.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [])
   const isAudio = attachment.mediaType === 'audio'
   return <div className={`inbox-inline-image${isAudio ? ' inbox-inline-audio' : ''}`} ref={containerRef}>
     {src && attachment.mediaType === 'image' ? <button type="button" className="inbox-inline-image-preview" onClick={() => onOpen(attachment)} aria-label={label}><img src={src} alt={attachment.fileName ?? label} loading="lazy" /></button>
       : src && attachment.mediaType === 'video' ? <video className="inbox-inline-video" src={src} controls preload="metadata" aria-label={attachment.fileName ?? label} />
-      : src && isAudio ? <div className="inbox-inline-audio-row"><InboxAudioPlayer src={src} label={t('inbox.mediaTypes.audio')} compact /><details ref={audioMenuRef} className="inbox-audio-menu"><summary aria-label={t('inbox.downloadAttachment', { name: t('inbox.mediaTypes.audio') })}><Ellipsis size={17} aria-hidden="true" /></summary><div className="inbox-audio-menu-items"><a href={src} download={attachment.fileName ?? 'audio'} onClick={(event) => { const menu = event.currentTarget.closest('details'); if (menu instanceof HTMLDetailsElement) menu.open = false }}><Download size={14} aria-hidden="true" />{t('inbox.download')}</a></div></details></div>
+      : src && isAudio ? <div className="inbox-inline-audio-row"><InboxAudioPlayer src={src} label={t('inbox.mediaTypes.audio')} compact /><a className="inbox-audio-download" href={src} download={attachment.fileName ?? 'audio'} aria-label={t('inbox.downloadAttachment', { name: t('inbox.mediaTypes.audio') })} title={t('inbox.download')}><Download size={15} aria-hidden="true" /></a></div>
       : <span className="inbox-inline-image-placeholder">{isAudio ? failed ? t('inbox.attachmentDownloadFailed') : t('inbox.mediaTypes.audio') : failed ? label : attachment.fileName ?? label}</span>}
     {!isAudio && <div className="inbox-inline-image-tools"><span>{attachment.fileName ?? label}</span><IconButton label={label} onClick={() => onDownload(attachment)}><Download size={14} aria-hidden="true" /></IconButton></div>}
   </div>
@@ -311,6 +322,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
   const globalBusinessLineId = searchParams.get('businessLineId') ?? ''
   const [conversations, setConversations] = useState<ConversationDto[]>([])
   const [selectedId, setSelectedId] = useState('')
+  const selected = conversations.find((conversation) => conversation.id === selectedId)
   const [groupParticipants, setGroupParticipants] = useState<Awaited<ReturnType<typeof api.inbox.groupParticipants>> | null>(null)
   const [groupParticipantsLoading, setGroupParticipantsLoading] = useState(false)
   const [groupParticipantsFailed, setGroupParticipantsFailed] = useState(false)
@@ -360,6 +372,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
   const audioCancelRequestedRef = useRef(false)
   const conversationQueueRef = useRef<HTMLElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
+  const messageScrollPositionsRef = useRef<Map<string, number>>(new Map())
+  const messageScrollRestoreKeyRef = useRef('')
   const isAtBottomRef = useRef(true)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [scrollAwayCount, setScrollAwayCount] = useState(0)
@@ -500,16 +514,22 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
     if (messagesConversationId !== selectedId || messages.length === 0) return
     const container = messagesContainerRef.current
     if (!container) return
-    container.scrollTop = container.scrollHeight
-    const frame = window.requestAnimationFrame(() => {
-      if (messageSearch) {
-        markVisibleMessagesRead()
-        return
-      }
-      api.inbox.markRead(selectedId, null).then(() => {
-        refreshAfterConversationRead(selectedId)
-      }).catch(() => { setError(t('inbox.readFailed')) })
-    })
+    const restoreKey = `${selectedId}:${messageSearch}`
+    if (messageScrollRestoreKeyRef.current !== restoreKey) {
+      const savedScrollTop = messageScrollPositionsRef.current.get(restoreKey)
+      if (savedScrollTop !== undefined) container.scrollTop = Math.min(savedScrollTop, Math.max(0, container.scrollHeight - container.clientHeight))
+      else if (!messageSearch && selected?.firstUnreadMessageId) {
+        const unreadMessage = container.querySelector<HTMLElement>(`[data-message-id="${selected.firstUnreadMessageId}"]`)
+        if (unreadMessage) container.scrollTop = Math.max(0, unreadMessage.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 24)
+        else container.scrollTop = container.scrollHeight
+      } else container.scrollTop = container.scrollHeight
+      messageScrollRestoreKeyRef.current = restoreKey
+    }
+    messageScrollPositionsRef.current.set(restoreKey, container.scrollTop)
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
+    isAtBottomRef.current = atBottom
+    setShowScrollButton(!atBottom)
+    const frame = window.requestAnimationFrame(() => markVisibleMessagesRead())
     return () => window.cancelAnimationFrame(frame)
   }, [messagesConversationId, selectedId])
 
@@ -548,7 +568,7 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
   useEffect(() => { api.session.get().then((session) => setCurrentUserId(session.user.id)).catch(() => setCurrentUserId('')) }, [])
   useEffect(() => { const timer = window.setTimeout(() => setDebouncedSearch(conversationSearch.trim()), 250); return () => window.clearTimeout(timer) }, [conversationSearch])
   useEffect(() => { void refresh() }, [refresh])
-  useEffect(() => { isAtBottomRef.current = true; setShowScrollButton(false); setScrollAwayCount(0); prevMessageCountRef.current = 0 }, [selectedId])
+  useEffect(() => { isAtBottomRef.current = true; setShowScrollButton(false); setScrollAwayCount(0); prevMessageCountRef.current = 0; messageScrollRestoreKeyRef.current = '' }, [selectedId, messageSearch])
   useEffect(() => {
     const id = selectedId
     return () => {
@@ -669,7 +689,6 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
       document.removeEventListener('visibilitychange', refreshOnReturn)
     }
   }, [])
-  const selected = conversations.find((conversation) => conversation.id === selectedId)
   const markVisibleMessagesRead = () => {
     const container = messagesContainerRef.current
     if (!selectedId || messagesConversationId !== selectedId || document.visibilityState !== 'visible' || !container) return
@@ -1058,9 +1077,16 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
     markVisibleMessagesRead()
     const container = messagesContainerRef.current
     if (!container) return
+    if (selectedId && messagesConversationId === selectedId) messageScrollPositionsRef.current.set(`${selectedId}:${messageSearch}`, container.scrollTop)
     const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80
     isAtBottomRef.current = atBottom
     if (atBottom) { setShowScrollButton(false); setScrollAwayCount(0) } else setShowScrollButton(true)
+  }
+  const selectConversation = (conversationId: string) => {
+    const container = messagesContainerRef.current
+    if (container && selectedId && messagesConversationId === selectedId) messageScrollPositionsRef.current.set(`${selectedId}:${messageSearch}`, container.scrollTop)
+    setSelectedId(conversationId)
+    if (window.matchMedia('(max-width: 760px)').matches) conversationThreadRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' })
   }
   const formatMessageDate = (date: Date): string => {
     const today = new Date()
@@ -1188,8 +1214,8 @@ export function InboxWorkspace({ initialSearch = '', initialConversationId = '',
         {error && conversations.length > 0 && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState>}
         {loading && conversations.length === 0 ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : conversations.length === 0 ? error ? <WorkspaceState kind="error" compact message={error}><Button type="button" onClick={() => void refresh()}>{t('platform.retry')}</Button></WorkspaceState> : <WorkspaceState kind="empty" compact message={hasConversationFilters ? t('inbox.noMatchingConversations') : t('inbox.empty')} detail={hasConversationFilters ? t('inbox.noMatchesHint') : t('inbox.emptyHint')}>{hasConversationFilters && <Button type="button" onClick={clearConversationFilters}>{t('inbox.clearConversationFilters')}</Button>}</WorkspaceState> : conversations.map((conversation) => {
           const label = conversation.conversationType === 'group' ? getGroupConversationName(conversation.displayName, t('inbox.groupConversation')) : conversation.personName ?? conversation.accountName ?? t('inbox.unknownContact')
-          return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''} ${conversation.unread ? 'unread' : ''}`} onClick={() => { setSelectedId(conversation.id); if (window.matchMedia('(max-width: 760px)').matches) conversationThreadRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }) }} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
-            <span className="inbox-avatar"><MessageSquareText size={17} /></span><span className="inbox-conversation-copy"><span className="inbox-conversation-topline"><strong>{label}</strong>{conversation.lastMessageAt && <time dateTime={conversation.lastMessageAt}>{new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' }).format(new Date(conversation.lastMessageAt))}</time>}</span><small>{conversation.conversationType === 'group' ? conversation.lastMessageAuthorName ?? conversation.lastMessageAuthorPhone ?? t('inbox.groupConversation') : conversation.personPhone ?? '—'}</small><span className="inbox-conversation-preview">{conversation.lastMessageDirection === 'outbound' && <span className={`inbox-list-ticks ${conversation.lastMessageDeliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${conversation.lastMessageDeliveryState ?? 'unknown'}`)}>{conversation.lastMessageDeliveryState === 'requested' ? <Clock3 size={13} /> : conversation.lastMessageDeliveryState === 'delivered' || conversation.lastMessageDeliveryState === 'read' ? <CheckCheck size={14} /> : <Check size={14} />}</span>}{conversation.lastMessagePreviewKind === 'encrypted_reaction' ? t('inbox.encryptedReactionPreview') : conversation.lastMessagePreview ?? (conversation.lastMessagePreviewKind === 'non_text' ? t('inbox.mediaPreview') : t('inbox.noMessagesYet'))}</span></span>{conversation.unread && <span className="inbox-unread-indicator" aria-label={t('inbox.unread')} />}
+          return <Button key={conversation.id} className={`inbox-conversation ${conversation.id === selectedId ? 'selected' : ''} ${conversation.unread ? 'unread' : ''}`} onClick={() => selectConversation(conversation.id)} aria-pressed={conversation.id === selectedId} disabled={sendingMessage}>
+            <InboxConversationAvatar conversationId={conversation.id} label={label} enabled={conversation.provider === 'evolution' && conversation.conversationType === 'direct'} /><span className="inbox-conversation-copy"><span className="inbox-conversation-topline"><strong>{label}</strong>{conversation.lastMessageAt && <time dateTime={conversation.lastMessageAt}>{new Intl.DateTimeFormat(i18n.language, { hour: '2-digit', minute: '2-digit' }).format(new Date(conversation.lastMessageAt))}</time>}</span><small>{conversation.conversationType === 'group' ? conversation.lastMessageAuthorName ?? conversation.lastMessageAuthorPhone ?? t('inbox.groupConversation') : conversation.personPhone ?? '—'}</small><span className="inbox-conversation-preview">{conversation.lastMessageDirection === 'outbound' && <span className={`inbox-list-ticks ${conversation.lastMessageDeliveryState === 'read' ? 'is-read' : ''}`} aria-label={t(`inbox.delivery.${conversation.lastMessageDeliveryState ?? 'unknown'}`)}>{conversation.lastMessageDeliveryState === 'requested' ? <Clock3 size={13} /> : conversation.lastMessageDeliveryState === 'delivered' || conversation.lastMessageDeliveryState === 'read' ? <CheckCheck size={14} /> : <Check size={14} />}</span>}{conversation.lastMessagePreviewKind === 'encrypted_reaction' ? t('inbox.encryptedReactionPreview') : conversation.lastMessagePreview ?? (conversation.lastMessagePreviewKind === 'non_text' ? t('inbox.mediaPreview') : t('inbox.noMessagesYet'))}</span></span>{conversation.unread && <span className="inbox-unread-indicator" aria-label={t('inbox.unread')} />}
           </Button>
         })}
         </div>

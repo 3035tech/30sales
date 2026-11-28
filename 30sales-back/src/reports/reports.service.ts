@@ -1,13 +1,20 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { ApiRequestDto } from '../common/api-request.dto';
 import { TenantAccessService } from '../leads/tenant-access.service';
-import { AiUsageReportDto, FunnelReportDto, FunnelReportQueryDto, FunnelReportRepositoryQueryDto } from './reports.dto';
+import { AiUsageReportDto, DailyActivityQueryDto, DailyActivityReportDto, DailyActivityRepositoryQueryDto, FunnelReportDto, FunnelReportQueryDto, FunnelReportRepositoryQueryDto } from './reports.dto';
 import { ReportsRepository } from './reports.repository';
 import { hasOrganizationRole, ORGANIZATION_MANAGEMENT_ROLES, ORGANIZATION_REPORT_ROLES } from '../auth/authorization.constants';
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly tenantAccess: TenantAccessService, private readonly repository: ReportsRepository) {}
+  async dailyActivity(request: ApiRequestDto, query: DailyActivityQueryDto): Promise<DailyActivityReportDto> {
+    const scope = query.scope === 'team' ? 'reports' : 'leads';
+    const context = await this.tenantAccess.require(request, 'read', scope);
+    if (query.scope === 'team' && !hasOrganizationRole(context.role, ORGANIZATION_REPORT_ROLES)) throw new ForbiddenException({ code: 'REPORT_ACCESS_FORBIDDEN', message: 'This role cannot access organization-wide activity reports.' });
+    const businessLineIds = await this.resolveBusinessLineIds(context.organizationId, context.userId, context.role, query.businessLineId);
+    return this.repository.dailyActivity(new DailyActivityRepositoryQueryDto(context.organizationId, query.scope === 'mine' ? context.userId : null, query.date, businessLineIds));
+  }
   async funnel(request: ApiRequestDto, query: FunnelReportQueryDto): Promise<FunnelReportDto> {
     const context = await this.tenantAccess.require(request, 'read', 'reports');
     if (!hasOrganizationRole(context.role, ORGANIZATION_REPORT_ROLES)) throw new ForbiddenException({ code: 'REPORT_ACCESS_FORBIDDEN', message: 'This role cannot access organization-wide reports.' });

@@ -32,6 +32,22 @@ Inspecionei em modo somente leitura o workspace `3035TECH`, nas telas Companies,
 | Timeline de Company | Criação, alterações de campos com valores anterior/novo, relações com notas e tarefas, horário e detalhes expansíveis. |
 | Files e Emails | Existem como abas de relações na ficha. Nas fichas abertas durante esta inspeção não havia arquivos nem troca de email associados; os exemplos não permitem determinar o esquema completo dessas integrações. |
 
+## Conferência somente leitura pela API — 27/11/2026
+
+Usei a Core REST API documentada pelo Twenty, com chamadas `GET` ao endpoint do workspace. A API do Twenty é gerada a partir do schema de cada workspace; a documentação recomenda usar a referência própria do workspace para nomes de objetos e campos. Os dados abaixo são uma amostra, não um censo de preenchimento. Nenhum payload pessoal foi copiado para este documento.
+
+| Objeto | Total retornado pela API | Amostra inspecionada | Evidência útil |
+|---|---:|---:|---|
+| Companies | 31.691 | 60 | Endereço veio estruturado (`street1`, `street2`, CEP, cidade, estado e país) nas 60 amostras; CNPJ preenchido em 31; domínio em 4; quantidade de alunos, faturamento anual e MRR/valor contratual sem valor monetário preenchido nas 60. `School Segment` tinha múltiplos valores reais; `Lead Origin` incluía outbound Sofia e vendedor. |
+| People | 257 | 10 | A API expôs emails, telefones, vínculo de empresa, cargo, LinkedIn e papel de decisor. |
+| Tasks | 200 | 10 | A API expôs tipo, status, vencimento, responsável, criador, corpo e prioridade Sofia. O vínculo com os registros precisa ser lido pelas relation fields/metadata antes de importar. |
+| Notes | 385 | 10 | A API expôs título, corpo, autoria e datas. Conteúdo e relações não foram copiados; a associação precisa ser mapeada por metadata. |
+| Opportunities | 79 | 79 | Empresa vinculada em 77; contato em 54; valor em 62; fechamento em 18; próxima ação textual em 11. `sourceOrigin` tem valores reais distintos de criador; também existem campos próprios de linha de serviço, plano, indicação, estágio e datas de operação. |
+
+Na amostra, a forma do endereço e a presença de CNPJ confirmam utilidade de campos de contrato tipados. A ausência de alunos e valores monetários nas 60 Companies não justifica preencher ou inferir esses dados; permanecem opcionais. A amostra de Opportunities confirma que origem comercial é distinta do tipo de ator que criou a oportunidade. O 30Sales já registra o criador humano/IA; a integração precisa preservar `sourceOrigin` como proveniência separada.
+
+Não encontrei motivo, nesta amostra, para criar integração de Files/Emails: não foram inspecionados registros associados desses objetos. Antes de mapear Tasks/Notes, consultar as relation fields com `depth=1` ou metadata, sem inferir associações a partir de texto livre.
+
 ### Tipos e opções configuradas no Twenty
 
 Conferência de **Data model → Companies** no workspace aberto, em 16/11/2026. É uma fotografia da configuração atual do tenant, não um contrato para fixar no código do 30Sales.

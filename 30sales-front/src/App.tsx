@@ -564,7 +564,7 @@ export default function App() {
             : page === 'tasks' ? <TasksWorkspace />
             : page === 'handoffs' ? <HandoffsWorkspace />
               : page === 'pipeline' ? <PipelineWorkspace />
-              : page === 'reports' ? <FunnelReportWorkspace />
+              : page === 'reports' && current?.activeOrganizationId ? <FunnelReportWorkspace organizationId={current.activeOrganizationId} canManageActivity={activeRoles.some((role) => ORGANIZATION_SEGMENT_MANAGEMENT_ROLES.some((managementRole) => managementRole === role))} />
                 : page === 'audit' ? <AuditWorkspace />
                   : page === 'imports' ? <ImportsWorkspace />
             : <TodayWorkspace userId={current.user.id} navigate={navigateToPage} />}

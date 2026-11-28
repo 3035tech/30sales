@@ -1,3 +1,29 @@
+## Atividade diária por vendedor e número — 28/11/2026
+
+- Implementado indicador “Meu ritmo de hoje” na página Hoje, com contagem separada de novos contatos diretos e conversas de dias anteriores continuadas, barras de progresso e metas por número.
+- Em Relatórios foi incluída visão diária de equipe, com filtro de data/unidade de negócio, contagem por responsável e número, progresso de metas e configuração de responsável/metas do canal para perfis de gestão.
+- A API `GET /api/v1/reports/daily-activity` aplica tenant, permissões e escopo de linhas acessíveis. O cálculo usa conversas diretas únicas com mensagem outbound elegível no fuso do canal; inclui mensagens aceitas/entregues/lidas e ecos outbound Evolution. A migration Drizzle `0099_daily_channel_activity.sql` adiciona responsável e metas ao canal; ainda não aplicada.
+- Polimento: o relatório deixa a data explícita, mostra totais de equipe, barras de progresso por pessoa/canal, preserva a visão de resultados se a configuração de canais falhar e recolhe os controles de gestão em uma seção expansível. Formulário diferencia erro/sucesso, desabilita salvar sem mudanças e mantém layout responsivo.
+- Builds Nest/Vite e `git diff --check` passaram. Vite ainda alerta que o bundle principal excede 500 kB. Nenhum teste automatizado, inspeção visual, aplicação de migration, commit, push ou deploy foi executado.
+- Limite conhecido: relatórios de datas passadas atribuem atividade ao responsável atual do canal. Se o número mudar de vendedor, será necessário registrar histórico efetivo de atribuição para reconstruir corretamente quem era responsável em cada dia.
+- O working tree já continha alterações do usuário, incluindo migrations `0097`/`0098` e mudanças de fotos de perfil, Inbox e Evolution; foram preservadas.
+
+## Leitura e posição do histórico no Inbox — 28/11/2026
+
+- A posição de rolagem do histórico agora fica memorizada por conversa durante a sessão; ao voltar, a timeline retoma de onde estava. Na primeira abertura, tenta posicionar no primeiro item não lido e só avança o cursor de leitura para mensagens inbound que entram na área visível.
+- Removida a marcação automática de todo o histórico como lido ao abrir uma conversa. Avançar até o final atualiza o cursor gradualmente e limpa o indicador quando o último item não lido for efetivamente visto.
+- Fotos de perfil do Inbox são buscadas sob demanda pela API Evolution, baixadas com limite/tipos MIME permitidos e armazenadas no S3 privado em `profile-pictures/{organizationId}/{personId}` — prefixo distinto dos anexos recebidos. O PostgreSQL guarda chave, MIME e data de consulta; cache positivo dura 30 dias e ausência de foto 24h. Nova rota de stream revalida tenant e acesso à linha; UI carrega apenas para conversas diretas Evolution e mantém o ícone fallback em grupos, outros providers ou falhas.
+- Implementação separada em adapter Evolution, repository tenant-scoped, coordenação no InboxService, controller e prefixo próprio na abstração S3. Migration aditiva `0098_puzzling_talisman.sql`; builds backend/frontend passaram. Sem testes automatizados ou validação visual no navegador; Vite mantém o aviso existente de chunk principal acima de 500 kB.
+
+## Diagnóstico dos erros de produção e prontidão operacional — 28/11/2026
+
+- Logs apresentados em 27–28/11 confirmaram migrations e inicialização Nest bem-sucedidas; os sintomas recorrentes ainda são `ASSISTANT_MODEL_HTTP_400`, recibos Evolution não conciliados e falhas de transporte/leitura ao baixar vídeo.
+- Código local agora resolve os nomes de modelo persistidos para IDs Anthropic ativos e exibe os nomes corretos na configuração. A resposta HTTP de erro do provider é lida com limite de 4 KiB, sem registrar mensagem bruta; logs estruturados incluem request ID, tipo e categoria segura para identificar a causa real dos HTTP 400 após rollout.
+- Logs de download Evolution agora separam falha de rede, leitura de corpo e timeout e incluem somente códigos de transporte allowlisted, duração, limite de tempo, variante da requisição e tipo de mídia. Falhas de transporte passam a ser persistidas como provider indisponível, para acionar a política de retry/circuit breaker apropriada.
+- Eventos de recibo Evolution enviados para revisão incluem canal, correlation ID, estado e fingerprint SHA-256 truncado do ID externo; o ID em claro não é logado. Correlação segue restrita por tenant, canal, provider e ID exatos.
+- `npm run build` do backend e `git diff --check` passaram. Não houve testes automatizados, acesso a payloads novos de produção, chamada a provider ou rollout. Causas exatas de 400 e de falhas de vídeo ainda exigem observação dos novos campos após publicar o código; corrigir a causa com base nesses dados.
+- O working tree já continha alterações de usuário em backend/frontend e migration `0097`; elas foram preservadas. As alterações seguem sem commit/push.
+
 ## Retomada da inspeção visual e funcional no Chrome — 25/11/2026
 
 - Pedido: percorrer a aplicação no Chrome, revisar layout e funcionalidades em diferentes tamanhos de tela e exercitar fluxos com dados de teste. O usuário autorizou cadastrar registros, com a restrição explícita de não mexer no Inbox, que contém dados de produção. Evitar também envios reais e efeitos externos.

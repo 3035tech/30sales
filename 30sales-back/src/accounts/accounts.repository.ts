@@ -121,14 +121,31 @@ export class AccountsRepository {
           .where(and(eq(leads.organizationId, input.organizationId), eq(leads.accountId, accounts.id), visibleLeadCondition(input))));
         scopeConditions.push(visibleLead);
       }
-      const [account] = await transaction.select({ marketSegment: accounts.marketSegment, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount, industry: accounts.industry, legalName: accounts.legalName, taxId: accounts.taxId, phone: accounts.phone, address: accounts.address }).from(accounts).where(and(...scopeConditions)).for('update').limit(1);
+      const [account] = await transaction.select({ marketSegment: accounts.marketSegment, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount, industry: accounts.industry, legalName: accounts.legalName, taxId: accounts.taxId, phone: accounts.phone, address: accounts.address, addressLine1: accounts.addressLine1, addressLine2: accounts.addressLine2, addressPostalCode: accounts.addressPostalCode, addressCity: accounts.addressCity, addressState: accounts.addressState, addressCountry: accounts.addressCountry }).from(accounts).where(and(...scopeConditions)).for('update').limit(1);
       if (!account) return ACCOUNT_PROFILE_ERROR_CODE.notFound;
       const changes = input.input;
-      if (account.marketSegment !== changes.marketSegment || account.studentCount !== changes.studentCount || account.employeeCount !== changes.employeeCount || account.industry !== changes.industry || account.legalName !== changes.legalName || account.taxId !== changes.taxId || account.phone !== changes.phone || account.address !== changes.address) {
+      const addressChanged = (changes.addressLine1 !== undefined && account.addressLine1 !== changes.addressLine1) || (changes.addressLine2 !== undefined && account.addressLine2 !== changes.addressLine2) || (changes.addressPostalCode !== undefined && account.addressPostalCode !== changes.addressPostalCode) || (changes.addressCity !== undefined && account.addressCity !== changes.addressCity) || (changes.addressState !== undefined && account.addressState !== changes.addressState) || (changes.addressCountry !== undefined && account.addressCountry !== changes.addressCountry);
+      if (account.marketSegment !== changes.marketSegment || account.studentCount !== changes.studentCount || account.employeeCount !== changes.employeeCount || account.industry !== changes.industry || account.legalName !== changes.legalName || account.taxId !== changes.taxId || account.phone !== changes.phone || account.address !== changes.address || addressChanged) {
+        const effectiveAddress = {
+          addressLine1: changes.addressLine1 !== undefined ? changes.addressLine1 : account.addressLine1,
+          addressLine2: changes.addressLine2 !== undefined ? changes.addressLine2 : account.addressLine2,
+          addressPostalCode: changes.addressPostalCode !== undefined ? changes.addressPostalCode : account.addressPostalCode,
+          addressCity: changes.addressCity !== undefined ? changes.addressCity : account.addressCity,
+          addressState: changes.addressState !== undefined ? changes.addressState : account.addressState,
+          addressCountry: changes.addressCountry !== undefined ? changes.addressCountry : account.addressCountry,
+        };
         await transaction.update(accounts).set({ ...changes, updatedAt: new Date() }).where(and(eq(accounts.id, input.accountId), eq(accounts.organizationId, input.organizationId)));
-        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: ACCOUNT_PROFILE_AUDIT.changed, entityType: ACCOUNT_PROFILE_AUDIT.entity, entityId: input.accountId, correlationId: input.correlationId, beforeState: account, afterState: changes });
+        await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.userId, actorType: 'user', action: ACCOUNT_PROFILE_AUDIT.changed, entityType: ACCOUNT_PROFILE_AUDIT.entity, entityId: input.accountId, correlationId: input.correlationId, beforeState: account, afterState: { ...changes, ...effectiveAddress } });
+        return { accountId: input.accountId, ...changes, ...effectiveAddress };
       }
-      return { accountId: input.accountId, ...changes };
+      return { accountId: input.accountId, ...changes,
+        addressLine1: changes.addressLine1 !== undefined ? changes.addressLine1 : account.addressLine1,
+        addressLine2: changes.addressLine2 !== undefined ? changes.addressLine2 : account.addressLine2,
+        addressPostalCode: changes.addressPostalCode !== undefined ? changes.addressPostalCode : account.addressPostalCode,
+        addressCity: changes.addressCity !== undefined ? changes.addressCity : account.addressCity,
+        addressState: changes.addressState !== undefined ? changes.addressState : account.addressState,
+        addressCountry: changes.addressCountry !== undefined ? changes.addressCountry : account.addressCountry,
+      };
     });
   }
   async listSegments(organizationId: string): Promise<AccountSegmentDto[]> {
@@ -217,7 +234,7 @@ export class AccountsRepository {
       latestActivityAt,
     };
     const sortExpression = sortExpressions[input.query.sortBy];
-    const rows = await database.select({ id: accounts.id, name: accounts.name, segmentId: accounts.segmentId, segmentName: accountSegments.name, marketSegment: accounts.marketSegment, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount, industry: accounts.industry, legalName: accounts.legalName, taxId: accounts.taxId, phone: accounts.phone, address: accounts.address, contactCount, leadCount, respondedCount, opportunityCount, latestActivityAt })
+    const rows = await database.select({ id: accounts.id, name: accounts.name, segmentId: accounts.segmentId, segmentName: accountSegments.name, marketSegment: accounts.marketSegment, studentCount: accounts.studentCount, employeeCount: accounts.employeeCount, industry: accounts.industry, legalName: accounts.legalName, taxId: accounts.taxId, phone: accounts.phone, address: accounts.address, addressLine1: accounts.addressLine1, addressLine2: accounts.addressLine2, addressPostalCode: accounts.addressPostalCode, addressCity: accounts.addressCity, addressState: accounts.addressState, addressCountry: accounts.addressCountry, contactCount, leadCount, respondedCount, opportunityCount, latestActivityAt })
       .from(accounts)
       .leftJoin(accountSegments, and(eq(accountSegments.id, accounts.segmentId), eq(accountSegments.organizationId, accounts.organizationId)))
       .leftJoin(leads, and(eq(leads.accountId, accounts.id), eq(leads.organizationId, input.organizationId), visibleLeadCondition(input)))
@@ -227,7 +244,7 @@ export class AccountsRepository {
       .groupBy(accounts.id, accountSegments.name)
       .orderBy(input.query.sortDirection === 'asc' ? sortExpression : desc(sortExpression), accounts.name, accounts.id)
       .limit(input.query.limit).offset(input.query.offset);
-    const data = rows.map((row) => new AccountRecordDto(row.id, row.name, row.segmentId, row.segmentName, row.marketSegment, row.studentCount, row.employeeCount, row.industry, row.legalName, row.taxId, row.phone, row.address, Number(row.contactCount), Number(row.leadCount), Number(row.respondedCount), Number(row.opportunityCount), row.latestActivityAt ? new Date(row.latestActivityAt.toString()).toISOString() : null));
+    const data = rows.map((row) => new AccountRecordDto(row.id, row.name, row.segmentId, row.segmentName, row.marketSegment, row.studentCount, row.employeeCount, row.industry, row.legalName, row.taxId, row.phone, row.address, row.addressLine1, row.addressLine2, row.addressPostalCode, row.addressCity, row.addressState, row.addressCountry, Number(row.contactCount), Number(row.leadCount), Number(row.respondedCount), Number(row.opportunityCount), row.latestActivityAt ? new Date(row.latestActivityAt.toString()).toISOString() : null));
     const total = Number(totalRows[0]?.total ?? 0);
     return new AccountPageDto(data, { limit: input.query.limit, offset: input.query.offset, total, hasNextPage: input.query.offset + data.length < total });
   }

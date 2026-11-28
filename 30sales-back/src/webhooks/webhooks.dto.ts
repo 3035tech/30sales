@@ -11,6 +11,10 @@ export class EvolutionMessageStatusReviewEventDto {
     readonly attempts: number,
     readonly errorCode: string,
     readonly ageSeconds: number,
+    readonly channelId: string | null,
+    readonly correlationId: string | null,
+    readonly deliveryState: string | null,
+    readonly externalMessageIdFingerprint: string | null,
   ) {}
 }
 

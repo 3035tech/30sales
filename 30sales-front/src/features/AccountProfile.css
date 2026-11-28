@@ -2,12 +2,15 @@
 .account-name-primary{display:grid;gap:3px;min-width:0}
 .account-name-primary>small{display:flex;flex-wrap:wrap;gap:8px;color:#64748b;font-size:var(--font-size-xs)}
 .account-profile-form{display:grid;gap:16px}
-.account-profile-modal{width:min(520px,calc(100vw - 32px))}
+.account-profile-modal{width:min(640px,calc(100vw - 32px))}
 .account-profile-context{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1px solid #dbe7f5;border-radius:10px;background:#f5f8fd;color:#475569}
 .account-profile-context svg{flex:none;margin-top:2px;color:#2563eb}
 .account-profile-context p{margin:0;font-size:var(--font-size-sm);line-height:1.5}
 .account-profile-form label{display:grid;gap:6px;color:#475569;font-size:var(--font-size-sm)}
 .account-profile-form label small{color:#64748b}
+.account-profile-address{display:grid;gap:12px;margin:0;padding:12px;border:1px solid #dbe4ee;border-radius:8px}
+.account-profile-address legend{padding:0 5px;color:#334155;font-size:var(--font-size-sm);font-weight:600}
+.account-profile-address-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .account-profile-actions{display:flex;justify-content:flex-end;gap:8px;padding-top:8px}
 .account-size-filter{display:grid;gap:4px;min-width:135px;color:#64748b;font-size:var(--font-size-sm)}
 .account-size-filter .ui-numeric-field{min-height:34px;padding-inline:8px}
@@ -24,4 +27,4 @@
 .account-contact-directory-list span,.account-contact-directory-list small{color:#64748b;font-size:var(--font-size-xs);overflow-wrap:anywhere}
 .account-contact-directory-pagination{display:flex;align-items:center;justify-content:center;gap:12px}
 .account-contact-directory-pagination>span{color:#64748b;font-size:var(--font-size-xs)}
-@media(max-width:560px){.account-contact-directory-list>li{align-items:stretch;flex-direction:column}.account-contact-directory-list>li>.ui-button{align-self:flex-end}}
+@media(max-width:560px){.account-contact-directory-list>li{align-items:stretch;flex-direction:column}.account-contact-directory-list>li>.ui-button{align-self:flex-end}.account-profile-address-grid{grid-template-columns:1fr}}

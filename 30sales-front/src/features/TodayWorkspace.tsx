@@ -1,12 +1,13 @@
 import { Button } from '../components/ui/FormControls'
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, CalendarClock, CheckCircle2, Clock3, MessageCircle, RefreshCw, UserRoundCheck } from 'lucide-react'
+import { ArrowRight, CalendarClock, CheckCircle2, Clock3, MessageCircle, RefreshCw, Target, UserRoundCheck } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
 import { api, type HandoffDto, type LeadDto, type OpportunityDto, type TaskDto } from '../lib/api'
 import { WorkspaceState } from '../components/ui/WorkspaceState'
 import './TodayWorkspace.css'
 import './TodayWorkspaceOverrides.css'
+import './TodayActivity.css'
 
 type Navigate = (page: 'inbox' | 'leads' | 'tasks' | 'handoffs' | 'pipeline') => void
 type TodayData = { overdue: TaskDto[]; dueToday: TaskDto[]; handoffs: HandoffDto[]; responded: LeadDto[]; unassignedResponded: LeadDto[]; opportunities: OpportunityDto[] }
@@ -27,6 +28,9 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
   const [loading, setLoading] = useState(true)
   const [partial, setPartial] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [activity, setActivity] = useState<Awaited<ReturnType<typeof api.reports.dailyActivity>> | null>(null)
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityFailed, setActivityFailed] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true); setPartial(false); setFailed(false)
@@ -49,6 +53,15 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
   }, [businessLineId, userId])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    let active = true
+    setActivityLoading(true); setActivityFailed(false)
+    void api.reports.dailyActivity('mine', undefined, businessLineId)
+      .then((result) => { if (active) setActivity(result) })
+      .catch(() => { if (active) setActivityFailed(true) })
+      .finally(() => { if (active) setActivityLoading(false) })
+    return () => { active = false }
+  }, [businessLineId])
   const riskyDeals = data.opportunities.filter((item) => isOpen(item) && (
     (item.nextActionAt != null && new Date(item.nextActionAt).getTime() < Date.now()) ||
     Date.now() - new Date(item.stageChangedAt).getTime() > 7 * 86400000
@@ -65,6 +78,14 @@ export function TodayWorkspace({ navigate, userId }: { navigate: Navigate; userI
     {failed && <WorkspaceState kind="error" compact message={t('today.loadFailed')} />}
     {partial && <WorkspaceState kind="partial" compact message={t('today.partial')} />}
     {loading && hasLoaded && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+    <section className="today-activity" aria-labelledby="today-activity-title">
+      <header><div><Target size={18} /><div><h3 id="today-activity-title">{t('dailyActivity.title')}</h3><p>{t('dailyActivity.subtitle')}</p></div></div></header>
+      {activityLoading && !activity ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : activityFailed ? <WorkspaceState kind="error" compact message={t('dailyActivity.loadFailed')} /> : activity && activity.points.length ? <div className="today-activity-list">{activity.points.map((point) => <article key={point.channelId}>
+        <div className="today-activity-channel"><strong>{point.channelName}</strong><span>{point.phoneNumber}</span></div>
+        <div className="today-activity-metric"><div><span>{t('dailyActivity.newContacts')}</span><strong>{point.newContacts}{point.dailyNewContactGoal !== null ? ` / ${point.dailyNewContactGoal}` : ''}</strong></div>{point.dailyNewContactGoal !== null ? <><div className="today-activity-track" role="progressbar" aria-label={t('dailyActivity.newContacts')} aria-valuenow={Math.min(point.newContacts, point.dailyNewContactGoal)} aria-valuemin={0} aria-valuemax={point.dailyNewContactGoal}><i style={{ width: `${Math.min(100, point.newContacts / point.dailyNewContactGoal * 100)}%` }} /></div><small>{t('dailyActivity.goalProgress', { percent: Math.min(100, Math.round(point.newContacts / point.dailyNewContactGoal * 100)), remaining: Math.max(0, point.dailyNewContactGoal - point.newContacts) })}</small></> : <small>{t('dailyActivity.goalMissing')}</small>}</div>
+        <div className="today-activity-metric continuation"><div><span>{t('dailyActivity.continuations')}</span><strong>{point.continuations}{point.dailyContinuationGoal !== null ? ` / ${point.dailyContinuationGoal}` : ''}</strong></div>{point.dailyContinuationGoal !== null ? <><div className="today-activity-track" role="progressbar" aria-label={t('dailyActivity.continuations')} aria-valuenow={Math.min(point.continuations, point.dailyContinuationGoal)} aria-valuemin={0} aria-valuemax={point.dailyContinuationGoal}><i style={{ width: `${Math.min(100, point.continuations / point.dailyContinuationGoal * 100)}%` }} /></div><small>{t('dailyActivity.goalProgress', { percent: Math.min(100, Math.round(point.continuations / point.dailyContinuationGoal * 100)), remaining: Math.max(0, point.dailyContinuationGoal - point.continuations) })}</small></> : <small>{t('dailyActivity.goalMissing')}</small>}</div>
+      </article>)}</div> : <WorkspaceState kind="empty" compact message={t('dailyActivity.unassigned')} detail={t('dailyActivity.unassignedHint')} />}
+    </section>
     <div className="today-metrics">
       <Button onClick={() => navigate('tasks')} className={`today-metric${availability.overdue && data.overdue.length > 0 ? ' overdue' : ''}`}><span>{t('today.overdue')}</span><strong>{showMetric(availability.overdue, data.overdue.length)}</strong><small>{metricDescription(availability.overdue, data.overdue.length)}</small></Button>
       <Button onClick={() => navigate('tasks')} className="today-metric"><span>{t('today.dueToday')}</span><strong>{showMetric(availability.dueToday, data.dueToday.length)}</strong><small>{metricDescription(availability.dueToday, data.dueToday.length)}</small></Button>

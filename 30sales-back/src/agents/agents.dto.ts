@@ -17,9 +17,9 @@ export const assistantProfileInputSchema = z.object({ businessLineId: z.string()
 export type AssistantProfileInputDto = z.infer<typeof assistantProfileInputSchema>;
 export class AssistantProfileDto {
   readonly availableModels = [
-    { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', provider: 'Anthropic' },
-    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'Anthropic' },
-    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'Anthropic' },
+    { id: 'claude-haiku-5-5', name: 'Claude Haiku 4.5', provider: 'Anthropic' },
+    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5', provider: 'Anthropic' },
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5', provider: 'Anthropic' },
   ];
   constructor(readonly id: string, readonly businessLineId: string, readonly direction: 'inbound' | 'outbound', readonly name: string, readonly enabled: boolean, readonly model: string, readonly transcribeAudio: boolean, readonly systemPrompt: string, readonly updatedAt: string) {}
 }
@@ -39,9 +39,9 @@ export type AssistantSettingsInputDto = z.infer<typeof assistantSettingsInputSch
 
 export class AssistantSettingsDto {
   readonly availableModels = [
-    { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', provider: 'Anthropic' },
-    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'Anthropic' },
-    { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'Anthropic' },
+    { id: 'claude-haiku-5-5', name: 'Claude Haiku 4.5', provider: 'Anthropic' },
+    { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5', provider: 'Anthropic' },
+    { id: 'claude-opus-5-5', name: 'Claude Opus 5', provider: 'Anthropic' },
   ];
   constructor(readonly enabled: boolean, readonly model: string, readonly transcribeAudio: boolean, readonly systemPrompt: string, readonly updatedAt: string | null, readonly runtimeAvailable = false, readonly transcriptionAvailable = false, readonly businessLineId: string | null = null, readonly businessLineName: string | null = null, readonly inherited = false) {}
 }

@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { and, count, countDistinct, eq, exists, gte, inArray, isNotNull, isNull, lt, notInArray, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { database } from '../db';
-import { assistantRuns, businessLineMembers, businessLines, conversations, handoffs, leadStatusHistory, leads, messagingChannels, opportunities, pipelines, pipelineStages } from '../db/schema';
-import { member } from '../db/auth-schema';
+import { assistantRuns, businessLineMembers, businessLines, conversations, handoffs, leadStatusHistory, leads, messages, messagingChannels, opportunities, pipelines, pipelineStages } from '../db/schema';
+import { member, user as authUser } from '../db/auth-schema';
 import { LEAD_STATUS } from '../leads/constants';
-import { AiUsagePointDto, AiUsageReportDto, FunnelReportDto, FunnelReportPipelineValueDto, FunnelReportRepositoryQueryDto, FunnelReportStageAgingDto, FunnelReportStageDto, LeadCohortPointDto, SalesTrendPointDto } from './reports.dto';
+import { AiUsagePointDto, AiUsageReportDto, DailyActivityPointDto, DailyActivityReportDto, DailyActivityRepositoryQueryDto, FunnelReportDto, FunnelReportPipelineValueDto, FunnelReportRepositoryQueryDto, FunnelReportStageAgingDto, FunnelReportStageDto, LeadCohortPointDto, SalesTrendPointDto } from './reports.dto';
 
 const terminalStages = ['won', 'lost'] as const;
 const [wonStage, lostStage] = terminalStages;
@@ -19,6 +20,37 @@ async function runQueriesInBatches<const Queries extends readonly PromiseLike<un
 
 @Injectable()
 export class ReportsRepository {
+  async dailyActivity(input: DailyActivityRepositoryQueryDto): Promise<DailyActivityReportDto> {
+    const priorMessage = alias(messages, 'prior_activity_message');
+    const eligibleActivity = (message: typeof messages | typeof priorMessage) => sql`(${message.deliveryState} in ('accepted', 'delivered', 'read') or ${message.providerMetadata}->'evolution'->>'source' = 'provider_echo')`;
+    const activityDate = (message: typeof messages | typeof priorMessage) => input.date
+      ? sql`(${message.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = ${input.date}::date`
+      : sql`(${message.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date = (now() at time zone ${messagingChannels.dailyLimitTimeZone})::date`;
+    const priorActivity = exists(database.select({ id: priorMessage.id }).from(priorMessage)
+      .where(and(eq(priorMessage.organizationId, input.organizationId), eq(priorMessage.conversationId, conversations.id), eq(priorMessage.direction, 'outbound'), eq(priorMessage.actorType, 'user'), eligibleActivity(priorMessage), sql`(${priorMessage.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date < (${messages.occurredAt} at time zone ${messagingChannels.dailyLimitTimeZone})::date`)));
+    const rows = await database.select({
+      channelId: messagingChannels.id,
+      channelName: messagingChannels.displayName,
+      phoneNumber: messagingChannels.phoneNumber,
+      ownerUserId: messagingChannels.activityOwnerUserId,
+      ownerName: authUser.name,
+      newContacts: sql<number>`count(distinct ${conversations.id}) filter (where ${messages.id} is not null and not ${priorActivity})::int`,
+      continuations: sql<number>`count(distinct ${conversations.id}) filter (where ${messages.id} is not null and ${priorActivity})::int`,
+      dailyNewContactGoal: messagingChannels.dailyNewContactGoal,
+      dailyContinuationGoal: messagingChannels.dailyContinuationGoal,
+      date: input.date
+        ? sql<string>`to_char(${input.date}::date, 'YYYY-MM-DD')`
+        : sql<string>`to_char((now() at time zone ${messagingChannels.dailyLimitTimeZone})::date, 'YYYY-MM-DD')`,
+    }).from(messagingChannels)
+      .innerJoin(authUser, eq(authUser.id, messagingChannels.activityOwnerUserId))
+      .leftJoin(conversations, and(eq(conversations.organizationId, messagingChannels.organizationId), eq(conversations.channelId, messagingChannels.id), eq(conversations.conversationType, 'direct')))
+      .leftJoin(messages, and(eq(messages.organizationId, conversations.organizationId), eq(messages.conversationId, conversations.id), eq(messages.direction, 'outbound'), eq(messages.actorType, 'user'), eligibleActivity(messages), activityDate(messages)))
+      .where(and(eq(messagingChannels.organizationId, input.organizationId), isNull(messagingChannels.deletedAt), isNotNull(messagingChannels.activityOwnerUserId), input.userId ? eq(messagingChannels.activityOwnerUserId, input.userId) : undefined, input.businessLineIds === null ? undefined : inArray(messagingChannels.businessLineId, [...input.businessLineIds])))
+      .groupBy(messagingChannels.id, authUser.name)
+      .orderBy(authUser.name, messagingChannels.displayName);
+    return new DailyActivityReportDto(input.date ?? null, rows.map((row) => new DailyActivityPointDto(row.channelId, row.channelName, row.phoneNumber, row.ownerUserId!, row.ownerName, Number(row.newContacts), Number(row.continuations), row.dailyNewContactGoal, row.dailyContinuationGoal, row.date)), new Date().toISOString());
+  }
+
   async isActiveBusinessLine(organizationId: string, businessLineId: string): Promise<boolean> {
     const [line] = await database.select({ id: businessLines.id }).from(businessLines)
       .where(and(eq(businessLines.organizationId, organizationId), eq(businessLines.id, businessLineId), eq(businessLines.status, 'active'))).limit(1);

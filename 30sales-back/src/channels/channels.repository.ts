@@ -188,6 +188,18 @@ export class ChannelsRepository {
       const locked = await this.lockAccessibleChannel(transaction, input.organizationId, input.channelId, input.actorUserId, input.canManageAllLines);
       if (!locked) return null;
       const before = locked.channel;
+      if (input.input.activityOwnerUserId !== undefined && input.input.activityOwnerUserId !== null) {
+        const [owner] = await transaction.select({ userId: authMember.userId }).from(authMember)
+          .where(and(eq(authMember.organizationId, input.organizationId), eq(authMember.userId, input.input.activityOwnerUserId))).limit(1);
+        if (!owner) return null;
+        if (before.businessLineId) {
+          const [lineAccess] = await transaction.select({ memberId: businessLineMembers.memberId }).from(businessLineMembers)
+            .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+            .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+            .where(and(eq(businessLineMembers.organizationId, input.organizationId), eq(businessLineMembers.businessLineId, before.businessLineId), eq(authMember.userId, input.input.activityOwnerUserId), eq(businessLines.status, 'active'))).limit(1);
+          if (!lineAccess) return null;
+        }
+      }
       const profileSelections = [
         { id: input.input.inboundAssistantProfileId, direction: 'inbound' },
         { id: input.input.outboundAssistantProfileId, direction: 'outbound' },
@@ -216,7 +228,7 @@ export class ChannelsRepository {
         if (businessHours.length) await transaction.insert(channelBusinessHours).values(businessHours.map((hours) => ({ ...hours, organizationId: input.organizationId, channelId: input.channelId })));
       }
       const savedHours = await transaction.select().from(channelBusinessHours).where(and(eq(channelBusinessHours.organizationId, input.organizationId), eq(channelBusinessHours.channelId, input.channelId)));
-      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.updated', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, beforeState: { displayName: before.displayName, isActive: before.isActive, dailyMessageLimit: before.dailyMessageLimit, dailyLimitTimeZone: before.dailyLimitTimeZone, operationMode: before.operationMode, assistantScheduleMode: before.assistantScheduleMode, inboundAssistantProfileId: before.inboundAssistantProfileId, outboundAssistantProfileId: before.outboundAssistantProfileId, ...(previousHours === null ? {} : { businessHours: previousHours }) }, afterState: { displayName: row.displayName, isActive: row.isActive, dailyMessageLimit: row.dailyMessageLimit, dailyLimitTimeZone: row.dailyLimitTimeZone, operationMode: row.operationMode, assistantScheduleMode: row.assistantScheduleMode, inboundAssistantProfileId: row.inboundAssistantProfileId, outboundAssistantProfileId: row.outboundAssistantProfileId, ...(previousHours === null ? {} : { businessHours: savedHours }) } });
+      await transaction.insert(auditEvents).values({ organizationId: input.organizationId, actorUserId: input.actorUserId, actorType: 'user', action: 'channel.updated', entityType: 'messaging_channel', entityId: row.id, correlationId: input.correlationId, beforeState: { displayName: before.displayName, isActive: before.isActive, dailyMessageLimit: before.dailyMessageLimit, dailyLimitTimeZone: before.dailyLimitTimeZone, operationMode: before.operationMode, assistantScheduleMode: before.assistantScheduleMode, inboundAssistantProfileId: before.inboundAssistantProfileId, outboundAssistantProfileId: before.outboundAssistantProfileId, activityOwnerUserId: before.activityOwnerUserId, dailyNewContactGoal: before.dailyNewContactGoal, dailyContinuationGoal: before.dailyContinuationGoal, ...(previousHours === null ? {} : { businessHours: previousHours }) }, afterState: { displayName: row.displayName, isActive: row.isActive, dailyMessageLimit: row.dailyMessageLimit, dailyLimitTimeZone: row.dailyLimitTimeZone, operationMode: row.operationMode, assistantScheduleMode: row.assistantScheduleMode, inboundAssistantProfileId: row.inboundAssistantProfileId, outboundAssistantProfileId: row.outboundAssistantProfileId, activityOwnerUserId: row.activityOwnerUserId, dailyNewContactGoal: row.dailyNewContactGoal, dailyContinuationGoal: row.dailyContinuationGoal, ...(previousHours === null ? {} : { businessHours: savedHours }) } });
       return this.toDto(row, 0, savedHours, locked.businessLineName);
     });
   }
@@ -383,7 +395,7 @@ export class ChannelsRepository {
   }
 
   private toDto(row: typeof messagingChannels.$inferSelect, dailyMessageCount = 0, businessHours: ChannelRecordDto['businessHours'] = [], businessLineName: string | null = null, scheduleExceptions: ChannelRecordDto['scheduleExceptions'] = []): ChannelRecordDto {
-    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName, scheduleExceptions, row.inboundAssistantProfileId, row.outboundAssistantProfileId, row.pairedAt !== null || row.connectionStatus === CHANNEL_CONNECTION_STATUS.connected);
+    return new ChannelRecordDto(row.id, channelProviderSchema.parse(row.provider), row.displayName, row.phoneNumber, row.providerChannelId, row.providerAccountId, row.isActive, row.dailyMessageLimit, row.dailyLimitTimeZone, dailyMessageCount, row.createdAt.toISOString(), row.updatedAt.toISOString(), Boolean(row.credentialsCiphertext && row.credentialsIv && row.credentialsAuthTag), row.connectionStatus === null ? null : channelConnectionStatusSchema.parse(row.connectionStatus), row.connectionUpdatedAt?.toISOString() ?? null, channelOperationModeSchema.parse(row.operationMode), channelAssistantScheduleModeSchema.parse(row.assistantScheduleMode), businessHours.map(({ dayOfWeek, startTime, endTime }) => ({ dayOfWeek, startTime, endTime })), row.businessLineId, businessLineName, scheduleExceptions, row.inboundAssistantProfileId, row.outboundAssistantProfileId, row.pairedAt !== null || row.connectionStatus === CHANNEL_CONNECTION_STATUS.connected, row.activityOwnerUserId, row.dailyNewContactGoal, row.dailyContinuationGoal);
   }
 
   private isUniqueViolation(error: unknown): boolean {

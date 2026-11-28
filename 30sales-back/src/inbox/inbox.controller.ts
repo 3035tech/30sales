@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Sse, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query, Sse, StreamableFile, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
@@ -33,6 +33,12 @@ export class InboxController {
   tags(@ApiRequest() request: ApiRequestDto) { return this.inboxService.tags(request); }
   @Get('link-preview')
   getLinkPreview(@ApiRequest() request: ApiRequestDto, @Query('url') rawUrl: string) { return this.inboxService.getLinkPreview(request, rawUrl ?? ''); }
+  @Get(':id/avatar')
+  @Header('Cache-Control', 'private, no-store')
+  async profilePicture(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string): Promise<StreamableFile> {
+    const picture = await this.inboxService.profilePicture(request, conversationId);
+    return new StreamableFile(picture.stream, { type: picture.mimeType, disposition: 'inline' });
+  }
   @Get(':id/messages')
   messages(@ApiRequest() request: ApiRequestDto, @Param('id', new ZodValidationPipe(conversationIdSchema)) conversationId: string, @Query(new ZodValidationPipe(listMessagesSchema)) query: ListMessagesQueryDto) { return this.inboxService.messages(request, conversationId, query); }
   @Get(':id/group-participants')

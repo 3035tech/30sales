@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
@@ -16,6 +16,7 @@ const groupParticipantsSchema = z.object({ participants: z.array(z.object({ id: 
 
 @Injectable()
 export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
+  private readonly logger = new Logger(EvolutionMessagingAdapter.name);
   readonly provider = CHANNEL_PROVIDER.evolution;
   readonly capabilities = { directMessages: true, groupReplies: true, groupParticipants: true, reactions: true, quotedReplies: true, media: true, contactCards: true } as const;
 
@@ -26,7 +27,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     const body = input.mode === 'reaction'
       ? input.targetMessage ? { key: this.messageKey(input.recipientPhone, input.targetMessage), reaction: input.bodyText } : null
       : { number: input.recipientPhone, text: input.bodyText, ...(input.targetMessage ? { quoted: { key: this.messageKey(input.recipientPhone, input.targetMessage), message: { conversation: input.targetMessage.bodyText ?? '' } } } : {}) };
-    return this.post(url, body, { apikey: credentials.apiKey });
+    return this.post(url, body, { apikey: credentials.apiKey }, 15_000, input);
   }
 
   async sendMedia(input: MessagingAdapterContext & { bodyText: string; media: import('./outbound-media').PreparedOutboundMedia }): Promise<ProviderSendResult> {
@@ -40,10 +41,10 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
       form.set(EVOLUTION_AUDIO_FORM_FIELD.number, input.recipientPhone);
       form.set(EVOLUTION_AUDIO_FORM_FIELD.audio, content.toString('base64'));
       form.set(EVOLUTION_AUDIO_FORM_FIELD.file, new Blob([Uint8Array.from(content)], { type: metadata.mimeType }), metadata.fileName);
-      return this.postForm(url, form, { apikey: credentials.apiKey }, 30_000);
+      return this.postForm(url, form, { apikey: credentials.apiKey }, 30_000, input);
     }
     const body = { number: input.recipientPhone, mediatype: metadata.mediaType, mimetype: metadata.mimeType, caption: input.bodyText, media: content.toString('base64'), fileName: metadata.fileName };
-    return this.post(url, body, { apikey: credentials.apiKey }, 30_000);
+    return this.post(url, body, { apikey: credentials.apiKey }, 30_000, input);
   }
 
   async sendContact(input: MessagingAdapterContext & { contact: ContactMessageFields }): Promise<ProviderSendResult> {
@@ -52,7 +53,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     const url = `${credentials.baseUrl.replace(/\/+$/, '')}/message/sendContact/${encodeURIComponent(input.providerChannelId)}`;
     const body = { number: input.recipientPhone, contact: [{ fullName: input.contact.fullName, wuid: `${digits}@s.whatsapp.net`, phoneNumber: `+${digits}`,
       ...(input.contact.organization ? { organization: input.contact.organization } : {}), ...(input.contact.email ? { email: input.contact.email } : {}), ...(input.contact.url ? { url: input.contact.url } : {}) }] };
-    return this.post(url, body, { apikey: credentials.apiKey }, 30_000);
+    return this.post(url, body, { apikey: credentials.apiKey }, 30_000, input);
   }
 
   async sendPresence(input: MessagingAdapterContext & { state: 'composing' | 'paused' }): Promise<void> {
@@ -98,24 +99,30 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     return { remoteJid: remoteJid.includes('@') ? remoteJid : `${remoteJid}@s.whatsapp.net`, fromMe: target.fromMe, id: target.externalMessageId, participant: target.participant ?? '' };
   }
 
-  private async post(url: string, body: unknown, headers: Record<string, string>, timeout = 15_000): Promise<ProviderSendResult> {
+  private async post(url: string, body: unknown, headers: Record<string, string>, timeout = 15_000, context?: MessagingAdapterContext): Promise<ProviderSendResult> {
     if (!body) return { deliveryState: 'failed', externalMessageId: null };
     try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
     let response: Response;
     try { response = await evolutionFetch(url, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
     catch { return { deliveryState: 'unknown', externalMessageId: null }; }
-    if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
+    if (!response.ok) {
+      await this.logProviderRejection(response, url, context);
+      return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
+    }
     const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
     const externalMessageId = result.ok ? this.readMessageId(result.payload) : null;
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
   }
 
-  private async postForm(url: string, body: FormData, headers: Record<string, string>, timeout: number): Promise<ProviderSendResult> {
+  private async postForm(url: string, body: FormData, headers: Record<string, string>, timeout: number, context?: MessagingAdapterContext): Promise<ProviderSendResult> {
     try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
     let response: Response;
     try { response = await evolutionFetch(url, { method: 'POST', headers: { ...headers, accept: 'application/json' }, body, signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
     catch { return { deliveryState: 'unknown', externalMessageId: null }; }
-    if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
+    if (!response.ok) {
+      await this.logProviderRejection(response, url, context);
+      return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
+    }
     const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
     const externalMessageId = result.ok ? this.readMessageId(result.payload) : null;
     return externalMessageId ? { deliveryState: 'accepted', externalMessageId } : { deliveryState: 'unknown', externalMessageId: null };
@@ -124,5 +131,30 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
   private readMessageId(payload: unknown): string | null {
     if (typeof payload !== 'object' || payload === null || !('key' in payload) || typeof payload.key !== 'object' || payload.key === null || !('id' in payload.key) || typeof payload.key.id !== 'string') return null;
     return payload.key.id;
+  }
+
+  private async logProviderRejection(response: Response, url: string, context?: MessagingAdapterContext): Promise<void> {
+    const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
+    const code = result.ok ? this.readProviderErrorCode(result.payload) : null;
+    const endpoint = new URL(url).pathname.split('/').slice(-2, -1)[0] ?? 'unknown';
+    this.logger.warn(JSON.stringify({
+      event: 'whatsapp_provider_rejection',
+      provider: this.provider,
+      endpoint,
+      status: response.status,
+      providerErrorCode: code,
+      responseParsed: result.ok,
+      organizationId: context?.organizationId,
+      channelId: context?.channelId,
+      messageId: context?.messageId,
+      correlationId: context?.correlationId,
+    }));
+  }
+
+  private readProviderErrorCode(payload: unknown): string | number | null {
+    if (typeof payload !== 'object' || payload === null || !('error' in payload) || typeof payload.error !== 'object' || payload.error === null || !('code' in payload.error)) return null;
+    const code = payload.error.code;
+    if (typeof code === 'number' && Number.isSafeInteger(code)) return code;
+    return typeof code === 'string' && /^[a-zA-Z0-9_.-]{1,80}$/.test(code) ? code : null;
   }
 }

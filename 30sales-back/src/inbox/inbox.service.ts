@@ -331,7 +331,7 @@ export class InboxService {
     try {
       const credentials = await this.credentialResolver.resolve(organizationId, prepared.channelId, prepared.credentials);
       if (credentials.provider !== prepared.provider) throw new Error('Channel credential provider mismatch.');
-      const destination = { providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, credentials };
+      const destination = { providerChannelId: prepared.providerChannelId, recipientPhone: prepared.recipientPhone, credentials, organizationId, channelId: prepared.channelId, messageId: prepared.message.id, correlationId };
       delivery = contact
         ? await this.messagingAdapters.sendContact({ ...destination, contact })
         : media

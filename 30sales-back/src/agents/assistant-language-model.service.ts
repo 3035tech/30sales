@@ -27,12 +27,12 @@ const responseTool = {
   input_schema: {
     type: 'object',
     properties: {
-      replyText: { type: 'string', minLength: 1, maxLength: 4096, description: 'The only customer-facing reply to send in the language of the latest lead message.' },
+      replyText: { type: 'string', description: 'The only customer-facing reply to send in the language of the latest lead message. Keep it under 4096 characters.' },
       intent: { type: 'string', enum: ['qualification', 'information_request', 'explicit_human_request', 'meeting_request', 'proposal_request', 'not_interested', 'unclear'] },
-      summary: { type: 'string', minLength: 1, maxLength: 1000, description: 'Short internal summary of the lead need and conversation state. Use only confirmed information.' },
-      confirmedFacts: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 300 }, maxItems: 12, description: 'Facts explicitly stated by the lead or already present in the conversation.' },
-      unknowns: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 300 }, maxItems: 12, description: 'Qualification information still missing; do not fill with guesses.' },
-      nextStep: { type: 'string', minLength: 1, maxLength: 500, description: 'The next useful sales action based on the current conversation.' },
+      summary: { type: 'string', description: 'Short internal summary of the lead need and conversation state, up to 1000 characters. Use only confirmed information.' },
+      confirmedFacts: { type: 'array', items: { type: 'string' }, description: 'Up to 12 facts explicitly stated by the lead or already present in the conversation; keep each under 300 characters.' },
+      unknowns: { type: 'array', items: { type: 'string' }, description: 'Up to 12 qualification details still missing, each under 300 characters; do not fill with guesses.' },
+      nextStep: { type: 'string', description: 'The next useful sales action based on the current conversation, up to 500 characters.' },
     },
     required: ['replyText', 'intent', 'summary', 'confirmedFacts', 'unknowns', 'nextStep'],
     additionalProperties: false,
@@ -43,9 +43,9 @@ const conversationSummaryTool = {
   description: 'Summarize the sales conversation for its human owner. Cite each confirmed fact with the exact message ID and an exact quote copied from that message. Any inferred or unsupported information belongs in unknowns, never confirmedFacts.',
   strict: true,
   input_schema: { type: 'object', properties: {
-    summary: { type: 'string', minLength: 1, maxLength: 1000 },
-    confirmedFacts: { type: 'array', maxItems: 12, items: { type: 'object', properties: { fact: { type: 'string', minLength: 1, maxLength: 300 }, evidence: { type: 'array', minItems: 1, maxItems: 3, items: { type: 'object', properties: { messageId: { type: 'string' }, quote: { type: 'string', minLength: 3, maxLength: 500 } }, required: ['messageId', 'quote'], additionalProperties: false } } }, required: ['fact', 'evidence'], additionalProperties: false } },
-    unknowns: { type: 'array', maxItems: 12, items: { type: 'string', minLength: 1, maxLength: 300 } }, nextStep: { type: 'string', minLength: 1, maxLength: 500 },
+    summary: { type: 'string', description: 'Concise summary, up to 1000 characters.' },
+    confirmedFacts: { type: 'array', description: 'Up to 12 facts; each fact has up to 3 exact message citations.', items: { type: 'object', properties: { fact: { type: 'string', description: 'One supported fact, up to 300 characters.' }, evidence: { type: 'array', minItems: 1, items: { type: 'object', properties: { messageId: { type: 'string' }, quote: { type: 'string', description: 'Exact quote, at least 3 and up to 500 characters.' } }, required: ['messageId', 'quote'], additionalProperties: false } } }, required: ['fact', 'evidence'], additionalProperties: false } },
+    unknowns: { type: 'array', description: 'Up to 12 unanswered qualification details, each up to 300 characters.', items: { type: 'string' } }, nextStep: { type: 'string', description: 'Next useful action, up to 500 characters.' },
   }, required: ['summary', 'confirmedFacts', 'unknowns', 'nextStep'], additionalProperties: false },
 };
 

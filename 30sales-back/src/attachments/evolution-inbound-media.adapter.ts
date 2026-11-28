@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { evolutionFetch } from '../common/evolution-http-client';
-import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
+import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import type { InboundMediaAdapter, InboundMediaAdapterInput, MediaDownloadResult } from './inbound-media-adapter';
 import { MAX_EVOLUTION_INBOUND_MEDIA_BYTES, MAX_EVOLUTION_MEDIA_RESPONSE_BYTES } from './media-limits.constants';
@@ -24,6 +24,7 @@ const SAFE_TRANSPORT_CODES = new Set([
 
 function safeTransportCode(error: unknown): string | null {
   if (!(error instanceof Error)) return null;
+  if ('code' in error && typeof error.code === 'string' && SAFE_TRANSPORT_CODES.has(error.code)) return error.code;
   const cause = (error as Error & { cause?: unknown }).cause;
   if (!cause || typeof cause !== 'object' || !('code' in cause) || typeof cause.code !== 'string') return null;
   return SAFE_TRANSPORT_CODES.has(cause.code) ? cause.code : null;
@@ -51,11 +52,31 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     const credentials = this.credentials(input.credentials);
     const source = sourceSchema.safeParse(JSON.parse(input.sourcePayload) as unknown);
     if (!source.success) throw new Error('MEDIA_SOURCE_INVALID');
-    const url = new URL(credentials.baseUrl);
+    let url: URL;
+    try {
+      url = new URL(credentials.baseUrl);
+    } catch {
+      this.logTargetValidation(input, 'invalid_base_url');
+      throw new Error('MEDIA_PROVIDER_URL_INVALID');
+    }
     url.pathname = `${url.pathname.replace(/\/$/, '')}/chat/getBase64FromMediaMessage/${encodeURIComponent(input.providerChannelId)}`;
     url.search = '';
     url.hash = '';
-    await assertPublicEvolutionTarget(url.toString());
+    try {
+      await assertPublicEvolutionTarget(url.toString());
+    } catch (error) {
+      const transportCode = safeTransportCode(error);
+      if (error instanceof UnsafeExternalTargetError) {
+        this.logTargetValidation(input, 'unsafe_target');
+        throw new Error('MEDIA_PROVIDER_URL_INVALID');
+      }
+      if (transportCode) {
+        this.logTargetValidation(input, transportCode === 'EAI_AGAIN' ? 'dns_temporary_failure' : 'dns_resolution_failure', transportCode);
+        throw new Error(transportCode === 'EAI_AGAIN' ? 'MEDIA_PROVIDER_UNAVAILABLE' : 'MEDIA_PROVIDER_URL_INVALID');
+      }
+      this.logTargetValidation(input, 'target_validation_failed');
+      throw new Error('MEDIA_PROVIDER_URL_INVALID');
+    }
     const payloads = [{ message: source.data, convertToMp4: false }, { message: { key: source.data.key }, convertToMp4: false }];
     let parsedMedia: z.infer<typeof responseSchema> | null = null;
     let providerResponded = false;
@@ -145,6 +166,12 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
     this.logger.log(JSON.stringify({ event: 'evolution_media_response', outcome, stage: 'evolution_response', correlationId: input.correlationId ?? null,
       mediaType: input.mediaType, timeoutMs: input.mediaType === 'video' ? VIDEO_DOWNLOAD_TIMEOUT_MS : DEFAULT_DOWNLOAD_TIMEOUT_MS,
       durationMs: Math.max(0, Date.now() - startedAt), requestVariant, ...details }));
+  }
+
+  private logTargetValidation(input: InboundMediaAdapterInput, failureReason: string, transportCode?: string): void {
+    this.logger.warn(JSON.stringify({ event: 'evolution_media_response', outcome: 'preflight_error', stage: 'target_validation',
+      correlationId: input.correlationId ?? null, mediaType: input.mediaType, failureReason,
+      ...(transportCode ? { transportCode } : {}) }));
   }
 
   private safeContentType(value: string | null): string | null {

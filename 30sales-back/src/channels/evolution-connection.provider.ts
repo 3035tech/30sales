@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { ChannelCredentialsDto, ChannelConnectionStatus } from './channels.dto';
@@ -23,7 +24,7 @@ export class EvolutionConnectionProvider {
     }
     let response: Response;
     try {
-      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/create`, {
+      response = await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/create`, {
         method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', apikey: credentials.apiKey },
         body: JSON.stringify({ instanceName, qrcode: true, integration: 'WHATSAPP-BAILEYS' }),
         signal: AbortSignal.timeout(CONNECTION_LIMITS.timeoutMs), redirect: 'error',
@@ -45,7 +46,7 @@ export class EvolutionConnectionProvider {
 
     let response: Response;
     try {
-      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/connect/${encodeURIComponent(instanceName)}`, {
+      response = await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/connect/${encodeURIComponent(instanceName)}`, {
         method: 'GET', headers: { accept: 'application/json', apikey: credentials.apiKey },
         signal: AbortSignal.timeout(CONNECTION_LIMITS.timeoutMs), redirect: 'error',
       });
@@ -68,7 +69,7 @@ export class EvolutionConnectionProvider {
     }
     let response: Response;
     try {
-      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/delete/${encodeURIComponent(instanceName)}`, {
+      response = await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/delete/${encodeURIComponent(instanceName)}`, {
         method: 'DELETE', headers: { accept: 'application/json', apikey: credentials.apiKey },
         signal: AbortSignal.timeout(CONNECTION_LIMITS.timeoutMs), redirect: 'error',
       });

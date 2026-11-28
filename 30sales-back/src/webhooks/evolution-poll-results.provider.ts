@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { EvolutionPollResults } from './webhooks.dto';
@@ -14,7 +15,7 @@ export class EvolutionPollResultsProvider {
   async getVotes(input: PollCredentials): Promise<{ kind: 'results'; results: EvolutionPollResults } | { kind: 'unsupported' } | { kind: 'retry' }> {
     try {
       await assertPublicEvolutionTarget(input.baseUrl);
-      const response = await fetch(`${input.baseUrl.replace(/\/+$/, '')}/chat/getPollVote/${encodeURIComponent(input.instanceName)}`, {
+      const response = await evolutionFetch(`${input.baseUrl.replace(/\/+$/, '')}/chat/getPollVote/${encodeURIComponent(input.instanceName)}`, {
         method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', apikey: input.apiKey },
         body: JSON.stringify({ message: { key: { remoteJid: input.remoteJid, id: input.pollMessageId } } }),
         signal: AbortSignal.timeout(5_000), redirect: 'error',

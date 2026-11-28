@@ -6,6 +6,12 @@
 - Polimento: o relatório deixa a data explícita, mostra totais de equipe, barras de progresso por pessoa/canal, preserva a visão de resultados se a configuração de canais falhar e recolhe os controles de gestão em uma seção expansível. Formulário diferencia erro/sucesso, desabilita salvar sem mudanças e mantém layout responsivo.
 - Builds Nest/Vite e `git diff --check` passaram. Vite ainda alerta que o bundle principal excede 500 kB. Nenhum teste automatizado, inspeção visual, aplicação de migration, commit, push ou deploy foi executado.
 - Limite conhecido: relatórios de datas passadas atribuem atividade ao responsável atual do canal. Se o número mudar de vendedor, será necessário registrar histórico efetivo de atribuição para reconstruir corretamente quem era responsável em cada dia.
+
+## Navegação em abas nos relatórios — 28/11/2026
+
+- Relatórios foi dividido em Visão geral, Atividade diária, Leads, Pipeline e Uso de IA. Filtros de período e linha ficam persistentes acima das abas. Implementada navegação por setas, Home/End, foco acessível e rótulos pt-BR/en; trocar de aba não refaz as consultas.
+- Canais e Campanhas já tinham abas, conforme revisão. Inbox permanece como espaço integrado de atendimento; não dividido nesta alteração.
+- Build Vite e `git diff --check` passaram. Sem inspeção visual em navegador ou testes automatizados; sem commit/push.
 - O working tree já continha alterações do usuário, incluindo migrations `0097`/`0098` e mudanças de fotos de perfil, Inbox e Evolution; foram preservadas.
 
 ## Leitura e posição do histórico no Inbox — 28/11/2026
@@ -73,6 +79,13 @@
 - O workflow da imagem backend com a migration `0084` concluiu com sucesso; build de imagem não confirma aplicação da migration nem rollout do serviço.
 
 # Contexto de continuidade — 30Sales
+
+## Hardening após pentest estático — 28/11/2026
+
+- Evolution inbound valida canal ativo e segredo antes do parser JSON de 140 MB. Requisições Evolution autenticadas têm concorrência limitada por processo (`EVOLUTION_WEBHOOK_MAX_CONCURRENCY`, padrão 2); sobrecarga recebe 503 e `Retry-After`. O corpo continua limitado a 140 MB para compatibilidade, enquanto seu hash é calculado no parser sem guardar uma segunda cópia do Buffer.
+- Chamadas de saída Evolution agora resolvem e validam DNS e conectam ao IP público validado, mantendo o hostname original para TLS; redirects seguem bloqueados. Abrange configuração/conexão de canal, descoberta, health check, inbox/mensagens, etiquetas, fotos, mídia e consultas de enquete.
+- Better Auth declara explicitamente `X-Forwarded-For` e CIDRs confiáveis. Em produção, `TRUSTED_PROXY_CIDRS` é obrigatório e validado; preencher com os IPs/CIDRs reais do ingress, configurar o proxy para sobrescrever/encaminhar corretamente o header e impedir acesso direto ao pod. Não há manifests GitOps/Kubernetes/Helm neste workspace para atualizar, então esse valor deve ser definido no secret/config do deployment.
+- Backend compilado com `npm run build`; `git diff --check` passou. Não foram executados testes automatizados, chamadas a providers, migrations ou deploy. O limite de 140 MB permanece. Mudanças locais de outras frentes foram preservadas.
 
 ## Ações por mensagem no Inbox — 25/11/2026
 

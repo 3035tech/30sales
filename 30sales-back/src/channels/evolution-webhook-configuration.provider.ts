@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { env } from '../config/env';
@@ -98,7 +99,7 @@ export class EvolutionWebhookConfigurationProvider {
 
   private async request(credentials: Extract<ChannelCredentialsDto, { provider: 'evolution' }>, path: string, init: RequestInit): Promise<Response> {
     try {
-      return await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}${path}`, { ...init, signal: AbortSignal.timeout(EVOLUTION_WEBHOOK_CONFIG_TIMEOUT_MS), redirect: 'error' });
+      return await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}${path}`, { ...init, signal: AbortSignal.timeout(EVOLUTION_WEBHOOK_CONFIG_TIMEOUT_MS), redirect: 'error' });
     } catch {
       throw new ServiceUnavailableException({ code: 'EVOLUTION_WEBHOOK_UNAVAILABLE', message: 'The Evolution API could not be reached to configure its webhook.' });
     }

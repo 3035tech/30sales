@@ -170,6 +170,26 @@ export class InboxRepository {
     return Boolean(lineAccess);
   }
 
+  async listUsersWithConversationAccess(organizationId: string, conversationId: string, userIds: string[]): Promise<Set<string>> {
+    if (userIds.length === 0) return new Set();
+    const [conversation] = await database.select({ businessLineId: messagingChannels.businessLineId }).from(conversations)
+      .innerJoin(messagingChannels, and(eq(messagingChannels.id, conversations.channelId), eq(messagingChannels.organizationId, conversations.organizationId)))
+      .where(and(eq(conversations.organizationId, organizationId), eq(conversations.id, conversationId))).limit(1);
+    if (!conversation) return new Set();
+
+    const memberships = await database.select({ userId: authMember.userId, role: authMember.role }).from(authMember)
+      .where(and(eq(authMember.organizationId, organizationId), inArray(authMember.userId, userIds)));
+    const accessible = new Set(memberships.filter(({ role }) => hasOrganizationRole(role, ORGANIZATION_MANAGEMENT_ROLES)).map(({ userId }) => userId));
+    if (!conversation.businessLineId) return accessible;
+
+    const lineMembers = await database.select({ userId: authMember.userId }).from(businessLineMembers)
+      .innerJoin(businessLines, and(eq(businessLines.id, businessLineMembers.businessLineId), eq(businessLines.organizationId, businessLineMembers.organizationId)))
+      .innerJoin(authMember, and(eq(authMember.id, businessLineMembers.memberId), eq(authMember.organizationId, businessLineMembers.organizationId)))
+      .where(and(eq(businessLineMembers.organizationId, organizationId), eq(businessLineMembers.businessLineId, conversation.businessLineId), eq(businessLines.status, BUSINESS_LINE_STATUS.active), inArray(authMember.userId, userIds)));
+    for (const member of lineMembers) accessible.add(member.userId);
+    return accessible;
+  }
+
   private async canAccessConversationLineInTransaction(transaction: InboxTransaction, organizationId: string, conversationId: string, userId: string, isPlatformOrganizationContext = false): Promise<boolean> {
     if (isPlatformOrganizationContext) {
       const [conversation] = await transaction.select({ id: conversations.id }).from(conversations)

@@ -16,12 +16,12 @@ export class WebhooksController {
 
   @Post('evolution/:channelId')
   ingestEvolution(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: Request) {
-    return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
+    return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.evolutionRawBodyHash ?? '');
   }
 
   @Post('evolution/:channelId/:eventName')
   ingestEvolutionEventRoute(@Param('channelId', new ZodValidationPipe(z.string().uuid())) channelId: string, @Headers('x-30sales-webhook-key') webhookSecret: string | undefined, @Body() payload: unknown, @Req() request: Request) {
-    return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.rawBody ?? Buffer.alloc(0));
+    return this.webhooksService.ingestEvolution(channelId, webhookSecret, payload, request.evolutionRawBodyHash ?? '');
   }
 
   @Post(':channelId/agent-signals/interpretation-failure')

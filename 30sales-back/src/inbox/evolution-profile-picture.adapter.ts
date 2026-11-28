@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 
 const PROFILE_PICTURE_TIMEOUT_MS = 8_000;
@@ -14,7 +15,7 @@ export class EvolutionProfilePictureAdapter {
     const profileUrl = await this.lookupPictureUrl(instanceName, recipientId, credentials);
     if (!profileUrl) return null;
     const url = this.validatePictureUrl(profileUrl);
-    const response = await fetch(url, { headers: { accept: 'image/jpeg,image/png,image/webp' }, signal: AbortSignal.timeout(PROFILE_PICTURE_TIMEOUT_MS), redirect: 'error' });
+    const response = await evolutionFetch(url, { headers: { accept: 'image/jpeg,image/png,image/webp' }, signal: AbortSignal.timeout(PROFILE_PICTURE_TIMEOUT_MS), redirect: 'error' });
     if (response.status === 404) return null;
     if (!response.ok) throw this.unavailable();
     const mimeType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase() ?? '';
@@ -27,7 +28,7 @@ export class EvolutionProfilePictureAdapter {
   private async lookupPictureUrl(instanceName: string, recipientId: string, credentials: EvolutionCredentials): Promise<string | null> {
     let response: Response;
     try {
-      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`, {
+      response = await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceName)}`, {
         method: 'POST', headers: { accept: 'application/json', 'content-type': 'application/json', apikey: credentials.apiKey },
         body: JSON.stringify({ number: recipientId }), signal: AbortSignal.timeout(PROFILE_PICTURE_TIMEOUT_MS), redirect: 'error',
       });

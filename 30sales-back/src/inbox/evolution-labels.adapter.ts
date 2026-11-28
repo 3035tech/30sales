@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
@@ -29,7 +30,7 @@ export class EvolutionLabelsAdapter {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 8_000);
     try {
-      const response = await fetch(new URL(path, `${credentials.baseUrl.replace(/\/+$/, '')}/`), { method, signal: controller.signal, headers: { accept: 'application/json', apikey: credentials.apiKey, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      const response = await evolutionFetch(new URL(path, `${credentials.baseUrl.replace(/\/+$/, '')}/`), { method, signal: controller.signal, headers: { accept: 'application/json', apikey: credentials.apiKey, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       const result = await readLimitedJsonResponse(response, RESPONSE_LIMIT);
       if (!response.ok || !result.ok) throw new Error('EVOLUTION_LABELS_REJECTED');
       return result.payload;

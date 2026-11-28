@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { z } from 'zod';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { CHANNEL_HEALTH_STATUS } from './channels.dto';
@@ -52,7 +53,7 @@ export class EvolutionInstanceDiscoveryProvider {
 
     let response: Response;
     try {
-      response = await fetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/fetchInstances`, { method: 'GET', headers: { accept: 'application/json', apikey: credentials.apiKey }, signal: AbortSignal.timeout(EVOLUTION_DISCOVERY_LIMITS.timeoutMs), redirect: 'error' });
+      response = await evolutionFetch(`${credentials.baseUrl.replace(/\/+$/, '')}/instance/fetchInstances`, { method: 'GET', headers: { accept: 'application/json', apikey: credentials.apiKey }, signal: AbortSignal.timeout(EVOLUTION_DISCOVERY_LIMITS.timeoutMs), redirect: 'error' });
     } catch (error) {
       const timedOut = error instanceof Error && error.name === 'TimeoutError';
       throw new ServiceUnavailableException({

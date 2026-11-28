@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
 import type { ChannelCredentialsDto } from '../channels/channels.dto';
 import type { InboundMediaAdapter, InboundMediaAdapterInput, MediaDownloadResult } from './inbound-media-adapter';
@@ -66,7 +67,7 @@ export class EvolutionInboundMediaAdapter implements InboundMediaAdapter {
       const requestStartedAt = Date.now();
       let receivedHeaders = false;
       try {
-        const response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
+        const response = await evolutionFetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json' },
           body: JSON.stringify(payload), signal: AbortSignal.timeout(timeoutMs), redirect: 'error' });
         receivedHeaders = true;
         providerResponded = true;

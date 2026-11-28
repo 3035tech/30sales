@@ -131,10 +131,9 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
   private async broadcastPresence(update: z.infer<typeof inboxPresenceSchema>): Promise<void> {
     try {
       const subscribers = this.subscribers.get(update.organizationId) ?? [];
-      await Promise.all([...subscribers].map(async (subscriber) => {
-        if (!await this.repository.canAccessConversationLine(update.organizationId, update.conversationId, subscriber.userId)) return;
-        subscriber.subject.next({ type: 'conversation.presence', data: update });
-      }));
+      const subscriberList = [...subscribers];
+      const accessibleUsers = await this.repository.listUsersWithConversationAccess(update.organizationId, update.conversationId, subscriberList.map(({ userId }) => userId));
+      for (const subscriber of subscriberList) if (accessibleUsers.has(subscriber.userId)) subscriber.subject.next({ type: 'conversation.presence', data: update });
     } catch (error) {
       this.logger.warn(`Could not route inbox presence: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
@@ -143,10 +142,9 @@ export class InboxRealtimeService implements OnModuleInit, OnModuleDestroy {
   private async broadcastUpdate(update: InboxUpdate): Promise<void> {
     try {
       const subscribers = this.subscribers.get(update.organizationId) ?? [];
-      await Promise.all([...subscribers].map(async (subscriber) => {
-        if (!await this.repository.canAccessConversationLine(update.organizationId, update.conversationId, subscriber.userId)) return;
-        subscriber.subject.next({ type: 'conversation.updated', data: update });
-      }));
+      const subscriberList = [...subscribers];
+      const accessibleUsers = await this.repository.listUsersWithConversationAccess(update.organizationId, update.conversationId, subscriberList.map(({ userId }) => userId));
+      for (const subscriber of subscriberList) if (accessibleUsers.has(subscriber.userId)) subscriber.subject.next({ type: 'conversation.updated', data: update });
     } catch (error) {
       this.logger.warn(`Could not route inbox update: ${error instanceof Error ? error.message : 'unknown error'}`);
     }

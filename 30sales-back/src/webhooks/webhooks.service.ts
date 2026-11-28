@@ -40,7 +40,15 @@ export class WebhooksService {
     return this.metaEnvelopeAdapter.verifyChallenge(mode, token, challenge, env.META_WEBHOOK_VERIFY_TOKEN);
   }
 
-  async ingestEvolution(channelId: string, presentedWebhookSecret: string | undefined, payload: unknown, rawBody: Buffer): Promise<{ accepted: true; processed: number }> {
+  async authenticateEvolutionWebhook(channelId: string, presentedWebhookSecret: string | undefined): Promise<void> {
+    const channel = await this.repository.findEvolutionChannel(channelId);
+    if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
+    const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
+    if (credentials.provider !== 'evolution') throw new UnauthorizedException();
+    this.evolutionEnvelopeAdapter.authenticate(presentedWebhookSecret, credentials.webhookSecret);
+  }
+
+  async ingestEvolution(channelId: string, presentedWebhookSecret: string | undefined, payload: unknown, rawBody: Buffer | string): Promise<{ accepted: true; processed: number }> {
     const channel = await this.repository.findEvolutionChannel(channelId);
     if (!channel?.isActive || !channel.credentialsCiphertext || !channel.credentialsIv || !channel.credentialsAuthTag) throw new UnauthorizedException();
     const credentials = await this.credentialResolver.resolve(channel.organizationId, channel.id, { ciphertext: channel.credentialsCiphertext, iv: channel.credentialsIv, authTag: channel.credentialsAuthTag });
@@ -58,7 +66,7 @@ export class WebhooksService {
     if (eventName === EVOLUTION_WEBHOOK_EVENT.logoutInstance || eventName === EVOLUTION_WEBHOOK_EVENT.removeInstance) {
       await this.channelsService.recordEvolutionConnectionStatus(channel.organizationId, channel.id, CHANNEL_CONNECTION_STATUS.disconnected);
     }
-    const payloadHash = createHash('sha256').update(rawBody).digest('hex');
+    const payloadHash = typeof rawBody === 'string' ? rawBody : createHash('sha256').update(rawBody).digest('hex');
     let processed = 0;
     for (const item of data) {
       if (eventName === EVOLUTION_WEBHOOK_EVENT.messagesUpsert) {

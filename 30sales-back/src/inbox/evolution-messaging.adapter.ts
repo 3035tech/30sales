@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import { CHANNEL_PROVIDER } from '../channels/channels.constants';
@@ -60,7 +61,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     try { await assertPublicEvolutionTarget(url); } catch { throw new Error('EVOLUTION_PRESENCE_TARGET_INVALID'); }
     let response: Response;
     try {
-      response = await fetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ number: input.recipientPhone, options: { presence: input.state } }), signal: AbortSignal.timeout(5_000), redirect: 'error' });
+      response = await evolutionFetch(url, { method: 'POST', headers: { apikey: credentials.apiKey, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ number: input.recipientPhone, options: { presence: input.state } }), signal: AbortSignal.timeout(5_000), redirect: 'error' });
     } catch { throw new Error('EVOLUTION_PRESENCE_REQUEST_FAILED'); }
     await response.body?.cancel();
     if (!response.ok) throw new Error('EVOLUTION_PRESENCE_REJECTED');
@@ -73,7 +74,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     url.searchParams.set('groupJid', input.groupJid);
     await assertPublicEvolutionTarget(url.toString());
     let response: Response;
-    try { response = await fetch(url, { headers: { apikey: credentials.apiKey, accept: 'application/json' }, signal: AbortSignal.timeout(15_000), redirect: 'error' }); }
+    try { response = await evolutionFetch(url, { headers: { apikey: credentials.apiKey, accept: 'application/json' }, signal: AbortSignal.timeout(15_000), redirect: 'error' }); }
     catch { throw new Error('GROUP_PARTICIPANTS_UNAVAILABLE'); }
     if (!response.ok) throw new Error('GROUP_PARTICIPANTS_UNAVAILABLE');
     const result = await readLimitedJsonResponse(response, MAX_GROUP_PARTICIPANTS_RESPONSE_BYTES);
@@ -101,7 +102,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
     if (!body) return { deliveryState: 'failed', externalMessageId: null };
     try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
     let response: Response;
-    try { response = await fetch(url, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
+    try { response = await evolutionFetch(url, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
     catch { return { deliveryState: 'unknown', externalMessageId: null }; }
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
     const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);
@@ -112,7 +113,7 @@ export class EvolutionMessagingAdapter implements ChannelMessagingAdapter {
   private async postForm(url: string, body: FormData, headers: Record<string, string>, timeout: number): Promise<ProviderSendResult> {
     try { await assertPublicEvolutionTarget(url) } catch { return { deliveryState: 'failed', externalMessageId: null }; }
     let response: Response;
-    try { response = await fetch(url, { method: 'POST', headers: { ...headers, accept: 'application/json' }, body, signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
+    try { response = await evolutionFetch(url, { method: 'POST', headers: { ...headers, accept: 'application/json' }, body, signal: AbortSignal.timeout(timeout), redirect: 'error' }); }
     catch { return { deliveryState: 'unknown', externalMessageId: null }; }
     if (!response.ok) return { deliveryState: response.status >= 500 ? 'unknown' : 'failed', externalMessageId: null };
     const result = await readLimitedJsonResponse(response, MAX_PROVIDER_RESPONSE_BYTES);

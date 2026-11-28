@@ -1,5 +1,5 @@
 import { Button, CalendarField } from '../components/ui/FormControls'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { AlertTriangle, RefreshCw, TrendingDown, TrendingUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router-dom'
@@ -10,6 +10,16 @@ import './HandoffReport.css'
 import './LeadFunnelReport.css'
 import './AiUsageReport.css'
 import { DailyActivityReport } from './DailyActivityReport'
+
+const REPORT_TAB = {
+  overview: 'overview',
+  activity: 'activity',
+  leads: 'leads',
+  pipeline: 'pipeline',
+  ai: 'ai',
+} as const
+type ReportTab = typeof REPORT_TAB[keyof typeof REPORT_TAB]
+const reportTabs: ReportTab[] = Object.values(REPORT_TAB)
 
 const leadStatuses: LeadStatus[] = ['new', 'researching', 'ready', 'queued', 'contacting', 'responded', 'converted_to_sdr', 'invalid_contact', 'no_channel', 'out_of_profile', 'duplicate_review', 'no_response', 'paused', 'do_not_contact']
 function dateInput(date: Date) { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10) }
@@ -23,23 +33,55 @@ function durationLabel(minutes: number, locale: string) {
 
 export function FunnelReportWorkspace({ organizationId, canManageActivity }: { organizationId: string; canManageActivity: boolean }) {
   const { t, i18n } = useTranslation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const businessLineId = searchParams.get('businessLineId') ?? undefined
   const [today] = useState(() => dateInput(new Date()))
   const [initialRange] = useState(() => { const start = new Date(); start.setDate(start.getDate() - 29); return dateInput(start) })
-  const [from, setFrom] = useState(initialRange)
-  const [to, setTo] = useState(today)
+  const validDateParam = (value: string | null, fallback: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value > today) return fallback
+    const parsed = new Date(`${value}T00:00:00.000Z`)
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value ? value : fallback
+  }
+  const initialTo = validDateParam(searchParams.get('to'), today)
+  const requestedFrom = validDateParam(searchParams.get('from'), initialRange)
+  const initialFrom = requestedFrom <= initialTo ? requestedFrom : initialRange <= initialTo ? initialRange : initialTo
+  const [from, setFrom] = useState(initialFrom)
+  const [to, setTo] = useState(initialTo)
   const [reportData, setReportData] = useState<FunnelReportDto | null>(null)
   const [reportBusinessLineId, setReportBusinessLineId] = useState<string | undefined>()
   const [aiUsageData, setAiUsageData] = useState<AiUsageReportDto | null>(null)
   const [aiUsageQueryKey, setAiUsageQueryKey] = useState<string | null>(null)
   const [aiUsageUnavailable, setAiUsageUnavailable] = useState(false)
+  const initialTab = reportTabs.includes(searchParams.get('reportTab') as ReportTab) ? searchParams.get('reportTab') as ReportTab : REPORT_TAB.overview
+  const [activeTab, setActiveTab] = useState<ReportTab>(initialTab)
+  const reportTabParam = searchParams.get('reportTab')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const requestVersion = useRef(0)
   const reportQueryKey = JSON.stringify([businessLineId ?? null, from, to])
 
+  useEffect(() => {
+    const nextTab = reportTabs.includes(reportTabParam as ReportTab) ? reportTabParam as ReportTab : REPORT_TAB.overview
+    setActiveTab((current) => current === nextTab ? current : nextTab)
+  }, [reportTabParam])
+
+  const selectReportTab = (tab: ReportTab) => {
+    setActiveTab(tab)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('reportTab', tab)
+      return next
+    }, { replace: true })
+  }
+
   const refresh = async () => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.set('from', from)
+      next.set('to', to)
+      next.set('reportTab', activeTab)
+      return next
+    }, { replace: true })
     const version = ++requestVersion.current
     setLoading(true); setError('')
     const queryKey = JSON.stringify([businessLineId ?? null, from, to])
@@ -107,15 +149,36 @@ export function FunnelReportWorkspace({ organizationId, canManageActivity }: { o
     { key: 'convertedToSdr', label: 'convertedToSdr', count: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.convertedToSdrCount, rate: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.convertedToSdrRate, className: 'converted-to-sdr' },
     { key: 'opportunity', label: 'opportunity', count: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.opportunityCount, rate: (cohort: FunnelReportDto['leadCohorts'][number]) => cohort.opportunityRate, className: 'opportunity' },
   ] as const
+  const selectAdjacentReportTab = (current: ReportTab, direction: -1 | 1) => {
+    const index = reportTabs.indexOf(current)
+    return reportTabs[(index + direction + reportTabs.length) % reportTabs.length]
+  }
+  const handleReportTabKeyDown = (event: KeyboardEvent<HTMLButtonElement>, tab: ReportTab) => {
+    let nextTab: ReportTab | null = null
+    if (event.key === 'ArrowRight') nextTab = selectAdjacentReportTab(tab, 1)
+    if (event.key === 'ArrowLeft') nextTab = selectAdjacentReportTab(tab, -1)
+    if (event.key === 'Home') nextTab = reportTabs[0]
+    if (event.key === 'End') nextTab = reportTabs[reportTabs.length - 1]
+    if (!nextTab) return
+    event.preventDefault()
+    selectReportTab(nextTab)
+    document.getElementById(`funnel-report-tab-${nextTab}`)?.focus()
+  }
 
   return <section className="leads-page funnel-report-page">
     <header className="leads-heading"><div><p className="eyebrow">{t('funnelReport.eyebrow')}</p><h2>{t('funnelReport.title')}</h2><p className="muted">{t('funnelReport.description')}</p></div><Button className="refresh" onClick={() => void refresh()} aria-label={t('funnelReport.refresh')}><RefreshCw size={16} /></Button></header>
     <form className="funnel-report-filter" onSubmit={(event) => { event.preventDefault(); void refresh() }}><label>{t('funnelReport.from')}<CalendarField mode="date" value={from} max={to} onValueChange={(value) => setFrom(value)} required /></label><label>{t('funnelReport.to')}<CalendarField mode="date" value={to} min={from} max={today} onValueChange={(value) => setTo(value)} required /></label><Button className="primary">{t('funnelReport.apply')}</Button></form>
     <p className="funnel-report-scope" role="note">{t(businessLineId ? 'funnelReport.lineScope' : 'funnelReport.portfolioScope')}</p>
-    <DailyActivityReport organizationId={organizationId} businessLineId={businessLineId} date={to} canManage={canManageActivity} />
+    <div className="funnel-report-tabs" role="tablist" aria-label={t('funnelReport.sections')} aria-orientation="horizontal">
+      {reportTabs.map((tab) => <Button key={tab} id={`funnel-report-tab-${tab}`} type="button" role="tab" aria-controls={`funnel-report-panel-${tab}`} aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onKeyDown={(event) => handleReportTabKeyDown(event, tab)} onClick={() => selectReportTab(tab)}>{t(`funnelReport.tabs.${tab}`)}</Button>)}
+    </div>
     {error && report && <WorkspaceState kind="error" compact message={error} detail={t('table.resultsRetained')} />}
     {loading && report && <WorkspaceState kind="stale" compact message={t('table.refreshingResults')} detail={t('table.showingPreviousResults')} />}
+    <div id={`funnel-report-panel-${REPORT_TAB.activity}`} className="funnel-report-tab-panel" role="tabpanel" aria-labelledby={`funnel-report-tab-${REPORT_TAB.activity}`} tabIndex={0} hidden={activeTab !== REPORT_TAB.activity}>
+      <DailyActivityReport organizationId={organizationId} businessLineId={businessLineId} date={to} canManage={canManageActivity} />
+    </div>
     {loading && !report ? <WorkspaceState kind="loading" message={t('common.loading')} /> : report && <>
+      <div id={`funnel-report-panel-${REPORT_TAB.overview}`} className="funnel-report-tab-panel" role="tabpanel" aria-labelledby={`funnel-report-tab-${REPORT_TAB.overview}`} tabIndex={0} hidden={activeTab !== REPORT_TAB.overview}>
       <div className="funnel-report-metrics">
         <article><span>{t('funnelReport.currentOpen')}</span><strong>{report.currentOpenCount}</strong><small>{t('funnelReport.currentOpenHint')}</small></article>
         <article><span><TrendingUp size={15} />{t('funnelReport.won')}</span><strong>{report.wonInPeriodCount}</strong><small>{report.wonAmountByCurrency.length ? report.wonAmountByCurrency.map((item) => money(item.currency, item.amount)).join(' · ') : t('funnelReport.noWonValue')}</small></article>
@@ -124,15 +187,22 @@ export function FunnelReportWorkspace({ organizationId, canManageActivity }: { o
         <article><span>{t('leadFunnelReport.created')}</span><strong>{report.leadsCreatedInPeriodCount}</strong><small>{t('leadFunnelReport.createdHint')}</small></article>
       </div>
       <section className="funnel-report-panel sales-trend-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.salesTrendTitle')}</h3><p>{t('funnelReport.salesTrendHint')}</p></div><span>{report.salesTrend.reduce((sum, day) => sum + day.leadsCreated + day.opportunitiesCreated + day.won + day.lost, 0)}</span></div>{report.salesTrend.length ? <><div className="sales-trend-chart" aria-hidden="true">{report.salesTrend.map((day) => <div className="sales-trend-row" key={day.date}><time dateTime={day.date}>{new Intl.DateTimeFormat(i18n.language, { day: '2-digit', month: 'short' }).format(new Date(`${day.date}T12:00:00`))}</time><div className="sales-trend-metrics">{salesMetrics.map((metric) => { const value = metric.read(day); return <span className={`sales-trend-metric ${metric.className}`} key={metric.key}><i style={{ width: `${(value / maxSalesEvents) * 100}%` }} /><b>{value}</b></span> })}</div></div>)}</div><div className="sales-trend-legend">{salesMetrics.map((metric) => <span className={metric.className} key={metric.key}><i />{t(`funnelReport.salesTrendColumns.${metric.label}`)}</span>)}</div><table className="sr-only"><caption>{t('funnelReport.salesTrendAccessible')}</caption><thead><tr><th scope="col">{t('funnelReport.aiUsageColumns.date')}</th>{salesMetrics.map((metric) => <th scope="col" key={metric.key}>{t(`funnelReport.salesTrendColumns.${metric.label}`)}</th>)}</tr></thead><tbody>{report.salesTrend.map((day) => <tr key={day.date}><th scope="row">{dateLabel(day.date)}</th><td>{day.leadsCreated}</td><td>{day.opportunitiesCreated}</td><td>{day.won}</td><td>{day.lost}</td></tr>)}</tbody></table></> : <p className="ai-usage-empty">{t('funnelReport.salesTrendEmpty')}</p>}</section>
+      <section className="funnel-report-panel handoff-report-panel"><div><h3>{t('handoffFirstActivity.title')}</h3><p>{t('handoffFirstActivity.description')}</p></div><strong>{report.averageMinutesToFirstActivity === null ? '—' : durationLabel(report.averageMinutesToFirstActivity, i18n.language)}</strong><small>{t('handoffFirstActivity.breakdown', { tracked: report.firstActivityCount, accepted: report.acceptedHandoffsInPeriodCount, pending: report.pendingFirstActivityCount })}</small></section>
+      <p className="funnel-report-definition">{t('funnelReport.definitions', { from: dateLabel(report.from), to: dateLabel(report.to), created: report.createdInPeriodCount })}</p>
+      <p className="funnel-report-updated">{t('funnelReport.updatedAt', { value: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(report.generatedAt)) })}</p>
+      </div>
+      <div id={`funnel-report-panel-${REPORT_TAB.leads}`} className="funnel-report-tab-panel" role="tabpanel" aria-labelledby={`funnel-report-tab-${REPORT_TAB.leads}`} tabIndex={0} hidden={activeTab !== REPORT_TAB.leads}>
       <section className="funnel-report-panel lead-cohort-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.cohortTitle')}</h3><p>{t('funnelReport.cohortHint')}</p></div><span>{report.leadCohorts.reduce((sum, cohort) => sum + cohort.leadCount, 0)}</span></div>{report.leadCohorts.length ? <><div className="cohort-chart" aria-hidden="true">{report.leadCohorts.map((cohort) => <div className="cohort-row" key={cohort.date}><div className="cohort-label"><time dateTime={cohort.date}>{dateLabel(cohort.date)}</time><small>{t('funnelReport.cohortAge', { days: cohort.ageDays })} · n={cohort.leadCount}</small></div><div className="cohort-rates">{cohortMetrics.map((metric) => <span className={metric.className} key={metric.key}><i style={{ width: `${metric.rate(cohort)}%` }} /><b>{metric.rate(cohort).toFixed(1)}%</b><small>{metric.count(cohort)}</small></span>)}</div></div>)}</div><div className="cohort-legend">{cohortMetrics.map((metric) => <span className={metric.className} key={metric.key}><i />{t(`funnelReport.cohortColumns.${metric.label}`)}</span>)}</div><table className="sr-only"><caption>{t('funnelReport.cohortAccessible')}</caption><thead><tr><th scope="col">{t('funnelReport.aiUsageColumns.date')}</th><th scope="col">{t('funnelReport.cohortColumns.population')}</th>{cohortMetrics.map((metric) => <th scope="col" key={metric.key}>{t(`funnelReport.cohortColumns.${metric.label}`)}</th>)}<th scope="col">{t('funnelReport.cohortColumns.age')}</th></tr></thead><tbody>{report.leadCohorts.map((cohort) => <tr key={cohort.date}><th scope="row">{dateLabel(cohort.date)}</th><td>{cohort.leadCount}</td>{cohortMetrics.map((metric) => <td key={metric.key}>{metric.count(cohort)} ({metric.rate(cohort).toFixed(1)}%)</td>)}<td>{cohort.ageDays}</td></tr>)}</tbody></table></> : <p className="ai-usage-empty">{t('funnelReport.cohortEmpty')}</p>}</section>
+      <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('leadFunnelReport.title')}</h3><p>{t('leadFunnelReport.hint')}</p></div><span>{currentLeadCount}</span></div><div className="funnel-stage-list">{leadStatuses.map((status) => { const count = report.leadCountsByStatus.find((item) => item.status === status)?.count ?? 0; const width = currentLeadCount ? Math.max((count / currentLeadCount) * 100, count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={status}><span>{t(`leadStatuses.${status}`)}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{count}</strong></div> })}</div></section>
+      </div>
+      <div id={`funnel-report-panel-${REPORT_TAB.ai}`} className="funnel-report-tab-panel" role="tabpanel" aria-labelledby={`funnel-report-tab-${REPORT_TAB.ai}`} tabIndex={0} hidden={activeTab !== REPORT_TAB.ai}>
       <section className="funnel-report-panel ai-usage-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.aiUsageTitle')}</h3><p>{t('funnelReport.aiUsageHint')}</p><p>{t('funnelReport.aiUsagePeriod', { from: dateLabel(from), to: dateLabel(to) })}</p></div><span>{aiUsage ? aiDays.reduce((sum, day) => sum + day.generations + day.transcriptions, 0) : '—'}</span></div>{aiUsage && aiDays.length ? <><div className="ai-usage-chart" aria-hidden="true"><div className="ai-usage-legend"><span><i />{t('funnelReport.aiUsageRuns')}</span><span><i />{t('funnelReport.aiUsageFailures')}</span></div>
         {aiDays.map((day) => <div className="ai-usage-row" key={day.date}><time dateTime={day.date}>{new Intl.DateTimeFormat(i18n.language, { day: '2-digit', month: 'short' }).format(new Date(`${day.date}T12:00:00`))}</time><div className="ai-usage-track"><i style={{ width: `${((day.generations + day.transcriptions) / maxAiRuns) * 100}%` }} /><b style={{ width: `${(day.failures / maxAiRuns) * 100}%` }} /></div><span>{t('funnelReport.aiUsageCounts', { generations: day.generations, transcriptions: day.transcriptions, failures: day.failures })}</span><small>{day.latencyCount ? t('funnelReport.aiUsageLatency', { value: Math.round(day.latencyTotal / day.latencyCount) }) : '—'} · {new Intl.NumberFormat(i18n.language, { style: 'currency', currency: 'USD', maximumFractionDigits: 4 }).format(day.cost)}</small></div>)}
       </div><table className="sr-only"><caption>{t('funnelReport.aiUsageAccessible')}</caption><thead><tr>{['date', 'generations', 'transcriptions', 'failures', 'latency', 'cost'].map((key) => <th key={key} scope="col">{t(`funnelReport.aiUsageColumns.${key}`)}</th>)}</tr></thead><tbody>{aiDays.map((day) => <tr key={day.date}><th scope="row">{dateLabel(day.date)}</th><td>{day.generations}</td><td>{day.transcriptions}</td><td>{day.failures}</td><td>{day.latencyCount ? Math.round(day.latencyTotal / day.latencyCount) : '—'}</td><td>{day.cost.toFixed(10)}</td></tr>)}</tbody></table></> : <p className="ai-usage-empty">{t(aiUsageUnavailableForQuery ? 'funnelReport.aiUsageUnavailable' : aiUsage ? 'funnelReport.aiUsageEmpty' : loading ? 'funnelReport.aiUsageLoading' : 'funnelReport.aiUsageApply')}</p>}</section>
-      <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('leadFunnelReport.title')}</h3><p>{t('leadFunnelReport.hint')}</p></div><span>{currentLeadCount}</span></div><div className="funnel-stage-list">{leadStatuses.map((status) => { const count = report.leadCountsByStatus.find((item) => item.status === status)?.count ?? 0; const width = currentLeadCount ? Math.max((count / currentLeadCount) * 100, count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={status}><span>{t(`leadStatuses.${status}`)}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{count}</strong></div> })}</div></section>
-      <section className="funnel-report-panel handoff-report-panel"><div><h3>{t('handoffFirstActivity.title')}</h3><p>{t('handoffFirstActivity.description')}</p></div><strong>{report.averageMinutesToFirstActivity === null ? '—' : durationLabel(report.averageMinutesToFirstActivity, i18n.language)}</strong><small>{t('handoffFirstActivity.breakdown', { tracked: report.firstActivityCount, accepted: report.acceptedHandoffsInPeriodCount, pending: report.pendingFirstActivityCount })}</small></section>
+      </div>
+      <div id={`funnel-report-panel-${REPORT_TAB.pipeline}`} className="funnel-report-tab-panel" role="tabpanel" aria-labelledby={`funnel-report-tab-${REPORT_TAB.pipeline}`} tabIndex={0} hidden={activeTab !== REPORT_TAB.pipeline}>
       <section className="funnel-report-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageSnapshot')}</h3><p>{t('funnelReport.stageSnapshotHint')}</p></div><span>{report.currentOpenCount}</span></div>{stageSnapshotRows.length ? <div className="funnel-stage-list">{stageSnapshotRows.map((stage) => { const width = report.currentOpenCount ? Math.max((stage.count / report.currentOpenCount) * 100, stage.count ? 3 : 0) : 0; return <div className="funnel-stage-row" key={`${stage.stage}:${stage.pipelineStageKey ?? stage.stage}:${stage.pipelineStageName ?? ''}`}><span>{stage.label}</span><div className="funnel-stage-track"><i style={{ width: `${width}%` }} /></div><strong>{stage.count}</strong></div> })}</div> : <p className="stage-aging-empty">{t('funnelReport.stageSnapshotEmpty')}</p>}</section><section className="funnel-report-panel stage-aging-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.stageAging.title')}</h3><p>{t('funnelReport.stageAging.hint')}</p></div><span>{stageAgingRows.reduce((total, row) => total + row.upTo7DaysCount + row.days8To14Count + row.days15To30Count + row.over30DaysCount, 0)}</span></div>{stageAgingRows.length ? <div className="stage-aging-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.stageAging.stage')}</th><th scope="col">{t('funnelReport.stageAging.upTo7Days')}</th><th scope="col">{t('funnelReport.stageAging.days8To14')}</th><th scope="col">{t('funnelReport.stageAging.days15To30')}</th><th scope="col">{t('funnelReport.stageAging.over30Days')}</th></tr></thead><tbody>{stageAgingRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}:${row.pipelineStageName ?? ''}`}><th scope="row">{row.label}</th><td>{row.upTo7DaysCount}</td><td>{row.days8To14Count}</td><td>{row.days15To30Count}</td><td className={row.over30DaysCount ? 'stage-aging-risk' : ''}>{row.over30DaysCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.stageAging.empty')}</p>}</section><section className="funnel-report-panel pipeline-value-panel"><div className="funnel-report-panel-head"><div><h3>{t('funnelReport.pipelineValue.title')}</h3><p>{t('funnelReport.pipelineValue.hint', { unvalued: report.openWithoutValueCount })}</p></div><span>{pipelineValueRows.reduce((total, row) => total + row.opportunityCount, 0)}</span></div>{pipelineValueRows.length ? <div className="pipeline-value-table-wrap"><table><thead><tr><th scope="col">{t('funnelReport.pipelineValue.stage')}</th><th scope="col">{t('funnelReport.pipelineValue.currency')}</th><th scope="col">{t('funnelReport.pipelineValue.amount')}</th><th scope="col">{t('funnelReport.pipelineValue.opportunities')}</th></tr></thead><tbody>{pipelineValueRows.map((row) => <tr key={`${row.stage}:${row.pipelineStageKey ?? row.stage}:${row.pipelineStageName ?? ''}:${row.currency}`}><th scope="row">{row.label}</th><td>{row.currency}</td><td>{money(row.currency, row.amount)}</td><td>{row.opportunityCount}</td></tr>)}</tbody></table></div> : <p className="stage-aging-empty">{t('funnelReport.pipelineValue.empty')}</p>}</section>
-      <p className="funnel-report-definition">{t('funnelReport.definitions', { from: dateLabel(report.from), to: dateLabel(report.to), created: report.createdInPeriodCount })}</p>
-      <p className="funnel-report-updated">{t('funnelReport.updatedAt', { value: new Intl.DateTimeFormat(i18n.language, { dateStyle: 'short', timeStyle: 'short' }).format(new Date(report.generatedAt)) })}</p>
+      </div>
     </>}
     {!loading && !report && error && <WorkspaceState kind="error" message={error} />}
   </section>

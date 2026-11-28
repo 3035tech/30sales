@@ -237,7 +237,10 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
   const [sdrPreviewLoading, setSdrPreviewLoading] = useState(false)
   const [sdrPreviewError, setSdrPreviewError] = useState(false)
   const [campaignDraftsOpen, setCampaignDraftsOpen] = useState(false)
-  const [campaignTab, setCampaignTab] = useState<CampaignTab>(CAMPAIGN_WORKSPACE_TAB.campaigns)
+  const [campaignTab, setCampaignTab] = useState<CampaignTab>(() => {
+    const savedTab = window.sessionStorage.getItem('30sales-campaign-workspace-tab')
+    return CAMPAIGN_WORKSPACE_TABS.includes(savedTab as CampaignTab) ? savedTab as CampaignTab : CAMPAIGN_WORKSPACE_TAB.campaigns
+  })
   const [campaignAudienceDraft, setCampaignAudienceDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignReadinessDraft, setCampaignReadinessDraft] = useState<CampaignDraftDto | null>(null)
   const [campaignDrafts, setCampaignDrafts] = useState<CampaignDraftPageDto | null>(null)
@@ -390,6 +393,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
 
   const selectCampaignTab = (tab: CampaignTab) => {
     setCampaignTab(tab)
+    window.sessionStorage.setItem('30sales-campaign-workspace-tab', tab)
     if (tab === CAMPAIGN_WORKSPACE_TAB.deliveryReview && !campaignDeliveryReview && !campaignReviewLoading) void loadCampaignDeliveryReview()
     if (tab === CAMPAIGN_WORKSPACE_TAB.pendingReplies && !campaignPendingReplies && !campaignPendingRepliesLoading) void loadCampaignPendingReplies()
   }
@@ -685,7 +689,7 @@ export function LeadsWorkspace({ initialSearch = '', onOpenInbox }: { initialSea
     <header className="leads-heading"><div><p className="eyebrow">{t('leads.eyebrow')}</p><h2>{t('leads.title')}</h2><p className="muted">{t('leads.description')}</p></div>
       <div className="lead-actions"><Button type="button" className="primary add-lead" disabled={businessLines.length === 0} onClick={() => setShowForm(true)}><Plus size={16} />{t('leads.addLead')}</Button><Button type="button" onClick={() => void openCampaignDrafts()}><Megaphone size={16} />{t('campaignDrafts.open')}</Button><Button type="button" onClick={openSdrPreview}><Bot size={16} />{t('sdrPreview.open')}</Button><Button type="button" className="refresh" onClick={() => setRefreshVersion((version) => version + 1)} aria-label={t('leads.refresh')}><RefreshCw size={16} /></Button></div>
     </header>
-    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]); setCampaignTab(CAMPAIGN_WORKSPACE_TAB.campaigns) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
+    <Modal open={campaignDraftsOpen} onOpenChange={(open) => { setCampaignDraftsOpen(open); if (!open) { setCampaignDraftError(''); setCampaignDrafts(null); setCampaignChannels([]) } }} title={t('campaignDrafts.title')} description={t('campaignDrafts.description')} closeLabel={t('common.close')} className="campaign-drafts-modal">
       {campaignDraftError && <WorkspaceState kind="error" compact message={campaignDraftError}><Button type="button" onClick={() => void loadCampaignDrafts(campaignDrafts?.pagination.offset ?? 0)}>{t('sdrPreview.retry')}</Button></WorkspaceState>}
       {campaignDraftsLoading && !campaignDrafts ? <WorkspaceState kind="loading" compact message={t('common.loading')} /> : <>
       <div className="campaign-workspace-tabs" role="tablist" aria-label={t('campaignDrafts.sections')}>

@@ -49,7 +49,7 @@ function toMonitoringConnectionStatus(liveStatus: ChannelMonitoringCheckDto['dat
 
 export function ChannelsWorkspace() {
   const { t, i18n } = useTranslation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const businessLineId = searchParams.get('businessLineId') ?? undefined
   const apiBaseUrl = (import.meta.env.VITE_API_URL || window.location.origin).replace(/\/+$/, '')
   const [channels, setChannels] = useState<ChannelDto[]>([])
@@ -123,7 +123,21 @@ export function ChannelsWorkspace() {
   const [webhookEventSearch, setWebhookEventSearch] = useState('')
   const [error, setError] = useState('')
   const [refresh, setRefresh] = useState(0)
-  const [viewMode, setViewMode] = useState<ChannelsView>('channels')
+  const [viewMode, setViewModeState] = useState<ChannelsView>(() => searchParams.get('channelsTab') === 'monitoring' ? 'monitoring' : 'channels')
+  const setViewMode = (mode: ChannelsView) => {
+    setViewModeState(mode)
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      if (mode === 'channels') next.delete('channelsTab')
+      else next.set('channelsTab', mode)
+      return next
+    }, { replace: true })
+  }
+  const channelsTabParam = searchParams.get('channelsTab')
+  useEffect(() => {
+    const nextMode: ChannelsView = channelsTabParam === 'monitoring' ? 'monitoring' : 'channels'
+    setViewModeState((current) => current === nextMode ? current : nextMode)
+  }, [channelsTabParam])
   const [channelCreateOpen, setChannelCreateOpen] = useState(false)
 
   const clearCredentialForm = () => {

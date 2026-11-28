@@ -12,14 +12,15 @@ import { AuditRepository } from '../audit/audit.repository';
 import { requestContext } from '../common/request-context';
 import { PLATFORM_ROLE } from './authorization.constants';
 import { authSecondaryStorage } from './auth-redis.service';
+import { env } from '../config/env';
 const auditRepository = new AuditRepository();
 const authLogger = new Logger('Auth');
 export const auth = betterAuth({
  database: drizzleAdapter(database, { provider: 'pg', schema: { user: authTables.user, session: authTables.session, account: authTables.account, verification: authTables.verification, organization: authTables.organization, member: authTables.member, invitation: authTables.invitation }, schemaName: 'auth' }),
  ...(authSecondaryStorage ? { secondaryStorage: authSecondaryStorage, session: { storeSessionInDatabase: true } } : {}),
  user: { additionalFields: { platformRole: { type: 'string', required: false, input: false, defaultValue: PLATFORM_ROLE.user } } },
- secret: process.env.BETTER_AUTH_SECRET, baseURL: process.env.BETTER_AUTH_URL,
- trustedOrigins: [process.env.FRONTEND_URL ?? 'http://localhost:5173'],
+ secret: env.BETTER_AUTH_SECRET, baseURL: env.BETTER_AUTH_URL,
+ trustedOrigins: [env.FRONTEND_URL],
  emailAndPassword: { enabled: true, autoSignIn: false, requireEmailVerification: true, revokeSessionsOnPasswordReset: true, sendResetPassword: async ({ user, url }) => { void sendPasswordResetEmail({ user, url }).catch(() => authLogger.error('Password reset email delivery failed')); } },
  emailVerification: { sendVerificationEmail: async ({ user, url }) => sendVerificationEmail({ user, url }), sendOnSignUp: true, autoSignInAfterVerification: true },
  plugins: [organization({ allowUserToCreateOrganization: false, ac: access, roles, requireEmailVerificationOnInvitation: true, async sendInvitationEmail(data) { await sendInvitationEmail(data); }, organizationHooks: {
@@ -32,5 +33,5 @@ export const auth = betterAuth({
   if (pending.length === 0) throw new APIError('FORBIDDEN', { message: 'An active organization invitation is required to create an account' });
   return { data: user };
  } } } },
- advanced: { database: { generateId: 'uuid' } },
+ advanced: { database: { generateId: 'uuid' }, ipAddress: { ipAddressHeaders: ['x-forwarded-for'], trustedProxies: env.TRUSTED_PROXY_CIDRS } },
 });

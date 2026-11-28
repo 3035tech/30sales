@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { env } from '../config/env';
+import { evolutionFetch } from '../common/evolution-http-client';
 import { assertPublicEvolutionTarget, UnsafeExternalTargetError } from '../common/assert-public-evolution-target';
 import { readLimitedJsonResponse } from '../common/read-limited-json-response';
 import type { ChannelCredentialsDto, ChannelHealthStatus, ChannelHealthCheckTargetDto } from './channels.dto';
@@ -26,7 +27,7 @@ export class ChannelConnectionHealthProvider {
     let response: Response;
     try {
       const url = `${credentials.baseUrl.replace(/\/+$/, '')}/instance/connectionState/${encodeURIComponent(instanceName)}`;
-      response = await fetch(url, { method: 'GET', headers: { accept: 'application/json', apikey: credentials.apiKey }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: 'error' });
+      response = await evolutionFetch(url, { method: 'GET', headers: { accept: 'application/json', apikey: credentials.apiKey }, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), redirect: 'error' });
     } catch {
       return 'unavailable';
     }
